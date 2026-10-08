@@ -1,5 +1,58 @@
 # PC-Agent work log
 
+## 2026-10-08 — Post-benchmark one-time share prompt
+
+- After a manual benchmark finishes while periodic benchmark sharing is OFF, `/benchmarks.html`
+  now opens a modal asking whether to upload the just-measured results once, anonymously. The
+  prompt appears only when the sharing consent is known to be disabled and at most once per
+  page session; "Nicht teilen" (or Esc) dismisses it without any network call.
+- `BenchmarkSharingService.reportManualResults` now retains the sampled workers even when
+  sharing is off (`NOT_SHARED` status carries the real `sampleCount`), so the retained batch
+  can be offered for upload. New `uploadManualResultsOnce()` + `POST
+  /api/agent/local/benchmarks/sharing/upload-manual` send exactly that retained batch with
+  `telemetryOptIn=true` while deliberately NOT flipping the persisted periodic consent — the
+  admin ingest (`StandaloneBenchmarkIngestService`) treats the batch as one participant report;
+  the next periodic interval still sends nothing because `state.sharingEnabled()` stays false.
+  On success the retained samples are cleared; on failure the existing "Upload erneut
+  versuchen" retry path stays available (it requires sharing to be on, matching its semantics).
+- i18n: all new German strings (dialog title/body/buttons, notices) got frontend-catalog
+  entries in alphabetical position; the dialog reuses the existing `.worker-editor`/
+  `.dialog-actions` styles.
+- Verification: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test` passed (full
+  suite, exit 0) and `git diff --check` passed. Catalog coverage was verified by grepping every
+  new `t()` literal and static-HTML string back into `i18n-catalog.js`. Live HTTP probe against
+  a headless `bootRun` agent: `POST /benchmarks {"mode":"LIVE"}` returned 200 and completed;
+  `upload-status` then showed `NOT_SHARED` with the real `sampleCount` (0 here, no active
+  workers); `POST /sharing/upload-manual` returned `NO_DATA` as designed. The dialog itself was
+  not clicked in a browser (no Chromium on this host); `node --check` on the page script passed.
+
+## 2026-10-08 — Endpoint-confirmed orphan proxy cleanup
+
+- On startup, the PC-Agent now queries the loopback proxy API before it cleans up a prior managed child. A current proxy must identify itself through `GET /api/health` as `solarminer-stratum-proxy`; only then are matching processes from the managed release directory terminated. This avoids killing a process solely because its command line resembles a proxy launch.
+- Older published proxy releases fall back to their existing `GET /api/network/ip` endpoint, while the release-directory command-line marker still confines termination to a PC-Agent-managed proxy.
+- Verification: focused `ManagedProxyHealthTest` covers the service identity distinction.
+
+## 2026-10-08 — Managed proxy popup readiness
+
+- The boot gate now reads the managed proxy's `/api/health` and checks a fresh per-launch instance ID plus service name. It rechecks directly when the gate API is requested, while the visible browser overlay refreshes that API every two seconds in addition to SSE. This closes the stale-popup path and prevents another process on the API port from confirming a new child. Older published proxy JARs still use `/api/network/ip` until the health endpoint ships.
+- Verification: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --offline --no-daemon` passed after four existing test fixtures were updated for the parallel fee-tier constructor change and the proxy-log fixture's literal `\\n` was corrected to a newline. `node --check` and `git diff --check` passed. No live Windows popup/proxy session was available; the sibling proxy's focused health-controller test passed.
+
+## 2026-10-08 — Managed-proxy startup log in the boot gate
+
+- The blocking startup gate now shows the managed Stratum proxy child's combined
+  stdout/stderr as it starts. The browser reads only the fixed release-directory
+  `proxy.log` through `GET /api/agent/local/proxy-gate/log?offset=…`; it cannot
+  select a filesystem path. Reads are incremental and capped at 64 KiB per
+  response, while the UI refreshes every 750 ms and stops when the gate closes.
+- `ManagedProxyService` remains the owner of the child process and release log;
+  no proxy implementation or cross-repository protocol changed. The agent's
+  existing miner consoles remain separate.
+- Verification: `compileJava` completed successfully as part of the targeted
+  Gradle test invocation; `node --check src/main/resources/static/js/chrome/proxy-gate.js`
+  and `git diff --check` passed. Test compilation is currently blocked by
+  pre-existing uncommitted fee-tier changes whose three test fixtures still use
+  the old `FeeTransparencyService` and `AgentWriteAccessFilter` constructors.
+
 ## 2026-10-08 — Repository split from Solar-Miner-Node
 
 - Created this repository from `Solar-Miner-Node/pc-agent` (tracked files via
@@ -53,7 +106,7 @@
   `AgentControlSettingsService.update`), on every external Node call
   (`AgentWriteAccessFilter` records presence; 15 min window) and via a 60 s
   self-heal. Rule fails toward the higher fee: consent hook on OR recent Node
-  presence => `node`; only a Node-free agent runs `proxy`. The
+  presence => `node`; only a genuinely Node-free agent runs `proxy`. The
   managed proxy child also starts with `--solarminer.fee.tier=` so a fresh
   child never resolves the wrong tier before the first push.
 - Transparency: `FeeTransparencyService`, `PayoutDefaultsService` and the new

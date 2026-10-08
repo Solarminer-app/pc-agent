@@ -12,6 +12,8 @@ let lastResults = '';
 let polling = false;
 let lastRenderRunning = null;
 let lastUploadStatus = '';
+let sharePromptShown = false;
+let sharingKnown = false;
 
 function notice(text, error = false, kind = 'action') {
     const e = $('notice');
@@ -122,6 +124,12 @@ async function pollUploadStatus() {
         showUploadStatus('upload-status', manual, 'Benchmark-Upload');
         showUploadStatus('periodic-upload-status', periodic, 'Regelmäßiger Upload');
         $('retry-upload').hidden = manual.status !== 'FAILED';
+        // The agent only reports NOT_SHARED with samples when a finished manual run kept its
+        // measurements unsent; offer them once per run if the operator has sharing disabled.
+        if (manual.status === 'NOT_SHARED' && manual.sampleCount > 0 && sharingKnown && !$('sharing').checked && !sharePromptShown) {
+            sharePromptShown = true;
+            $('share-prompt').showModal();
+        }
     } catch (e) {
         // The benchmark result remains visible even if the local status request fails.
     }
@@ -163,6 +171,27 @@ $('retry-upload').addEventListener('click', async () => {
         button.disabled = false;
     }
 });
+// Post-benchmark prompt: upload the retained samples once without changing the periodic
+// sharing consent. The agent endpoint only accepts the batch it kept from the finished run.
+$('share-prompt').addEventListener('submit', async (event) => {
+    if (event.submitter?.value !== 'default') return;
+    event.preventDefault();
+    const button = $('share-prompt-upload');
+    button.disabled = true;
+    try {
+        const response = await fetch('/api/agent/local/benchmarks/sharing/upload-manual', {method: 'POST'});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const status = await response.json();
+        if (status.status === 'SENT') notice(t('Die Ergebnisse wurden einmalig anonym hochgeladen. Die Einstellung für regelmäßige Benchmarks bleibt unverändert.'));
+        else if (status.status === 'FAILED') notice(t('Der anonyme Upload ist fehlgeschlagen. Du kannst ihn über „Upload erneut versuchen“ wiederholen.'), true);
+        $('share-prompt').close();
+        lastUploadStatus = '';
+        await pollUploadStatus();
+    } catch (e) {
+        notice('Der anonyme Upload konnte nicht gestartet werden.', true);
+        button.disabled = false;
+    }
+});
 $('cancel').addEventListener('click', async () => {
     if (actionBusy) return; actionBusy = true; $('cancel').disabled = true;
     try { const response = await fetch('/api/agent/local/benchmarks/cancel', {method:'POST'}); if (!response.ok) throw new Error('Messlauf konnte nicht abgebrochen werden.'); notice('Abbruch angefordert. Der vorherige Mining-Zustand wird wiederhergestellt.'); }
@@ -184,7 +213,7 @@ $('sharing').disabled = true;
 fetch('/api/agent/local/benchmarks/sharing').then(async response => {
     if (!response.ok) throw new Error('Sharing unavailable');
     const value = await response.json(); if (typeof value !== 'boolean') throw new Error('Invalid consent');
-    $('sharing').checked = value; $('sharing').disabled = false; sharingSummary();
+    $('sharing').checked = value; $('sharing').disabled = false; sharingKnown = true; sharingSummary();
 }).catch(() => {
     $('sharing-summary').textContent = t('Nicht verfügbar');
     $('sharing-note').textContent = t('Die Freigabe konnte nicht gelesen werden. Aktualisiere die Seite, bevor du sie änderst.');

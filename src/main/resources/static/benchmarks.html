@@ -68,6 +68,17 @@
                     class="toggle"></span></label>
             <p id="sharing-note" class="muted">Standardmäßig deaktiviert. Eine spätere Deaktivierung sendet eine
                 Widerrufsmeldung.</p></section></details>
+        <dialog id="share-prompt" class="worker-editor">
+            <form method="dialog">
+                <div class="panel-head"><div><p class="kicker">ANONYM & EINMALIG</p>
+                    <h2>Ergebnisse mit SolarMiner teilen?</h2></div></div>
+                <p>Du hast das regelmäßige Benchmark-Teilen deaktiviert. Möchtest du die gerade gemessenen Ergebnisse einmalig anonym an SolarMiner übermitteln? Die Einstellung für regelmäßige Benchmarks bleibt unverändert.</p>
+                <div class="dialog-actions">
+                    <button class="button subtle" value="cancel" type="submit">Nicht teilen</button>
+                    <button id="share-prompt-upload" class="button primary" value="default" type="submit">Jetzt anonym hochladen</button>
+                </div>
+            </form>
+        </dialog>
         <footer>SolarMiner PC-Agent · <a href="/mining.html">Zur Mining-Seite</a></footer>
     </main>
 </div>
