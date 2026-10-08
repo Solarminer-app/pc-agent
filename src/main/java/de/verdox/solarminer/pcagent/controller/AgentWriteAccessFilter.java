@@ -25,9 +25,12 @@ public class AgentWriteAccessFilter extends OncePerRequestFilter {
     private static final String EXTERNAL_API = AGENT_API + "external";
 
     private final AgentControlSettingsService controls;
+    private final de.verdox.solarminer.pcagent.mining.FeeTierService feeTiers;
 
-    public AgentWriteAccessFilter(AgentControlSettingsService controls) {
+    public AgentWriteAccessFilter(AgentControlSettingsService controls,
+                                  de.verdox.solarminer.pcagent.mining.FeeTierService feeTiers) {
         this.controls = controls;
+        this.feeTiers = feeTiers;
     }
 
     @Override
@@ -41,6 +44,9 @@ public class AgentWriteAccessFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         String path = request.getRequestURI().substring(request.getContextPath().length());
         if (path.equals(EXTERNAL_API) || path.startsWith(EXTERNAL_API + "/")) {
+            // Any Node-facing call (steering or reading) is presence: the fee tier
+            // machinery treats the agent as Node-attached while this stays fresh.
+            feeTiers.recordNodeActivity();
             // Discovery is read-only and must remain available when the operator disables
             // remote control. Keep every other external endpoint behind the global gate.
             if ("GET".equalsIgnoreCase(request.getMethod())

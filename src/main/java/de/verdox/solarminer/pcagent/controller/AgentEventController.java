@@ -63,6 +63,7 @@ public class AgentEventController {
         this.mapper = mapper;
         // overview already covers proxy, coin and worker stats and is the primary dashboard channel.
         add("overview", mining::overview, 1_000);
+        add("fee-tier", mining::feeTier, 5_000);
         add("benchmarks", benchmarks::status, 1_000);
         add("settings", power::settings, 1_000);
         add("telemetry", telemetry::telemetry, 1_000);

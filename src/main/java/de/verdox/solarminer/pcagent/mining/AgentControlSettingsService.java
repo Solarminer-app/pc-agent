@@ -18,6 +18,12 @@ public class AgentControlSettingsService {
     private final ObjectMapper json;
     private final Path file;
     private volatile Settings settings;
+    private volatile Runnable feeTierListener;
+
+    /** Lets the fee-tier machinery react to consent-hook flips without a polling loop. */
+    public void setFeeTierListener(Runnable listener) {
+        this.feeTierListener = listener;
+    }
 
     public record Settings(boolean dynamicPowerScalingEnabled, boolean externalControlEnabled,
                            Map<String, Boolean> workerExternalControl, Map<String, String> workerCoins) {
@@ -64,6 +70,10 @@ public class AgentControlSettingsService {
                 value.workerExternalControl(), value.workerCoins() == null ? settings.workerCoins() : Map.copyOf(value.workerCoins()));
         if (!persist(value)) return false;
         settings = value;
+        Runnable listener = feeTierListener;
+        if (listener != null) {
+            try { listener.run(); } catch (RuntimeException ignored) { }
+        }
         return true;
     }
 

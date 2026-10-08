@@ -45,3 +45,28 @@
   (`docs/agent-wiki/`), `PC-AGENT-PV-POWER-CONTROL.md` moved to `docs/`, and
   the agent API contract section of the Node `docs/API.md` moved to
   `docs/API.md` here with a pointer left in the Node doc.
+
+## 2026-10-08 — Fee tier enforcement + header status badge
+
+- `FeeTierService` decides the effective dev-fee tier locally and pushes it to
+  the proxy (`POST /api/v1/fees/tier`) on every consent-hook flip (listener on
+  `AgentControlSettingsService.update`), on every external Node call
+  (`AgentWriteAccessFilter` records presence; 15 min window) and via a 60 s
+  self-heal. Rule fails toward the higher fee: consent hook on OR recent Node
+  presence => `node`; only a Node-free agent runs `proxy`. The
+  managed proxy child also starts with `--solarminer.fee.tier=` so a fresh
+  child never resolves the wrong tier before the first push.
+- Transparency: `FeeTransparencyService`, `PayoutDefaultsService` and the new
+  `devFeeSummary()` read targets with the effective `tier`, so display and
+  enforcement never diverge. Nothing hardcodes 2.5/1.0 — a referral code can
+  shift or lower the total and the UI shows it live.
+- Header badge (`js/chrome/fee-tier-badge.js`, all 8 pages): green lamp = Node
+  attached, amber = proxy-only; label shows mode + live total dev fee; hover/
+  focus tooltip lists SolarMiner/referrer shares, total and referral code.
+  New SSE channel `fee-tier` (5 s) + `GET /api/agent/local/fee-tier`. i18n
+  frontend catalog extended for every new string.
+- Evidence: `sh gradlew test` green (JDK 21) incl. new `FeeTierServiceTest`
+  (consent hook, presence window, proxy default). Browser rendering not
+  exercised; badge verified by code review only.
+- Open gates: end-to-end tier flip against a running proxy+fee-backend not yet
+  observed on real hardware.

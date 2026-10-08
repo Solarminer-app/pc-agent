@@ -25,6 +25,7 @@ public class FeeTransparencyService {
     private final ObjectMapper mapper;
     private final ProxyConfigurationService proxy;
     private final ReferralConfigurationService referral;
+    private final FeeTierService feeTiers;
     private final XmrConfigService xmr;
     private final PearlMinerService pearl;
     private final GpuCoinMinerService gpuCoins;
@@ -32,10 +33,11 @@ public class FeeTransparencyService {
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
 
     public FeeTransparencyService(ObjectMapper mapper, ProxyConfigurationService proxy,
-                                  ReferralConfigurationService referral, XmrConfigService xmr,
+                                  ReferralConfigurationService referral, FeeTierService feeTiers,
+                                  XmrConfigService xmr,
                                   PearlMinerService pearl, GpuCoinMinerService gpuCoins,
                                   @Value("${solarminer.agent.proxy.api-port:8090}") int apiPort) {
-        this.mapper = mapper; this.proxy = proxy; this.referral = referral; this.xmr = xmr; this.pearl = pearl;
+        this.mapper = mapper; this.proxy = proxy; this.referral = referral; this.feeTiers = feeTiers; this.xmr = xmr; this.pearl = pearl;
         this.gpuCoins = gpuCoins; this.apiPort = apiPort;
     }
 
@@ -49,14 +51,55 @@ public class FeeTransparencyService {
         }
     }
 
+    /**
+     * Compact dev-fee split for the header badge: the SolarMiner/referrer shares
+     * for the effective tier, read live from the proxy (never hardcoded — a
+     * referral code can change or even lower the total, and the proxy tier
+     * scales the split). The fee split is coin-independent, so one configured
+     * coin is enough to resolve the distribution.
+     */
+    public DevFeeSummary devFeeSummary() {
+        String tier = feeTiers.effectiveTier();
+        List<DevFeePart> parts = new ArrayList<>();
+        boolean resolved = false;
+        try {
+            if (proxy.host() != null) {
+                StringBuilder query = new StringBuilder("?tier=").append(tier);
+                if (!referral.get().isBlank()) query.append("&referral=").append(referral.get());
+                HttpRequest request = HttpRequest.newBuilder(URI.create("http://" + proxy.host() + ":" + apiPort
+                                + "/api/v1/fees/monero/targets" + query))
+                        .timeout(Duration.ofSeconds(2)).GET().build();
+                HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 200) {
+                    JsonNode targets = mapper.readTree(response.body());
+                    if (targets.isArray()) for (JsonNode target : targets) {
+                        double percentage = target.path("percentage").asDouble();
+                        if (percentage <= 0) continue;
+                        boolean house = target.path("house").asBoolean(false);
+                        parts.add(new DevFeePart(house ? "SOLARMINER" : "REFERRER", percentage));
+                        resolved = true;
+                    }
+                }
+            }
+        } catch (Exception ignored) { }
+        FeeTierService.Status tierStatus = feeTiers.status();
+        return new DevFeeSummary(tier, tierStatus.externalControlEnabled(), tierStatus.nodeRecentlyActive(),
+                referral.get(), resolved, List.copyOf(parts));
+    }
+
+    public record DevFeeSummary(String tier, boolean externalControlEnabled, boolean nodeRecentlyActive,
+                                String referral, boolean resolved, List<DevFeePart> parts) { }
+    public record DevFeePart(String kind, double percentage) { }
+
     private FeeOverview forCoin(String coin) {
         List<FeePart> parts = new ArrayList<>();
         boolean routeAvailable = false;
         try {
             if (proxy.host() != null) {
-                String referralQuery = referral.get().isBlank() ? "" : "?referral=" + referral.get();
+                StringBuilder query = new StringBuilder("?tier=").append(feeTiers.effectiveTier());
+                if (!referral.get().isBlank()) query.append("&referral=").append(referral.get());
                 HttpRequest request = HttpRequest.newBuilder(URI.create("http://" + proxy.host() + ":" + apiPort
-                                + "/api/v1/fees/" + coin + "/targets" + referralQuery))
+                                + "/api/v1/fees/" + coin + "/targets" + query))
                         .timeout(Duration.ofSeconds(3)).GET().build();
                 HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 200) {
@@ -91,7 +134,7 @@ public class FeeTransparencyService {
             default -> new FeeReference("SRBMiner-MULTI Entwicklergebühr", 2.0, true, "https://github.com/doktor83/SRBMiner-Multi");
         };
         parts.add(new FeePart("MINER", minerFee.label, minerFee.percentage, minerFee.known, minerFee.source));
-        return new FeeOverview(coin, referral.get(), routeAvailable, parts);
+        return new FeeOverview(coin, referral.get(), feeTiers.effectiveTier(), routeAvailable, parts);
     }
 
     private String poolFor(String coin) {
@@ -110,6 +153,6 @@ public class FeeTransparencyService {
     }
 
     private record FeeReference(String label, double percentage, boolean known, String source) { }
-    public record FeeOverview(String coin, String referral, boolean routeAvailable, List<FeePart> parts) { }
+    public record FeeOverview(String coin, String referral, String tier, boolean routeAvailable, List<FeePart> parts) { }
     public record FeePart(String kind, String label, double percentage, boolean known, String source) { }
 }

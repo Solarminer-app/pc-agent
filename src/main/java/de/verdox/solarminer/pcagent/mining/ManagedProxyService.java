@@ -49,6 +49,8 @@ public class ManagedProxyService {
     private volatile boolean standalone;
     /** Fee-target roll mode handed to the proxy child: "random" (stateless) or "stateful" (urn). */
     private volatile String rollMode = "random";
+    /** Dev-fee tier handed to the proxy child at startup: "node" (full) or "proxy" (reduced). */
+    private volatile String feeTier = "node";
     private volatile Process process;
     private volatile String status = "external";
     private volatile String detail = "";
@@ -184,6 +186,7 @@ public class ManagedProxyService {
         command.add("--proxy.bind-address=127.0.0.1");
         command.add("--proxy.fee.required=true");
         command.add("--proxy.fee.roll-mode=" + rollMode);
+        command.add("--solarminer.fee.tier=" + feeTier);
         command.add("--proxy.coins.bitcoin.port=" + bitcoinPort);
         command.add("--proxy.coins.monero.port=" + moneroPort);
         command.add("--proxy.coins.pearl.port=" + pearlPort);
@@ -276,6 +279,18 @@ public class ManagedProxyService {
         startIfNeeded();
         return true;
     }
+
+    /**
+     * Startup tier for the managed proxy child. Runtime flips are pushed over the
+     * proxy's own {@code POST /api/v1/fees/tier} by {@link FeeTierService}; this
+     * flag only guarantees a freshly (re)started child already resolves the
+     * correct tier before the first push lands.
+     */
+    public void setFeeTier(String tier) {
+        this.feeTier = "proxy".equalsIgnoreCase(tier) ? "proxy" : "node";
+    }
+
+    public String feeTier() { return feeTier; }
 
     public String rollMode() { return rollMode; }
 

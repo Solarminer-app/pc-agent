@@ -48,7 +48,9 @@ class PayoutDefaultsServiceTest {
         when(proxy.host()).thenReturn("127.0.0.1");
         ReferralConfigurationService referral = mock(ReferralConfigurationService.class);
         when(referral.get()).thenReturn("solarminer");
-        return new PayoutDefaultsService(new ObjectMapper(), proxy, referral,
+        FeeTierService feeTiers = mock(FeeTierService.class);
+        when(feeTiers.effectiveTier()).thenReturn(FeeTierService.TIER_NODE);
+        return new PayoutDefaultsService(new ObjectMapper(), proxy, referral, feeTiers,
                 directory.resolve(fileName).toString(), server.getAddress().getPort());
     }
 

@@ -128,6 +128,10 @@ public class MiningController {
     @GetMapping("/fees")
     public List<FeeTransparencyService.FeeOverview> fees() { return feeTransparencyService.overview(); }
 
+    /** Header badge data: effective dev-fee tier plus the live split (never hardcoded). */
+    @GetMapping("/fee-tier")
+    public FeeTransparencyService.DevFeeSummary feeTier() { return feeTransparencyService.devFeeSummary(); }
+
     public record ReferralOverview(String key) { }
 
     @PostMapping("/proxy")

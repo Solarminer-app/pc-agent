@@ -38,6 +38,7 @@ public class PayoutDefaultsService {
     private final ObjectMapper mapper;
     private final ProxyConfigurationService proxyConfigurationService;
     private final ReferralConfigurationService referralConfigurationService;
+    private final FeeTierService feeTiers;
     private final Path flagsFile;
     private final int apiPort;
     private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
@@ -46,11 +47,13 @@ public class PayoutDefaultsService {
 
     public PayoutDefaultsService(ObjectMapper mapper, ProxyConfigurationService proxyConfigurationService,
                                  ReferralConfigurationService referralConfigurationService,
+                                 FeeTierService feeTiers,
                                  @Value("${solarminer.agent.payout-file:./solarminer-agent/payout-defaults.json}") String flagsPath,
                                  @Value("${solarminer.agent.proxy.api-port:8090}") int apiPort) {
         this.mapper = mapper;
         this.proxyConfigurationService = proxyConfigurationService;
         this.referralConfigurationService = referralConfigurationService;
+        this.feeTiers = feeTiers;
         this.flagsFile = Path.of(flagsPath).toAbsolutePath().normalize();
         this.apiPort = apiPort;
         defaultCoins.addAll(readFlags());
@@ -127,9 +130,10 @@ public class PayoutDefaultsService {
     private DefaultPayout fetch(String coin) {
         try {
             String host = proxyConfigurationService.host();
-            String referralQuery = referralConfigurationService.get().isBlank() ? "" : "?referral=" + referralConfigurationService.get();
+            StringBuilder query = new StringBuilder("?tier=").append(feeTiers.effectiveTier());
+            if (!referralConfigurationService.get().isBlank()) query.append("&referral=").append(referralConfigurationService.get());
             HttpRequest request = HttpRequest.newBuilder(
-                            URI.create("http://" + host + ":" + apiPort + "/api/v1/fees/" + coin + "/targets" + referralQuery))
+                            URI.create("http://" + host + ":" + apiPort + "/api/v1/fees/" + coin + "/targets" + query))
                     .timeout(Duration.ofSeconds(3)).GET().build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) return null;

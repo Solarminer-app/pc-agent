@@ -1,6 +1,7 @@
 package de.verdox.solarminer.pcagent.controller;
 
 import de.verdox.solarminer.pcagent.mining.AgentControlSettingsService;
+import de.verdox.solarminer.pcagent.mining.FeeTierService;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -15,7 +16,7 @@ import static org.mockito.Mockito.when;
 
 class AgentWriteAccessFilterTest {
     private final AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
-    private final AgentWriteAccessFilter filter = new AgentWriteAccessFilter(controls);
+    private final AgentWriteAccessFilter filter = new AgentWriteAccessFilter(controls, mock(FeeTierService.class));
 
     @Test
     void disabledNodeControlAllowsDiscoveryIdentityButRejectsOtherExternalReadsAndWrites() throws Exception {

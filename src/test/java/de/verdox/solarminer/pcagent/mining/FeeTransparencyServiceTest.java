@@ -39,7 +39,9 @@ class FeeTransparencyServiceTest {
             when(proxy.host()).thenReturn("127.0.0.1");
             ReferralConfigurationService referral = mock(ReferralConfigurationService.class);
             when(referral.get()).thenReturn("");
-            FeeTransparencyService service = new FeeTransparencyService(new ObjectMapper(), proxy, referral,
+            FeeTierService feeTiers = mock(FeeTierService.class);
+            when(feeTiers.effectiveTier()).thenReturn(FeeTierService.TIER_NODE);
+            FeeTransparencyService service = new FeeTransparencyService(new ObjectMapper(), proxy, referral, feeTiers,
                     mock(XmrConfigService.class), mock(PearlMinerService.class), mock(GpuCoinMinerService.class),
                     server.getAddress().getPort());
             var result = reader.submit(service::overview);

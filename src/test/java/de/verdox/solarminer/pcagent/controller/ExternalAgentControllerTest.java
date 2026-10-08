@@ -1,6 +1,7 @@
 package de.verdox.solarminer.pcagent.controller;
 
 import de.verdox.solarminer.pcagent.mining.AgentControlSettingsService;
+import de.verdox.solarminer.pcagent.mining.FeeTierService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -27,7 +28,7 @@ class ExternalAgentControllerTest {
         when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(
                 true, externalEnabled, Map.of(), Map.of()));
         return standaloneSetup(new ExternalAgentController(mining, power, telemetry, assessment))
-                .addFilters(new AgentWriteAccessFilter(controls)).build();
+                .addFilters(new AgentWriteAccessFilter(controls, mock(FeeTierService.class))).build();
     }
 
     @Test
