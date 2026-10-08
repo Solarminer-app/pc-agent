@@ -1,0 +1,8 @@
+services:
+  pc-agent:
+    # The host must provide a supported AMDGPU/ROCm OpenCL runtime.
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    security_opt:
+      - seccomp=unconfined

@@ -1,0 +1,7 @@
+services:
+  pc-agent:
+    # Requires NVIDIA Container Toolkit on the Docker host.
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility

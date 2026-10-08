@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b1020">
+    <title>SolarMiner · Worker</title>
+    <link rel="stylesheet" href="/css/agent.css">
+    <link rel="stylesheet" href="/css/workspace.css">
+    <link rel="stylesheet" href="/css/design.css">
+    <script src="/js/core/i18n-catalog.js" defer></script>
+    <script src="/js/core/i18n.js" defer></script>
+    <script src="/js/core/live-data.js" defer></script>
+    <script src="/js/core/mining-cache.js" defer></script>
+    <script src="/js/core/components.js" defer></script>
+    <script src="/js/chrome/proxy-gate.js" defer></script>
+    <script src="/js/chrome/workspace.js" defer></script>
+    <script src="/js/chrome/wallet-strip.js" defer></script>
+    <script src="/js/chrome/telemetry-gate.js" defer></script>
+    <script src="/js/pages/workers.js" defer></script>
+</head>
+<body class="workers-page">
+<div class="shell">
+    <header class="topbar"><a class="brand" href="/">☼ <span>SolarMiner <small>PC-Agent</small></span></a>
+        <nav class="nav"><a href="/">Dashboard</a><a href="/mining.html">Miner</a><a class="selected"
+                href="/workers.html">Worker</a><a href="/benchmarks.html">Benchmarks</a><a
+                href="/hardware.html">Leistungsgrenzen</a><a href="/telemetry.html">Sensoren</a><a
+                href="/proxy.html">Verbindung</a></nav>
+        <div class="top-actions"><span id="connection" class="badge">Verbinde …</span>
+            <button id="refresh" type="button" class="button subtle">Aktualisieren</button>
+        </div>
+    </header>
+    <section id="wallet-strip" class="wallet-strip" aria-label="Wallet-Kontostände"></section>
+    <main>
+        <div class="page-title">
+            <div><p class="kicker">BETRIEB</p><h1>Worker</h1>
+                <p>Hier weist du CPU und GPUs einem Coin, einer installierten Miner-Software und einem Steuerungsmodus zu.</p></div>
+            <a class="button subtle" href="/mining.html">Miner-Software verwalten →</a></div>
+        <div id="status-strip" class="sticky-strip" aria-label="Betriebsstatus"></div>
+        <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+        <div id="kpi-strip" class="kpi-strip" aria-live="polite"></div>
+        <div id="scope-bar"></div>
+        <div id="filter-bar" class="filter-bar" role="group" aria-label="Worker filtern">
+            <div class="filter-group" role="group" aria-label="Hardwareart">
+                <button type="button" class="filter-button selected" data-hardware="all">Alle Hardware</button>
+                <button type="button" class="filter-button" data-hardware="GPU">GPU</button>
+                <button type="button" class="filter-button" data-hardware="CPU">CPU</button>
+            </div>
+            <label class="node-global-control"><input id="global-node-control" type="checkbox">
+                <span>Node-Automatik global erlauben</span></label>
+            <a class="muted" href="/hardware.html">Leistungsgrenzen je GPU →</a>
+        </div>
+        <section class="panel" aria-labelledby="worker-title">
+            <div class="panel-head">
+                <div><p class="kicker">GERÄTE</p><h2 id="worker-title">Alle Worker</h2></div>
+                <div><button id="worker-hidden" type="button" class="button subtle" hidden></button>
+                    <span id="worker-count" class="muted"></span></div>
+            </div>
+            <p id="idle-devices" class="notice-line" hidden></p>
+            <div id="worker-table"></div>
+            <p class="muted">Leistungs- und Energiewerte werden nur angezeigt, wenn der Agent einen echten Sensorwert
+                erhält. Fehlende Messwerte werden nicht als null Verbrauch gewertet.</p>
+        </section>
+        <dialog id="worker-editor" class="worker-editor">
+            <form id="worker-form" method="dialog">
+                <div class="panel-head"><div><p class="kicker">WORKER EINRICHTEN</p><h2 id="worker-editor-title">Gerät</h2></div>
+                    <button class="button subtle" value="cancel" type="submit">Schließen</button></div>
+                <p id="worker-editor-hardware" class="muted"></p>
+                <label class="field"><span>Coin & Algorithmus</span><select id="worker-coin"></select></label>
+                <label class="field"><span>Miner-Software</span><select id="worker-miner"></select>
+                    <small id="worker-miner-help" class="muted"></small>
+                    <a id="worker-miner-install" href="/mining.html" hidden>Kompatible Miner-Software installieren →</a></label>
+                <label class="worker-control-choice"><input id="worker-node-control" type="checkbox">
+                    <span><strong>Dieses Gerät für die Node freigeben</strong><small>Die globale Node-Automatik kann zusätzlich alle Freigaben sperren.</small></span></label>
+                <div id="worker-pool-summary" class="notice-line"></div>
+                <div class="dialog-actions"><button class="button subtle" value="cancel" type="submit">Abbrechen</button>
+                    <button id="worker-save" class="button primary" value="default" type="submit">Zuweisung speichern</button></div>
+            </form>
+        </dialog>
+        <footer>SolarMiner PC-Agent</footer>
+    </main>
+</div>
+</body>
+</html>

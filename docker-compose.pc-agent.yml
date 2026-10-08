@@ -1,0 +1,19 @@
+services:
+  pc-agent:
+    image: verdox/solar-miner-pc-agent:latest
+    container_name: solarminer-pc-agent
+    restart: unless-stopped
+    # The image includes a local proxy. The UI defaults to an external proxy;
+    # operators can switch to the bundled loopback-only proxy at any time.
+    ports:
+      - "8084:8084"
+      - "8091:8091/udp"
+    init: true
+    cap_add:
+      - IPC_LOCK
+    ulimits:
+      memlock: -1
+    volumes:
+      - ./data:/data
+    environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0

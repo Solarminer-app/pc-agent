@@ -1,0 +1,143 @@
+/* Mining workspace layout. Shared tokens and component skins live in agent.css,
+   workspace.css and design.css; this file only adds the mining-specific structure. */
+.mining-page .mining-page-heading{padding:32px 0 20px;margin:0}
+.mining-page .mining-page-heading h1{font-size:32px}
+.mining-page .mining-page-heading>div>p:last-child{max-width:640px;line-height:1.65}
+.mining-page .hero-actions{flex-wrap:wrap;justify-content:flex-end}
+
+.mining-page .mining-split{display:grid;grid-template-columns:minmax(290px,330px) minmax(0,1fr);gap:16px;align-items:start;margin:0 0 26px}
+.mining-page .mining-instances{padding:18px;border:1px solid var(--line);border-radius:12px;background:#111a24;min-width:0}
+.mining-page .mining-instances .panel-head{margin-bottom:13px}
+.mining-page .mining-instances h2{font-size:17px}
+.mining-page .mining-instances .button{min-height:32px;padding:6px 11px;font-size:11px}
+.mining-page .mining-detail{padding:24px;border:1px solid var(--line);border-radius:12px;background:var(--surface);min-width:0}
+.mining-page .mining-detail>.muted{margin:14px 0}
+
+.mining-page .detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.mining-page .detail-identity{min-width:0}
+.mining-page .detail-identity h2{font-size:26px;letter-spacing:-.5px;margin:6px 0 8px}
+.mining-page .detail-identity .muted{margin:0;font-size:12px;line-height:1.6}
+.mining-page .detail-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.mining-page .detail-strip{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:18px 0 6px;padding:12px 15px;border:1px solid var(--line);border-radius:10px;background:#111a24}
+.mining-page .dot-sep{color:#5c6c80;margin:0 6px}
+.mining-page .warn-text{color:#f0d3a4}
+.mining-page .quality-line{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.mining-page .tab-panel .notice-line{margin-top:16px}
+.mining-page .tab-panel .kpi-strip{grid-template-columns:repeat(7,minmax(0,1fr));margin-bottom:4px}
+.mining-page .device-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
+
+.mining-page .config-form,.mining-page .power-form{margin-top:22px}
+.mining-page .config-form .steps{margin-top:6px}
+.mining-page .config-form .step.is-muted{opacity:.5}
+.mining-page .config-form .section-head{margin:26px 0 12px;padding-top:18px;border-top:1px solid var(--line)}
+.mining-page .config-form .section-head:first-of-type{margin-top:22px;border-top:0;padding-top:0}
+.mining-page .config-form .section-head h3{margin:0;font-size:17px}
+.mining-page .field-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:14px 0}
+.mining-page .field{display:flex;flex-direction:column;gap:7px;min-width:0}
+.mining-page .field-label{color:#93a5ba;font-size:10px;font-weight:650;letter-spacing:.8px;text-transform:uppercase}
+.mining-page .field small,.mining-page .payout-note{color:var(--muted);font-size:11px;line-height:1.6}
+.mining-page .payout-note{margin:12px 0 0}
+.mining-page .config-form input[type=text],.mining-page .config-form input[type=number],.mining-page .power-form input[type=number]{width:100%;min-width:0;padding:11px 12px;background:#0d1722;border:1px solid #485b72;border-radius:8px;color:var(--text)}
+.mining-page .config-form input:focus,.mining-page .power-form input:focus{outline:2px solid #8bddbc80}
+.mining-page .standard-consent{display:flex;align-items:flex-start;gap:10px;margin:14px 0 0;padding:13px 15px;border:1px solid #6d5a3c;border-radius:9px;background:#241f18;color:#f2d6ab;font-size:12px;line-height:1.6}
+/* agent.css pins .standard-consent to display:flex !important, which out-ranks [hidden]. */
+.mining-page .standard-consent[hidden]{display:none!important}
+.mining-page .standard-consent input{margin-top:3px;accent-color:var(--warm)}
+.mining-page .gpu-selection{margin:4px 0 8px}
+.mining-page .form-feedback{margin:16px 0 0}
+.mining-page .config-form>button[type=submit]{margin-top:22px}
+
+.mining-page .power-form{margin-top:24px;padding-top:20px;border-top:1px solid var(--line)}
+.mining-page .power-form .section-head{margin-bottom:10px}
+.mining-page .power-form .section-head h3{margin:0;font-size:17px}
+.mining-page .power-form .input-row{margin-top:12px;flex-wrap:wrap}
+.mining-page .power-form input[type=number]{max-width:190px}
+
+.mining-page .fee-card,.mining-page .optimization-card{margin-top:18px;padding:20px;border:1px solid var(--line);border-radius:12px;background:#111a24}
+.mining-page .fee-card h3,.mining-page .optimization-card h3{margin:0 0 12px;font-size:17px}
+.mining-page .fee-rows{margin-top:14px}
+.mining-page .fee-card .detail,.mining-page .fee-rows .detail{font-size:12px}
+.mining-page .danger-details{margin-top:20px;padding:15px 17px;border:1px solid #7a4a45;border-radius:10px;background:#261a1a}
+.mining-page .danger-details summary{cursor:pointer;color:#f2b8b2;font-weight:600;font-size:13px}
+.mining-page .danger-details p{margin:12px 0 0;font-size:12px;line-height:1.65}
+.mining-page .danger-details .button{margin-top:13px;color:#efb8a4;border-color:#7b5041;background:#39271f}
+.mining-page .optimization-card .notice{margin:16px 0 0}
+
+.mining-page .console-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px}
+.mining-page .console-status{margin:0;font-size:11.5px}
+.mining-page .console-tools .button{min-height:32px;padding:6px 11px;font-size:11px}
+.mining-page .miner-console{max-height:460px}
+
+.mining-page .mining-library{margin:26px 0;padding:22px;border:1px solid var(--line);border-radius:12px;background:#111a24}
+.mining-page .mining-library h2{font-size:20px;margin:6px 0 8px}
+.mining-page .catalog-summary{display:flex;gap:9px;align-items:center;white-space:nowrap;font-size:11px;color:var(--muted)}
+.mining-page .catalog-summary strong{color:#b6eccd;font-size:12px}
+.mining-page .catalog-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 14px;padding:10px;border:1px solid var(--line);border-radius:9px;background:#0f1722}
+.mining-page .hardware-filter{display:flex;gap:6px;margin:0}
+.mining-page .bulk-install-actions{display:flex;gap:7px;align-items:center}
+.mining-page .bulk-install-actions .button{min-height:34px;padding:7px 12px;font-size:11px}
+.mining-page .catalog-grid{display:grid;grid-template-columns:1fr;gap:9px}
+.mining-page .catalog-card{min-height:0;padding:15px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--line);align-items:stretch}
+.mining-page .catalog-card.installed{border-color:#426554}
+.mining-page .package-head{display:grid;grid-template-columns:20px 38px minmax(0,1fr) auto;align-items:center;gap:11px}
+.mining-page .package-select{width:17px;height:17px;margin:0;accent-color:var(--accent)}
+.mining-page .package-emblem{display:grid;place-items:center;width:38px;height:38px;border-radius:9px;background:#213229;color:#b7e8cd;border:1px solid #4e715f;font-size:10px;font-weight:750;letter-spacing:.4px}
+.mining-page .package-identity{min-width:0}
+.mining-page .package-identity h2{margin:0 0 3px;font-size:16px}
+.mining-page .package-identity .muted{margin:0;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mining-page .package-coins{display:flex;flex-wrap:wrap;gap:5px;margin:12px 0 8px 69px}
+.mining-page .package-coin{padding:4px 7px;border-radius:6px;background:#111b27;border:1px solid var(--line);color:#b6c3d2;font-size:10px}
+.mining-page .package-coin.selected{color:#b6eccd;border-color:#4d7963;background:#1d3028}
+.mining-page .package-meta{margin:0 0 10px 69px!important;line-height:1.5!important}
+.mining-page .package-help{margin:0 0 10px 69px;padding:9px 11px;border:1px solid #7b5941;border-radius:7px;background:#32251d;font-size:11px}
+.mining-page .package-help summary{cursor:pointer;color:#efc49e}
+.mining-page .package-help p{line-height:1.55}
+.mining-page .package-help .button{width:auto;margin:4px 0 0}
+.mining-page .package-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-left:69px;padding-top:10px;border-top:1px solid var(--line)}
+.mining-page .package-state{font-size:11px;color:#aab7c7}
+.mining-page .package-state.ready{color:#9be0bd}
+.mining-page .package-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.mining-page .package-actions .button{width:auto;min-height:30px;margin:0;padding:6px 10px;font-size:11px}
+.mining-page .package-card .download-progress{height:5px;margin:10px 0 0 69px;width:calc(100% - 69px)}
+
+.mining-page .automation-profile{scroll-margin-top:90px;margin:0;padding:22px;background:var(--surface);border-color:var(--line);border-left:3px solid #639b81}
+.mining-page .automation-profile .section-head{margin-bottom:8px}
+.mining-page .automation-profile h2{font-size:20px}
+.mining-page .automation-profile .kicker{font-size:9px;color:#8fb59f}
+.mining-page .automation-device{background:#111b27;border-color:var(--line);border-radius:9px}
+.mining-page .automation-device select{background:#0f1722;border-color:#49596d;font-size:13px}
+.mining-page .automation-profile details summary{font-weight:500}
+.mining-page .automation-foot{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:14px;margin-top:12px;font-size:12px}
+
+@media(max-width:1400px){
+  .mining-page .tab-panel .kpi-strip{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+@media(max-width:1150px){
+  .mining-page .mining-split{grid-template-columns:1fr}
+  .mining-page .mining-instances{position:static}
+  .mining-page .device-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:700px){
+  .mining-page .tab-panel .kpi-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mining-page .mining-page-heading{padding:24px 0 18px;align-items:start;flex-direction:column;gap:14px}
+  .mining-page .mining-page-heading h1{font-size:28px}
+  .mining-page .hero-actions{width:100%}
+  .mining-page .hero-actions .button{flex:1}
+  .mining-page .mining-detail{padding:18px}
+  .mining-page .detail-identity h2{font-size:22px}
+  .mining-page .detail-actions{width:100%}
+  .mining-page .detail-actions .button{flex:1}
+  .mining-page .catalog-toolbar{align-items:stretch;flex-direction:column}
+  .mining-page .bulk-install-actions{display:grid;grid-template-columns:1fr 1fr}
+  .mining-page .catalog-card{padding:14px}
+  .mining-page .package-head{grid-template-columns:20px 34px minmax(0,1fr)}
+  .mining-page .package-head>.tag{grid-column:3;justify-self:start}
+  .mining-page .package-emblem{width:34px;height:34px}
+  .mining-page .package-coins,.mining-page .package-meta,.mining-page .package-help,.mining-page .package-footer{margin-left:0}
+  .mining-page .package-footer{align-items:flex-start;flex-direction:column}
+  .mining-page .package-actions{width:100%;justify-content:stretch}
+  .mining-page .package-actions .button{flex:1}
+  .mining-page .package-card .download-progress{margin-left:0;width:100%}
+  .mining-page .automation-profile{padding:20px}
+  .mining-page .automation-profile .section-head{flex-direction:column;align-items:start;gap:12px}
+}

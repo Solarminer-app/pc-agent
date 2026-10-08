@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b1020">
+    <title>SolarMiner · Miner</title>
+    <link rel="stylesheet" href="/css/agent.css">
+    <link rel="stylesheet" href="/css/workspace.css">
+    <link rel="stylesheet" href="/css/design.css">
+    <link rel="stylesheet" href="/css/mining.css">
+    <script src="/js/core/i18n-catalog.js" defer></script>
+    <script src="/js/core/i18n.js" defer></script>
+    <script src="/js/core/live-data.js" defer></script>
+    <script src="/js/core/components.js" defer></script>
+    <script src="/js/chrome/proxy-gate.js" defer></script>
+    <script src="/js/chrome/workspace.js" defer></script>
+    <script src="/js/chrome/wallet-strip.js" defer></script>
+    <script src="/js/chrome/telemetry-gate.js" defer></script>
+    <script src="/js/pages/software.js" defer></script>
+</head>
+<body class="mining-page">
+<div class="shell">
+    <header class="topbar"><a class="brand" href="/">☼ <span>SolarMiner <small>PC-Agent</small></span></a>
+        <nav class="nav"><a href="/">Dashboard</a><a class="selected" href="/mining.html">Miner</a><a
+                href="/workers.html">Worker</a><a href="/benchmarks.html">Benchmarks</a><a
+                href="/hardware.html">Leistungsgrenzen</a><a href="/telemetry.html">Sensoren</a><a
+                href="/proxy.html">Verbindung</a></nav>
+        <div class="top-actions"><span id="connection" class="badge">Verbinde …</span>
+            <button id="refresh" type="button" class="button subtle">Aktualisieren</button>
+        </div>
+    </header>
+    <section id="wallet-strip" class="wallet-strip" aria-label="Wallet-Kontostände"></section>
+    <main>
+        <div class="page-title mining-page-heading">
+            <div><p class="kicker">SOFTWARE</p><h1>Miner-Software</h1>
+                <p>Mining-Programme installieren, aktualisieren, reparieren oder entfernen. Coins, Geräte und Starts
+                    ordnest du anschließend im Bereich Worker zu.</p></div>
+            <a class="button primary" href="/wallets.html">Wallets einrichten →</a>
+        </div>
+        <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+        <section class="panel software-overview" aria-labelledby="software-title">
+            <div class="panel-head">
+                <div><p class="kicker">LOKALE BIBLIOTHEK</p><h2 id="software-title">Verfügbare Programme</h2>
+                    <p class="muted">Jedes Softwarepaket erscheint genau einmal – auch wenn es mehrere Coins unterstützt.</p></div>
+                <div class="catalog-summary" aria-live="polite"><strong id="catalog-installed-count">0 installiert</strong>
+                    <span id="catalog-available-count">0 verfügbar</span></div>
+            </div>
+            <div class="software-toolbar">
+                <input id="software-search" class="scope-search" type="search" placeholder="Programm, Coin oder Algorithmus suchen">
+                <div class="hardware-filter" role="group" aria-label="Hardware wählen">
+                    <button type="button" class="filter-button selected" data-device="all">Alle</button>
+                    <button type="button" class="filter-button" data-device="CPU">CPU</button>
+                    <button type="button" class="filter-button" data-device="GPU">GPU</button>
+                </div>
+            </div>
+            <div id="software-grid" class="software-grid" aria-live="polite"></div>
+        </section>
+        <footer>SolarMiner PC-Agent · <a id="api-docs" hidden href="/swagger-ui/index.html" target="_blank"
+                                         rel="noopener noreferrer">API-Dokumentation ↗</a></footer>
+    </main>
+</div>
+</body>
+</html>

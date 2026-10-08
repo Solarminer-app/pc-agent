@@ -1,0 +1,18 @@
+services:
+  pc-agent:
+    image: verdox/solar-miner-pc-agent:latest
+    container_name: solarminer-pc-agent
+    restart: unless-stopped
+    # Compatibility profile for existing host-network deployments. The image is
+    # identical to the normal Compose profile; select local or external proxy
+    # persistently in the Mining UI after startup.
+    network_mode: host
+    init: true
+    cap_add:
+      - IPC_LOCK
+    ulimits:
+      memlock: -1
+    volumes:
+      - ./data:/data
+    environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0

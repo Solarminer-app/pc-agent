@@ -1,0 +1,193 @@
+name: Release SolarMiner PC-Agent
+
+on:
+  push:
+    tags:
+      - "pc-agent-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "PC-Agent version from gradle.properties"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-pc-agent-${{ github.ref }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Read PC-Agent metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      image: ${{ steps.metadata.outputs.image }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Read and validate release metadata
+        id: metadata
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+
+          VERSION="$(./gradlew -q printPcAgentVersion)"
+          IMAGE="$(./gradlew -q printPcAgentImage)"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "pcAgentVersion must use x.y or x.y.z, got: $VERSION" >&2
+            exit 1
+          fi
+
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            RELEASE_VERSION="${REF_NAME#pc-agent-v}"
+          else
+            RELEASE_VERSION="$REQUESTED_VERSION"
+          fi
+
+          if [[ "$RELEASE_VERSION" != "$VERSION" ]]; then
+            echo "Release tag/version and pcAgentVersion do not match." >&2
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test PC-Agent
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run PC-Agent tests and build standalone JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew test standaloneJar --no-daemon
+
+      - name: Verify no Stratum proxy is bundled in the PC-Agent JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          if unzip -l build/distributions/solarminer-pc-agent-standalone.jar \
+              | grep -q 'solarminerstratumproxy'; then
+            echo "The PC-Agent JAR must not contain Stratum proxy classes." >&2
+            exit 1
+          fi
+
+      - name: Prepare Windows launcher release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp standalone/start-agent.bat build/distributions/
+          cp standalone/start-agent.ps1 build/distributions/
+          cd build/distributions
+          sha256sum solarminer-pc-agent-standalone.jar > solarminer-pc-agent-standalone.jar.sha256
+
+      - name: Upload PC-Agent release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: pc-agent-release-assets
+          path: build/distributions/*
+          if-no-files-found: error
+          retention-days: 7
+
+  build-and-push:
+    name: Build and publish Linux amd64 image
+    needs:
+      - metadata
+      - test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and publish PC-Agent image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.version }}
+            ${{ needs.metadata.outputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Inspect published image
+        shell: bash
+        env:
+          IMAGE: ${{ needs.metadata.outputs.image }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+
+  publish-github-release:
+    name: Publish PC-Agent GitHub release
+    needs:
+      - metadata
+      - test
+      - build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pc-agent-release-assets
+          path: release-assets
+
+      - name: Create GitHub release and attach Windows launcher assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="pc-agent-v${VERSION}"
+          if [[ "$EVENT_NAME" == "push" && "$REF_NAME" != "$TAG" ]]; then
+            echo "Unexpected release tag: $REF_NAME (expected $TAG)" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* \
+              --title "SolarMiner PC-Agent ${VERSION}" \
+              --target "$TARGET_SHA" \
+              --generate-notes
+          fi
