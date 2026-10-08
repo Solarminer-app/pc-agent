@@ -68,6 +68,11 @@ public class BenchmarkController {
         return sharing.retryManualResults();
     }
 
+    @PostMapping("/sharing/upload-manual")
+    public BenchmarkSharingService.ReportStatus uploadManualReport() {
+        return sharing.uploadManualResultsOnce();
+    }
+
     public record StartRequest(String mode) {
     }
 

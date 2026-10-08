@@ -62,11 +62,11 @@ public class BenchmarkSharingService {
     }
 
     public synchronized ReportStatus reportManualResults(List<MinerStats.Worker> workers) {
-        if (!state.sharingEnabled()) {
-            retrySamples = List.of();
-            return manualReportStatus = new ReportStatus("MANUAL", "NOT_SHARED", "Benchmarkdaten wurden nicht hochgeladen: Teilen ist deaktiviert.", 0, Instant.now());
-        }
+        // Keep the samples even when sharing is off so the post-benchmark prompt can offer them
+        // for upload right after the operator grants consent.
         retrySamples = sampleWorkers(workers);
+        if (!state.sharingEnabled())
+            return manualReportStatus = new ReportStatus("MANUAL", "NOT_SHARED", "Benchmarkdaten wurden nicht hochgeladen: Teilen ist deaktiviert.", retrySamples.size(), Instant.now());
         if (retrySamples.isEmpty())
             return manualReportStatus = new ReportStatus("MANUAL", "NO_DATA", "Keine geeigneten Benchmark-Messwerte zum Hochladen vorhanden.", 0, Instant.now());
         return deliverManual(retrySamples);
@@ -78,6 +78,26 @@ public class BenchmarkSharingService {
         if (retrySamples.isEmpty())
             return manualReportStatus = new ReportStatus("MANUAL", "NO_DATA", "Keine gespeicherten Benchmark-Messwerte zum erneuten Hochladen vorhanden.", 0, Instant.now());
         return deliverManual(retrySamples);
+    }
+
+    /**
+     * One-time upload of the retained manual samples after the post-benchmark prompt.
+     * The consent applies to this batch only: the periodic sharing state is deliberately
+     * left untouched, so the operator's "sharing off" setting keeps suppressing future sends.
+     */
+    public synchronized ReportStatus uploadManualResultsOnce() {
+        if (retrySamples.isEmpty())
+            return manualReportStatus = new ReportStatus("MANUAL", "NO_DATA", "Keine gespeicherten Benchmark-Messwerte zum erneuten Hochladen vorhanden.", 0, Instant.now());
+        int sampleCount = retrySamples.size();
+        manualReportStatus = new ReportStatus("MANUAL", "UPLOADING", "Benchmarkdaten werden hochgeladen …", sampleCount, Instant.now());
+        try {
+            client.post().uri("/api/telemetry/standalone-benchmarks")
+                    .body(new Batch(participantId(), true, retrySamples)).retrieve().toBodilessEntity();
+            retrySamples = List.of();
+            return manualReportStatus = new ReportStatus("MANUAL", "SENT", "Benchmarkdaten erfolgreich ans Backend übermittelt.", sampleCount, Instant.now());
+        } catch (RuntimeException e) {
+            return manualReportStatus = new ReportStatus("MANUAL", "FAILED", "Upload ans Backend fehlgeschlagen. Du kannst den Upload erneut versuchen.", sampleCount, Instant.now());
+        }
     }
 
     public UploadStatuses uploadStatuses() { return new UploadStatuses(manualReportStatus, periodicReportStatus); }
