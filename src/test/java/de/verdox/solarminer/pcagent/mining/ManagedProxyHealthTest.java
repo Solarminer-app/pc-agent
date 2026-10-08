@@ -13,4 +13,11 @@ class ManagedProxyHealthTest {
         assertFalse(ManagedProxyService.matchesHealth(health, "previous"));
         assertFalse(ManagedProxyService.matchesHealth("{\"service\":\"other\",\"instanceId\":\"current\"}", "current"));
     }
+
+    @Test
+    void identifiesAnOlderManagedProxyWithoutAcceptingAnUnrelatedHealthEndpoint() throws Exception {
+        assertTrue(ManagedProxyService.isSolarMinerProxyHealth(
+                "{\"service\":\"solarminer-stratum-proxy\",\"instanceId\":\"previous-run\"}"));
+        assertFalse(ManagedProxyService.isSolarMinerProxyHealth("{\"service\":\"other-service\"}"));
+    }
 }
