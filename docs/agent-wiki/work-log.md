@@ -28,3 +28,20 @@
   `Solar-Miner-Node` — the module, its CI workflow and the Node wiki pages are
   still in place; this repository is currently a full copy plus standalone
   build wiring. Git history was not rewritten (plain copy commit pending).
+
+## 2026-10-08 — Beta pipeline established; module removed from Solar-Miner-Node
+
+- Added `.github/workflows/beta.yml` (push to `beta`): publishes
+  `verdox/solar-miner-pc-agent` commit-tagged/`latest-amd64-beta`/`latest-beta`,
+  builds the standalone JAR with the no-proxy-classes guard, and creates the
+  `pc-agent-beta-<shortsha>` prerelease with beta launchers. Mirrors the former
+  Node-repo `docker-beta.yml` pc-agent jobs exactly, with root-relative paths.
+- Created local branch `beta` from `main` (push pending owner approval).
+- Solar-Miner-Node side completed the same day: `pc-agent/` deleted, Gradle
+  wiring (`include`, versions, print tasks), `docker-deploy-pc-agent.yml` and
+  all pc-agent jobs in `docker-beta.yml` removed; Node compiles clean
+  (`gradlew projects` shows only cgminerapi/core/proto/pv-api; compileJava
+  EXIT 0). Node wiki pages for the agent moved to this repository
+  (`docs/agent-wiki/`), `PC-AGENT-PV-POWER-CONTROL.md` moved to `docs/`, and
+  the agent API contract section of the Node `docs/API.md` moved to
+  `docs/API.md` here with a pointer left in the Node doc.
