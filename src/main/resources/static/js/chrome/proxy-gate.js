@@ -1,6 +1,6 @@
 // Shows a blocking gate only while the downloaded Stratum proxy is not ready. The agent ships no
 // proxy build, so every start first resolves and downloads the published release JAR.
-// State arrives over the shared "proxy-gate" SSE channel; the only REST call left is the manual retry.
+// State arrives over SSE and is checked directly while this blocking gate is visible.
 (() => {
   const t = window.SolarMinerI18n.t;
 
@@ -26,22 +26,53 @@
   bar.append(barFill);
   const detail = document.createElement('p');
   detail.className = 'muted';
+  const logLabel = document.createElement('p');
+  logLabel.className = 'proxy-gate-log-label';
+  logLabel.textContent = t('Proxy-Log');
+  const log = document.createElement('pre');
+  log.className = 'proxy-gate-log';
+  log.hidden = true;
+  log.setAttribute('aria-live', 'off');
   const retry = document.createElement('button');
   retry.type = 'button';
   retry.className = 'button primary';
   retry.textContent = t('Erneut versuchen');
   retry.setAttribute('hidden', '');
-  card.append(kicker, title, copy, bar, detail, retry);
+  card.append(kicker, title, copy, bar, detail, logLabel, log, retry);
   gate.append(card);
   document.body.append(gate);
 
-  let retrying = false, closed = false, unsubscribe = null;
+  let retrying = false, closed = false, unsubscribe = null, logOffset = 0, logTimer = null, statusTimer = null;
 
   function close() {
     if (closed) return;
     closed = true;
     gate.remove();
     unsubscribe?.();
+    if (logTimer) window.clearInterval(logTimer);
+    if (statusTimer) window.clearInterval(statusTimer);
+  }
+
+  function appendLog(data) {
+    if (!data) return;
+    log.hidden = false;
+    log.textContent += data;
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function refreshLog() {
+    if (closed) return;
+    try {
+      const response = await fetch('/api/agent/local/proxy-gate/log?offset=' + encodeURIComponent(logOffset),
+        {cache: 'no-store'});
+      if (!response.ok) return;
+      const chunk = await response.json();
+      appendLog(chunk.data);
+      logOffset = chunk.nextOffset;
+      if (chunk.hasMore) window.setTimeout(refreshLog, 0);
+    } catch (_) {
+      // The state channel provides the user-visible agent connection error; retry on the next tick.
+    }
   }
 
   function show(state, percent, version, message) {
@@ -76,6 +107,12 @@
   // Re-read after a quiet or disconnected SSE stream. Without starting the shared watchdog here,
   // an old "starting" snapshot could keep this blocking overlay open after the proxy is ready.
   window.SolarMinerLive.start();
+  window.SolarMinerLive.refresh('proxy-gate');
+  statusTimer = window.setInterval(() => {
+    if (!document.hidden) window.SolarMinerLive.refresh('proxy-gate');
+  }, 2000);
+  refreshLog();
+  logTimer = window.setInterval(refreshLog, 750);
 
   retry.addEventListener('click', async () => {
     if (retrying) return;

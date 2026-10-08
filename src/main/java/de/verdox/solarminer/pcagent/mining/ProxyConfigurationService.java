@@ -150,8 +150,10 @@ public class ProxyConfigurationService {
     public String managedDetail() { return managedProxy.detail(); }
     public String managedVersion() { return managedProxy.version(); }
     public ManagedProxyService.ProxyGate managedGate() { return managedProxy.gate(); }
+    public ManagedProxyService.ProxyLogChunk managedProxyLog(long offset) throws IOException { return managedProxy.readLog(offset); }
     public boolean retryManagedProxy() { return managedProxy.retry(); }
     public String host() { return standalone ? "127.0.0.1" : host; }
+    public int apiPort() { return apiPort; }
     public String moneroUrl() { return url(moneroPort); }
     public String pearlUrl() { return url(pearlPort); }
     public String ravencoinUrl() { return url(ravenPort); }
