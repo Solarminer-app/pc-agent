@@ -1,6 +1,7 @@
 package de.verdox.solarminer.pcagent.mining;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,16 +11,21 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -35,6 +41,7 @@ public class ManagedProxyService {
     private static final Logger LOGGER = Logger.getLogger(ManagedProxyService.class.getName());
     private static final long START_PROBE_DELAY_MS = 4_000;
     private static final long RESTART_BACKOFF_MS = 20_000;
+    private static final int LOG_CHUNK_BYTES = 64 * 1024;
 
     private final ProxyReleaseService releases;
     private final HttpClient probeClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
@@ -55,6 +62,8 @@ public class ManagedProxyService {
     private volatile String status = "external";
     private volatile String detail = "";
     private volatile long lastStartAttempt;
+    private volatile long lastReadinessProbe;
+    private volatile String instanceId;
     private volatile boolean gateOpen;
     private volatile boolean deferredExternalMode;
 
@@ -133,6 +142,8 @@ public class ManagedProxyService {
         lastStartAttempt = now;
         Path release = releases.jar();
         try {
+            gateOpen = false;
+            instanceId = UUID.randomUUID().toString();
             Process started = new ProcessBuilder(commandFor(release))
                     .directory(release.getParent().toFile())
                     .redirectErrorStream(true)
@@ -150,14 +161,32 @@ public class ManagedProxyService {
     }
 
     private void probeReadiness(Process current) {
+        if (current == null || !current.isAlive()) return;
         if (System.currentTimeMillis() - lastStartAttempt < START_PROBE_DELAY_MS) return;
+        long now = System.currentTimeMillis();
+        if (now - lastReadinessProbe < 2_000) return;
+        lastReadinessProbe = now;
+        boolean ready = false;
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + apiPort + "/api/network/ip"))
+            HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + apiPort + "/api/health"))
                     .timeout(Duration.ofSeconds(3)).GET().build();
             HttpResponse<String> response = probeClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200 || response.body().isBlank()) return;
+            if (response.statusCode() == 404) {
+                // Published proxy releases before /api/health only expose the LAN-IP route.
+                request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + apiPort + "/api/network/ip"))
+                        .timeout(Duration.ofSeconds(3)).GET().build();
+                response = probeClient.send(request, HttpResponse.BodyHandlers.ofString());
+                ready = response.statusCode() == 200 && !response.body().isBlank();
+            } else {
+                if (response.statusCode() == 200) {
+                    ready = matchesHealth(response.body(), instanceId);
+                }
+            }
         } catch (Exception unreachable) {
             if (unreachable instanceof InterruptedException) Thread.currentThread().interrupt();
+        }
+        if (!current.isAlive()) return;
+        if (!ready) {
             if (System.currentTimeMillis() - lastStartAttempt > Duration.ofSeconds(90).toMillis()) {
                 status = "failed";
                 detail = "Der lokale Proxy hat sich nicht gemeldet. Protokoll: " + logFile();
@@ -176,6 +205,18 @@ public class ManagedProxyService {
         }
     }
 
+    static boolean matchesHealth(String body, String expectedInstanceId) throws IOException {
+        JsonNode health = new ObjectMapper().readTree(body);
+        return isSolarMinerProxyHealth(body)
+                && expectedInstanceId != null
+                && expectedInstanceId.equals(health.path("instanceId").asText());
+    }
+
+    static boolean isSolarMinerProxyHealth(String body) throws IOException {
+        JsonNode health = new ObjectMapper().readTree(body);
+        return "solarminer-stratum-proxy".equals(health.path("service").asText());
+    }
+
     private List<String> commandFor(Path release) throws IOException {
         List<String> command = new ArrayList<>();
         command.add(javaExecutable().toString());
@@ -183,6 +224,7 @@ public class ManagedProxyService {
         command.add(release.toString());
         command.add("--server.address=127.0.0.1");
         command.add("--server.port=" + apiPort);
+        command.add("--proxy.health-instance-id=" + instanceId);
         command.add("--proxy.bind-address=127.0.0.1");
         command.add("--proxy.fee.required=true");
         command.add("--proxy.fee.roll-mode=" + rollMode);
@@ -210,6 +252,7 @@ public class ManagedProxyService {
 
     /** A previous agent may have been killed without closing its proxy; that proxy would hold our ports. */
     private void terminateOrphanedProxyProcesses() {
+        if (!confirmsOrphanedManagedProxy()) return;
         long self = ProcessHandle.current().pid();
         String marker = releases.releaseDirectory().toString();
         List<ProcessHandle> orphans = ProcessHandle.allProcesses()
@@ -233,6 +276,29 @@ public class ManagedProxyService {
                 catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
             }
             if (orphan.isAlive()) orphan.destroyForcibly();
+        }
+    }
+
+    /**
+     * Do not terminate a process solely because its command line resembles a proxy launch. A local
+     * listener must first identify itself as SolarMiner's proxy. Older published releases do not
+     * have {@code /api/health}, so retain their established loopback API as a compatibility proof.
+     */
+    private boolean confirmsOrphanedManagedProxy() {
+        try {
+            HttpRequest health = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + apiPort + "/api/health"))
+                    .timeout(Duration.ofSeconds(2)).GET().build();
+            HttpResponse<String> response = probeClient.send(health, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) return isSolarMinerProxyHealth(response.body());
+            if (response.statusCode() != 404) return false;
+
+            HttpRequest legacy = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + apiPort + "/api/network/ip"))
+                    .timeout(Duration.ofSeconds(2)).GET().build();
+            HttpResponse<String> legacyResponse = probeClient.send(legacy, HttpResponse.BodyHandlers.ofString());
+            return legacyResponse.statusCode() == 200 && !legacyResponse.body().isBlank();
+        } catch (Exception unavailable) {
+            if (unavailable instanceof InterruptedException) Thread.currentThread().interrupt();
+            return false;
         }
     }
 
@@ -301,6 +367,25 @@ public class ManagedProxyService {
     public String version() { return releases.version(); }
     public boolean gateOpen() { return gateOpen; }
 
+    /**
+     * Returns a bounded piece of the proxy child's combined stdout/stderr log for the local
+     * startup gate. The release-directory log is not exposed as an arbitrary file path.
+     */
+    public ProxyLogChunk readLog(long offset) throws IOException {
+        Path path = logFile();
+        if (!Files.isRegularFile(path)) return new ProxyLogChunk(0, "", false);
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+            long length = channel.size();
+            long start = offset < 0 || offset > length ? 0 : offset;
+            ByteBuffer buffer = ByteBuffer.allocate((int) Math.min(LOG_CHUNK_BYTES, length - start));
+            channel.position(start);
+            while (buffer.hasRemaining() && channel.read(buffer) > 0) { }
+            int count = buffer.position();
+            return new ProxyLogChunk(start + count,
+                    new String(buffer.array(), 0, count, StandardCharsets.UTF_8), start + count < length);
+        }
+    }
+
     public synchronized ProxyGate gate() {
         Process current = process;
         if (current != null && !current.isAlive()) {
@@ -319,6 +404,10 @@ public class ManagedProxyService {
         if (!gateOpen && releases.ready()) startIfNeeded();
 
         if (running()) {
+            if (!gateOpen && status.equals("starting")) probeReadiness(process);
+            if (!running()) return gateOpen
+                    ? new ProxyGate(true, "running", 100, releases.version(), detail)
+                    : new ProxyGate(false, "failed", 0, releases.version(), detail);
             return gateOpen
                     ? new ProxyGate(true, "running", 100, releases.version(), "")
                     : new ProxyGate(false, "starting", 100, releases.version(), detail);
@@ -337,6 +426,7 @@ public class ManagedProxyService {
     }
 
     public record ProxyGate(boolean ready, String state, int percent, String version, String detail) { }
+    public record ProxyLogChunk(long nextOffset, String data, boolean hasMore) { }
 
     @PreDestroy
     public synchronized void stop() {

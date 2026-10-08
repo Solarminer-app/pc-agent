@@ -18,7 +18,7 @@ class ProxyGateControllerTest {
     void servesTheManagedProxyLogIncrementally() throws Exception {
         ProxyConfigurationService proxy = mock(ProxyConfigurationService.class);
         when(proxy.managedProxyLog(eq(12L)))
-                .thenReturn(new ManagedProxyService.ProxyLogChunk(18, "proxy started\\n", false));
+                .thenReturn(new ManagedProxyService.ProxyLogChunk(18, "proxy started\n", false));
         MockMvc api = standaloneSetup(new ProxyGateController(proxy)).build();
 
         api.perform(get("/api/agent/local/proxy-gate/log").param("offset", "12"))
