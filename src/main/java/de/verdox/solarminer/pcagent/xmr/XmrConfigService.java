@@ -124,6 +124,16 @@ public class XmrConfigService {
         return true;
     }
 
+    /** Moves an existing valid XMRig route to the selected SolarMiner proxy without changing payout credentials. */
+    public boolean updateProxyRoute(Path configPath, String poolUrl) throws IOException {
+        File configFile = configPath.toFile();
+        if (!configFile.exists()) return false;
+        JsonNode root = objectMapper.readTree(configFile);
+        JsonNode pools = root == null ? null : root.path("pools");
+        if (!pools.isArray() || pools.isEmpty()) return false;
+        return updateProxyRoute(configPath, poolUrl, pools.get(0).path("user").asText());
+    }
+
     public boolean isProxyRouteConfigured() {
         try {
             JsonNode root = objectMapper.readTree(XmrDownloadService.CONFIG_PATH.toFile());

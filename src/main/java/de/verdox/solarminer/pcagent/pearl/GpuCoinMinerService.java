@@ -204,6 +204,25 @@ public class GpuCoinMinerService {
         validate(coin, config);
         if (!proxy.matches(config.proxyUrl(), coin)) throw new IllegalArgumentException("SolarMiner-Proxy-Route stimmt nicht");
         if (!stop(coin)) throw new IOException("GPU-Miner konnten nicht angehalten werden");
+        writeConfig(coin, config);
+        configs.put(coin, config);
+        manuallyPaused.removeIf(key -> key.startsWith(coin + ":"));
+        lastError = null;
+    }
+
+    /** Updates only an existing coin's proxy endpoint after the shared connection changes. */
+    public synchronized boolean updateProxyRoute(String coin, String proxyUrl) throws IOException {
+        Config current = configs.get(coin);
+        if (current == null || current.proxyUrl().equals(proxyUrl)) return false;
+        Config updated = new Config(current.poolUrl(), proxyUrl, current.wallet(), current.worker(), current.devices());
+        validate(coin, updated);
+        if (!proxy.matches(proxyUrl, coin)) throw new IllegalArgumentException("SolarMiner-Proxy-Route stimmt nicht");
+        writeConfig(coin, updated);
+        configs.put(coin, updated);
+        return true;
+    }
+
+    private void writeConfig(String coin, Config config) throws IOException {
         Files.createDirectories(configDirectory);
         Path temp = Files.createTempFile(configDirectory, coin + "-", ".json");
         try {
@@ -211,9 +230,6 @@ public class GpuCoinMinerService {
             try { Files.move(temp, file(coin), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
             catch (java.nio.file.AtomicMoveNotSupportedException e) { Files.move(temp, file(coin), StandardCopyOption.REPLACE_EXISTING); }
         } finally { Files.deleteIfExists(temp); }
-        configs.put(coin, config);
-        manuallyPaused.removeIf(key -> key.startsWith(coin + ":"));
-        lastError = null;
     }
 
     public List<LocalGpuPowerService.Gpu> selected(String coin) {

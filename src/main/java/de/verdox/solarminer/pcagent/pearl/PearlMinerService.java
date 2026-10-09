@@ -150,6 +150,19 @@ public class PearlMinerService {
         lastError = null;
     }
 
+    /** Updates only the proxy endpoint after the operator changes the shared proxy connection. */
+    public synchronized boolean updateProxyRoute(String proxyUrl) throws IOException {
+        Config current = config;
+        if (current == null || current.proxyUrl().equals(proxyUrl)) return false;
+        Config updated = new Config(current.poolUrl(), proxyUrl, current.wallet(), current.worker(), current.devices());
+        validate(updated);
+        if (!proxyConfigurationService.matches(proxyUrl, "pearl"))
+            throw new IllegalArgumentException("SolarMiner-Proxy-Route stimmt nicht");
+        writeConfig(updated);
+        config = updated;
+        return true;
+    }
+
     private void writeConfig(Config next) throws IOException {
         Files.createDirectories(configFile.getParent());
         Path temp = Files.createTempFile(configFile.getParent(), "pearl-", ".json");

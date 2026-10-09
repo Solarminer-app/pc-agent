@@ -161,8 +161,23 @@ public class MiningController {
         if (!"local".equals(mode) && !"external".equals(mode)) return false;
         if (!miningService.pauseAll("Proxy mode was configured")) return false;
         if (!proxyConfigurationService.setMode(mode)) return false;
+        try {
+            migrateMinerProxyRoutes();
+        } catch (java.io.IOException | IllegalArgumentException e) {
+            throw new IllegalStateException("Proxy wurde gewählt, aber Miner-Routen konnten nicht aktualisiert werden: " + e.getMessage(), e);
+        }
         payoutDefaultsService.invalidate();
         return true;
+    }
+
+    /** Existing miner files retain their endpoint; keep them aligned with the selected shared proxy. */
+    private void migrateMinerProxyRoutes() throws java.io.IOException {
+        xmrConfigService.updateProxyRoute(XmrDownloadService.CONFIG_PATH, proxyConfigurationService.moneroUrl());
+        pearlMinerService.updateProxyRoute(proxyConfigurationService.pearlUrl());
+        gpuCoins.updateProxyRoute("ravencoin", proxyConfigurationService.ravencoinUrl());
+        gpuCoins.updateProxyRoute("ethereumclassic", proxyConfigurationService.ethereumclassicUrl());
+        gpuCoins.updateProxyRoute("decred", proxyConfigurationService.decredUrl());
+        gpuCoins.updateProxyRoute("quantus", proxyConfigurationService.quantusUrl());
     }
 
     /**

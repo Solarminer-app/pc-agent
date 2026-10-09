@@ -247,18 +247,18 @@ public class ProxyConfigurationService {
     }
 
     public boolean miningReady(String coin) {
-        // A remote SolarMiner proxy owns its own lifecycle. Its reachability and fee route are
-        // still verified below, but it must never be held behind this agent's local-proxy gate.
-        return (!standalone || managedProxy.gateOpen()) && (!standalone || managedProxy.running()) && isReachable()
-                && (!java.util.Set.of("ravencoin", "ethereumclassic", "decred", "quantus").contains(coin) || stratumReachable(coin))
-                && (!java.util.Set.of("ravencoin", "ethereumclassic", "decred", "quantus").contains(coin) || feeReady(coin))
-                && (!standalone || feeReady(coin));
+        // A remote SolarMiner proxy owns its own lifecycle, but must prove the same listener and
+        // fee route as a managed local proxy before a miner receives its credentials.
+        return (!standalone || managedProxy.gateOpen() && managedProxy.running()) && isReachable()
+                && stratumReachable(coin) && feeReady(coin);
     }
 
     private boolean stratumReachable(String coin) {
         String currentHost = host();
         if (currentHost == null) return false;
         int port = switch (coin) {
+            case "monero" -> moneroPort;
+            case "pearl" -> pearlPort;
             case "ravencoin" -> ravenPort;
             case "ethereumclassic" -> etcPort;
             case "decred" -> decredPort;
