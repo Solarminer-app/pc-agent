@@ -122,7 +122,7 @@ public class AgentPowerController {
     public AgentControlSettingsService.Settings settings(@RequestBody AgentControlSettingsService.Settings value) {
         // Assignments go through /workers/{id}/coin so a running old assignment is stopped first.
         if (value == null || !controls.update(new AgentControlSettingsService.Settings(value.dynamicPowerScalingEnabled(),
-                value.externalControlEnabled(), value.workerExternalControl(), controls.get().workerCoins())))
+                value.externalControlEnabled(), value.workerExternalControl(), controls.get().workerCoins(), controls.get().workerCoinPolicies())))
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lokale Steuereinstellungen konnten nicht gespeichert werden");
         return controls.get();
     }
@@ -158,6 +158,16 @@ public class AgentPowerController {
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Standard konnte nicht gespeichert werden");
             return controls.get();
         }, false);
+    }
+
+    /** Local operator opt-in; an attached Node can never enable automatic coin selection itself. */
+    @PostMapping("/workers/{workerId}/coin-policy")
+    public AgentControlSettingsService.Settings workerCoinPolicy(@PathVariable String workerId, @RequestParam String policy) {
+        if (!"cpu".equals(workerId) && gpus.discover().stream().noneMatch(g -> g.deviceId().equals(workerId)))
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Gerät wurde nicht erkannt");
+        if (!controls.setWorkerCoinPolicy(workerId, policy))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Coin-Policy muss AUTO oder FIXED sein");
+        return controls.get();
     }
 
     private <T> T withControl(java.util.function.Supplier<T> command, boolean external) {

@@ -27,13 +27,16 @@ public class BenchmarkSessionService {
     private final BenchmarkSharingService sharing;
     private final MinerConsoleService consoles;
     private final LocalRunLock lock;
+    private final MiningPerformanceProfileStore performanceProfiles;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> Thread.ofPlatform().name("pc-agent-benchmark").daemon(true).unstarted(r));
     private volatile Session session = Session.idle();
     private volatile boolean cancel;
 
     public BenchmarkSessionService(MiningService mining, XmrMinerService xmr, PearlMinerService pearl,
-                                   BenchmarkSharingService sharing, MinerConsoleService consoles, LocalRunLock lock) {
+                                   BenchmarkSharingService sharing, MinerConsoleService consoles, LocalRunLock lock,
+                                   MiningPerformanceProfileStore performanceProfiles) {
         this.mining = mining; this.xmr = xmr; this.pearl = pearl; this.sharing = sharing; this.consoles = consoles; this.lock = lock;
+        this.performanceProfiles = performanceProfiles;
     }
 
     public synchronized Session start(String mode) {
@@ -189,6 +192,7 @@ public class BenchmarkSessionService {
                 error = "Could not fully restore miner state: " + Objects.toString(restoreFailure.getMessage(), "unknown error");
             }
             List<MinerStats.Worker> captured = aggregateWorkers(observations);
+            persistPerformanceProfiles(observations);
             sharing.reportManualResults(captured);
             lock.end();
             Session old = session;
@@ -256,6 +260,36 @@ public class BenchmarkSessionService {
                     w.maxPowerTarget(), watts, w.pools(), w.hardwareType(), w.hardwareModel(), w.deviceId(),
                     w.acceptedShares(), w.rejectedShares(), w.pool());
         }).toList();
+    }
+
+    private void persistPerformanceProfiles(Map<String, List<MinerStats.Worker>> observations) {
+        Instant measuredAt = Instant.now();
+        for (List<MinerStats.Worker> values : observations.values()) {
+            if (values.size() < REQUIRED_SAMPLES_PER_WORKER) continue;
+            MinerStats.Worker worker = values.getFirst();
+            String coin = coinForAlgorithm(worker.currentAlgorithm());
+            if (coin == null || worker.deviceId() == null || worker.deviceId().isBlank()) continue;
+            double[] rates = values.stream().mapToDouble(value -> value.terahashPerSecond() * 1_000_000_000_000d).sorted().toArray();
+            double hashrate = rates.length % 2 == 1 ? rates[rates.length / 2] : (rates[rates.length / 2 - 1] + rates[rates.length / 2]) / 2;
+            long watts = Math.round(values.stream().mapToLong(MinerStats.Worker::approximatedPowerUsageWatts)
+                    .filter(value -> value > 0).average().orElse(0));
+            if (!(hashrate > 0) || watts <= 0) continue;
+            performanceProfiles.save(new MiningPerformanceProfileStore.Profile(worker.deviceId(), worker.hardwareType(),
+                    worker.hardwareModel(), coin, worker.currentAlgorithm(), hashrate, watts, values.size(), measuredAt, "BENCHMARK"));
+        }
+    }
+
+    private static String coinForAlgorithm(String algorithm) {
+        if (algorithm == null) return null;
+        return switch (algorithm.toLowerCase(java.util.Locale.ROOT)) {
+            case "randomx" -> "monero";
+            case "pearlhash" -> "pearl";
+            case "kawpow" -> "ravencoin";
+            case "etchash" -> "ethereumclassic";
+            case "blake3_decred" -> "decred";
+            case "quantus" -> "quantus";
+            default -> null;
+        };
     }
     @PreDestroy public void close() { cancel = true; executor.shutdownNow(); }
 

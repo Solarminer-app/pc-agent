@@ -96,6 +96,27 @@ public class WorkerAssignmentService {
         return mining.stopExternalWorker(deviceId);
     }
 
+    /**
+     * Used only after {@link EconomicPlanningService} has validated a short-lived Node plan.
+     * It keeps the same stop/persist/device-synchronisation rules as a local reassignment.
+     */
+    synchronized boolean applyEconomicAssignment(String deviceId, String coin) {
+        Hardware hardware = hardware(deviceId);
+        if (hardware.type.equals("CPU") ? !Set.of("monero").contains(coin) : !GPU_COINS.contains(coin)) return false;
+        String oldCoin = controls.get().coinFor(deviceId);
+        if (oldCoin.equals(coin)) return true;
+        if (!mining.stopExternalWorker(deviceId)) return false;
+        if (!controls.setWorkerCoin(deviceId, coin)) return false;
+        try {
+            synchronizeConfiguredDevices(oldCoin, coin);
+            return true;
+        } catch (IOException | RuntimeException failure) {
+            controls.setWorkerCoin(deviceId, oldCoin);
+            try { synchronizeConfiguredDevices(coin, oldCoin); } catch (IOException | RuntimeException ignored) { }
+            return false;
+        }
+    }
+
     private WorkerView view(String deviceId, String type, String model, String vendor, Integer index,
                             List<MinerStats.Worker> stats) {
         String coin = controls.get().coinFor(deviceId);

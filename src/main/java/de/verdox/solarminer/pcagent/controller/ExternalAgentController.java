@@ -3,6 +3,7 @@ package de.verdox.solarminer.pcagent.controller;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.lowlevel.sensor.HardwareTelemetryService;
 import de.verdox.solarminer.pcagent.mining.NodeAssessmentService;
+import de.verdox.solarminer.pcagent.mining.EconomicPlanningService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
 import java.util.List;
@@ -26,13 +28,23 @@ public class ExternalAgentController {
     private final AgentPowerController power;
     private final TelemetryController telemetry;
     private final NodeAssessmentController assessment;
+    private final EconomicPlanningService economicPlanning;
 
+    @Autowired
     public ExternalAgentController(MiningController mining, AgentPowerController power,
-                                   TelemetryController telemetry, NodeAssessmentController assessment) {
+                                   TelemetryController telemetry, NodeAssessmentController assessment,
+                                   EconomicPlanningService economicPlanning) {
         this.mining = mining;
         this.power = power;
         this.telemetry = telemetry;
         this.assessment = assessment;
+        this.economicPlanning = economicPlanning;
+    }
+
+    /** Compatibility constructor for focused controller tests from the pre-C10 contract. */
+    ExternalAgentController(MiningController mining, AgentPowerController power,
+                            TelemetryController telemetry, NodeAssessmentController assessment) {
+        this(mining, power, telemetry, assessment, null);
     }
 
     @GetMapping("/identity")
@@ -56,6 +68,15 @@ public class ExternalAgentController {
     @GetMapping("/earnings")
     public List<de.verdox.solarminer.pcagent.mining.EarningsForecastService.Forecast> earnings() {
         return mining.earnings();
+    }
+
+    /** Versioned economic-dispatch contract; all writes remain subject to the local opt-in gate. */
+    @GetMapping("/capabilities")
+    public EconomicPlanningService.Capabilities capabilities() { return economicPlanning.capabilities(); }
+
+    @PostMapping("/economic-plan")
+    public EconomicPlanningService.PlanResult economicPlan(@RequestBody EconomicPlanningService.PlanRequest request) {
+        return economicPlanning.apply(request);
     }
 
     @PostMapping("/pause")

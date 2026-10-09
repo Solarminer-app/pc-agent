@@ -1,10 +1,26 @@
 # PC-Agent work log
 
+## 2026-10-09 — C10 economic dispatch capability and cold-start guard
+
+- Added the externally gated, versioned `GET /api/agent/external/capabilities` and `POST /api/agent/external/economic-plan` contract. It exposes only worker identity, allowed coins, fee/route readiness and optional performance observations; no wallet, pool credential or driver command crosses the Node boundary.
+- `AUTO` is a new explicit local worker coin policy. Existing and newly discovered workers remain `FIXED`; a Node cannot enable `AUTO` remotely. A plan must have a 30-second to 30-minute TTL, a locally enabled AUTO worker, a configured fee-ready route and a positive local profile.
+- Cold start fails closed: a profile is a positive live hashrate plus measured mining watts, or a stable local GPU efficiency-sweep result. Unknown candidates are reported as needing a benchmark and cannot be selected by a plan. Accepted plans restore their prior assignment/target at TTL expiry unless an operator changed it meanwhile. This prevents theoretical GPU profitability from displacing a measured ASIC/PC workload.
+- Node Core and the Node client now proxy the additive payload via `/agent/economic-capabilities` and `/agent/economic-plan`, preserving the Agent as local safety authority. The Node scheduler has not been switched to automatic economic dispatch yet; it must consume durable benchmark/sweep profiles before enabling a coin-changing planner.
+- Verification: focused `ExternalAgentControllerTest` and `WorkerAssignmentServiceTest` passed with JDK 21; Node `:compileJava :core:compileJava` passed. `git diff --check` passed.
+
+## 2026-10-09 — Manual benchmark profiles feed economic dispatch
+
+- A complete local manual benchmark now persists median H/s and measured watts under `(worker, coin, algorithm)` in `solarminer-agent/performance-profiles.json`. Incomplete, zero-power and zero-hashrate observations are deliberately omitted.
+- C10 capability output prefers a fresh persisted `BENCHMARK` profile over an efficiency sweep and uses a stable sweep as fallback. This lets a newly benchmarked CPU or GPU participate in economic planning without relying on a theoretical hardware estimate.
+- Verification: `MiningPerformanceProfileStoreTest` covers atomic persistence and case-insensitive algorithm lookup; focused PC-Agent tests remain required after the full Spring wiring change.
+
 ## 2026-10-09 — External proxy bypasses the local-proxy boot gate
 
 - Selecting an external SolarMiner proxy now immediately marks the managed-local-proxy gate ready and stops any local child. The UI therefore remains operable while the remote proxy is selected; it no longer waits for a GitHub release download or a local proxy start.
 - Mining readiness now requires the managed-proxy gate and child process only in local mode. External mode still verifies the configured remote proxy's API/listener and per-coin fee route before a miner can start.
 - `ManagedProxyHealthTest` covers both a persisted external selection and a live switch away from local mode. Verification: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test standaloneJar --no-daemon` passed.
+- Switching the shared proxy now rewrites existing XMRig, Pearl and GPU-coin routes to the selected host's per-coin Stratum endpoint, so a remote selection cannot leave miners targeting the old loopback route. Remote Monero and Pearl now also require their own advertised listener and fee target; an API-only connection is insufficient.
+- `MiningControllerValidationTest.proxySetupDoesNotDependOnOptionalWindowsSensors` verifies every migration call; `ProxyConfigurationServiceTest.remoteMoneroRequiresItsOwnListenerAndFeeTarget` covers the remote Monero gate. `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test standaloneJar --no-daemon` passed.
 
 ## 2026-10-09 — Proxy heartbeat discovery and external-host mode fix
 

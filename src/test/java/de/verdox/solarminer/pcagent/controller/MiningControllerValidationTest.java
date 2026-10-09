@@ -80,6 +80,12 @@ class MiningControllerValidationTest {
         when(sensors.readyForAgent()).thenReturn(false);
         when(proxy.configure("proxy.lan")).thenReturn(true);
         when(proxy.setMode("external")).thenReturn(true);
+        when(proxy.moneroUrl()).thenReturn("stratum+tcp://proxy.lan:3335");
+        when(proxy.pearlUrl()).thenReturn("stratum+tcp://proxy.lan:3334");
+        when(proxy.ravencoinUrl()).thenReturn("stratum+tcp://proxy.lan:3336");
+        when(proxy.ethereumclassicUrl()).thenReturn("stratum+tcp://proxy.lan:3337");
+        when(proxy.decredUrl()).thenReturn("stratum+tcp://proxy.lan:3338");
+        when(proxy.quantusUrl()).thenReturn("stratum+tcp://proxy.lan:3339");
         when(mining.pauseAll(any())).thenReturn(true);
         when(proxyDiscovery.discover()).thenReturn(java.util.List.of(
                 new ProxyDiscoveryService.ProxyCandidate("192.168.1.10", 8090, 3335, 3334,
@@ -94,6 +100,12 @@ class MiningControllerValidationTest {
 
         verify(proxy).configure("proxy.lan");
         verify(proxy).setMode("external");
+        verify(xmrConfig).updateProxyRoute(XmrDownloadService.CONFIG_PATH, "stratum+tcp://proxy.lan:3335");
+        verify(pearl).updateProxyRoute("stratum+tcp://proxy.lan:3334");
+        verify(gpuCoins).updateProxyRoute("ravencoin", "stratum+tcp://proxy.lan:3336");
+        verify(gpuCoins).updateProxyRoute("ethereumclassic", "stratum+tcp://proxy.lan:3337");
+        verify(gpuCoins).updateProxyRoute("decred", "stratum+tcp://proxy.lan:3338");
+        verify(gpuCoins).updateProxyRoute("quantus", "stratum+tcp://proxy.lan:3339");
         verify(proxyDiscovery).discover();
     }
 

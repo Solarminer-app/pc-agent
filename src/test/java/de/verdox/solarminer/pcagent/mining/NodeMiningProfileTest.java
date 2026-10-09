@@ -55,6 +55,17 @@ class NodeMiningProfileTest {
         assertFalse(controls.setWorkerCoin("GPU-a", "monero"));
     }
 
+    @Test void economicCoinSelectionRequiresAndPersistsExplicitLocalOptIn() {
+        var controls = controls();
+        assertEquals("FIXED", controls.get().coinPolicyFor("GPU-a"));
+        assertFalse(controls.get().permitsEconomicSelection("GPU-a"));
+        assertTrue(controls.setWorkerCoin("GPU-a", "ravencoin"));
+        assertTrue(controls.setWorkerCoinPolicy("GPU-a", "AUTO"));
+        assertTrue(controls().get().permitsEconomicSelection("GPU-a"));
+        assertTrue(controls.setWorkerCoinPolicy("GPU-a", "FIXED"));
+        assertEquals("FIXED", controls().get().coinPolicyFor("GPU-a"));
+    }
+
     @Test void nodeStartsAssignedCoinsRegardlessOfCurrentlyViewedOrPreferredCoin() {
         var controls = controls(); controls.setWorkerCoin("cpu", "none"); controls.setWorkerCoin("GPU-a", "ravencoin");
         var cpu = mock(XmrMinerService.class); var pearl = mock(PearlMinerService.class);
