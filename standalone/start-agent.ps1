@@ -19,8 +19,9 @@ function Test-DefenderExclusion([string]$path) {
 
 function Invoke-FirstStartBootstrap {
     $marker = Join-Path $installDir 'bootstrap-reviewed.txt'
-    if ((Test-Path -LiteralPath $marker) -and -not $Bootstrap) { return }
-    Write-Host "`nSolarMiner first-start checks / SolarMiner Erststartprüfung"
+    $firstReview = -not (Test-Path -LiteralPath $marker)
+    $runReason = if ($Bootstrap) { 'manual request / manuelle Anforderung' } else { 'automatic start / automatischer Start' }
+    Write-Host "`nSolarMiner startup checks / SolarMiner Startprüfung ($runReason)"
     $probe = Join-Path $installDir ('write-probe-' + [guid]::NewGuid().ToString('N'))
     try {
         [System.IO.File]::WriteAllText($probe, 'ok')
@@ -56,7 +57,11 @@ function Invoke-FirstStartBootstrap {
         }
     } else { Write-Host 'Windows Defender cmdlets unavailable / Windows-Defender-Befehle nicht verfügbar. Check security software manually / Sicherheitssoftware manuell prüfen.' }
     [System.IO.File]::WriteAllText($marker, [DateTime]::UtcNow.ToString('o'))
-    Write-Host 'First-start checks complete / Erststartprüfung abgeschlossen. Re-run with -Bootstrap / Mit -Bootstrap erneut prüfen.'
+    if ($firstReview) {
+        Write-Host 'Initial startup checks complete / Erste Startprüfung abgeschlossen. Checks run automatically on every start / Prüfungen laufen bei jedem Start automatisch.'
+    } else {
+        Write-Host 'Startup checks complete / Startprüfung abgeschlossen.'
+    }
 }
 
 Invoke-FirstStartBootstrap
