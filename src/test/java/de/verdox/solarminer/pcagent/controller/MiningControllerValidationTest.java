@@ -46,6 +46,7 @@ class MiningControllerValidationTest {
     private final GpuCoinMinerService gpuCoins = mock(GpuCoinMinerService.class);
     private final XmrConfigService xmrConfig = mock(XmrConfigService.class);
     private final ProxyConfigurationService proxy = mock(ProxyConfigurationService.class);
+    private final ProxyDiscoveryService proxyDiscovery = mock(ProxyDiscoveryService.class);
     private final PayoutDefaultsService payouts = mock(PayoutDefaultsService.class);
     private final XmrMinerService cpu = mock(XmrMinerService.class);
     private final LocalGpuPowerService gpuPower = mock(LocalGpuPowerService.class);
@@ -68,10 +69,32 @@ class MiningControllerValidationTest {
     private MockMvc controller() {
         return standaloneSetup(new MiningController(mining, xmrConfig, pearl, gpuCoins,
                 gpuPower, cpu, proxy, mock(SrbDownloadService.class),
-                mock(XmrDownloadService.class), sensors, mock(ProxyDiscoveryService.class),
+                mock(XmrDownloadService.class), sensors, proxyDiscovery,
                 earnings, payouts, mock(ReferralConfigurationService.class),
                 mock(FeeTransparencyService.class), mock(WalletBalanceService.class),
                 mock(WindowsDefenderExclusionService.class), minerCatalog, localRuns)).build();
+    }
+
+    @Test
+    void proxySetupDoesNotDependOnOptionalWindowsSensors() throws Exception {
+        when(sensors.readyForAgent()).thenReturn(false);
+        when(proxy.configure("proxy.lan")).thenReturn(true);
+        when(proxy.setMode("external")).thenReturn(true);
+        when(mining.pauseAll(any())).thenReturn(true);
+        when(proxyDiscovery.discover()).thenReturn(java.util.List.of(
+                new ProxyDiscoveryService.ProxyCandidate("192.168.1.10", 8090, 3335, 3334,
+                        java.util.Map.of("monero", 3335))));
+
+        controller().perform(post("/api/agent/local/proxy").param("host", "proxy.lan"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").value(true));
+        controller().perform(post("/api/agent/local/proxy/mode").param("mode", "external"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").value(true));
+        controller().perform(post("/api/agent/local/proxy/discover"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].host").value("192.168.1.10"));
+
+        verify(proxy).configure("proxy.lan");
+        verify(proxy).setMode("external");
+        verify(proxyDiscovery).discover();
     }
 
     @Test

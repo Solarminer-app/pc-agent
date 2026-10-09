@@ -88,11 +88,15 @@ class ProxyConfigurationServiceTest {
         ProxyConfigurationService proxy = proxy(file, true);
         assertTrue(proxy.standalone());
 
+        assertTrue(proxy.configure("proxy.lan"));
+        assertEquals("127.0.0.1", proxy.host(), "local mode must keep using its loopback proxy");
         assertTrue(proxy.setMode("external"));
         assertFalse(proxy.standalone());
+        assertEquals("proxy.lan", proxy.host());
 
         ProxyConfigurationService reloaded = proxy(file, true);
         assertFalse(reloaded.standalone());
+        assertEquals("proxy.lan", reloaded.host());
     }
 
     @Test

@@ -76,7 +76,7 @@ if (-not (Test-Path -LiteralPath $javaExe)) {
 Write-Host 'Starting SolarMiner PC-Agent beta. Open http://127.0.0.1:8084/ in your browser.'
 Push-Location $installDir
 try {
-    & $javaExe -jar $jarPath '--solarminer.agent.standalone=true'
+    & $javaExe -jar $jarPath '--solarminer.agent.standalone=true' '--server.address=0.0.0.0'
     if ($LASTEXITCODE -ne 0) { throw "PC-Agent beta exited with code $LASTEXITCODE." }
 } finally {
     Pop-Location

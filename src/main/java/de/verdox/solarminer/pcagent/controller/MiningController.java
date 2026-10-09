@@ -150,7 +150,6 @@ public class MiningController {
 
     @PostMapping("/proxy")
     public boolean configureProxy(@RequestParam String host) {
-        if (!lhmBootstrapService.readyForAgent()) return false;
         if (host.equals(proxyConfigurationService.host())) return true;
         if (!proxyConfigurationService.configure(host)) return false;
         payoutDefaultsService.invalidate();
@@ -159,7 +158,6 @@ public class MiningController {
 
     @PostMapping("/proxy/mode")
     public boolean configureProxyMode(@RequestParam String mode) {
-        if (!lhmBootstrapService.readyForAgent()) return false;
         if (!"local".equals(mode) && !"external".equals(mode)) return false;
         if (!miningService.pauseAll("Proxy mode was configured")) return false;
         if (!proxyConfigurationService.setMode(mode)) return false;
@@ -174,7 +172,6 @@ public class MiningController {
      */
     @PostMapping("/proxy/roll-mode")
     public boolean configureProxyRollMode(@RequestParam String mode) {
-        if (!lhmBootstrapService.readyForAgent()) return false;
         if (!"random".equals(mode) && !"stateful".equals(mode)) return false;
         if (!miningService.pauseAll("Fee roll mode was configured")) return false;
         return proxyConfigurationService.setRollMode(mode);
@@ -182,7 +179,6 @@ public class MiningController {
 
     @PostMapping("/proxy/discover")
     public List<ProxyDiscoveryService.ProxyCandidate> discoverProxy() throws java.io.IOException {
-        if (!lhmBootstrapService.readyForAgent()) return List.of();
         return proxyDiscoveryService.discover();
     }
 

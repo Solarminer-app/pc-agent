@@ -1,5 +1,13 @@
 # PC-Agent work log
 
+## 2026-10-09 — Proxy heartbeat discovery and external-host mode fix
+
+- Root cause for known addresses: `ProxyConfigurationService.configure` rejected every host while local proxy mode was active, although the UI must save the external host before switching modes. Saving is now allowed without changing the active loopback route; `setMode("external")` activates the saved host afterward.
+- A second Windows-only blocker coupled proxy discovery/configuration to optional LibreHardwareMonitor readiness. Proxy search, host/mode selection and fee-roll selection no longer require the sensor helper; mining and power operations retain their own safety gates.
+- Discovery now listens for the proxy's versioned heartbeat on UDP 8092 and sends the existing `SOLARMINER_PROXY_DISCOVER_V1` query to UDP 8091 from the same socket as a backward-compatible fallback. Candidate service/version/ports and the HTTP API are still verified before display.
+- The standard container publishes `8092/udp`; its old `8091/udp` mapping was ineffective and conflicted with the proxy-owned query port. TCP 8084 remains the Node control/identity port. Native launchers now bind it explicitly to `0.0.0.0`; Windows operators still have to permit the Java/8084 listener on the Private firewall profile.
+- Verification: full `gradle test --offline` passed under JDK 21 after adding the sensor-decoupling regression (10 seconds on the final incremental run). No two-host LAN or Windows Firewall test was available.
+
 ## 2026-10-08 — Post-benchmark one-time share prompt
 
 - After a manual benchmark finishes while periodic benchmark sharing is OFF, `/benchmarks.html`

@@ -68,9 +68,12 @@ current PearlHash support matrix lists AMD and NVIDIA, not Intel. A verified
 Intel PearlHash miner and end-to-end pool test are required before enabling
 that route.
 
-The agent UI on port `8084` must not be exposed to the public internet. When
-using an external proxy, enter its LAN host/IP in the UI; Docker bridge networks
-do not forward LAN UDP discovery broadcasts. The retained
+The agent UI on port `8084` must not be exposed to the public internet. External
+proxy discovery receives the proxy heartbeat through the published UDP port
+`8092` and retains the UDP `8091` request fallback for older proxies. If the
+host firewall or Docker installation does not forward LAN broadcasts, enter the
+proxy's LAN host/IP directly; switching from local mode preserves and activates
+that address. The retained
 `docker-compose.pc-agent.standalone.yml` is a host-network compatibility
 profile for existing deployments; it uses the same image and the same UI mode
 selection.

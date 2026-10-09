@@ -96,7 +96,6 @@ public class ProxyConfigurationService {
     public String rollMode() { return rollMode; }
 
     public synchronized boolean configure(String nextHost) {
-        if (standalone) return false;
         if (!validHost(nextHost)) return false;
         try {
             Files.createDirectories(configFile.getParent());
