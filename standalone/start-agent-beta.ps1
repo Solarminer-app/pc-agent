@@ -1,3 +1,4 @@
+param([switch]$Bootstrap)
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -5,6 +6,60 @@ $installDir = Join-Path $env:LOCALAPPDATA 'SolarMiner\PC-Agent-Beta'
 $runtimeDir = Join-Path $installDir 'runtime'
 $jarPath = Join-Path $installDir 'solarminer-pc-agent-standalone.jar'
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+
+function Test-DefenderExclusion([string]$path) {
+    try {
+        $preferences = Get-MpPreference -ErrorAction Stop
+        return [bool](@($preferences.ExclusionPath) | Where-Object { $_ -and $_.TrimEnd('\\') -ieq $path.TrimEnd('\\') })
+    } catch {
+        Write-Host "Defender status unavailable / Defender-Status nicht verfügbar: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Invoke-FirstStartBootstrap {
+    $marker = Join-Path $installDir 'bootstrap-reviewed.txt'
+    if ((Test-Path -LiteralPath $marker) -and -not $Bootstrap) { return }
+    Write-Host "`nSolarMiner beta first-start checks / SolarMiner Beta-Erststartprüfung"
+    $probe = Join-Path $installDir ('write-probe-' + [guid]::NewGuid().ToString('N'))
+    try {
+        [System.IO.File]::WriteAllText($probe, 'ok')
+        Write-Host 'Install folder writable / Installationsordner beschreibbar'
+    } finally { Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $probe }
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    $administrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    Write-Host "Administrator token for GPU power limits / Administratorrechte für GPU-Leistungsgrenzen: $administrator"
+    $nvidia = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
+    Write-Host "NVIDIA driver tool / NVIDIA-Treiberwerkzeug: $(if ($nvidia) { 'available / verfügbar' } else { 'not found / nicht vorhanden; normal ohne NVIDIA-GPU' })"
+    Write-Host 'AMD Windows power-limit writes require a supported ADLX helper / AMD-Leistungsgrenzen unter Windows benötigen einen unterstützten ADLX-Helfer.'
+    $defender = Get-Command Get-MpPreference -ErrorAction SilentlyContinue
+    if ($defender) {
+        if (Test-DefenderExclusion $installDir) {
+            Write-Host 'Defender exclusion verified / Defender-Ausnahme für diesen Installationsordner bestätigt.'
+        } else {
+            Write-Host "Defender exclusion missing / Defender-Ausnahme fehlt für: $installDir"
+            Write-Host 'An exclusion reduces scanning of all files here, including miners / Eine Ausnahme verringert die Prüfung aller Dateien hier, einschließlich Miner.'
+            $choice = Read-Host 'Add this folder as a Defender exclusion with UAC? / Ordner per UAC als Defender-Ausnahme hinzufügen? [y/N]'
+            if ($choice -match '^(y|yes|j|ja)$') {
+                try {
+                    $escaped = $installDir.Replace("'", "''")
+                    $command = "`$ErrorActionPreference='Stop'; Add-MpPreference -ExclusionPath '$escaped'"
+                    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+                    $arguments = '-NoProfile -NonInteractive -EncodedCommand ' + $encoded
+                    $process = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -Wait -PassThru
+                    if ($process.ExitCode -ne 0 -or -not (Test-DefenderExclusion $installDir)) {
+                        Write-Warning 'Defender did not confirm the exclusion / Defender hat die Ausnahme nicht bestätigt. Review Windows Security policies and Protection history / Windows-Sicherheitsrichtlinien und Schutzverlauf prüfen.'
+                    } else { Write-Host 'Defender exclusion verified / Defender-Ausnahme bestätigt.' }
+                } catch { Write-Warning "Defender approval failed or was declined / Defender-Freigabe fehlgeschlagen oder abgelehnt: $($_.Exception.Message)" }
+            }
+        }
+    } else { Write-Host 'Windows Defender cmdlets unavailable / Windows-Defender-Befehle nicht verfügbar. Check security software manually / Sicherheitssoftware manuell prüfen.' }
+    [System.IO.File]::WriteAllText($marker, [DateTime]::UtcNow.ToString('o'))
+    Write-Host 'Beta first-start checks complete / Beta-Erststartprüfung abgeschlossen. Re-run with -Bootstrap / Mit -Bootstrap erneut prüfen.'
+}
+
+Invoke-FirstStartBootstrap
 
 Write-Host 'Checking for the latest SolarMiner PC-Agent beta...'
 $headers = @{ 'User-Agent' = 'SolarMiner-PC-Agent-Beta-Launcher' }
