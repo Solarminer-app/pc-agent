@@ -18,9 +18,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 /**
  * Power-cap efficiency sweep: for every configured GPU miner (coin × GPU) the agent walks the
@@ -259,57 +260,12 @@ public class EfficiencySweepService {
             throw new IllegalStateException("Nicht alle GPU-Power-Caps konnten vor dem Test sicher gelesen werden");
 
         List<GpuEfficiencyStore.Profile> produced = new ArrayList<>();
-        Map<String, GpuEfficiencyStore.Profile> referenceProfiles = new LinkedHashMap<>();
         String error = null;
         try {
-            for (List<List<Target>> batch : referenceBatches) {
-                if (cancel) break;
-                try (ExecutorService parallel = Executors.newVirtualThreadPerTaskExecutor()) {
-                    List<Future<GpuEfficiencyStore.Profile>> references = new ArrayList<>();
-                    for (List<Target> group : batch) {
-                        Target reference = group.getFirst();
-                        references.add(parallel.submit(() -> sweepTarget(reference, null, true, "FULL")));
-                    }
-                    for (int index = 0; index < references.size(); index++) {
-                        GpuEfficiencyStore.Profile profile = references.get(index).get();
-                        if (profile != null) {
-                            produced.add(profile);
-                            referenceProfiles.put(cohortKey(batch.get(index).getFirst()), profile);
-                        }
-                    }
-                }
-            }
-            for (List<Target> group : cohorts) {
-                Target reference = group.getFirst();
-                List<Target> siblings = group.subList(1, group.size());
-                if (siblings.isEmpty()) continue;
-                if (cancel) {
-                    for (Target sibling : siblings) finishRun(sibling, "CANCELLED", "Abgebrochen");
-                    break;
-                }
-                GpuEfficiencyStore.Profile referenceProfile = referenceProfiles.get(cohortKey(reference));
-                if (referenceProfile == null || referenceProfile.bestStableWatts() == null) {
-                    for (Target sibling : siblings)
-                        finishRun(sibling, "SKIPPED", "Referenzkarte lieferte keinen stabilen Ausgangswert");
-                    continue;
-                }
-                applyOverride(reference);
-                try (ExecutorService parallel = Executors.newVirtualThreadPerTaskExecutor()) {
-                    List<Future<GpuEfficiencyStore.Profile>> validations = new ArrayList<>();
-                    for (Target sibling : siblings) {
-                        List<Integer> candidates = validationLimits(referenceProfile.bestStableWatts(),
-                                sibling.gpu().minWatts(), activeLimit(sibling.gpu()), stepWatts);
-                        setPlannedLimits(sibling, candidates, "VALIDATION", "Wartet auf parallele Validierung");
-                        validations.add(parallel.submit(() -> sweepTarget(sibling, candidates, false, "VALIDATION")));
-                    }
-                    for (Future<GpuEfficiencyStore.Profile> validation : validations) {
-                        GpuEfficiencyStore.Profile profile = validation.get();
-                        if (profile != null) produced.add(profile);
-                    }
-                } finally {
-                    clearOverride(reference);
-                }
-            }
+            // Overrides are session-scoped. Keeping them until restoration avoids one parallel
+            // run clearing a shared coin override while a sibling still needs to restart.
+            for (Target target : targets) applyOverride(target);
+            executeTasks(referenceBatches, cohorts, produced);
         } catch (Exception e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             error = Objects.toString(e.getMessage(), "Sweep failed");
@@ -350,12 +306,88 @@ public class EfficiencySweepService {
         }
     }
 
+    /**
+     * Runs a dependency-aware queue. References of other coins fill GPUs whose same-coin
+     * validation is still blocked; as soon as a reference completes, its sibling validations
+     * become the preferred work for every matching device that becomes free.
+     */
+    private void executeTasks(List<List<List<Target>>> referenceBatches, List<List<Target>> cohorts,
+                              List<GpuEfficiencyStore.Profile> produced) throws Exception {
+        Map<String, List<Target>> siblingsByCohort = new LinkedHashMap<>();
+        for (List<Target> cohort : cohorts)
+            siblingsByCohort.put(cohortKey(cohort.getFirst()), List.copyOf(cohort.subList(1, cohort.size())));
+        List<SweepTask> pendingReferences = referenceBatches.stream().flatMap(List::stream)
+                .map(group -> new SweepTask(group.getFirst(), cohortKey(group.getFirst()), "FULL", null)).toList();
+        pendingReferences = new ArrayList<>(pendingReferences);
+        List<SweepTask> readyValidations = new ArrayList<>();
+        Set<String> busyDevices = new HashSet<>();
+        int active = 0;
+        try (ExecutorService parallel = Executors.newVirtualThreadPerTaskExecutor()) {
+            CompletionService<SweepTaskResult> completed = new ExecutorCompletionService<>(parallel);
+            while (active > 0 || (!cancel && (!pendingReferences.isEmpty() || !readyValidations.isEmpty()))) {
+                if (!cancel) {
+                    SweepTask task;
+                    while ((task = takeRunnable(readyValidations, pendingReferences, busyDevices)) != null) {
+                        SweepTask selected = task;
+                        busyDevices.add(selected.target().gpu().deviceId());
+                        completed.submit(() -> new SweepTaskResult(selected,
+                                sweepTarget(selected.target(), selected.limits(), selected.mode())));
+                        active++;
+                    }
+                }
+                if (active == 0) break;
+                SweepTaskResult result;
+                try {
+                    result = completed.take().get();
+                } catch (Exception e) {
+                    cancel = true;
+                    throw e;
+                }
+                active--;
+                busyDevices.remove(result.task().target().gpu().deviceId());
+                if (result.profile() != null) produced.add(result.profile());
+                if (!result.task().mode().equals("FULL")) continue;
+                List<Target> siblings = siblingsByCohort.getOrDefault(result.task().cohort(), List.of());
+                if (cancel) {
+                    for (Target sibling : siblings) finishRun(sibling, "CANCELLED", "Abgebrochen");
+                } else if (result.profile() == null || result.profile().bestStableWatts() == null) {
+                    for (Target sibling : siblings)
+                        finishRun(sibling, "SKIPPED", "Referenzkarte lieferte keinen stabilen Ausgangswert");
+                } else {
+                    for (Target sibling : siblings) {
+                        List<Integer> candidates = validationLimits(result.profile().bestStableWatts(),
+                                sibling.gpu().minWatts(), activeLimit(sibling.gpu()), stepWatts);
+                        setPlannedLimits(sibling, candidates, "VALIDATION",
+                                "Referenz fertig; wartet auf freie GPU");
+                        readyValidations.add(new SweepTask(sibling, result.task().cohort(), "VALIDATION", candidates));
+                    }
+                }
+            }
+        }
+    }
+
+    /** Prefer unlocked same-cohort validation work, then use an idle card for another coin. */
+    static SweepTask takeRunnable(List<SweepTask> readyValidations, List<SweepTask> pendingReferences,
+                                  Set<String> busyDevices) {
+        SweepTask task = removeFirstRunnable(readyValidations, busyDevices);
+        return task != null ? task : removeFirstRunnable(pendingReferences, busyDevices);
+    }
+
+    private static SweepTask removeFirstRunnable(List<SweepTask> tasks, Set<String> busyDevices) {
+        for (Iterator<SweepTask> iterator = tasks.iterator(); iterator.hasNext(); ) {
+            SweepTask candidate = iterator.next();
+            if (busyDevices.contains(candidate.target().gpu().deviceId())) continue;
+            iterator.remove();
+            return candidate;
+        }
+        return null;
+    }
+
     private GpuEfficiencyStore.Profile sweepTarget(Target target, List<Integer> requestedLimits,
-                                                   boolean manageOverride, String mode) {
+                                                   String mode) {
         String label = target.gpu().model() + " · " + target.algorithm();
         // Only one miner per physical GPU: stop every other coin on this card first.
         if (!stopAllOn(target.gpu())) throw new IllegalStateException("Andere Miner auf " + target.gpu().model() + " konnten nicht angehalten werden");
-        if (manageOverride) applyOverride(target);
         LocalGpuPowerService.Gpu fresh = power.refresh().stream()
                 .filter(gpu -> gpu.deviceId().equals(target.gpu().deviceId())).findFirst()
                 .orElseThrow(() -> new IllegalStateException("GPU wurde während des Tests getrennt"));
@@ -402,7 +434,6 @@ public class EfficiencySweepService {
             sweepLog(target, label + ": kein stabiler Undervolt-Wert gefunden");
             finishRun(target, cancel ? "CANCELLED" : "FAILED", cancel ? "Abgebrochen" : "Kein stabiler Wert gefunden");
         }
-        if (manageOverride) clearOverride(target);
         return profile;
     }
 
@@ -694,6 +725,12 @@ public class EfficiencySweepService {
 
     /** Ephemeral fee-backend configuration for a coin the operator never configured. */
     record ConfigOverride(PearlMinerService.Config pearl, GpuCoinMinerService.Config gpuCoin) {
+    }
+
+    record SweepTask(Target target, String cohort, String mode, List<Integer> limits) {
+    }
+
+    private record SweepTaskResult(SweepTask task, GpuEfficiencyStore.Profile profile) {
     }
 
     public record RunStatus(String id, String deviceId, String model, String coin, String algorithm,

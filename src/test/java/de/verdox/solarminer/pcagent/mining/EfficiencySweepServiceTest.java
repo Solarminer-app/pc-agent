@@ -8,6 +8,8 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EfficiencySweepServiceTest {
@@ -94,6 +96,35 @@ class EfficiencySweepServiceTest {
     }
 
     @Test
+    void schedulerPrefersUnlockedSameCoinValidationBeforeAnotherReference() {
+        var validation = task(targetForCoin("one", "pearl", "PearlHash"), "VALIDATION");
+        var otherCoin = task(targetForCoin("two", "ravencoin", "KAWPOW"), "FULL");
+        List<EfficiencySweepService.SweepTask> validations = new java.util.ArrayList<>(List.of(validation));
+        List<EfficiencySweepService.SweepTask> references = new java.util.ArrayList<>(List.of(otherCoin));
+
+        var selected = EfficiencySweepService.takeRunnable(validations, references, Set.of());
+
+        assertSame(validation, selected);
+        assertTrue(validations.isEmpty());
+        assertEquals(List.of(otherCoin), references);
+    }
+
+    @Test
+    void schedulerUsesOtherCoinWorkWhileValidationDeviceIsBusy() {
+        var blockedValidation = task(targetForCoin("one", "pearl", "PearlHash"), "VALIDATION");
+        var otherCoin = task(targetForCoin("two", "ravencoin", "KAWPOW"), "FULL");
+        List<EfficiencySweepService.SweepTask> validations = new java.util.ArrayList<>(List.of(blockedValidation));
+        List<EfficiencySweepService.SweepTask> references = new java.util.ArrayList<>(List.of(otherCoin));
+
+        var selected = EfficiencySweepService.takeRunnable(validations, references, Set.of("one"));
+
+        assertSame(otherCoin, selected);
+        assertEquals(List.of(blockedValidation), validations);
+        assertTrue(references.isEmpty());
+        assertNull(EfficiencySweepService.takeRunnable(validations, references, Set.of("one")));
+    }
+
+    @Test
     void storeKeySeparatesDevicesAndAlgorithms() {
         assertEquals("GPU-abc|kawpow", GpuEfficiencyStore.key("GPU-abc", "kawpow"));
     }
@@ -145,5 +176,9 @@ class EfficiencySweepServiceTest {
                 "NVIDIA", id.equals("one") ? 0 : 1, id, "TITAN RTX", 100, 320, 100, 320,
                 320, 25.0, "measured", true, null);
         return new EfficiencySweepService.Target(coin, algorithm, gpu, null);
+    }
+
+    private static EfficiencySweepService.SweepTask task(EfficiencySweepService.Target target, String mode) {
+        return new EfficiencySweepService.SweepTask(target, target.coin() + "|" + target.algorithm(), mode, null);
     }
 }
