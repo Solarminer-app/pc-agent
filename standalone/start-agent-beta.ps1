@@ -50,6 +50,10 @@ function Invoke-FirstStartBootstrap {
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     $administrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     Write-StartupItem "Administrator token for GPU power limits: $administrator"
+    if (-not $administrator) {
+        Write-StartupAction 'Administrator rights are required. Close this window, then start the launcher with Run as administrator.'
+        throw 'SolarMiner PC-Agent Beta requires Administrator rights to start.'
+    }
     $nvidia = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
     $nvidiaStatus = if ($nvidia) { 'available' } else { 'not found; normal without an NVIDIA GPU' }
     Write-StartupItem "NVIDIA driver tool: $nvidiaStatus"
