@@ -10,7 +10,7 @@ New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 function Test-DefenderExclusion([string]$path) {
     try {
         $preferences = Get-MpPreference -ErrorAction Stop
-        return [bool](@($preferences.ExclusionPath) | Where-Object { $_ -and $_.TrimEnd('\\') -ieq $path.TrimEnd('\\') })
+        return [bool](@($preferences.ExclusionPath) | Where-Object { $_ -and $_.TrimEnd('\') -ieq $path.TrimEnd('\') })
     } catch {
         Write-Host "Defender status unavailable / Defender-Status nicht verfügbar: $($_.Exception.Message)"
         return $false
@@ -19,8 +19,9 @@ function Test-DefenderExclusion([string]$path) {
 
 function Invoke-FirstStartBootstrap {
     $marker = Join-Path $installDir 'bootstrap-reviewed.txt'
-    if ((Test-Path -LiteralPath $marker) -and -not $Bootstrap) { return }
-    Write-Host "`nSolarMiner beta first-start checks / SolarMiner Beta-Erststartprüfung"
+    $firstReview = -not (Test-Path -LiteralPath $marker)
+    $runReason = if ($Bootstrap) { 'manual request / manuelle Anforderung' } else { 'automatic start / automatischer Start' }
+    Write-Host "`nSolarMiner beta startup checks / SolarMiner Beta-Startprüfung ($runReason)"
     $probe = Join-Path $installDir ('write-probe-' + [guid]::NewGuid().ToString('N'))
     try {
         [System.IO.File]::WriteAllText($probe, 'ok')
@@ -56,7 +57,11 @@ function Invoke-FirstStartBootstrap {
         }
     } else { Write-Host 'Windows Defender cmdlets unavailable / Windows-Defender-Befehle nicht verfügbar. Check security software manually / Sicherheitssoftware manuell prüfen.' }
     [System.IO.File]::WriteAllText($marker, [DateTime]::UtcNow.ToString('o'))
-    Write-Host 'Beta first-start checks complete / Beta-Erststartprüfung abgeschlossen. Re-run with -Bootstrap / Mit -Bootstrap erneut prüfen.'
+    if ($firstReview) {
+        Write-Host 'Initial beta startup checks complete / Erste Beta-Startprüfung abgeschlossen. Checks run automatically on every start / Prüfungen laufen bei jedem Start automatisch.'
+    } else {
+        Write-Host 'Beta startup checks complete / Beta-Startprüfung abgeschlossen.'
+    }
 }
 
 Invoke-FirstStartBootstrap
