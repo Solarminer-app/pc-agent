@@ -224,34 +224,78 @@ async function pollSweep() {
         const response = await fetch('/api/agent/local/efficiency', {cache: 'no-store'});
         if (!response.ok) return;
         const state = await response.json();
-        $('sweep-state').textContent = state.running ? (state.phase || 'Läuft') : (state.phase === 'Idle' ? 'Bereit' : state.phase || 'Bereit');
+        $('sweep-state').textContent = state.running ? t('Läuft') : (state.phase === 'Idle' ? t('Bereit') : state.phase || t('Bereit'));
         $('sweep-cancel').hidden = !state.running;
         $('sweep-progress-wrap').hidden = !state.running;
         $('run-sweep').disabled = state.running || actionBusy;
         if (state.running) {
-            $('sweep-phase').textContent = `${state.phase} · Schritt ${state.phaseIndex}/${state.phaseCount}`;
-            const count = state.phase.match(/·\s*(\d+)\/(\d+)\s*Messpunkte/);
-            if (count) {
-                $('sweep-progress').max = Number(count[2]);
-                $('sweep-progress').value = Number(count[1]);
-            } else $('sweep-progress').removeAttribute('value');
+            $('sweep-phase').textContent = t('{done}/{total} Geräte abgeschlossen · {phase}',
+                {done: state.phaseIndex, total: state.phaseCount, phase: state.phase});
+            $('sweep-progress').max = Math.max(1, state.phaseCount);
+            $('sweep-progress').value = state.phaseIndex;
+            $('sweep-remaining').textContent = state.secondsRemaining == null
+                ? t('ETA wird berechnet …') : t('Ungefähre Restzeit: {time}', {time: formatDuration(state.secondsRemaining)});
         }
-        if (state.running && state.results?.length) await renderProfiles(state.results);
-        else if (!state.running) await renderProfiles(null);
+        renderSweepRuns(state.runs || []);
+        await renderProfiles();
     } catch (e) {
         // The benchmark page stays usable when the sweep status request fails.
     }
 }
 
 let lastProfileSignature = null;
+let lastSweepRunSignature = null;
 
-async function renderProfiles(fromSession) {
+function formatDuration(seconds) {
+    const value = Math.max(0, Math.round(Number(seconds) || 0));
+    const hours = Math.floor(value / 3600);
+    const minutes = Math.floor((value % 3600) / 60);
+    const rest = value % 60;
+    if (hours) return `${hours} h ${minutes} min`;
+    if (minutes) return `${minutes} min ${rest} s`;
+    return `${rest} s`;
+}
+
+function renderSweepRuns(runs) {
+    const signature = JSON.stringify(runs);
+    if (signature === lastSweepRunSignature) return;
+    lastSweepRunSignature = signature;
+    const root = $('sweep-runs');
+    root.hidden = !runs.length;
+    root.replaceChildren();
+    if (!runs.length) return;
+    const statusLabel = {QUEUED: 'Geplant', RUNNING: 'Läuft', COMPLETE: 'Fertig', FAILED: 'Fehlgeschlagen', SKIPPED: 'Übersprungen', CANCELLED: 'Abgebrochen'};
+    for (const run of runs) {
+        const card = make('article', 'worker-card');
+        const info = make('div', '');
+        info.append(make('strong', '', `${run.model} · ${run.algorithm}`),
+            make('p', 'muted', `${run.coin} · ${t(run.mode === 'FULL' ? 'Referenzkurve' : 'Parallele Gerätevalidierung')} · ${run.deviceId}`));
+        const tag = make('span', 'tag', t(statusLabel[run.status] || run.status));
+        if (run.detail) info.append(make('p', '', run.detail));
+        if (run.status === 'RUNNING') {
+            info.append(make('p', 'muted', t('{watts} W · {samples}/{required} Messpunkte',
+                {watts: run.limitWatts ?? '—', samples: run.samples, required: run.samplesRequired})));
+        }
+        const completed = new Map((run.steps || []).map(step => [step.limitWatts, step]));
+        const plan = (run.plannedLimits || []).map(limit => {
+            const step = completed.get(limit);
+            if (!step) return `${limit} W ○`;
+            const measurement = step.medianHashrateHs ? ` · ${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W` : '';
+            return `${limit} W ${step.stable ? '✓' : '✗'}${measurement}`;
+        }).join('  ·  ');
+        if (plan) info.append(make('p', 'muted', plan));
+        card.append(info, tag);
+        root.append(card);
+    }
+}
+
+async function renderProfiles() {
     try {
         const response = await fetch('/api/agent/local/efficiency/profiles', {cache: 'no-store'});
         if (!response.ok) return;
         const profiles = await response.json();
         const signature = JSON.stringify(profiles);
-        if (signature === lastProfileSignature && !fromSession) return;
+        if (signature === lastProfileSignature) return;
         lastProfileSignature = signature;
         const root = $('sweep-results');
         root.replaceChildren();

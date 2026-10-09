@@ -4,14 +4,35 @@ import de.verdox.solarminer.pcagent.mining.EfficiencySweepService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
+import java.util.List;
+
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 class EfficiencySweepControllerTest {
+    @Test
+    void statusExposesQueueLiveSamplesAndEta() throws Exception {
+        EfficiencySweepService sweep = mock(EfficiencySweepService.class);
+        var run = new EfficiencySweepService.RunStatus("gpu|pearl", "GPU-one", "TITAN RTX", "pearl",
+                "PearlHash", "FULL", "RUNNING", 170, List.of(200, 185, 170), List.of(), 4, 12,
+                "TITAN RTX · PearlHash · 170 W");
+        when(sweep.status()).thenReturn(new EfficiencySweepService.Session(true, "170 W", Instant.now(),
+                0, 2, List.of(), List.of(run), 240L));
+        MockMvc api = standaloneSetup(new EfficiencySweepController(sweep)).build();
+
+        api.perform(get("/api/agent/local/efficiency"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.secondsRemaining").value(240))
+                .andExpect(jsonPath("$.runs[0].plannedLimits[1]").value(185))
+                .andExpect(jsonPath("$.runs[0].samples").value(4));
+    }
+
     @Test
     void rejectedStartReturnsTheActionableReasonToTheDashboard() throws Exception {
         EfficiencySweepService sweep = mock(EfficiencySweepService.class);

@@ -47,6 +47,15 @@ For NVIDIA add the NVIDIA overlay after installing NVIDIA Container Toolkit:
 docker compose -f docker-compose.pc-agent.yml -f docker-compose.pc-agent.nvidia.yml up -d
 ```
 
+The Agent downloads the signed Stratum-proxy release from GitHub on first use.
+If the container log ends in `UnresolvedAddressException` while resolving
+`api.github.com`, the Agent HTTP server is running but Docker DNS is not. Verify
+it with `docker exec solarminer-pc-agent getent hosts api.github.com`. Configure
+the host's reachable DNS resolver through Compose's `dns:` setting when needed,
+then recreate the container. Do not use a loopback-only host resolver such as
+`127.0.0.53` as a container DNS address. A successfully cached proxy release in
+the persistent `/data` volume remains available during a later GitHub outage.
+
 For AMD add the AMD overlay. The host needs a working AMDGPU/ROCm OpenCL stack:
 
 ```sh

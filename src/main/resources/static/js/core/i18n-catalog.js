@@ -11,6 +11,20 @@
 // Keys use {placeholder} tokens (e.g. 'Aktualisiert {time}') filled by t(text, params).
 window.SolarMinerI18nCatalog = {
   frontend: {
+    "Abgebrochen": "Cancelled",
+    "Baugleiche GPUs werden pro Coin und Algorithmus gruppiert: Eine Referenzkarte ermittelt die vollständige Effizienzkurve, anschließend validieren alle Schwesterkarten den besten Wert parallel und weichen bei Bedarf schrittweise nach oben aus. Ein Ergebnis wird erst gerätespezifisch gespeichert, wenn Miner, Pool, Temperatur und Shares stabil bleiben. Nach dem Lauf werden Leistungsgrenzen und Miner-Zustand verifiziert wiederhergestellt.": "Identical GPUs are grouped per coin and algorithm: one reference card measures the full efficiency curve, then all sibling cards validate the best value in parallel and move upward step by step if needed. A result is stored for a device only after its miner, pool, temperature and shares remain stable. Power limits and miner state are verified and restored after the run.",
+    "Fehlgeschlagen": "Failed",
+    "Fertig": "Complete",
+    "Geplant": "Planned",
+    "Gespeicherte Effizienzprofile": "Saved efficiency profiles",
+    "Läuft": "Running",
+    "Parallele Gerätevalidierung": "Parallel device validation",
+    "Referenzkurve": "Reference curve",
+    "Ungefähre Restzeit: {time}": "Approximate time remaining: {time}",
+    "ETA wird berechnet …": "Calculating ETA …",
+    "{done}/{total} Geräte abgeschlossen · {phase}": "{done}/{total} devices complete · {phase}",
+    "{watts} W · {samples}/{required} Messpunkte": "{watts} W · {samples}/{required} samples",
+    "Übersprungen": "Skipped",
     "{coin} · {algorithm}{unavailable}": "{coin} · {algorithm}{unavailable}",
     "{count} Worker": "{count} workers",
     "{count} ausgeblendet · Filter zurücksetzen": "{count} hidden · Reset filters",

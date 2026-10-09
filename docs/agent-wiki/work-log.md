@@ -259,3 +259,42 @@
   `sh gradlew test standaloneJar` passed on JDK 21. The hardware sweep remains
   blocked until the Agent process can successfully write and read back an NVIDIA
   Power Cap.
+
+## 2026-10-09 — Docker startup diagnosis and proxy-download backoff
+
+- A Linux `latest-beta` container log showed that Tomcat was already serving on
+  port 8084, while every proxy-release lookup failed with
+  `UnresolvedAddressException`. The failing dependency was Docker DNS resolution
+  for `api.github.com`, not Spring Boot or the NVIDIA capability configuration.
+- The image healthcheck still called the removed shared
+  `/api/agent/telemetry` route. It now calls the deliberately always-open,
+  read-only `/api/agent/external/identity` endpoint, so a healthy Agent is no
+  longer marked unhealthy by its own namespace access filter.
+- Managed proxy release retries now back off for 60 seconds after an attempted
+  lookup instead of logging a complete connection stack every five seconds.
+  The dashboard's explicit retry remains immediate, and a cached verified proxy
+  release remains the offline fallback.
+- Docker documentation now records the `api.github.com` DNS probe and persistent
+  cache behavior. Verification: `ManagedProxyHealthTest` covers the retry window;
+  full `sh gradlew test standaloneJar` passed on JDK 21.
+
+## 2026-10-09 — Model-cohort efficiency sweeps and live run plan
+
+- Power-efficiency targets are now grouped only when coin, algorithm, vendor,
+  model, driver range and effective user range all match. The first card runs the
+  complete descending curve. Its siblings then validate the selected limit in
+  parallel; an unstable sibling advances upward by the configured watt step up
+  to its original cap. Every sibling still has to prove its own miner process,
+  hashrate, temperature, pool health and rejected-share ratio, and profiles stay
+  keyed by device ID plus algorithm.
+- The session contract now exposes one `RunStatus` per GPU/coin/algorithm with
+  full-vs-validation mode, queue/running/final state, planned limits, completed
+  step results and live sample count. `secondsRemaining` estimates sequential
+  reference work and counts sibling validations as parallel cohorts.
+- The Benchmarks page renders that plan while the sweep runs: operators see
+  completed and upcoming watt steps, measured hashrate/power for finished steps,
+  current sample progress, per-device outcome and approximate remaining time.
+  Persisted profiles continue to appear as soon as each device completes.
+- Tests cover strict cohort separation, upward validation candidates, parallel
+  ETA accounting and JSON exposure of queue/sample/ETA state. JavaScript syntax,
+  focused tests and full `sh gradlew test standaloneJar` passed on JDK 21.

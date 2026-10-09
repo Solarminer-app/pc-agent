@@ -18,6 +18,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Power-cap efficiency sweep: for every configured GPU miner (coin × GPU) the agent walks the
@@ -40,6 +41,7 @@ public class EfficiencySweepService {
     /** Five-second samples; twelve points cover at least one minute of steady-state mining per step. */
     static final int SAMPLES_PER_STEP = 12;
     static final long SAMPLE_INTERVAL_MILLIS = 5_000;
+    private static final long ESTIMATED_STARTUP_SECONDS = 20;
     /** Matches the Pearl health monitor's 90 s first-job window plus a scheduling margin. */
     static final Duration STARTUP_GRACE = Duration.ofSeconds(95);
     private static final List<String> GPU_COINS = List.of("ravencoin", "ethereumclassic", "decred", "quantus");
@@ -90,9 +92,14 @@ public class EfficiencySweepService {
         if (!lock.tryBegin("efficiency-sweep"))
             throw new IllegalStateException("Ein anderer Messlauf (Benchmark) läuft gerade; der Sweep wartet, bis er beendet ist");
         cancel = false;
-        session = new Session(true, "Preparing", Instant.now(), 0, targets.size(), List.of(), null);
+        Instant startedAt = Instant.now();
+        List<List<List<Target>>> referenceBatches = referenceBatches(targetGroups(targets));
+        List<List<Target>> cohorts = referenceBatches.stream().flatMap(List::stream).toList();
+        List<RunStatus> runs = initialRuns(cohorts);
+        session = new Session(true, "Vorbereitung", startedAt, 0, targets.size(), List.of(), runs,
+                estimateRemainingSeconds(runs, startedAt));
         try {
-            executor.submit(() -> run(targets));
+            executor.submit(() -> run(targets, referenceBatches, cohorts));
         } catch (RuntimeException e) {
             session = Session.idle();
             lock.end();
@@ -213,19 +220,21 @@ public class EfficiencySweepService {
         }
     }
 
-    private void run(List<Target> targets) {
+    private void run(List<Target> targets, List<List<List<Target>>> referenceBatches,
+                     List<List<Target>> cohorts) {
         try {
-            execute(targets);
+            execute(targets, referenceBatches, cohorts);
         } catch (RuntimeException e) {
             Session old = session;
             session = new Session(false, "Fehler: " + Objects.toString(e.getMessage(), "Sweep fehlgeschlagen"),
-                    old.startedAt(), old.phaseIndex(), old.phaseCount(), old.results(), null);
+                    old.startedAt(), old.phaseIndex(), old.phaseCount(), old.results(), old.runs(), 0L);
         } finally {
             lock.end();
         }
     }
 
-    private void execute(List<Target> targets) {
+    private void execute(List<Target> targets, List<List<List<Target>>> referenceBatches,
+                         List<List<Target>> cohorts) {
         // Safety snapshot: everything the sweep may touch is captured before the first write.
         Set<String> pearlWasMining = pearl.runningGpuDeviceIds();
         Set<String> pearlPausedBefore = pearl.manuallyPausedGpuKeys();
@@ -248,15 +257,59 @@ public class EfficiencySweepService {
             throw new IllegalStateException("Nicht alle GPU-Power-Caps konnten vor dem Test sicher gelesen werden");
 
         List<GpuEfficiencyStore.Profile> produced = new ArrayList<>();
-        int index = 0;
+        Map<String, GpuEfficiencyStore.Profile> referenceProfiles = new LinkedHashMap<>();
         String error = null;
         try {
-            for (Target target : targets) {
+            for (List<List<Target>> batch : referenceBatches) {
                 if (cancel) break;
-                index++;
-                sweepTarget(target, index, targets.size(), produced);
+                try (ExecutorService parallel = Executors.newVirtualThreadPerTaskExecutor()) {
+                    List<Future<GpuEfficiencyStore.Profile>> references = new ArrayList<>();
+                    for (List<Target> group : batch) {
+                        Target reference = group.getFirst();
+                        references.add(parallel.submit(() -> sweepTarget(reference, null, true, "FULL")));
+                    }
+                    for (int index = 0; index < references.size(); index++) {
+                        GpuEfficiencyStore.Profile profile = references.get(index).get();
+                        if (profile != null) {
+                            produced.add(profile);
+                            referenceProfiles.put(cohortKey(batch.get(index).getFirst()), profile);
+                        }
+                    }
+                }
             }
-        } catch (RuntimeException e) {
+            for (List<Target> group : cohorts) {
+                Target reference = group.getFirst();
+                List<Target> siblings = group.subList(1, group.size());
+                if (siblings.isEmpty()) continue;
+                if (cancel) {
+                    for (Target sibling : siblings) finishRun(sibling, "CANCELLED", "Abgebrochen");
+                    break;
+                }
+                GpuEfficiencyStore.Profile referenceProfile = referenceProfiles.get(cohortKey(reference));
+                if (referenceProfile == null || referenceProfile.bestStableWatts() == null) {
+                    for (Target sibling : siblings)
+                        finishRun(sibling, "SKIPPED", "Referenzkarte lieferte keinen stabilen Ausgangswert");
+                    continue;
+                }
+                applyOverride(reference);
+                try (ExecutorService parallel = Executors.newVirtualThreadPerTaskExecutor()) {
+                    List<Future<GpuEfficiencyStore.Profile>> validations = new ArrayList<>();
+                    for (Target sibling : siblings) {
+                        List<Integer> candidates = validationLimits(referenceProfile.bestStableWatts(),
+                                sibling.gpu().minWatts(), activeLimit(sibling.gpu()), stepWatts);
+                        setPlannedLimits(sibling, candidates, "VALIDATION", "Wartet auf parallele Validierung");
+                        validations.add(parallel.submit(() -> sweepTarget(sibling, candidates, false, "VALIDATION")));
+                    }
+                    for (Future<GpuEfficiencyStore.Profile> validation : validations) {
+                        GpuEfficiencyStore.Profile profile = validation.get();
+                        if (profile != null) produced.add(profile);
+                    }
+                } finally {
+                    clearOverride(reference);
+                }
+            }
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             error = Objects.toString(e.getMessage(), "Sweep failed");
         } finally {
             // Safety net: every ephemeral fee-backend override is removed even when a
@@ -287,54 +340,68 @@ public class EfficiencySweepService {
             String result = error != null ? "Fehler: " + error
                     : cancel ? "Abgebrochen; Leistungsgrenzen und Miner-Zustand wiederhergestellt"
                     : "Fertig; Leistungsgrenzen und Miner-Zustand wiederhergestellt";
-            session = new Session(false, result, old.startedAt(), targets.size(), targets.size(), produced, null);
+            List<RunStatus> finalRuns = finalizePendingRuns(old.runs(), error != null ? "FAILED" : "CANCELLED",
+                    error != null ? error : "Abgebrochen");
+            int finalCompleted = (int) finalRuns.stream().filter(RunStatus::terminal).count();
+            session = new Session(false, result, old.startedAt(), finalCompleted, targets.size(), List.copyOf(produced),
+                    finalRuns, 0L);
         }
     }
 
-    private void sweepTarget(Target target, int index, int count, List<GpuEfficiencyStore.Profile> produced) {
+    private GpuEfficiencyStore.Profile sweepTarget(Target target, List<Integer> requestedLimits,
+                                                   boolean manageOverride, String mode) {
         String label = target.gpu().model() + " · " + target.algorithm();
         // Only one miner per physical GPU: stop every other coin on this card first.
         if (!stopAllOn(target.gpu())) throw new IllegalStateException("Andere Miner auf " + target.gpu().model() + " konnten nicht angehalten werden");
-        applyOverride(target);
+        if (manageOverride) applyOverride(target);
         LocalGpuPowerService.Gpu fresh = power.refresh().stream()
                 .filter(gpu -> gpu.deviceId().equals(target.gpu().deviceId())).findFirst()
                 .orElseThrow(() -> new IllegalStateException("GPU wurde während des Tests getrennt"));
-        int current = fresh.currentPowerLimitWatts() == null ? fresh.minWatts()
-                : Math.min(fresh.maxWatts(), fresh.currentPowerLimitWatts());
-        List<Integer> limits = candidateLimits(fresh.minWatts(), current, stepWatts);
+        int current = activeLimit(fresh);
+        List<Integer> limits = requestedLimits == null
+                ? candidateLimits(fresh.minWatts(), current, stepWatts) : requestedLimits;
+        setPlannedLimits(target, limits, mode, mode.equals("FULL") ? "Vollständige Referenzkurve" : "Parallele Gerätevalidierung");
         List<GpuEfficiencyStore.StepResult> steps = new ArrayList<>();
         GpuEfficiencyStore.StepResult best = null;
         for (int limit : limits) {
             if (cancel) break;
-            update(label + " · " + limit + " W", index, count);
+            updateRun(target, "RUNNING", limit, steps, 0, label + " · " + limit + " W");
             if (!power.setTotalPowerTarget(limit, List.of(target.gpu()))) {
                 steps.add(new GpuEfficiencyStore.StepResult(limit, null, null, null, false,
                         "Leistungsgrenze wurde nicht vom Treiber bestätigt; Schritt übersprungen"));
+                updateRun(target, "RUNNING", limit, steps, SAMPLES_PER_STEP,
+                        "Treiber hat die Leistungsgrenze nicht bestätigt");
                 break;
             }
-            GpuEfficiencyStore.StepResult step = measureStep(target, limit, index, count);
+            GpuEfficiencyStore.StepResult step = measureStep(target, limit, steps);
             steps.add(step);
+            updateRun(target, "RUNNING", limit, steps, SAMPLES_PER_STEP,
+                    step.stable() ? limit + " W stabil" : limit + " W instabil: " + step.note());
             if (!stopMiner(target)) throw new IllegalStateException("Sweep-Miner konnte nicht angehalten werden");
             sweepLog(target, label + " @ " + limit + " W: " + (step.stable()
                     ? "stabil, " + formatRate(step.medianHashrateHs()) + " · " + Math.round(step.avgPowerWatts()) + " W"
                     : "instabil (" + step.note() + ")"));
-            if (!step.stable()) break;
-            if (best == null || step.medianHashrateHs() / step.avgPowerWatts() > best.medianHashrateHs() / best.avgPowerWatts())
+            if (!step.stable() && mode.equals("FULL")) break;
+            if (step.stable() && (best == null || step.medianHashrateHs() / step.avgPowerWatts() > best.medianHashrateHs() / best.avgPowerWatts()))
                 best = step;
+            if (step.stable() && mode.equals("VALIDATION")) break;
         }
+        GpuEfficiencyStore.Profile profile = null;
         if (best != null) {
-            GpuEfficiencyStore.Profile profile = new GpuEfficiencyStore.Profile(
+            profile = new GpuEfficiencyStore.Profile(
                     target.gpu().deviceId(), target.gpu().model(), target.coin(), target.algorithm(),
                     best.limitWatts(), best.medianHashrateHs(), best.avgPowerWatts(),
                     best.medianHashrateHs() / best.avgPowerWatts(), Instant.now(), List.copyOf(steps));
             store.save(profile);
-            produced.add(profile);
             sweepLog(target, label + ": bester stabiler Wert " + best.limitWatts() + " W ("
                     + formatRate(best.medianHashrateHs()) + ", " + Math.round(best.medianHashrateHs() / best.avgPowerWatts()) + " H/J)");
+            finishRun(target, "COMPLETE", "Bester stabiler Wert: " + best.limitWatts() + " W");
         } else {
             sweepLog(target, label + ": kein stabiler Undervolt-Wert gefunden");
+            finishRun(target, cancel ? "CANCELLED" : "FAILED", cancel ? "Abgebrochen" : "Kein stabiler Wert gefunden");
         }
-        clearOverride(target);
+        if (manageOverride) clearOverride(target);
+        return profile;
     }
 
     private void applyOverride(Target target) {
@@ -357,7 +424,21 @@ public class EfficiencySweepService {
         return List.copyOf(limits);
     }
 
-    private GpuEfficiencyStore.StepResult measureStep(Target target, int limit, int index, int count) {
+    static List<Integer> validationLimits(int referenceWatts, int minWatts, int currentWatts, int stepWatts) {
+        int start = Math.max(minWatts, Math.min(referenceWatts, currentWatts));
+        List<Integer> limits = new ArrayList<>();
+        for (int limit = start; limit < currentWatts; limit += stepWatts) limits.add(limit);
+        if (limits.isEmpty() || limits.getLast() != currentWatts) limits.add(currentWatts);
+        return List.copyOf(limits);
+    }
+
+    private static int activeLimit(LocalGpuPowerService.Gpu gpu) {
+        return gpu.currentPowerLimitWatts() == null ? gpu.minWatts()
+                : Math.min(gpu.maxWatts(), gpu.currentPowerLimitWatts());
+    }
+
+    private GpuEfficiencyStore.StepResult measureStep(Target target, int limit,
+                                                       List<GpuEfficiencyStore.StepResult> completedSteps) {
         if (!startMiner(target))
             return new GpuEfficiencyStore.StepResult(limit, null, null, null, false, "Miner konnte nicht gestartet werden");
         List<Double> rates = new ArrayList<>();
@@ -392,8 +473,8 @@ public class EfficiencySweepService {
                 return new GpuEfficiencyStore.StepResult(limit, null, null, maxTemp == Double.NEGATIVE_INFINITY ? null : maxTemp,
                         false, "Miner liefert trotz Pool-Jobs keine Hashrate");
             }
-            update(target.gpu().model() + " · " + target.algorithm() + " · " + limit + " W · "
-                    + rates.size() + "/" + SAMPLES_PER_STEP + " Messpunkte", index, count);
+            updateRun(target, "RUNNING", limit, completedSteps, rates.size(),
+                    target.gpu().model() + " · " + target.algorithm() + " · " + limit + " W");
         }
         double median = median(rates);
         double avgWatts = watts.stream().mapToDouble(Double::doubleValue).average().orElse(0);
@@ -424,7 +505,7 @@ public class EfficiencySweepService {
     private boolean startMiner(Target target) {
         return "pearl".equals(target.coin())
                 ? pearl.startGpu(target.gpu().vendor(), target.gpu().index())
-                : gpuCoins.startGpu(target.coin(), target.gpu().vendor(), target.gpu().index());
+                : gpuCoins.resumeGpu(target.coin(), target.gpu().vendor(), target.gpu().index());
     }
 
     private boolean stopMiner(Target target) {
@@ -447,9 +528,99 @@ public class EfficiencySweepService {
         consoles.append(target.coin(), entry);
     }
 
-    private void update(String phase, int index, int count) {
+    static String cohortKey(Target target) {
+        LocalGpuPowerService.Gpu gpu = target.gpu();
+        return String.join("|", target.coin(), target.algorithm(), gpu.vendor(), gpu.model(),
+                Integer.toString(gpu.driverMinWatts()), Integer.toString(gpu.driverMaxWatts()),
+                Integer.toString(gpu.minWatts()), Integer.toString(gpu.maxWatts()));
+    }
+
+    static List<List<Target>> targetGroups(List<Target> targets) {
+        Map<String, List<Target>> groups = new LinkedHashMap<>();
+        for (Target target : targets)
+            groups.computeIfAbsent(cohortKey(target), ignored -> new ArrayList<>()).add(target);
+        return groups.values().stream().map(List::copyOf).toList();
+    }
+
+    private List<RunStatus> initialRuns(List<Target> targets) {
+        List<RunStatus> runs = new ArrayList<>();
+        for (List<Target> group : targetGroups(targets)) {
+            for (int index = 0; index < group.size(); index++) {
+                Target target = group.get(index);
+                boolean reference = index == 0;
+                List<Integer> limits = reference
+                        ? candidateLimits(target.gpu().minWatts(), activeLimit(target.gpu()), stepWatts) : List.of();
+                runs.add(new RunStatus(runId(target), target.gpu().deviceId(), target.gpu().model(), target.coin(),
+                        target.algorithm(), reference ? "FULL" : "VALIDATION", "QUEUED", null, limits,
+                        List.of(), 0, SAMPLES_PER_STEP,
+                        reference ? "Vollständige Referenzkurve" : "Wartet auf Ergebnis der Referenzkarte"));
+            }
+        }
+        return List.copyOf(runs);
+    }
+
+    private synchronized void setPlannedLimits(Target target, List<Integer> limits, String mode, String detail) {
+        mutateRun(target, current -> new RunStatus(current.id(), current.deviceId(), current.model(), current.coin(),
+                current.algorithm(), mode, "QUEUED", null, List.copyOf(limits), current.steps(), 0,
+                SAMPLES_PER_STEP, detail), detail);
+    }
+
+    private synchronized void updateRun(Target target, String status, Integer limit,
+                                        List<GpuEfficiencyStore.StepResult> steps, int samples, String detail) {
+        mutateRun(target, current -> new RunStatus(current.id(), current.deviceId(), current.model(), current.coin(),
+                current.algorithm(), current.mode(), status, limit, current.plannedLimits(), List.copyOf(steps),
+                samples, SAMPLES_PER_STEP, detail), detail);
+    }
+
+    private synchronized void finishRun(Target target, String status, String detail) {
+        mutateRun(target, current -> new RunStatus(current.id(), current.deviceId(), current.model(), current.coin(),
+                current.algorithm(), current.mode(), status, current.limitWatts(), current.plannedLimits(),
+                current.steps(), current.samples(), current.samplesRequired(), detail), detail);
+    }
+
+    private void mutateRun(Target target, java.util.function.Function<RunStatus, RunStatus> change, String phase) {
         Session old = session;
-        session = new Session(true, phase, old.startedAt(), index, count, List.of(), null);
+        List<RunStatus> next = new ArrayList<>(old.runs());
+        for (int index = 0; index < next.size(); index++) {
+            if (next.get(index).id().equals(runId(target))) {
+                next.set(index, change.apply(next.get(index)));
+                break;
+            }
+        }
+        int completed = (int) next.stream().filter(RunStatus::terminal).count();
+        session = new Session(true, phase, old.startedAt(), completed, next.size(), old.results(), List.copyOf(next),
+                estimateRemainingSeconds(next, old.startedAt()));
+    }
+
+    private static String runId(Target target) {
+        return target.gpu().deviceId() + "|" + target.coin() + "|" + target.algorithm();
+    }
+
+    static long estimateRemainingSeconds(List<RunStatus> runs, Instant startedAt) {
+        long sequentialSeconds = 0;
+        Map<String, Long> parallelValidations = new LinkedHashMap<>();
+        for (RunStatus run : runs) {
+            if (run.terminal()) continue;
+            int plannedSteps = Math.max(1, run.plannedLimits().size());
+            int finishedSteps = run.steps().size();
+            boolean currentStepFinished = run.limitWatts() != null && run.steps().stream()
+                    .anyMatch(step -> step.limitWatts() == run.limitWatts());
+            int liveSamples = currentStepFinished ? 0 : run.samples();
+            int remainingSamples = Math.max(0, (plannedSteps - finishedSteps) * SAMPLES_PER_STEP - liveSamples);
+            long runSeconds = remainingSamples * SAMPLE_INTERVAL_MILLIS / 1_000
+                    + Math.max(0, plannedSteps - finishedSteps) * ESTIMATED_STARTUP_SECONDS;
+            if (run.mode().equals("VALIDATION")) {
+                String group = String.join("|", run.coin(), run.algorithm(), run.model());
+                parallelValidations.merge(group, runSeconds, Math::max);
+            } else sequentialSeconds += runSeconds;
+        }
+        return sequentialSeconds + parallelValidations.values().stream().mapToLong(Long::longValue).sum();
+    }
+
+    private static List<RunStatus> finalizePendingRuns(List<RunStatus> runs, String status, String detail) {
+        return runs.stream().map(run -> run.terminal() ? run : new RunStatus(run.id(), run.deviceId(), run.model(),
+                run.coin(), run.algorithm(), run.mode(), status, run.limitWatts(), run.plannedLimits(), run.steps(),
+                run.samples(), run.samplesRequired(), detail)).toList();
     }
 
     private static double median(List<Double> values) {
@@ -475,23 +646,33 @@ public class EfficiencySweepService {
         try {
             if (!executor.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS))
                 session = new Session(false, "Fehler: Wiederherstellung nach Abbruch nicht abgeschlossen",
-                        session.startedAt(), session.phaseIndex(), session.phaseCount(), session.results(), null);
+                        session.startedAt(), session.phaseIndex(), session.phaseCount(), session.results(), session.runs(), 0L);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
 
-    private record Target(String coin, String algorithm, LocalGpuPowerService.Gpu gpu, ConfigOverride override) {
+    record Target(String coin, String algorithm, LocalGpuPowerService.Gpu gpu, ConfigOverride override) {
     }
 
     /** Ephemeral fee-backend configuration for a coin the operator never configured. */
-    private record ConfigOverride(PearlMinerService.Config pearl, GpuCoinMinerService.Config gpuCoin) {
+    record ConfigOverride(PearlMinerService.Config pearl, GpuCoinMinerService.Config gpuCoin) {
+    }
+
+    public record RunStatus(String id, String deviceId, String model, String coin, String algorithm,
+                            String mode, String status, Integer limitWatts, List<Integer> plannedLimits,
+                            List<GpuEfficiencyStore.StepResult> steps, int samples, int samplesRequired,
+                            String detail) {
+        boolean terminal() {
+            return status.equals("COMPLETE") || status.equals("FAILED") || status.equals("SKIPPED")
+                    || status.equals("CANCELLED");
+        }
     }
 
     public record Session(boolean running, String phase, Instant startedAt, int phaseIndex, int phaseCount,
-                          List<GpuEfficiencyStore.Profile> results, Long secondsRemaining) {
+                          List<GpuEfficiencyStore.Profile> results, List<RunStatus> runs, Long secondsRemaining) {
         static Session idle() {
-            return new Session(false, "Idle", null, 0, 0, List.of(), 0L);
+            return new Session(false, "Idle", null, 0, 0, List.of(), List.of(), 0L);
         }
     }
 }

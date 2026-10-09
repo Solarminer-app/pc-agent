@@ -41,6 +41,8 @@ public class ManagedProxyService {
     private static final Logger LOGGER = Logger.getLogger(ManagedProxyService.class.getName());
     private static final long START_PROBE_DELAY_MS = 4_000;
     private static final long RESTART_BACKOFF_MS = 20_000;
+    /** A missing Docker DNS route must not produce a full GitHub stack trace every five seconds. */
+    private static final long RELEASE_RETRY_BACKOFF_MS = 60_000;
     private static final int LOG_CHUNK_BYTES = 64 * 1024;
 
     private final ProxyReleaseService releases;
@@ -62,6 +64,7 @@ public class ManagedProxyService {
     private volatile String status = "external";
     private volatile String detail = "";
     private volatile long lastStartAttempt;
+    private volatile long lastReleaseRefreshAttempt;
     private volatile long lastReadinessProbe;
     private volatile String instanceId;
     private volatile boolean gateOpen;
@@ -107,7 +110,7 @@ public class ManagedProxyService {
     @EventListener(ApplicationReadyEvent.class)
     public void startAtBoot() {
         terminateOrphanedProxyProcesses();
-        releases.refresh();
+        refreshRelease(false);
     }
 
     @Scheduled(fixedDelay = 5_000)
@@ -129,7 +132,7 @@ public class ManagedProxyService {
         }
         if (!releases.ready()) {
             if (releases.state().equals("FAILED") && releases.useCachedRelease()) return;
-            if (!releases.working()) releases.refresh();
+            refreshRelease(false);
             return;
         }
         startIfNeeded();
@@ -330,9 +333,20 @@ public class ManagedProxyService {
     public synchronized boolean retry() {
         if (running()) return true;
         lastStartAttempt = 0;
-        if (!releases.ready()) releases.refresh();
+        if (!releases.ready()) refreshRelease(true);
         startIfNeeded();
         return true;
+    }
+
+    private void refreshRelease(boolean force) {
+        if (releases.ready() || releases.working()) return;
+        long now = System.currentTimeMillis();
+        if (!force && !releaseRefreshDue(lastReleaseRefreshAttempt, now)) return;
+        if (releases.refresh()) lastReleaseRefreshAttempt = now;
+    }
+
+    static boolean releaseRefreshDue(long previousAttempt, long now) {
+        return previousAttempt == 0 || now - previousAttempt >= RELEASE_RETRY_BACKOFF_MS;
     }
 
     /** Switches the fee-target roll mode of the managed proxy at runtime, restarting the child when needed. */

@@ -53,13 +53,15 @@
                 <div><p class="kicker">POWER-LIMIT-SWEEP</p>
                     <h2>Power-Limit-Effizienztest</h2></div>
                 <span id="sweep-state" class="tag">Bereit</span></div>
-            <p class="muted">Für jeden konfigurierten GPU-Miner (Coin × Grafikkarte) wird die Leistungsgrenze vom aktuell gesetzten Wert aus schrittweise gesenkt — niemals erhöht. Ein Schritt zählt nur als stabil, wenn der Miner dabei durchgehend hasht, der Pool verbunden bleibt, die GPU unter der Temperaturschwelle bleibt und keine erhöhte Verwerfungsrate auftritt. Nach dem Lauf werden Leistungsgrenzen und Miner-Zustand verifiziert wiederhergestellt; der beste stabile Wert pro Gerät und Algorithmus wird lokal gespeichert.</p>
+            <p class="muted">Baugleiche GPUs werden pro Coin und Algorithmus gruppiert: Eine Referenzkarte ermittelt die vollständige Effizienzkurve, anschließend validieren alle Schwesterkarten den besten Wert parallel und weichen bei Bedarf schrittweise nach oben aus. Ein Ergebnis wird erst gerätespezifisch gespeichert, wenn Miner, Pool, Temperatur und Shares stabil bleiben. Nach dem Lauf werden Leistungsgrenzen und Miner-Zustand verifiziert wiederhergestellt.</p>
             <button id="run-sweep" class="button primary" type="button">Power-Limit-Test starten</button>
             <button id="sweep-cancel" class="button subtle" type="button" hidden>Sweep abbrechen</button>
             <div id="sweep-progress-wrap" hidden>
                 <div class="detail"><span id="sweep-phase">—</span><strong id="sweep-remaining">Power-Limit schrittweise senken und Stabilität prüfen</strong></div>
                 <progress id="sweep-progress" aria-label="Effizienz-Sweep läuft"></progress>
             </div>
+            <div id="sweep-runs" class="benchmark-results" hidden></div>
+            <h3>Gespeicherte Effizienzprofile</h3>
             <div id="sweep-results" class="benchmark-results"></div>
         </section>
         <section class="panel">

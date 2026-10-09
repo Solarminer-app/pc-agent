@@ -40,3 +40,14 @@ Controller source: [`MiningController`](../src/main/java/de/verdox/solarminer/pc
 | `GET` / `POST` | `/api/agent/local/**` | Same-origin dashboard APIs for local status, settings, mining, telemetry, benchmarks and diagnostics. |
 
 Dynamic GPU-Power-Regelung wird nur angeboten, nachdem ein Same-Value-Schreibtest und der anschließende Readback erfolgreich waren. NVIDIA verwendet die stabile GPU-UUID und `nvidia-smi -pl`. AMD verwendet bevorzugt AMD-SMI mit UUID/BDF; unter Linux steht zusätzlich der `amdgpu`-hwmon-Power-Cap über den stabilen PCI-BDF zur Verfügung. Jeder Zielwert bleibt innerhalb der Treiber- und Nutzergrenzen. Der Agent ändert weder Spannung noch Takt. Vor dem ersten Eingriff persistiert er die aktuellen Limits für Rollback, reguläres Beenden und Wiederherstellung beim nächsten Start nach einem Prozessabbruch.
+
+`GET /api/agent/local/efficiency` liefert während eines Power-Limit-Tests additiv
+die Run-Warteschlange `runs` und `secondsRemaining`. Jeder Run bleibt über
+`deviceId`, Coin und Algorithmus gerätespezifisch und enthält Modus (`FULL` oder
+`VALIDATION`), Status, aktuellen Grenzwert, geplante Grenzwerte, abgeschlossene
+Schrittergebnisse sowie aktuelle/benötigte Messpunkte. Baugleiche Karten werden
+nur bei identischem Hersteller, Modell, Coin, Algorithmus sowie identischen
+Treiber- und Nutzergrenzen gruppiert: Eine Karte ermittelt die vollständige
+Kurve; die übrigen Karten validieren den Kandidaten parallel und erhöhen ihren
+eigenen Grenzwert bei Instabilität schrittweise. Persistierte Profile bleiben
+pro Geräte-ID und Algorithmus getrennt.

@@ -3,6 +3,7 @@ package de.verdox.solarminer.pcagent.mining;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -30,6 +31,36 @@ class EfficiencySweepServiceTest {
 
         assertEquals(List.of(170, 155, 140, 125, 110, 95, 80), limits);
         assertTrue(limits.stream().allMatch(limit -> limit <= 170));
+    }
+
+    @Test
+    void validationStartsAtTheReferenceAndMovesUpToTheCardsOriginalLimit() {
+        assertEquals(List.of(155, 170, 185, 200),
+                EfficiencySweepService.validationLimits(155, 100, 200, 15));
+        assertEquals(List.of(200),
+                EfficiencySweepService.validationLimits(220, 100, 200, 15));
+    }
+
+    @Test
+    void etaCountsSiblingValidationRunsInParallel() {
+        var first = run("one", "VALIDATION", List.of(155, 170));
+        var second = run("two", "VALIDATION", List.of(155, 170));
+
+        assertEquals(160, EfficiencySweepService.estimateRemainingSeconds(
+                List.of(first, second), Instant.now()));
+    }
+
+    @Test
+    void cohortsRequireMatchingModelAlgorithmAndPowerBounds() {
+        var first = target("one", "TITAN RTX", 100, 320, "PearlHash");
+        var sibling = target("two", "TITAN RTX", 100, 320, "PearlHash");
+        var differentBounds = target("three", "TITAN RTX", 120, 320, "PearlHash");
+        var differentAlgorithm = target("four", "TITAN RTX", 100, 320, "KAWPOW");
+
+        List<List<EfficiencySweepService.Target>> groups = EfficiencySweepService.targetGroups(
+                List.of(first, sibling, differentBounds, differentAlgorithm));
+
+        assertEquals(List.of(2, 1, 1), groups.stream().map(List::size).toList());
     }
 
     @Test
@@ -61,5 +92,16 @@ class EfficiencySweepServiceTest {
         return new de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService.Gpu(
                 "NVIDIA", 0, "GPU-abc", "TITAN RTX", 100, 320, 100, 320,
                 200, 25.0, "measured", writable, error);
+    }
+
+    private static EfficiencySweepService.RunStatus run(String id, String mode, List<Integer> limits) {
+        return new EfficiencySweepService.RunStatus(id, id, "TITAN RTX", "pearl", "PearlHash", mode,
+                "QUEUED", null, limits, List.of(), 0, EfficiencySweepService.SAMPLES_PER_STEP, "");
+    }
+
+    private static EfficiencySweepService.Target target(String id, String model, int min, int max, String algorithm) {
+        var gpu = new de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService.Gpu(
+                "NVIDIA", 0, id, model, min, max, min, max, max, 25.0, "measured", true, null);
+        return new EfficiencySweepService.Target("pearl", algorithm, gpu, null);
     }
 }
