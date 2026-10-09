@@ -1,11 +1,35 @@
 package de.verdox.solarminer.pcagent.mining;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ManagedProxyHealthTest {
+    @TempDir Path directory;
+
+    @Test
+    void externalModeIsReadyWithoutDownloadingOrStartingALocalProxy() {
+        ManagedProxyService proxy = new ManagedProxyService(
+                new ProxyReleaseService(new com.fasterxml.jackson.databind.ObjectMapper(), "owner/repo", directory.toString()),
+                8090, 3333, 3335, 3334, 3336, 3337, 3338, 3339, "random", false);
+
+        assertTrue(proxy.gate().ready());
+    }
+
+    @Test
+    void switchingToExternalModeClosesTheLocalProxyGateImmediately() {
+        ManagedProxyService proxy = new ManagedProxyService(
+                new ProxyReleaseService(new com.fasterxml.jackson.databind.ObjectMapper(), "owner/repo", directory.toString()),
+                8090, 3333, 3335, 3334, 3336, 3337, 3338, 3339, "random", true);
+
+        assertTrue(proxy.setStandalone(false));
+        assertTrue(proxy.gate().ready());
+    }
+
     @Test
     void releaseRefreshUsesABackoffAfterNetworkFailure() {
         assertTrue(ManagedProxyService.releaseRefreshDue(0, 1_000));

@@ -1,5 +1,11 @@
 # PC-Agent work log
 
+## 2026-10-09 — External proxy bypasses the local-proxy boot gate
+
+- Selecting an external SolarMiner proxy now immediately marks the managed-local-proxy gate ready and stops any local child. The UI therefore remains operable while the remote proxy is selected; it no longer waits for a GitHub release download or a local proxy start.
+- Mining readiness now requires the managed-proxy gate and child process only in local mode. External mode still verifies the configured remote proxy's API/listener and per-coin fee route before a miner can start.
+- `ManagedProxyHealthTest` covers both a persisted external selection and a live switch away from local mode. Verification: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test standaloneJar --no-daemon` passed.
+
 ## 2026-10-09 — Proxy heartbeat discovery and external-host mode fix
 
 - Root cause for known addresses: `ProxyConfigurationService.configure` rejected every host while local proxy mode was active, although the UI must save the external host before switching modes. Saving is now allowed without changing the active loopback route; `setMode("external")` activates the saved host afterward.

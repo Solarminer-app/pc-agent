@@ -247,7 +247,9 @@ public class ProxyConfigurationService {
     }
 
     public boolean miningReady(String coin) {
-        return managedProxy.gateOpen() && (!standalone || managedProxy.running()) && isReachable()
+        // A remote SolarMiner proxy owns its own lifecycle. Its reachability and fee route are
+        // still verified below, but it must never be held behind this agent's local-proxy gate.
+        return (!standalone || managedProxy.gateOpen()) && (!standalone || managedProxy.running()) && isReachable()
                 && (!java.util.Set.of("ravencoin", "ethereumclassic", "decred", "quantus").contains(coin) || stratumReachable(coin))
                 && (!java.util.Set.of("ravencoin", "ethereumclassic", "decred", "quantus").contains(coin) || feeReady(coin))
                 && (!standalone || feeReady(coin));

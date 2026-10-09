@@ -68,7 +68,6 @@ public class ManagedProxyService {
     private volatile long lastReadinessProbe;
     private volatile String instanceId;
     private volatile boolean gateOpen;
-    private volatile boolean deferredExternalMode;
 
     @Autowired
     public ManagedProxyService(
@@ -94,7 +93,13 @@ public class ManagedProxyService {
         this.quantusPort = quantusPort;
         this.rollMode = "stateful".equalsIgnoreCase(rollMode) ? "stateful" : "random";
         this.standalone = standalone;
-        if (standalone) status = "starting";
+        if (standalone) {
+            status = "starting";
+        } else {
+            // An external proxy does not require a downloaded local proxy. Treating its
+            // release/startup state as a global boot requirement blocks the operator UI.
+            gateOpen = true;
+        }
         // Covers every JVM exit path, including the tray "Exit" item that calls System.exit.
         Runtime.getRuntime().addShutdownHook(new Thread(this::stopProcess, "stratum-proxy-shutdown"));
     }
@@ -200,12 +205,6 @@ public class ManagedProxyService {
         status = "running";
         detail = "";
         gateOpen = true;
-        if (deferredExternalMode) {
-            deferredExternalMode = false;
-            standalone = false;
-            stopProcess();
-            status = "external";
-        }
     }
 
     static boolean matchesHealth(String body, String expectedInstanceId) throws IOException {
@@ -309,19 +308,14 @@ public class ManagedProxyService {
     public synchronized boolean setStandalone(boolean enabled) {
         if (!enabled) {
             standalone = false;
-            if (!gateOpen) {
-                // The boot gate requires a downloaded proxy to have started first, so a saved
-                // external mode is applied as soon as that proxy is confirmed running.
-                deferredExternalMode = true;
-                return true;
-            }
+            gateOpen = true;
             stopProcess();
             status = "external";
             detail = "";
             return true;
         }
         standalone = true;
-        deferredExternalMode = false;
+        gateOpen = false;
         lastStartAttempt = 0;
         status = "starting";
         detail = "";
