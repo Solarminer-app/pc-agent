@@ -1,8 +1,4 @@
-param(
-    [switch]$Bootstrap,
-    [ValidateSet('en', 'de')]
-    [string]$Language = 'en'
-)
+param([switch]$Bootstrap)
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -10,11 +6,6 @@ $installDir = Join-Path $env:LOCALAPPDATA 'SolarMiner\PC-Agent'
 $runtimeDir = Join-Path $installDir 'runtime'
 $jarPath = Join-Path $installDir 'solarminer-pc-agent-standalone.jar'
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-
-function Get-LocalizedText([string]$english, [string]$german) {
-    if ($Language -eq 'de') { return $german }
-    return $english
-}
 
 function Write-StartupSection([string]$title) {
     Write-Host ''
@@ -26,8 +17,7 @@ function Write-StartupItem([string]$text) {
 }
 
 function Write-StartupAction([string]$text) {
-    $prefix = Get-LocalizedText 'ACTION REQUIRED:' 'AKTION ERFORDERLICH:'
-    Write-Host "  $prefix $text" -ForegroundColor Yellow
+    Write-Host "  ACTION REQUIRED: $text" -ForegroundColor Yellow
 }
 
 function Test-DefenderExclusion([string]$path) {
@@ -35,7 +25,7 @@ function Test-DefenderExclusion([string]$path) {
         $preferences = Get-MpPreference -ErrorAction Stop
         return [bool](@($preferences.ExclusionPath) | Where-Object { $_ -and $_.TrimEnd('\') -ieq $path.TrimEnd('\') })
     } catch {
-        Write-StartupItem "$(Get-LocalizedText 'Defender status unavailable' 'Defender-Status nicht verfügbar'): $($_.Exception.Message)"
+        Write-StartupItem "Defender status unavailable: $($_.Exception.Message)"
         return $false
     }
 }
@@ -43,37 +33,37 @@ function Test-DefenderExclusion([string]$path) {
 function Invoke-FirstStartBootstrap {
     $marker = Join-Path $installDir 'bootstrap-reviewed.txt'
     $firstReview = -not (Test-Path -LiteralPath $marker)
-    $runReason = if ($Bootstrap) { Get-LocalizedText 'manual request' 'manuelle Anforderung' } else { Get-LocalizedText 'automatic start' 'automatischer Start' }
+    $runReason = if ($Bootstrap) { 'manual request' } else { 'automatic start' }
     Write-Host ''
     Write-Host '=================================================='
-    Write-Host "$(Get-LocalizedText 'SolarMiner PC-Agent - Startup checks' 'SolarMiner PC-Agent - Startprüfung')"
-    Write-Host "$(Get-LocalizedText 'Reason' 'Grund'): $runReason"
+    Write-Host 'SolarMiner PC-Agent - Startup checks'
+    Write-Host "Reason: $runReason"
     Write-Host '=================================================='
-    Write-StartupSection (Get-LocalizedText '1/3 Install directory' '1/3 Installationsordner')
+    Write-StartupSection '1/3 Install directory'
     $probe = Join-Path $installDir ('write-probe-' + [guid]::NewGuid().ToString('N'))
     try {
         [System.IO.File]::WriteAllText($probe, 'ok')
-        Write-StartupItem (Get-LocalizedText 'Install folder is writable [OK]' 'Installationsordner ist beschreibbar [OK]')
+        Write-StartupItem 'Install folder is writable [OK]'
     } finally { Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $probe }
-    Write-StartupSection (Get-LocalizedText '2/3 GPU power-control readiness' '2/3 Bereitschaft für GPU-Leistungssteuerung')
+    Write-StartupSection '2/3 GPU power-control readiness'
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     $administrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    Write-StartupItem "$(Get-LocalizedText 'Administrator token for GPU power limits' 'Administratorrechte für GPU-Leistungsgrenzen'): $administrator"
+    Write-StartupItem "Administrator token for GPU power limits: $administrator"
     $nvidia = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
-    $nvidiaStatus = if ($nvidia) { Get-LocalizedText 'available' 'verfügbar' } else { Get-LocalizedText 'not found; normal without an NVIDIA GPU' 'nicht vorhanden; normal ohne NVIDIA-GPU' }
-    Write-StartupItem "$(Get-LocalizedText 'NVIDIA driver tool' 'NVIDIA-Treiberwerkzeug'): $nvidiaStatus"
-    Write-StartupItem (Get-LocalizedText 'AMD Windows power-limit writes require a supported ADLX helper.' 'AMD-Leistungsgrenzen unter Windows benötigen einen unterstützten ADLX-Helfer.')
-    Write-StartupSection (Get-LocalizedText '3/3 Windows Defender' '3/3 Windows Defender')
+    $nvidiaStatus = if ($nvidia) { 'available' } else { 'not found; normal without an NVIDIA GPU' }
+    Write-StartupItem "NVIDIA driver tool: $nvidiaStatus"
+    Write-StartupItem 'AMD Windows power-limit writes require a supported ADLX helper.'
+    Write-StartupSection '3/3 Windows Defender'
     $defender = Get-Command Get-MpPreference -ErrorAction SilentlyContinue
     if ($defender) {
         if (Test-DefenderExclusion $installDir) {
-            Write-StartupItem (Get-LocalizedText 'Defender exclusion verified for this install folder [OK]' 'Defender-Ausnahme für diesen Installationsordner bestätigt [OK]')
+            Write-StartupItem 'Defender exclusion verified for this install folder [OK]'
         } else {
-            Write-StartupAction "$(Get-LocalizedText 'Defender exclusion is missing for' 'Defender-Ausnahme fehlt für'): $installDir"
-            Write-StartupItem (Get-LocalizedText 'An exclusion reduces scanning of all files here, including miners.' 'Eine Ausnahme verringert die Prüfung aller Dateien hier, einschließlich Miner.')
-            $choice = Read-Host (Get-LocalizedText 'Add this folder as a Defender exclusion with UAC? [y/N]' 'Ordner per UAC als Defender-Ausnahme hinzufügen? [j/N]')
-            if ($choice -match '^(y|yes|j|ja)$') {
+            Write-StartupAction "Defender exclusion is missing for: $installDir"
+            Write-StartupItem 'An exclusion reduces scanning of all files here, including miners.'
+            $choice = Read-Host 'Add this folder as a Defender exclusion with UAC? [y/N]'
+            if ($choice -match '^(y|yes)$') {
                 try {
                     $escaped = $installDir.Replace("'", "''")
                     $command = "`$ErrorActionPreference='Stop'; Add-MpPreference -ExclusionPath '$escaped'"
@@ -81,18 +71,18 @@ function Invoke-FirstStartBootstrap {
                     $arguments = '-NoProfile -NonInteractive -EncodedCommand ' + $encoded
                     $process = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -Wait -PassThru
                     if ($process.ExitCode -ne 0 -or -not (Test-DefenderExclusion $installDir)) {
-                        Write-Warning (Get-LocalizedText 'Defender did not confirm the exclusion. Review Windows Security policies and Protection history.' 'Defender hat die Ausnahme nicht bestätigt. Windows-Sicherheitsrichtlinien und Schutzverlauf prüfen.')
-                    } else { Write-StartupItem (Get-LocalizedText 'Defender exclusion verified [OK]' 'Defender-Ausnahme bestätigt [OK]') }
-                } catch { Write-Warning "$(Get-LocalizedText 'Defender approval failed or was declined' 'Defender-Freigabe fehlgeschlagen oder abgelehnt'): $($_.Exception.Message)" }
+                        Write-Warning 'Defender did not confirm the exclusion. Review Windows Security policies and Protection history.'
+                    } else { Write-StartupItem 'Defender exclusion verified [OK]' }
+                } catch { Write-Warning "Defender approval failed or was declined: $($_.Exception.Message)" }
             }
         }
-    } else { Write-StartupAction (Get-LocalizedText 'Windows Defender cmdlets are unavailable. Check security software manually.' 'Windows-Defender-Befehle sind nicht verfügbar. Sicherheitssoftware manuell prüfen.') }
+    } else { Write-StartupAction 'Windows Defender cmdlets are unavailable. Check security software manually.' }
     [System.IO.File]::WriteAllText($marker, [DateTime]::UtcNow.ToString('o'))
     Write-Host ''
     Write-Host '--------------------------------------------------'
     if ($firstReview) {
-        Write-Host (Get-LocalizedText 'Startup checks complete. They run automatically on every start.' 'Startprüfung abgeschlossen. Sie läuft bei jedem Start automatisch.')
-    } else { Write-Host (Get-LocalizedText 'Startup checks complete.' 'Startprüfung abgeschlossen.') }
+        Write-Host 'Startup checks complete. They run automatically on every start.'
+    } else { Write-Host 'Startup checks complete.' }
     Write-Host '--------------------------------------------------'
 }
 
