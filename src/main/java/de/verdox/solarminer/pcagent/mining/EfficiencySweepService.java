@@ -481,6 +481,9 @@ public class EfficiencySweepService {
                     : "Bester stabiler Wert: " + best.limitWatts() + " W");
         } else {
             sweepLog(target, label + ": kein stabiler Undervolt-Wert gefunden");
+            if (!steps.isEmpty())
+                profile = new GpuEfficiencyStore.Profile(target.gpu().deviceId(), target.gpu().model(),
+                        target.coin(), target.algorithm(), null, null, null, null, Instant.now(), List.copyOf(steps));
             finishRun(target, cancel ? "CANCELLED" : "FAILED", cancel ? "Abgebrochen" : "Kein stabiler Wert gefunden");
         }
         return profile;

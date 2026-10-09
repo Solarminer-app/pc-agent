@@ -69,3 +69,14 @@ geplante Runs werden erneut ausgeführt. Ein abgebrochener Teilrun bleibt in der
 Session sichtbar, überschreibt aber kein vollständig validiertes persistiertes
 Profil. Nach einem Agent-Neustart existiert der Session-Checkpoint nicht mehr;
 persistierte Profile allein gelten absichtlich nicht als Fortsetzungsnachweis.
+
+Nach Abschluss oder Abbruch übergibt der Sweep alle tatsächlich vorhandenen
+Schrittergebnisse an den bestehenden consent-gesteuerten Benchmark-Upload.
+`POST /api/telemetry/standalone-benchmarks` enthält dafür additiv
+`efficiencySweeps`: pseudonyme Geräte-ID, GPU-Modell, Coin, Algorithmus,
+Power-Limit, gemessene H/s/Watt/Maximaltemperatur, Stabilitätsflag und Hinweis.
+Auch eine Kurve ohne stabilen Bestwert liefert ihre gemessenen/instabilen Punkte;
+sie wird lokal weiterhin nicht als validiertes Bestprofil behandelt. Mehr als
+512 Punkte werden auf mehrere idempotente Requests verteilt. Bei deaktivierter
+Freigabe bleiben die Punkte für den bestehenden einmaligen Upload-Dialog im
+laufenden Agent-Prozess erhalten und werden nicht ungefragt übertragen.

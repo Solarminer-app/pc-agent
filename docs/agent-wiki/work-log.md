@@ -357,3 +357,19 @@
   standaloneJar --no-daemon` passed. The checkpoint is lost on Agent restart by
   design; persistent resume would require an explicit versioned sweep-state
   contract rather than guessing from best-result profiles.
+
+## 2026-10-09 — Consent-gated upload of complete efficiency curves
+
+- `EfficiencySweepService` now hands every produced profile, including partial
+  and no-stable-result step histories, to `BenchmarkSharingService` after miner
+  and power-cap restoration. A cancelled partial profile is uploadable evidence
+  but remains `CANCELLED`, is not persisted as the local best and is not reused
+  by resume.
+- The standalone payload adds `efficiencySweeps` with participant-scoped device
+  pseudonym, GPU model, coin, algorithm, requested limit, measured H/s and watts,
+  maximum temperature, stability and bounded note. Upload remains behind the
+  existing default-off benchmark consent and one-time prompt. Payloads above 512
+  points are chunked; backend upserts make a complete retry safe.
+- `BenchmarkSharingEfficiencyTest` covers retention of both stable and unstable
+  points while consent is disabled. The cross-repository receiver, schema and
+  validation live in `admin-portal` migration V16 and its ingest service.
