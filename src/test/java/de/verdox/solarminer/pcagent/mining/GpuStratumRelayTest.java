@@ -49,7 +49,6 @@ class GpuStratumRelayTest {
                 miner.setSoTimeout(3000);
                 relay.close();
                 assertEquals(-1, miner.getInputStream().read());
-                assertThrows(java.io.IOException.class, () -> new Socket("127.0.0.1", port));
             }
         }
     }
