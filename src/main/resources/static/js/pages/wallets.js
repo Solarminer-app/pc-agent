@@ -85,9 +85,7 @@
   }
   async function load() {
     try {
-      const response = await fetch('/api/agent/local/overview', {cache: 'no-store'});
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      overview = await response.json(); render();
+      overview = await window.SolarMinerUI.getJson('/api/agent/local/overview'); render();
       $('connection').className = 'badge online'; $('connection').textContent = t('Agent verbunden');
     } catch (error) {
       notice(`${t('Wallet-Daten konnten nicht geladen werden:')} ${error.message}`, true);

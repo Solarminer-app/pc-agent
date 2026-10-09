@@ -11,6 +11,18 @@
 // Keys use {placeholder} tokens (e.g. 'Aktualisiert {time}') filled by t(text, params).
 window.SolarMinerI18nCatalog = {
   frontend: {
+    "{coin} · {algorithm}{unavailable}": "{coin} · {algorithm}{unavailable}",
+    "{count} Worker": "{count} workers",
+    "{count} ausgeblendet · Filter zurücksetzen": "{count} hidden · Reset filters",
+    "{count} Komponenten sind noch keinem Mining-Profil zugewiesen.": "{count} components are not assigned to a mining profile yet.",
+    "derzeit nicht zuweisbar": "currently unavailable for assignment",
+    "nicht installiert": "not installed",
+    "nicht freigegeben": "not enabled",
+    "Pool": "Pool",
+    "SolarMiner-Standardroute": "SolarMiner default route",
+    "verbunden": "connected",
+    "erlaubt": "allowed",
+    "gesperrt": "blocked",
     ", läuft": ", running",
     "1-GB-Pages für RandomX aktivieren": "Enable 1 GB pages for RandomX",
     "AKTIVE WORKER": "ACTIVE WORKERS",

@@ -175,7 +175,7 @@
         const value = column.render(row, index);
         if (value == null) cell.textContent = '—';
         else if (value instanceof Node) cell.append(value);
-        else cell.textContent = String(value);
+        else cell.textContent = t(String(value));
         tr.append(cell);
       }
       body.append(tr);

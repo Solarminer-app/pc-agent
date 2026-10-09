@@ -50,6 +50,20 @@
             <p id="notice" class="notice" role="status" aria-live="polite" hidden></p></section>
         <section class="panel">
             <div class="section-head">
+                <div><p class="kicker">POWER-LIMIT-SWEEP</p>
+                    <h2>Power-Limit-Effizienztest</h2></div>
+                <span id="sweep-state" class="tag">Bereit</span></div>
+            <p class="muted">Für jeden konfigurierten GPU-Miner (Coin × Grafikkarte) wird die Leistungsgrenze vom aktuell gesetzten Wert aus schrittweise gesenkt — niemals erhöht. Ein Schritt zählt nur als stabil, wenn der Miner dabei durchgehend hasht, der Pool verbunden bleibt, die GPU unter der Temperaturschwelle bleibt und keine erhöhte Verwerfungsrate auftritt. Nach dem Lauf werden Leistungsgrenzen und Miner-Zustand verifiziert wiederhergestellt; der beste stabile Wert pro Gerät und Algorithmus wird lokal gespeichert.</p>
+            <button id="run-sweep" class="button primary" type="button">Power-Limit-Test starten</button>
+            <button id="sweep-cancel" class="button subtle" type="button" hidden>Sweep abbrechen</button>
+            <div id="sweep-progress-wrap" hidden>
+                <div class="detail"><span id="sweep-phase">—</span><strong id="sweep-remaining">Power-Limit schrittweise senken und Stabilität prüfen</strong></div>
+                <progress id="sweep-progress" aria-label="Effizienz-Sweep läuft"></progress>
+            </div>
+            <div id="sweep-results" class="benchmark-results"></div>
+        </section>
+        <section class="panel">
+            <div class="section-head">
                 <div><p class="kicker">ERGEBNISSE</p>
                     <h2>Deine Messungen</h2></div>
             </div>

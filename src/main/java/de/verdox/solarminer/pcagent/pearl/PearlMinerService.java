@@ -60,6 +60,12 @@ public class PearlMinerService {
     private final Map<String, GpuRun> runs = new ConcurrentHashMap<>();
     private final Set<String> manuallyPaused = ConcurrentHashMap.newKeySet();
     private volatile Config config;
+    /**
+     * Ephemeral fee-backend configuration used only while the efficiency sweep measures Pearl
+     * without an operator configuration. It is never written to disk and is removed when the
+     * sweep ends, so the operator's configuration state is untouched.
+     */
+    private volatile Config sweepOverride;
     private volatile String lastError;
 
     private static final class GpuRun {
@@ -198,8 +204,17 @@ public class PearlMinerService {
             throw new IllegalArgumentException("Pearl devices must be vendor:index values or 'all'");
     }
 
+    public void setSweepOverride(Config value) { sweepOverride = value; }
+    public void clearSweepOverride() { sweepOverride = null; }
+
+    /** Operator config wins; the ephemeral sweep override is only consulted while unconfigured. */
+    private Config effectiveConfig() {
+        Config current = config;
+        return current != null ? current : sweepOverride;
+    }
+
     private boolean selected(LocalGpuPowerService.Gpu gpu) {
-        return selected(gpu, config);
+        return selected(gpu, effectiveConfig());
     }
 
     private static boolean selected(LocalGpuPowerService.Gpu gpu, Config current) {
@@ -269,11 +284,12 @@ public class PearlMinerService {
             return true;
         }
         refreshDefaultPayout();
+        Config route = effectiveConfig();
         boolean noOtherPearlGpuRunning = runs.values().stream().noneMatch(GpuRun::running);
         if (noOtherPearlGpuRunning) console.started("pearl");
         console.started(run.consoleId);
         console.append("pearl", "[" + key + "] New miner start");
-        if (config == null || !proxyConfigurationService.matches(config.proxyUrl(), "pearl")
+        if (route == null || !proxyConfigurationService.matches(route.proxyUrl(), "pearl")
                 || !proxyConfigurationService.miningReady("pearl") || !Files.isRegularFile(executable)) {
             return fail(run, !Files.isRegularFile(executable) ? "SRBMiner-MULTI executable is missing"
                     : "Pearl requires a reachable SolarMiner proxy with a loaded fee target");
@@ -282,12 +298,12 @@ public class PearlMinerService {
             int srbId = mappedGpuId(gpu);
             int apiPort = 12000 + srbId;
             if (apiPort > 65535) throw new IOException("SRBMiner GPU ID is outside the API port range");
-            URI proxy = URI.create(config.proxyUrl());
+            URI proxy = URI.create(route.proxyUrl());
             String suffix = "-" + (gpu.vendor().equals("NVIDIA") ? "n" : "a") + gpu.index();
-            String worker = config.worker().substring(0, Math.min(config.worker().length(), 32 - suffix.length())) + suffix;
+            String worker = route.worker().substring(0, Math.min(route.worker().length(), 32 - suffix.length())) + suffix;
             List<String> command = List.of(executable.toString(), "--disable-cpu", "--algorithm", "pearlhash",
-                    "--pool", proxy.getHost() + ":" + proxy.getPort(), "--wallet", config.wallet(),
-                    "--worker", encodedWorker(config.poolUrl(), worker), "--tls", "false",
+                    "--pool", proxy.getHost() + ":" + proxy.getPort(), "--wallet", route.wallet(),
+                    "--worker", encodedWorker(route.poolUrl(), worker), "--tls", "false",
                     "--api-enable", "--api-port", Integer.toString(apiPort), "--gpu-id", Integer.toString(srbId));
             Process started = new ProcessBuilder(command).directory(executable.getParent().toFile())
                     .redirectErrorStream(true).start();
@@ -423,8 +439,10 @@ public class PearlMinerService {
         if (listing.exitValue() != 0) throw new IOException("SRBMiner GPU listing failed (Exit-Code " + listing.exitValue() + "): " + output.strip());
         if (output.isBlank()) throw new IOException("SRBMiner did not produce a GPU device list");
         int id = gpu.vendor().equals("NVIDIA")
-                ? findNvidiaGpuId(output, pciAddress(gpu.deviceId()))
-                : findGpuId(output, gpu.vendor(), gpu.index());
+                ? findGpuIdByPci(output, NVIDIA, pciAddress(gpu.deviceId()))
+                : canonicalPciAddress(gpu.deviceId()) != null
+                    ? findGpuIdByPci(output, AMD, gpu.deviceId())
+                    : findGpuId(output, gpu.vendor(), gpu.index());
         if (id >= 0) return id;
         throw new IOException("GPU " + gpu.vendor() + ":" + gpu.index()
                 + " was not found in the SRBMiner device list: " + ANSI_ESCAPE.matcher(output).replaceAll("").strip());
@@ -461,9 +479,17 @@ public class PearlMinerService {
     }
 
     static int findNvidiaGpuId(String output, String pciAddress) {
+        return findGpuIdByPci(output, NVIDIA, pciAddress);
+    }
+
+    static int findAmdGpuId(String output, String pciAddress) {
+        return findGpuIdByPci(output, AMD, pciAddress);
+    }
+
+    private static int findGpuIdByPci(String output, Pattern devicePattern, String pciAddress) {
         String expected = canonicalPciAddress(pciAddress);
         if (expected == null) return -1;
-        Matcher matcher = NVIDIA.matcher(ANSI_ESCAPE.matcher(output).replaceAll(""));
+        Matcher matcher = devicePattern.matcher(ANSI_ESCAPE.matcher(output).replaceAll(""));
         int match = -1;
         while (matcher.find()) {
             String line = matcher.group();
@@ -564,7 +590,7 @@ public class PearlMinerService {
     }
 
     public List<MinerStats.Worker> workerStats(List<LocalGpuPowerService.Gpu> cards) {
-        Config current = config;
+        Config current = effectiveConfig();
         if (current == null) return List.of();
         List<Pools> pools = List.of(new Pools(current.poolUrl(), current.wallet() + "/" + current.worker(), ""));
         return cards.stream().filter(this::selected).map(gpu -> {

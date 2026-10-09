@@ -14,6 +14,7 @@ import de.verdox.solarminer.pcagent.mining.WindowsDefenderExclusionService;
 import de.verdox.solarminer.pcagent.mining.ProxyConfigurationService;
 import de.verdox.solarminer.pcagent.mining.ProxyDiscoveryService;
 import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
+import de.verdox.solarminer.pcagent.mining.LocalRunLock;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService;
 import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
@@ -48,6 +49,7 @@ public class MiningController {
     private final WalletBalanceService walletBalanceService;
     private final WindowsDefenderExclusionService defenderExclusionService;
     private final MinerCatalogService minerCatalog;
+    private final LocalRunLock localRuns;
 
     public MiningController(MiningService miningService, XmrConfigService xmrConfigService,
                             PearlMinerService pearlMinerService, GpuCoinMinerService gpuCoins, LocalGpuPowerService gpuPowerService,
@@ -61,7 +63,8 @@ public class MiningController {
                             FeeTransparencyService feeTransparencyService,
                             WalletBalanceService walletBalanceService,
                             WindowsDefenderExclusionService defenderExclusionService,
-                            MinerCatalogService minerCatalog) {
+                            MinerCatalogService minerCatalog,
+                            LocalRunLock localRuns) {
         this.miningService = miningService;
         this.xmrConfigService = xmrConfigService;
         this.proxyConfigurationService = proxyConfigurationService;
@@ -80,6 +83,17 @@ public class MiningController {
         this.walletBalanceService = walletBalanceService;
         this.defenderExclusionService = defenderExclusionService;
         this.minerCatalog = minerCatalog;
+        this.localRuns = localRuns;
+    }
+
+    /**
+     * A running benchmark or efficiency sweep owns the miners and the GPU power limits: it
+     * snapshots the previous state to restore it afterwards, so a concurrent local control
+     * would both corrupt the measurement and leave a worker running against the operator's
+     * intent. Cancel the measurement run first.
+     */
+    private boolean localRunsFree() {
+        return !localRuns.busy();
     }
 
     @GetMapping("identify")
@@ -304,6 +318,7 @@ public class MiningController {
 
     @PostMapping("/pearl/configuration")
     public boolean setPearlConfiguration(@RequestBody PearlMinerService.Config configuration) throws java.io.IOException {
+        if (!localRunsFree()) throw new IllegalArgumentException("Ein Messlauf (Benchmark oder Effizienz-Sweep) läuft gerade; breche ihn ab, bevor du die Miner-Konfiguration änderst");
         boolean feeBackendPayout = configuration == null
                 || configuration.wallet() == null || configuration.wallet().isBlank();
         PearlMinerService.Config effective = feeBackendPayout
@@ -319,6 +334,7 @@ public class MiningController {
     @PostMapping("/{coin}/configuration")
     public boolean setGpuCoinConfiguration(@PathVariable String coin,
                                            @RequestBody GpuCoinMinerService.Config config) throws java.io.IOException {
+        if (!localRunsFree()) throw new IllegalArgumentException("Ein Messlauf (Benchmark oder Effizienz-Sweep) läuft gerade; breche ihn ab, bevor du die Miner-Konfiguration änderst");
         if (!GpuCoinMinerService.supported(coin)) throw new IllegalArgumentException("Unbekannter GPU-Coin");
         boolean feeBackendPayout = config == null || config.wallet() == null || config.wallet().isBlank();
         GpuCoinMinerService.Config effective = feeBackendPayout ? withGpuCoinFeeBackendPayout(coin, config) : config;
@@ -339,12 +355,12 @@ public class MiningController {
 
     @PostMapping("/{coin}/gpus/{vendor}/{index}/resume")
     public boolean resumeGpuCoin(@PathVariable String coin, @PathVariable String vendor, @PathVariable int index) {
-        return lhmBootstrapService.readyForAgent() && gpuCoins.resumeGpu(coin, vendor, index);
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && gpuCoins.resumeGpu(coin, vendor, index);
     }
 
     @PostMapping("/{coin}/gpus/{vendor}/{index}/pause")
     public boolean pauseGpuCoin(@PathVariable String coin, @PathVariable String vendor, @PathVariable int index) {
-        return gpuCoins.pauseGpu(coin, vendor, index);
+        return localRunsFree() && gpuCoins.pauseGpu(coin, vendor, index);
     }
 
     /**
@@ -571,58 +587,58 @@ public class MiningController {
 
     @PostMapping("/miners/{coin}/resume")
     public boolean resumeMiner(@PathVariable String coin) {
-        return miningService.resumeMining(coin);
+        return localRunsFree() && miningService.resumeMining(coin);
     }
 
     @PostMapping("/miners/{coin}/pause")
     public boolean pauseMiner(@PathVariable String coin) {
-        return miningService.pauseMining(coin);
+        return localRunsFree() && miningService.pauseMining(coin);
     }
 
     @PostMapping("/miners/{coin}/power-target")
     public boolean setMinerPowerTarget(@PathVariable String coin, @RequestParam long powerTarget) {
-        return lhmBootstrapService.readyForAgent() && miningService.setTarget(coin, powerTarget);
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && miningService.setTarget(coin, powerTarget);
     }
 
     @PostMapping("/pearl/gpus/{vendor}/{index}/resume")
     public boolean resumePearlGpu(@PathVariable String vendor, @PathVariable int index) {
-        return lhmBootstrapService.readyForAgent() && pearlMinerService.resumeGpuManually(vendor, index);
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && pearlMinerService.resumeGpuManually(vendor, index);
     }
 
     @PostMapping("/pearl/gpus/{vendor}/{index}/pause")
     public boolean pausePearlGpu(@PathVariable String vendor, @PathVariable int index) {
-        return pearlMinerService.pauseGpuManually(vendor, index);
+        return localRunsFree() && pearlMinerService.pauseGpuManually(vendor, index);
     }
 
     @PostMapping("/coin")
     public boolean selectCoin(@RequestParam String coin) {
-        if (!lhmBootstrapService.readyForAgent()) return false;
+        if (!localRunsFree() || !lhmBootstrapService.readyForAgent()) return false;
         return miningService.switchCoin(coin);
     }
 
     @PostMapping("/setPowerTarget")
     public boolean setPowerTarget(@RequestParam long powerTarget) {
-        return lhmBootstrapService.readyForAgent() && miningService.setTarget(powerTarget);
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && miningService.setTarget(powerTarget);
     }
 
     @PostMapping("/increasePowerTarget")
     public boolean increasePowerTarget(@RequestParam long powerTarget) {
-        return lhmBootstrapService.readyForAgent() && miningService.increasePowerTarget(powerTarget);
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && miningService.increasePowerTarget(powerTarget);
     }
 
     @PostMapping("/decreasePowerTarget")
     public boolean decreasePowerTarget(@RequestParam long powerTarget) {
-        return lhmBootstrapService.readyForAgent() && miningService.decreasePowerTarget(powerTarget);
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && miningService.decreasePowerTarget(powerTarget);
     }
 
     @PostMapping("/pause")
     public boolean pause() {
-        return miningService.pauseAll("Local dashboard global pause request");
+        return localRunsFree() && miningService.pauseAll("Local dashboard global pause request");
     }
 
     @PostMapping("/resume")
     public boolean resume() {
-        return lhmBootstrapService.readyForAgent() && miningService.resumeAll();
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && miningService.resumeAll();
     }
 
     @GetMapping

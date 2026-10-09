@@ -219,5 +219,84 @@ fetch('/api/agent/local/benchmarks/sharing').then(async response => {
     $('sharing-note').textContent = t('Die Freigabe konnte nicht gelesen werden. Aktualisiere die Seite, bevor du sie änderst.');
 });
 
+async function pollSweep() {
+    try {
+        const response = await fetch('/api/agent/local/efficiency', {cache: 'no-store'});
+        if (!response.ok) return;
+        const state = await response.json();
+        $('sweep-state').textContent = state.running ? (state.phase || 'Läuft') : (state.phase === 'Idle' ? 'Bereit' : state.phase || 'Bereit');
+        $('sweep-cancel').hidden = !state.running;
+        $('sweep-progress-wrap').hidden = !state.running;
+        $('run-sweep').disabled = state.running || actionBusy;
+        if (state.running) {
+            $('sweep-phase').textContent = `${state.phase} · Schritt ${state.phaseIndex}/${state.phaseCount}`;
+            const count = state.phase.match(/·\s*(\d+)\/(\d+)\s*Messpunkte/);
+            if (count) {
+                $('sweep-progress').max = Number(count[2]);
+                $('sweep-progress').value = Number(count[1]);
+            } else $('sweep-progress').removeAttribute('value');
+        }
+        if (state.running && state.results?.length) await renderProfiles(state.results);
+        else if (!state.running) await renderProfiles(null);
+    } catch (e) {
+        // The benchmark page stays usable when the sweep status request fails.
+    }
+}
+
+let lastProfileSignature = null;
+
+async function renderProfiles(fromSession) {
+    try {
+        const response = await fetch('/api/agent/local/efficiency/profiles', {cache: 'no-store'});
+        if (!response.ok) return;
+        const profiles = await response.json();
+        const signature = JSON.stringify(profiles);
+        if (signature === lastProfileSignature && !fromSession) return;
+        lastProfileSignature = signature;
+        const root = $('sweep-results');
+        root.replaceChildren();
+        if (!profiles.length) {
+            root.append(make('p', 'empty', 'Noch kein Effizienz-Profil. Starte einen Test, um stabile Power-Limits zu ermitteln.'));
+            return;
+        }
+        for (const profile of profiles) {
+            const card = make('article', 'worker-card');
+            const info = make('div', '');
+            info.append(make('strong', '', `${profile.model} · ${profile.algorithm}`),
+                make('p', 'muted', `${profile.coin} · getestet ${new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(profile.testedAt))}`));
+            if (profile.bestStableWatts != null) {
+                info.append(make('p', '', `Bester stabiler Wert: ${profile.bestStableWatts} W · ${fmtRate(profile.bestHashrateHs)} · ${Math.round(profile.bestPowerWatts)} W · ${window.SolarMinerMeasurements.efficiency(profile.bestHashrateHs, profile.bestPowerWatts)}`));
+            } else info.append(make('p', '', 'Kein stabiler Power-Limit-Wert gefunden.'));
+            const steps = (profile.steps || []).map(step =>
+                `${step.limitWatts} W ${step.stable ? '✓' : '✗'}${step.medianHashrateHs ? ` (${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W)` : ''}${step.note ? ` — ${step.note}` : ''}`).join(' · ');
+            if (steps) info.append(make('p', 'muted', steps));
+            card.append(info);
+            root.append(card);
+        }
+    } catch (e) {
+        // Profiles remain hidden until the local store is reachable again.
+    }
+}
+
+async function startSweep() {
+    if (actionBusy) return; actionBusy = true;
+    $('run-sweep').disabled = true;
+    try {
+        const response = await fetch('/api/agent/local/efficiency', {method: 'POST'});
+        if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || 'Der Effizienz-Sweep konnte nicht gestartet werden.'); }
+        notice('Effizienz-Sweep gestartet. Leistungsgrenzen werden schrittweise gesenkt und nach dem Lauf wiederhergestellt.');
+    } catch (error) { notice(error.message, true); }
+    finally { actionBusy = false; await pollSweep(); }
+}
+
+$('run-sweep').addEventListener('click', startSweep);
+$('sweep-cancel').addEventListener('click', async () => {
+    if (actionBusy) return; actionBusy = true; $('sweep-cancel').disabled = true;
+    try { const response = await fetch('/api/agent/local/efficiency/cancel', {method: 'POST'}); if (!response.ok) throw new Error('Der Sweep konnte nicht abgebrochen werden.'); notice('Abbruch angefordert. Leistungsgrenzen und Miner-Zustand werden wiederhergestellt.'); }
+    catch (error) { notice(error.message, true); }
+    finally { actionBusy = false; $('sweep-cancel').disabled = false; await pollSweep(); }
+});
+
 poll();
-timer = setInterval(() => {if (!document.hidden) poll();}, 1000);
+pollSweep();
+timer = setInterval(() => {if (!document.hidden) { poll(); pollSweep(); }}, 1000);

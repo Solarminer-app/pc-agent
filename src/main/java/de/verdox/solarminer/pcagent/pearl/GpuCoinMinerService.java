@@ -50,6 +50,12 @@ public class GpuCoinMinerService {
     private final Path configDirectory;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build();
     private final Map<String, Config> configs = new ConcurrentHashMap<>();
+    /**
+     * Ephemeral fee-backend configurations used only while the efficiency sweep measures a
+     * coin the operator never configured. They are never written to disk and are removed
+     * when the sweep ends, so the operator's configuration state is untouched.
+     */
+    private final Map<String, Config> sweepOverrides = new ConcurrentHashMap<>();
     private final Map<String, Run> runs = new ConcurrentHashMap<>();
     private final Set<String> manuallyPaused = ConcurrentHashMap.newKeySet();
     private volatile String lastError;
@@ -105,6 +111,13 @@ public class GpuCoinMinerService {
     }
     private Path file(String coin) { return configDirectory.resolve("solarminer-" + coin + ".json"); }
     public Config configuration(String coin) { return configs.get(coin); }
+    /** Operator config wins; the ephemeral sweep override is only consulted for unconfigured coins. */
+    private Config effectiveConfig(String coin) {
+        Config configured = configs.get(coin);
+        return configured != null ? configured : sweepOverrides.get(coin);
+    }
+    public void setSweepOverride(String coin, Config config) { sweepOverrides.put(coin, config); }
+    public void clearSweepOverride(String coin) { sweepOverrides.remove(coin); }
     public boolean binaryAvailable() { return pearl.binaryAvailable(); }
     public String lastError() { return lastError; }
 
@@ -196,7 +209,7 @@ public class GpuCoinMinerService {
     }
 
     public List<LocalGpuPowerService.Gpu> selected(String coin) {
-        Config config = configs.get(coin);
+        Config config = effectiveConfig(coin);
         if (config == null) return List.of();
         List<String> devices = List.of(config.devices().split(","));
         return power.discover().stream().filter(gpu -> devices.contains(gpu.vendor() + ":" + gpu.index())).toList();
@@ -225,7 +238,7 @@ public class GpuCoinMinerService {
         if (manuallyPaused.contains(key)) return false;
         Run run = runs.computeIfAbsent(key, ignored -> new Run(coin, gpu));
         if (run.running()) return true;
-        Config config = configs.get(coin);
+        Config config = effectiveConfig(coin);
         if (config == null || !proxy.matches(config.proxyUrl(), coin) || !proxy.miningReady(coin)
                 || !proxy.feeReady(coin) || !binaryAvailable())
             return fail(run, "SolarMiner-Proxy, Fee-Ziel oder SRBMiner für " + coin + " nicht bereit");
@@ -440,7 +453,8 @@ public class GpuCoinMinerService {
         return MinerStats.MinerStatus.PAUSED;
     }
     public List<GpuState> gpuStates(String coin, List<LocalGpuPowerService.Gpu> cards) {
-        List<String> selected = configs.containsKey(coin) ? List.of(configs.get(coin).devices().split(",")) : List.of();
+        Config config = effectiveConfig(coin);
+        List<String> selected = config != null ? List.of(config.devices().split(",")) : List.of();
         return cards.stream().map(gpu -> {
             String key = coin + ":" + gpu.vendor() + ":" + gpu.index();
             Run run = runs.get(key);
@@ -451,7 +465,7 @@ public class GpuCoinMinerService {
         }).toList();
     }
     public List<MinerStats.Worker> workerStats(String coin, List<LocalGpuPowerService.Gpu> cards) {
-        Config config = configs.get(coin);
+        Config config = effectiveConfig(coin);
         if (config == null) return List.of();
         List<Pools> pools = List.of(new Pools(config.poolUrl(), config.wallet() + "/" + config.worker(), ""));
         return gpuStates(coin, cards).stream().filter(GpuState::selected).map(state -> {

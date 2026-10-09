@@ -16,6 +16,8 @@ public class LinuxSensorReader implements HardwareSensorReader {
     private static final Path HWMON = Path.of("/sys/class/hwmon");
     private static final Path THERMAL = Path.of("/sys/class/thermal");
     private static final Path POWERCAP = Path.of("/sys/class/powercap");
+    /** RAPL packages and domains are shallow. A bound also protects against malformed sysfs mounts. */
+    private static final int MAX_POWERCAP_DEPTH = 8;
 
     private Path energyFile;
     private long previousEnergyUj = -1;
@@ -89,21 +91,36 @@ public class LinuxSensorReader implements HardwareSensorReader {
 
     private Path findEnergyCounter() {
         if (energyFile != null && Files.isReadable(energyFile)) return energyFile;
-        try (Stream<Path> roots = Files.list(POWERCAP)) {
+        return findEnergyCounter(POWERCAP);
+    }
+
+    /**
+     * Finds the first readable RAPL energy counter without following links below a powercap root.
+     * Linux sysfs exposes {@code device}, {@code subsystem} and {@code power} links which can lead
+     * back to an ancestor. Recursive {@code Files.isDirectory} checks follow those links and can
+     * therefore loop forever while holding the sensor lock.
+     */
+    static Path findEnergyCounter(Path powercapRoot) {
+        try (Stream<Path> roots = Files.list(powercapRoot)) {
             return roots.filter(Files::isDirectory)
                     .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).contains("rapl"))
-                    .flatMap(this::energyFiles).filter(Files::isReadable).sorted().findFirst().orElse(null);
+                    .flatMap(path -> energyFiles(path).stream())
+                    .filter(Files::isReadable).distinct().sorted().findFirst().orElse(null);
         } catch (IOException | SecurityException ignored) { return null; }
     }
 
-    private Stream<Path> energyFiles(Path directory) {
+    static List<Path> energyFiles(Path directory) {
         try {
-            List<Path> children;
-            try (Stream<Path> listing = Files.list(directory)) { children = listing.toList(); }
-            Stream<Path> own = children.stream().filter(path -> path.getFileName().toString().equals("energy_uj"));
-            Stream<Path> nested = children.stream().filter(Files::isDirectory).flatMap(this::energyFiles);
-            return Stream.concat(own, nested);
-        } catch (IOException | SecurityException ignored) { return Stream.empty(); }
+            // Class entries themselves are normally symlinks, so resolve that one trusted entry.
+            // Files.find does not follow any links encountered underneath it unless FOLLOW_LINKS
+            // is explicitly requested (which must never happen for this sysfs traversal).
+            Path realRoot = directory.toRealPath();
+            try (Stream<Path> paths = Files.find(realRoot, MAX_POWERCAP_DEPTH,
+                    (path, attributes) -> attributes.isRegularFile()
+                            && path.getFileName().toString().equals("energy_uj"))) {
+                return paths.sorted().toList();
+            }
+        } catch (IOException | SecurityException ignored) { return List.of(); }
     }
 
     private List<Path> tempInputs() {

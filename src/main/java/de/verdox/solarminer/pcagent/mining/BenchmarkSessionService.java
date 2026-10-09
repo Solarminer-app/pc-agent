@@ -26,13 +26,14 @@ public class BenchmarkSessionService {
     private final PearlMinerService pearl;
     private final BenchmarkSharingService sharing;
     private final MinerConsoleService consoles;
+    private final LocalRunLock lock;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> Thread.ofPlatform().name("pc-agent-benchmark").daemon(true).unstarted(r));
     private volatile Session session = Session.idle();
     private volatile boolean cancel;
 
     public BenchmarkSessionService(MiningService mining, XmrMinerService xmr, PearlMinerService pearl,
-                                   BenchmarkSharingService sharing, MinerConsoleService consoles) {
-        this.mining = mining; this.xmr = xmr; this.pearl = pearl; this.sharing = sharing; this.consoles = consoles;
+                                   BenchmarkSharingService sharing, MinerConsoleService consoles, LocalRunLock lock) {
+        this.mining = mining; this.xmr = xmr; this.pearl = pearl; this.sharing = sharing; this.consoles = consoles; this.lock = lock;
     }
 
     public synchronized Session start(String mode) {
@@ -40,6 +41,7 @@ public class BenchmarkSessionService {
         if (session.running()) throw new IllegalStateException("A benchmark is already running");
         List<String> phases = "INSTALLED".equals(mode) ? installedPhases() : List.of("live");
         if (phases.isEmpty()) throw new IllegalStateException("Install and configure at least one miner before running this benchmark");
+        if (!lock.tryBegin("benchmark")) throw new IllegalStateException("Ein anderer Messlauf (Effizienz-Sweep) läuft gerade; der Benchmark wartet, bis er beendet ist");
         cancel = false;
         Instant start = Instant.now();
         int phaseCount = phases.size();
@@ -54,9 +56,9 @@ public class BenchmarkSessionService {
     }
     public synchronized Session cancel() { cancel = true; return status(); }
 
-    /** Serializes Node controls with benchmark admission so a checked command cannot race a new run. */
+    /** Serializes Node controls with measurement runs so a checked command cannot race a new run. */
     public synchronized <T> T withExternalControl(Supplier<T> command) {
-        if (session.running()) throw new BenchmarkRunningException();
+        if (session.running() || lock.busy()) throw new BenchmarkRunningException();
         return command.get();
     }
 
@@ -72,6 +74,7 @@ public class BenchmarkSessionService {
             Session old = session;
             session = new Session(false, mode, "Sequential benchmark skipped: externally started miners cannot be safely paused and restored",
                     old.startedAt(), Instant.now(), null, 0, old.phaseCount(), List.of(), null);
+            lock.end();
             return;
         }
         List<MinerStats.Worker> before = mining.getWorkerStats();
@@ -187,6 +190,7 @@ public class BenchmarkSessionService {
             }
             List<MinerStats.Worker> captured = aggregateWorkers(observations);
             sharing.reportManualResults(captured);
+            lock.end();
             Session old = session;
             String result = error != null ? "Error: " + error : cancel ? "Cancelled; previous miner state restored"
                     : "Complete; previous miner state restored" + (skipped.isEmpty() ? "" : "; skipped: " + String.join(", ", skipped));

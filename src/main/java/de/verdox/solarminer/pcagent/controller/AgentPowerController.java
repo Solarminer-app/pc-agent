@@ -177,7 +177,15 @@ public class AgentPowerController {
 
     @PostMapping("/gpus/{deviceId}/limits")
     public GpuStatus limits(@PathVariable String deviceId, @RequestBody UserLimits request) {
-        if (request == null || !gpus.setUserLimits(deviceId, request.minimumWatts(), request.maximumWatts()))
+        if (request == null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "GPU-Leistungsgrenzen fehlen");
+        boolean applied;
+        try {
+            applied = benchmarks.withExternalControl(() -> gpus.setUserLimits(deviceId, request.minimumWatts(), request.maximumWatts()));
+        } catch (BenchmarkSessionService.BenchmarkRunningException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "GPU-Leistungsgrenzen können während eines Messlaufs nicht geändert werden");
+        }
+        if (!applied)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "GPU-Leistungsgrenzen liegen außerhalb der aktuellen Treibergrenzen");
         return status().gpus().stream().filter(g -> g.deviceId().equals(deviceId)).findFirst().orElseThrow();
     }

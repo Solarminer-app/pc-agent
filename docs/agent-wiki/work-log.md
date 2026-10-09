@@ -123,3 +123,139 @@
   exercised; badge verified by code review only.
 - Open gates: end-to-end tier flip against a running proxy+fee-backend not yet
   observed on real hardware.
+
+## 2026-10-09 — Linux powercap cycle fixed
+
+- Diagnosed the running standalone Agent with same-origin API probes and a JVM
+  thread dump. `/api/agent/local/overview` produced no response within 20 s and
+  `/api/agent/local/workers` produced none within 30 s, while
+  `/api/agent/local/miner-options` returned HTTP 200 in 4 ms. The owning HTTP
+  thread had spent more than five minutes recursively scanning
+  `/sys/class/powercap` in `LinuxSensorReader.energyFiles`; sysfs `device`,
+  `subsystem` and `power` links formed ancestor cycles. Other Overview and Worker
+  requests accumulated behind the synchronized sensor and worker monitors.
+- Replaced the recursive, link-following directory test with a bounded
+  `Files.find` traversal. The selected RAPL class entry is resolved once, links
+  below that root are never followed, traversal depth is capped at eight, and
+  counter selection remains deterministic.
+- Added `LinuxSensorReaderTest`, which builds a temporary powercap tree with
+  `device`, `subsystem` and `power` cycles and verifies within one second that
+  the real `energy_uj` counter is found exactly once.
+- Wallet and Worker initial reads now use the shared JSON client with its
+  eight-second timeout. A later backend stall therefore produces the existing
+  visible page error instead of keeping both configuration views blank forever.
+- Verification: focused sensor and worker tests passed; full
+  `sh gradlew test standaloneJar` passed on JDK 21; `node --check` passed for
+  `wallets.js` and `workers.js`; `git diff --check` passed. The already-running
+  JVM still contains the old loaded class and requires one restart before the
+  runtime fix takes effect.
+
+## 2026-10-09 — GPU power-limit efficiency sweep with stability gate
+
+- New feature next to the benchmarks: `EfficiencySweepService` walks the driver
+  power limit downward from the currently active cap (never upward; default 15 W
+  steps, `solarminer.agent.sweep.step-watts`)
+  for every configured GPU miner target (coin × GPU: pearl, ravencoin,
+  ethereumclassic, decred, quantus) and keeps only steps that prove stable under
+  real mining load.
+- Hardware-protection gates (the hard constraint of every step): only
+  driver-verified limits are written (`LocalGpuPowerService.setTotalPowerTarget`
+  read-back check; driver and persisted user limits are never undercut); NVIDIA
+  uses `nvidia-smi`, AMD uses AMD-SMI or Linux `amdgpu` hwmon; every 5 s sample reads the GPU
+  temperature via the new `LocalGpuPowerService.readTemperatureC` and aborts the
+  step above `solarminer.agent.sweep.max-temperature-c` (default 85 °C) or when
+  the temperature is unreadable; a step is stable only with a live miner
+  process, valid hashrate, pool connection and rejected-share ratio below
+  `solarminer.agent.sweep.max-rejected-ratio` (default 0.10); the previous power
+  limits and the previous miner running/paused state are restored and verified
+  in the finally block, including cancel and failure paths. Incomplete restoration
+  is reported as an error. External SRBMiner processes refuse the sweep entirely.
+- Best stable value per device+algorithm (max H/J) is persisted atomically to
+  `./solarminer-agent/gpu-efficiency-profiles.json` via `GpuEfficiencyStore`,
+  together with the full step history. No wallets, pools or identities stored.
+- `LocalRunLock` serializes the sweep against benchmark sessions; Node controls
+  stay locked while either runs (`withExternalControl` now checks the shared
+  lock). The benchmark's early external-miner return path releases the lock.
+- API: `GET/POST /api/agent/local/efficiency`, `POST .../cancel`,
+  `GET .../profiles` (`EfficiencySweepController`). UI: new "Effizienz-Sweep"
+  panel on benchmarks.html with progress, cancel and per-device profile cards
+  including the step history.
+- Power writes are capability-probed with a same-value write/readback. Multi-GPU
+  failures roll every card back to its live snapshot. Original limits are
+  atomically persisted before the first change and recovered on graceful shutdown
+  or the next process start after a crash.
+- Verification: focused `LocalGpuPowerServiceTest` and `EfficiencySweepServiceTest`
+  pass on JDK 21, covering NVIDIA permission probing, NVIDIA set/readback,
+  multi-GPU rollback, AMD-SMI BDF control, Linux AMD sysfs fallback, crash
+  recovery and a descending ladder that never exceeds the initial cap. Full
+  `sh gradlew test standaloneJar` also passes on JDK 21.
+- Open gates: sweep has not yet been run end-to-end against real GPUs on this
+  host; temperature ceiling and step size should be validated on the target rig
+  before recommending the stored best values as permanent limits. Native Windows
+  AMD remains fail-closed: ADLX exposes the tuning limit as a percentage, not an
+  absolute watt cap, so it cannot safely satisfy the existing watt-target contract
+  without a separately shipped and hardware-validated native adapter.
+
+## 2026-10-09 — Efficiency sweep: dev-fee fallback for unconfigured coins
+
+- `EfficiencySweepService.targets()` now also measures coins the operator never
+  configured: an ephemeral in-memory configuration is built from the fee-backend
+  house target (`PayoutDefaultsService.resolve`) exactly like the empty-wallet
+  path in the operator UI, so the sweep runs coin-by-coin over every supported
+  GPU coin. `PearlMinerService` and `GpuCoinMinerService` gained a
+  `sweepOverride`/`effectiveConfig()` layer: operator config always wins, the
+  override is never written to disk, is applied per target and cleared after
+  each target plus a safety-net clear for all targets in the finally block.
+- Fallback configs pass the same `validate()` as operator configs; an
+  unreachable fee target or invalid wallet simply drops that coin from the run.
+- Verification: `sh gradlew test standaloneJar` passed on JDK 21.
+- Open gates: unchanged — real-hardware end-to-end run still pending.
+
+## 2026-10-09 — Worker UI dynamic strings use the localization catalog
+
+- Shared table rendering now passes primitive cell values through `t()`, matching
+  the existing element, status and table-header builders. This closes a shared
+  gap that left dynamic worker status and control cells in German for English UI.
+- Worker count/filter/help text now uses catalog lookups and `{count}` parameters;
+  backend-provided miner availability reasons use the agent-text translator `s()`.
+- Added the corresponding closed-catalog entries. Verification: `git diff --check`
+  passed; no build or tests run (not needed for this frontend-only change).
+
+## 2026-10-09 — Measurement-run lock now covers local UI controls too
+
+- The benchmark/sweep lock previously only gated Node (external) controls. Local
+  UI routes in `MiningController` (miner resume/pause, per-coin and global power
+  targets, coin switch, GPU resume/pause, global pause/resume, Pearl and GPU-coin
+  configuration) could start a second miner on a GPU while a benchmark or
+  efficiency sweep owned it — corrupting the measurement and leaving a worker
+  running against the operator's restore snapshot.
+- All those routes now check the shared `LocalRunLock` (`localRunsFree()`);
+  configuration changes answer HTTP 400 with a cancel-the-run hint, control
+  toggles answer `false`. `AgentPowerController` GPU user-limit writes now go
+  through `withExternalControl` as well (409 while a run holds the lock).
+- Tests: `MiningControllerValidationTest` gained lock-held and lock-free cases
+  (controls refused with no service interactions while held; allowed after
+  release). `sh gradlew test standaloneJar` passed on JDK 21.
+
+## 2026-10-09 — Efficiency-sweep start diagnosis on the Linux GPU host
+
+- The live local API showed four NVIDIA TITAN RTX cards, SRBMiner installed and
+  the managed proxy running, but every card reported
+  `supportsDynamicPowerScaling=false`: the harmless same-value
+  `nvidia-smi -pl` capability probe failed with `Insufficient Permissions`.
+  This is the concrete reason the sweep had no eligible target; the previous
+  generic install/configuration error pointed operators in the wrong direction.
+- Sweep admission now distinguishes no GPU, no writable Power Cap, missing
+  SRBMiner and missing ready route. For a driver-permission failure the HTTP 409
+  detail tells the operator to run the Agent with the required
+  administrator/root driver permission and includes a one-line per-model driver
+  status (multiline tool output is collapsed). The controller now returns that
+  detail explicitly as `{"message":"..."}`; Spring's default 409 response on
+  this installation omitted `ResponseStatusException` messages, which forced
+  the dashboard to show only its generic fallback.
+- Verification: `EfficiencySweepServiceTest` covers the permission-specific,
+  no-GPU and missing-miner diagnostics; `EfficiencySweepControllerTest` covers
+  the HTTP 409 message consumed by the dashboard. Full
+  `sh gradlew test standaloneJar` passed on JDK 21. The hardware sweep remains
+  blocked until the Agent process can successfully write and read back an NVIDIA
+  Power Cap.

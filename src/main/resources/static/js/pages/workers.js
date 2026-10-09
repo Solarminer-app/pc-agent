@@ -3,6 +3,7 @@
   const ui = window.SolarMinerUI;
   const $ = id => document.getElementById(id);
   const t = ui.t;
+  const s = ui.s;
   const preferences = window.SolarMinerPreferences;
   let workers = [], miners = [], energy = null, sensors = null, controlSettings = null;
   let search = '', coin = null, hardware = 'all', settingsBusy = false, selected = null;
@@ -127,11 +128,11 @@
   ];
 
   function renderTable() {
-    const list = filtered(); $('worker-count').textContent = t(`${list.length} Worker`);
+    const list = filtered(); $('worker-count').textContent = t('{count} Worker', {count: list.length});
     $('worker-hidden').hidden = list.length === workers.length;
-    if (!$('worker-hidden').hidden) $('worker-hidden').textContent = t(`${workers.length - list.length} ausgeblendet · Filter zurücksetzen`);
+    if (!$('worker-hidden').hidden) $('worker-hidden').textContent = t('{count} ausgeblendet · Filter zurücksetzen', {count: workers.length - list.length});
     $('idle-devices').hidden = !workers.some(worker => worker.coin === 'none');
-    if (!$('idle-devices').hidden) $('idle-devices').textContent = t(`${workers.filter(worker => worker.coin === 'none').length} Komponenten sind noch keinem Mining-Profil zugewiesen.`);
+    if (!$('idle-devices').hidden) $('idle-devices').textContent = t('{count} Komponenten sind noch keinem Mining-Profil zugewiesen.', {count: workers.filter(worker => worker.coin === 'none').length});
     $('worker-table').replaceChildren(ui.table({columns, rows: list, empty: 'Keine Worker passen zu den Filtern.', onRow: openEditor}));
   }
 
@@ -143,15 +144,15 @@
     const coinMiners = miners.filter(item => item.coin === coinId);
     for (const miner of coinMiners) {
       const option = document.createElement('option'); option.value = miner.id;
-      option.textContent = `${miner.name}${!miner.selectable ? ' · derzeit nicht zuweisbar' : miner.installed ? '' : ' · nicht installiert'}`;
+      option.textContent = `${miner.name}${!miner.selectable ? ` · ${t('derzeit nicht zuweisbar')}` : miner.installed ? '' : ` · ${t('nicht installiert')}`}`;
       option.disabled = !miner.selectable || !miner.installed; select.append(option);
     }
     if (selectedId && [...select.options].some(option => option.value === selectedId && !option.disabled)) select.value = selectedId;
     const chosen = coinMiners.find(miner => miner.id === select.value);
-    $('worker-miner-help').textContent = coinId === 'none' ? 'Keine Software erforderlich.'
-      : chosen && !chosen.selectable ? (chosen.unavailableReason || 'Diese Miner-Software ist für den Coin derzeit nicht freigegeben.')
-      : chosen?.installed ? 'Installiert und einsatzbereit.'
-      : 'Installiere zuerst eine kompatible Software im Bereich Miner-Software.';
+    $('worker-miner-help').textContent = coinId === 'none' ? t('Keine Software erforderlich.')
+      : chosen && !chosen.selectable ? s(chosen.unavailableReason || 'Diese Miner-Software ist für den Coin derzeit nicht freigegeben.')
+      : chosen?.installed ? t('Installiert und einsatzbereit.')
+      : t('Installiere zuerst eine kompatible Software im Bereich Miner-Software.');
     $('worker-miner-install').hidden = coinId === 'none' || !chosen?.selectable || Boolean(chosen?.installed);
     $('worker-save').disabled = coinId !== 'none' && (!chosen || !chosen.selectable || !chosen.installed);
     select.disabled = coinId === 'none';
@@ -168,10 +169,13 @@
       const coinMiners = miners.filter(miner => miner.coin === id);
       const unavailable = id !== 'none' && coinMiners.length > 0 && !coinMiners.some(miner => miner.selectable);
       const reason = coinMiners.find(miner => !miner.selectable)?.unavailableReason;
-      option.textContent = id === 'none' ? 'Nicht zugewiesen'
-        : `${coinTicker(id)} · ${{monero:'RandomX',pearl:'PearlHash',ravencoin:'KAWPOW',ethereumclassic:'ETCHash',decred:'BLAKE3',quantus:'QPoW (Poseidon2)'}[id]}${unavailable ? ' · nicht freigegeben' : ''}`;
+      option.textContent = id === 'none' ? t('Nicht zugewiesen') : t('{coin} · {algorithm}{unavailable}', {
+        coin: coinTicker(id),
+        algorithm: {monero:'RandomX',pearl:'PearlHash',ravencoin:'KAWPOW',ethereumclassic:'ETCHash',decred:'BLAKE3',quantus:'QPoW (Poseidon2)'}[id],
+        unavailable: unavailable ? ` · ${t('nicht freigegeben')}` : ''
+      });
       option.disabled = unavailable;
-      if (reason) option.title = reason;
+      if (reason) option.title = s(reason);
       coinSelect.append(option);
     }
     coinSelect.value = worker.coin; populateMinerSelect(worker.coin, worker.minerSoftwareId);
@@ -184,7 +188,7 @@
   function updatePoolSummary(coinId, poolUrl, configured) {
     const box = $('worker-pool-summary'); box.replaceChildren();
     if (coinId === 'none') { box.textContent = t('Die Komponente bleibt frei und kann nicht gestartet werden.'); return; }
-    const text = ui.element('span', '', configured ? `Pool: ${poolUrl || 'SolarMiner-Standardroute'}` : 'Vor dem Start muss für diesen Coin ein Pool eingerichtet werden.');
+    const text = ui.element('span', '', configured ? `${t('Pool')}: ${poolUrl || t('SolarMiner-Standardroute')}` : 'Vor dem Start muss für diesen Coin ein Pool eingerichtet werden.');
     const link = ui.element('a', '', 'Wallet & Pool bearbeiten →'); link.href = '/wallets.html'; box.append(text, link);
   }
 
@@ -238,12 +242,10 @@
     try {
       // Hardware and catalog are the only data required to assign a worker. Never let an
       // optional sensor endpoint keep the complete table (and its assignment actions) empty.
-      const [workerResponse, minerResponse] = await Promise.all([
-        fetch('/api/agent/local/workers', {cache: 'no-store'}),
-        fetch('/api/agent/local/miner-options', {cache: 'no-store'})
+      const [nextWorkers, nextMiners] = await Promise.all([
+        ui.getJson('/api/agent/local/workers'),
+        ui.getJson('/api/agent/local/miner-options')
       ]);
-      if (!workerResponse.ok || !minerResponse.ok) throw new Error(`HTTP ${workerResponse.status}/${minerResponse.status}`);
-      const [nextWorkers, nextMiners] = await Promise.all([workerResponse.json(), minerResponse.json()]);
       if (revision !== loadRevision) return;
       workers = nextWorkers; miners = nextMiners;
       $('connection').className = 'badge online'; $('connection').textContent = t('Agent verbunden'); render();

@@ -10,6 +10,7 @@ import de.verdox.solarminer.pcagent.mining.WalletBalanceService;
 import de.verdox.solarminer.pcagent.mining.WindowsDefenderExclusionService;
 import de.verdox.solarminer.pcagent.mining.ProxyConfigurationService;
 import de.verdox.solarminer.pcagent.mining.ProxyDiscoveryService;
+import de.verdox.solarminer.pcagent.mining.LocalRunLock;
 import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
 import de.verdox.solarminer.pcagent.pearl.SrbDownloadService;
 import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
@@ -51,6 +52,7 @@ class MiningControllerValidationTest {
     private final MiningService mining = mock(MiningService.class);
     private final EarningsForecastService earnings = mock(EarningsForecastService.class);
     private final MinerCatalogService minerCatalog = mock(MinerCatalogService.class);
+    private final LocalRunLock localRuns = new LocalRunLock();
 
     MiningControllerValidationTest() {
         when(sensors.readyForAgent()).thenReturn(true);
@@ -69,7 +71,7 @@ class MiningControllerValidationTest {
                 mock(XmrDownloadService.class), sensors, mock(ProxyDiscoveryService.class),
                 earnings, payouts, mock(ReferralConfigurationService.class),
                 mock(FeeTransparencyService.class), mock(WalletBalanceService.class),
-                mock(WindowsDefenderExclusionService.class), minerCatalog)).build();
+                mock(WindowsDefenderExclusionService.class), minerCatalog, localRuns)).build();
     }
 
     @Test
@@ -238,5 +240,33 @@ class MiningControllerValidationTest {
                 eq("stratum+tcp://xmr-eu.kryptex.network:7029;4AdUndXHHZ6cfufTMvppY6JwXNouMBzSkbLYfpAV5Usx3skxNgYeYTRj5UzqtReoS44qo9mtmXCqY45DJ852K5Jv2684Rge.pc;x"),
                 eq(false));
         verify(payouts).markDefault("monero", false);
+    }
+
+    @Test
+    void localControlsAreRefusedWhileAMeasurementRunHoldsTheLock() throws Exception {
+        localRuns.tryBegin("efficiency-sweep");
+        try {
+            controller().perform(post("/api/agent/local/miners/pearl/resume"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$").value(false));
+            controller().perform(post("/api/agent/local/setPowerTarget").param("powerTarget", "300"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$").value(false));
+            controller().perform(post("/api/agent/local/pearl/gpus/NVIDIA/0/resume"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$").value(false));
+            controller().perform(post("/api/agent/local/ravencoin/configuration").contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"poolUrl\":\"stratum+tcp://rvn.2miners.com:6060\",\"proxyUrl\":\"stratum+tcp://127.0.0.1:3336\","
+                            + "\"wallet\":\"RHaGK3iARQdKgZ6VPDP4N5chP3aVgUUfz7\",\"worker\":\"pc\",\"devices\":\"NVIDIA:0\"}"))
+                    .andExpect(status().isBadRequest());
+            verifyNoInteractions(mining, pearl, gpuCoins);
+        } finally {
+            localRuns.end();
+        }
+    }
+
+    @Test
+    void localControlsAreAllowedOnceTheMeasurementRunReleasedTheLock() throws Exception {
+        when(mining.resumeMining("pearl")).thenReturn(true);
+        controller().perform(post("/api/agent/local/miners/pearl/resume"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").value(true));
+        verify(mining).resumeMining("pearl");
     }
 }
