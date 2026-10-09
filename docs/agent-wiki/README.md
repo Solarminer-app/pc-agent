@@ -31,6 +31,7 @@ Start with [pc-agent.md](pc-agent.md) — the ownership map for the source tree.
 | [pc-agent-node-coin-compatibility-2026-10-07.md](pc-agent-node-coin-compatibility-2026-10-07.md) | Coin compatibility matrix vs Node |
 | [pc-agent-ux-profile.md](pc-agent-ux-profile.md), [pc-agent-ui-redesign.md](pc-agent-ui-redesign.md), [pc-agent-design-concept.md](pc-agent-design-concept.md), [pc-agent-operations-ui.md](pc-agent-operations-ui.md), [pc-agent-frontend-refactor-handoff.md](pc-agent-frontend-refactor-handoff.md) | UI/UX records; static dashboard under `src/main/resources/static/` |
 | [pc-agent-pool-api-research-2026-10-04.md](pc-agent-pool-api-research-2026-10-04.md), [rvn-etc-integration.md](rvn-etc-integration.md) | Pool research and RVN/ETC status |
+| [windows-first-start.md](windows-first-start.md) | Native Windows bootstrap, Defender and power-cap permission analysis |
 
 Historical pages still contain some `pc-agent/...` paths from the Node-repo
 layout; they map to the repository root here.

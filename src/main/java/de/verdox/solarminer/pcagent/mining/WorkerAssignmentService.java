@@ -4,6 +4,7 @@ import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService;
 import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
+import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -24,16 +25,23 @@ public class WorkerAssignmentService {
     private final MinerCatalogService catalog;
     private final PearlMinerService pearl;
     private final GpuCoinMinerService gpuCoins;
+    private final XmrMinerService xmr;
+    private final PayoutDefaultsService payouts;
+    private final ProxyConfigurationService proxy;
 
     public WorkerAssignmentService(AgentControlSettingsService controls, MiningService mining,
                                    LocalGpuPowerService gpuPower, MinerCatalogService catalog,
-                                   PearlMinerService pearl, GpuCoinMinerService gpuCoins) {
+                                   PearlMinerService pearl, GpuCoinMinerService gpuCoins, XmrMinerService xmr,
+                                   PayoutDefaultsService payouts, ProxyConfigurationService proxy) {
         this.controls = controls;
         this.mining = mining;
         this.gpuPower = gpuPower;
         this.catalog = catalog;
         this.pearl = pearl;
         this.gpuCoins = gpuCoins;
+        this.xmr = xmr;
+        this.payouts = payouts;
+        this.proxy = proxy;
     }
 
     public synchronized List<WorkerView> workers() {
@@ -85,10 +93,69 @@ public class WorkerAssignmentService {
     public synchronized boolean start(String deviceId) {
         Hardware hardware = hardware(deviceId);
         String coin = controls.get().coinFor(deviceId);
-        if ("none".equals(coin)) return false;
-        if (hardware.type.equals("CPU")) return mining.resumeMining("monero");
-        if ("pearl".equals(coin)) return pearl.resumeGpuManually(hardware.vendor, hardware.index);
-        return gpuCoins.resumeGpu(coin, hardware.vendor, hardware.index);
+        if ("none".equals(coin)) throw new IllegalStateException("Assign a coin to this worker first");
+        if (hardware.type.equals("CPU")) {
+            if (!mining.resumeMining("monero")) throw new IllegalStateException(error(xmr.lastStartError(),
+                    "XMRig could not start. Check the miner console, installation and proxy fee route."));
+            return true;
+        }
+        ensureGpuDefault(coin, hardware);
+        boolean started;
+        if ("pearl".equals(coin)) started = pearl.resumeGpuManually(hardware.vendor, hardware.index);
+        else started = gpuCoins.resumeGpu(coin, hardware.vendor, hardware.index);
+        if (!started) throw new IllegalStateException(error("pearl".equals(coin) ? pearl.lastError() : gpuCoins.lastError(),
+                "GPU miner could not start. Check its console, installation and proxy fee route."));
+        return true;
+    }
+
+    private void ensureGpuDefault(String coin, Hardware hardware) {
+        if ("pearl".equals(coin) && pearl.configuration() != null) return;
+        GpuCoinMinerService.Config existing = "pearl".equals(coin) ? null : gpuCoins.configuration(coin);
+        if (existing != null && !payouts.usesDefault(coin)) return;
+        if (existing != null && payouts.resolve(coin).isEmpty()) return; // Keep the last verified house route during an outage.
+        PayoutDefaultsService.DefaultPayout payout = payouts.resolve(coin).orElseThrow(() ->
+                new IllegalStateException("SolarMiner default payout for " + coin + " is unavailable. Check the proxy and fee target."));
+        String proxyUrl = switch (coin) {
+            case "pearl" -> proxy.pearlUrl();
+            case "ravencoin" -> proxy.ravencoinUrl();
+            case "ethereumclassic" -> proxy.ethereumclassicUrl();
+            case "decred" -> proxy.decredUrl();
+            case "quantus" -> proxy.quantusUrl();
+            default -> null;
+        };
+        if (proxyUrl == null) throw new IllegalStateException("SolarMiner proxy route for " + coin + " is unavailable");
+        String worker = error(payout.workerPart(), "solarminer");
+        String assigned = assignedDevices(coin);
+        String device = assigned.isBlank() ? hardware.vendor + ":" + hardware.index : assigned;
+        if (existing != null) {
+            if (existing.poolUrl().equals(payout.poolUrl()) && existing.wallet().equals(payout.walletPart())
+                    && existing.worker().equals(worker) && existing.devices().equals(device)
+                    && existing.proxyUrl().equals(proxyUrl)) return;
+        }
+        try {
+            if ("pearl".equals(coin)) pearl.configure(new PearlMinerService.Config(payout.poolUrl(), proxyUrl,
+                    payout.walletPart(), worker, device));
+            else gpuCoins.configure(coin, new GpuCoinMinerService.Config(payout.poolUrl(), proxyUrl,
+                    payout.walletPart(), worker, device));
+            payouts.markDefault(coin, true);
+        } catch (IOException | IllegalArgumentException failure) {
+            throw new IllegalStateException("SolarMiner default payout could not be configured: " + failure.getMessage(), failure);
+        }
+    }
+
+    /** A sequential benchmark can prepare the house route for assigned Pearl GPUs without starting them. */
+    public synchronized void prepareBenchmarkDefault() {
+        if (pearl.configuration() != null) return;
+        for (LocalGpuPowerService.Gpu gpu : gpuPower.discover()) {
+            if ("pearl".equals(controls.get().coinFor(gpu.deviceId()))) {
+                ensureGpuDefault("pearl", new Hardware("GPU", gpu.vendor(), gpu.index()));
+                return;
+            }
+        }
+    }
+
+    private static String error(String detail, String fallback) {
+        return detail == null || detail.isBlank() ? fallback : detail;
     }
 
     public synchronized boolean pause(String deviceId) {

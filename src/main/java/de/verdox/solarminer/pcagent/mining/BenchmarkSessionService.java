@@ -28,20 +28,23 @@ public class BenchmarkSessionService {
     private final MinerConsoleService consoles;
     private final LocalRunLock lock;
     private final MiningPerformanceProfileStore performanceProfiles;
+    private final WorkerAssignmentService assignments;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> Thread.ofPlatform().name("pc-agent-benchmark").daemon(true).unstarted(r));
     private volatile Session session = Session.idle();
     private volatile boolean cancel;
 
     public BenchmarkSessionService(MiningService mining, XmrMinerService xmr, PearlMinerService pearl,
                                    BenchmarkSharingService sharing, MinerConsoleService consoles, LocalRunLock lock,
-                                   MiningPerformanceProfileStore performanceProfiles) {
+                                   MiningPerformanceProfileStore performanceProfiles, WorkerAssignmentService assignments) {
         this.mining = mining; this.xmr = xmr; this.pearl = pearl; this.sharing = sharing; this.consoles = consoles; this.lock = lock;
         this.performanceProfiles = performanceProfiles;
+        this.assignments = assignments;
     }
 
     public synchronized Session start(String mode) {
         if (!"LIVE".equals(mode) && !"INSTALLED".equals(mode)) throw new IllegalArgumentException("Unknown benchmark mode");
         if (session.running()) throw new IllegalStateException("A benchmark is already running");
+        if ("INSTALLED".equals(mode)) assignments.prepareBenchmarkDefault();
         List<String> phases = "INSTALLED".equals(mode) ? installedPhases() : List.of("live");
         if (phases.isEmpty()) throw new IllegalStateException("Install and configure at least one miner before running this benchmark");
         if (!lock.tryBegin("benchmark")) throw new IllegalStateException("Ein anderer Messlauf (Effizienz-Sweep) läuft gerade; der Benchmark wartet, bis er beendet ist");
@@ -102,8 +105,10 @@ public class BenchmarkSessionService {
                 index++;
                 if ("INSTALLED".equals(mode)) {
                     if (!mining.resumeMining(phase)) {
-                        skipped.add(phase);
-                        benchmarkLog(phase, "Benchmark start failed; phase is skipped.");
+                        String detail = "monero".equals(phase) ? xmr.lastStartError() : pearl.lastError();
+                        String reason = detail == null || detail.isBlank() ? "Miner did not start; check its console" : detail;
+                        skipped.add(phase + " (" + reason + ")");
+                        benchmarkLog(phase, "Benchmark start failed: " + reason);
                         continue;
                     }
                 }

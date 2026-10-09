@@ -62,6 +62,17 @@ For AMD add the AMD overlay. The host needs a working AMDGPU/ROCm OpenCL stack:
 docker compose -f docker-compose.pc-agent.yml -f docker-compose.pc-agent.amd.yml up -d
 ```
 
+AMD CPU package power is read from the host kernel's RAPL `energy_uj` counter,
+not from the GPU's ROCm API. The AMD overlay mounts `/sys/class/powercap` and
+its `/sys/devices/virtual/powercap` target read-only so a counter exposed by the
+host remains readable inside Docker. Check the host first with
+`find /sys/class/powercap -name energy_uj -readable`; if no `amd-rapl` counter is
+present, Docker cannot supply CPU watts and the UI correctly shows unavailable.
+Some kernels or firmware do not expose this counter, and container access can
+also be limited by host permissions. A first energy sample establishes a
+baseline; a later sample produces watts. The bind mount is telemetry-only and
+does not grant GPU power-cap write permission.
+
 The Intel overlay only exposes `/dev/dri` to the agent. It is useful for host
 hardware discovery, but must not be used to claim Pearl mining: SRBMiner's
 current PearlHash support matrix lists AMD and NVIDIA, not Intel. A verified

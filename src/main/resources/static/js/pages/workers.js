@@ -10,8 +10,8 @@
   const pendingWorkers = new Set();
   let loadRevision = 0;
 
-  const notice = (message, error = false) => {
-    const node = $('notice'); node.textContent = t(message); node.className = `notice${error ? ' error' : ''}`; node.hidden = !message;
+  const notice = (message, error = false, translated = false) => {
+    const node = $('notice'); node.textContent = translated ? message : t(message); node.className = `notice${error ? ' error' : ''}`; node.hidden = !message;
   };
   const hps = worker => Number(worker.telemetry?.terahashPerSecond || 0) * 1e12;
   const watts = worker => Number(worker.telemetry?.approximatedPowerUsageWatts) > 0 ? Number(worker.telemetry.approximatedPowerUsageWatts) : null;
@@ -104,7 +104,7 @@
     {label: 'Zuweisung', key: 'coinName', width: '18%', render: worker => {
       const wrap = ui.element('div');
       wrap.append(ui.element('strong', '', worker.coin === 'none' ? 'Nicht zugewiesen' : `${worker.coinName} · ${worker.minerSoftwareName || 'kein Miner'}`));
-      wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? 'Freie Kapazität' : `${worker.algorithm} · ${worker.configured ? worker.poolUrl ? 'Pool eingerichtet' : 'Standardroute' : 'Pool fehlt'}`)); return wrap;
+      wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? 'Freie Kapazität' : `${worker.algorithm} · ${worker.configured ? worker.poolUrl ? 'Pool eingerichtet' : 'Standardroute' : t('SolarMiner-Standardziel wird beim Start geprüft')}`)); return wrap;
     }},
     {label: 'Status', key: 'status', width: '11%', render: worker => ui.statusPill(worker.status)},
     {label: 'Live', key: 'telemetry', width: '16%', render: worker => {
@@ -120,7 +120,7 @@
       configure.addEventListener('click', event => { event.stopPropagation(); openEditor(worker); }); wrap.append(configure);
       if (worker.coin !== 'none') {
         const running = worker.status === 'MINING'; const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, running ? 'Pausieren' : 'Starten');
-        toggle.type = 'button'; toggle.disabled = pendingWorkers.has(worker.deviceId) || !worker.minerInstalled || !worker.configured;
+        toggle.type = 'button'; toggle.disabled = pendingWorkers.has(worker.deviceId) || !worker.minerInstalled;
         toggle.addEventListener('click', event => { event.stopPropagation(); action(worker, running ? 'pause' : 'start'); }); wrap.append(toggle);
       }
       return wrap;
@@ -188,7 +188,7 @@
   function updatePoolSummary(coinId, poolUrl, configured) {
     const box = $('worker-pool-summary'); box.replaceChildren();
     if (coinId === 'none') { box.textContent = t('Die Komponente bleibt frei und kann nicht gestartet werden.'); return; }
-    const text = ui.element('span', '', configured ? `${t('Pool')}: ${poolUrl || t('SolarMiner-Standardroute')}` : 'Vor dem Start muss für diesen Coin ein Pool eingerichtet werden.');
+    const text = ui.element('span', '', configured ? `${t('Pool')}: ${poolUrl || t('SolarMiner-Standardroute')}` : t('Ohne eigene Wallet wird beim Start das SolarMiner-Standardziel geprüft. Die gesamte Auszahlung geht dann dorthin.'));
     const link = ui.element('a', '', 'Wallet & Pool bearbeiten →'); link.href = '/wallets.html'; box.append(text, link);
   }
 
@@ -227,9 +227,13 @@
     renderTable();
     try {
       const response = await fetch(`/api/agent/local/workers/${encodeURIComponent(worker.deviceId)}/${command}`, {method: 'POST'});
-      if (!response.ok || await response.json() !== true) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail || body?.message || `HTTP ${response.status}`);
+      }
+      if (await response.json() !== true) throw new Error(t('Die Worker-Aktion wurde nicht angewendet. Prüfe die Miner-Konsole.'));
       notice(command === 'start' ? `${worker.hardwareModel} wurde gestartet.` : `${worker.hardwareModel} wurde pausiert.`); await load();
-    } catch (error) { notice(`Worker-Aktion fehlgeschlagen: ${error.message}`, true); }
+    } catch (error) { notice(`${t('Worker-Aktion fehlgeschlagen:')} ${window.SolarMinerI18n.s(error.message)}`, true, true); await load(); }
     finally {
       pendingWorkers.delete(worker.deviceId);
       $('global-node-control').disabled = !controlSettings || settingsBusy || pendingWorkers.size > 0;

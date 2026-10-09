@@ -1,5 +1,15 @@
 # SolarMiner PC-Agent Standalone
 
+On the first Windows launcher run, a bootstrap checks write access to the
+install folder, the current Administrator token needed for NVIDIA power-limit
+writes, `nvidia-smi` availability and the Defender exclusion state. It explains
+the scanning tradeoff and asks before an elevated UAC helper adds the
+PC-Agent install folder as an exclusion; the helper verifies Defender's state.
+Run `start-agent.ps1 -Bootstrap` to review the checks again. The Agent's
+per-GPU capability probe still requires a same-value write and readback;
+launcher privilege alone does not establish dynamic power scaling. AMD power
+limits on Windows remain unavailable without a supported ADLX helper.
+
 ## Windows installer launcher
 
 Download `start-agent.bat` from the latest [PC-Agent GitHub release](https://github.com/Solarminer-app/pc-agent/releases/latest) and run it. The launcher stores the Agent and its private Java 21 runtime under `%LOCALAPPDATA%\SolarMiner\PC-Agent`. It downloads the latest stable Agent JAR when needed, verifies its SHA-256, and downloads a Windows x64 JRE from Adoptium on first run, verifying Adoptium's package checksum. The JAR already contains the Agent, embedded proxy, and Java dependencies. Later starts reuse the downloaded runtime and Agent; a new release replaces the Agent JAR after checksum verification.

@@ -148,10 +148,10 @@ async function start(mode) {
     $('run-live').disabled = $('run-installed').disabled = true;
     try {
         const response = await fetch('/api/agent/local/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode})});
-        if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || 'Benchmark konnte nicht gestartet werden.'); }
+        if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.detail || body?.message || t('Benchmark konnte nicht gestartet werden.')); }
         notice('Messlauf gestartet. Du kannst ihn jederzeit abbrechen.');
         $('results').replaceChildren(make('p', 'empty', t('Messlauf gestartet …')));
-    } catch (error) { notice(error.message, true); }
+    } catch (error) { notice(window.SolarMinerI18n.s(error.message), true); }
     finally { actionBusy = false; await poll(); }
 }
 

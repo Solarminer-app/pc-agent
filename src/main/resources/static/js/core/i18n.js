@@ -64,6 +64,12 @@
         return `Mining-Zustand konnte nicht vollständig wiederhergestellt werden: ${s(key.slice('Could not fully restore miner state: '.length))}`;
       if (key.startsWith('Worker did not start or stopped: '))
         return `Worker nicht gestartet oder angehalten: ${key.slice('Worker did not start or stopped: '.length)}`;
+      if (key.startsWith('SolarMiner default payout for '))
+        return `SolarMiner-Standardziel für ${key.slice('SolarMiner default payout for '.length).replace(' is unavailable. Check the proxy and fee target.', '')} nicht verfügbar. Prüfe Proxy und Fee-Ziel.`;
+      if (key.startsWith('SolarMiner proxy route for '))
+        return `SolarMiner-Proxy-Route für ${key.slice('SolarMiner proxy route for '.length).replace(' is unavailable', '')} nicht verfügbar.`;
+      if (key.startsWith('SolarMiner default payout could not be configured: '))
+        return `SolarMiner-Standardziel konnte nicht eingerichtet werden: ${s(key.slice('SolarMiner default payout could not be configured: '.length))}`;
       if (key.includes(' · ')) return key.split(' · ').map(s).join(' · ');
       if (key.includes('; skipped: ')) { const [result, skipped] = key.split('; skipped: '); return `${s(result)}; übersprungen: ${skipped}`; }
       return text;
