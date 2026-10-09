@@ -51,8 +51,21 @@ Treiber- und Nutzergrenzen gruppiert: Eine Karte ermittelt die vollständige
 Kurve; die übrigen Karten validieren den Kandidaten parallel und erhöhen ihren
 eigenen Grenzwert bei Instabilität schrittweise. Persistierte Profile bleiben
 pro Geräte-ID und Algorithmus getrennt. Referenzkurven verschiedener
-Coin-/Algorithmus-Kohorten werden in konfliktfreien Wellen auf unterschiedlichen
-physischen GPUs parallelisiert (`referenceBatch` im Run-Status). Dadurch liegen
-erste Ergebnisse für mehrere Coins früher vor; dieselbe GPU wird innerhalb einer
-Welle nie doppelt belegt. Die ETA zählt sowohl diese Referenzwellen als auch die
-Gerätevalidierungen mit ihrer tatsächlichen Parallelität.
+Coin-/Algorithmus-Kohorten werden zunächst konfliktfrei auf unterschiedliche
+physische GPUs verteilt (`referenceBatch` beschreibt die Startgruppe im
+Run-Status). Zwischen den Startgruppen besteht keine Ausführungsbarriere: Sobald
+eine GPU frei wird, nimmt sie bevorzugt eine bereits freigeschaltete Validierung
+und ansonsten die nächste Coin-Referenz. Dadurch liegen erste Ergebnisse für
+mehrere Coins früher vor, zusammengehörige Coin-Tasks folgen möglichst direkt
+aufeinander und dieselbe GPU wird nie doppelt belegt. Die ETA bleibt eine
+konservative Näherung auf Basis der geplanten parallelen Gruppen.
+
+`POST /api/agent/local/efficiency?mode=restart` startet sämtliche Runs neu
+(und bleibt der abwärtskompatible Standard ohne Parameter). Nach Abbruch oder
+Fehler setzt `mode=resume` denselben Sweep fort: Nur vollständig abgeschlossene,
+zum aktuellen Referenz-/Validierungsmodus passende Runs samt Profil werden als
+Checkpoint übernommen; abgebrochene Teilkurven, fehlgeschlagene und noch
+geplante Runs werden erneut ausgeführt. Ein abgebrochener Teilrun bleibt in der
+Session sichtbar, überschreibt aber kein vollständig validiertes persistiertes
+Profil. Nach einem Agent-Neustart existiert der Session-Checkpoint nicht mehr;
+persistierte Profile allein gelten absichtlich nicht als Fortsetzungsnachweis.

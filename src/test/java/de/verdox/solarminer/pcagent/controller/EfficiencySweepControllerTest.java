@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -45,5 +46,18 @@ class EfficiencySweepControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message")
                         .value("Keine GPU-Leistungsgrenze ist schreibbar: Insufficient Permissions"));
+    }
+
+    @Test
+    void resumeModeUsesTheSavedSweepCheckpoint() throws Exception {
+        EfficiencySweepService sweep = mock(EfficiencySweepService.class);
+        when(sweep.resume()).thenReturn(new EfficiencySweepService.Session(false, "Idle", null,
+                0, 0, List.of(), List.of(), 0L));
+        MockMvc api = standaloneSetup(new EfficiencySweepController(sweep)).build();
+
+        api.perform(post("/api/agent/local/efficiency").queryParam("mode", "resume"))
+                .andExpect(status().isOk());
+
+        verify(sweep).resume();
     }
 }

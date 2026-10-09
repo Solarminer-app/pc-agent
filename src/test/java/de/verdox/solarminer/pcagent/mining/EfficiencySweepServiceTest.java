@@ -125,6 +125,26 @@ class EfficiencySweepServiceTest {
     }
 
     @Test
+    void resumeReusesOnlyFullyCompletedRunsAndNotCancelledPartialResults() {
+        var complete = withStatus(identifiedRun("one", "FULL", List.of(200, 185)), "COMPLETE");
+        var cancelled = withStatus(identifiedRun("two", "FULL", List.of(200, 185)), "CANCELLED");
+        var completeProfile = profile("one", "pearl", "PearlHash", 185);
+        var partialProfile = profile("two", "pearl", "PearlHash", 200);
+        var previous = new EfficiencySweepService.Session(false, "Abgebrochen", Instant.now(), 2, 2,
+                List.of(completeProfile, partialProfile), List.of(complete, cancelled), 0L);
+
+        var checkpoint = EfficiencySweepService.reusableProfiles(previous);
+
+        assertEquals(Set.of("one|pearl|PearlHash"), checkpoint.keySet());
+        var resumed = EfficiencySweepService.applyCheckpoint(
+                List.of(identifiedRun("one", "FULL", List.of(200, 185)),
+                        identifiedRun("two", "FULL", List.of(200, 185))),
+                previous.runs(), checkpoint);
+        assertEquals("COMPLETE", resumed.getFirst().status());
+        assertEquals("QUEUED", resumed.get(1).status());
+    }
+
+    @Test
     void storeKeySeparatesDevicesAndAlgorithms() {
         assertEquals("GPU-abc|kawpow", GpuEfficiencyStore.key("GPU-abc", "kawpow"));
     }
@@ -180,5 +200,24 @@ class EfficiencySweepServiceTest {
 
     private static EfficiencySweepService.SweepTask task(EfficiencySweepService.Target target, String mode) {
         return new EfficiencySweepService.SweepTask(target, target.coin() + "|" + target.algorithm(), mode, null);
+    }
+
+    private static EfficiencySweepService.RunStatus withStatus(EfficiencySweepService.RunStatus run, String status) {
+        return new EfficiencySweepService.RunStatus(run.id(), run.deviceId(), run.model(), run.coin(), run.algorithm(),
+                run.mode(), status, run.limitWatts(), run.plannedLimits(), run.steps(), run.samples(),
+                run.samplesRequired(), run.referenceBatch(), run.detail());
+    }
+
+    private static EfficiencySweepService.RunStatus identifiedRun(String device, String mode, List<Integer> limits) {
+        var run = run(device, mode, limits);
+        return new EfficiencySweepService.RunStatus(device + "|pearl|PearlHash", device, run.model(), run.coin(),
+                run.algorithm(), run.mode(), run.status(), run.limitWatts(), run.plannedLimits(), run.steps(),
+                run.samples(), run.samplesRequired(), run.referenceBatch(), run.detail());
+    }
+
+    private static GpuEfficiencyStore.Profile profile(String device, String coin, String algorithm, int watts) {
+        var step = new GpuEfficiencyStore.StepResult(watts, 1_000d, (double) watts, 60d, true, null);
+        return new GpuEfficiencyStore.Profile(device, "TITAN RTX", coin, algorithm, watts, 1_000d,
+                (double) watts, 1_000d / watts, Instant.now(), List.of(step));
     }
 }

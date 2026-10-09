@@ -24,12 +24,16 @@ public class EfficiencySweepController {
     }
 
     @PostMapping
-    public EfficiencySweepService.Session start() {
-        return sweep.start();
+    public EfficiencySweepService.Session start(@RequestParam(defaultValue = "restart") String mode) {
+        return switch (mode) {
+            case "restart" -> sweep.start();
+            case "resume" -> sweep.resume();
+            default -> throw new IllegalArgumentException("Unbekannter Sweep-Startmodus");
+        };
     }
 
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<Map<String, String>> startRejected(IllegalStateException exception) {
+    @ExceptionHandler({IllegalStateException.class, IllegalArgumentException.class})
+    public ResponseEntity<Map<String, String>> startRejected(RuntimeException exception) {
         String message = exception.getMessage() == null
                 ? "Power-Limit-Test konnte nicht gestartet werden" : exception.getMessage();
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", message));

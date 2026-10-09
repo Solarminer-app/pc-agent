@@ -140,7 +140,7 @@ function showUploadStatus(id, status, label) {
     element.hidden = !status || status.status === 'IDLE';
     if (element.hidden) return;
     element.className = `notice${status.status === 'FAILED' ? ' error' : ''}`;
-    element.textContent = `${label}: ${status.message}${status.sampleCount ? ` (${status.sampleCount} Geräte)` : ''}`;
+    element.textContent = `${label}: ${status.message}${status.sampleCount ? ` (${status.sampleCount} Messwerte)` : ''}`;
 }
 
 async function start(mode) {
@@ -227,6 +227,11 @@ async function pollSweep() {
         $('sweep-state').textContent = state.running ? t('Läuft') : (state.phase === 'Idle' ? t('Bereit') : state.phase || t('Bereit'));
         $('sweep-cancel').hidden = !state.running;
         $('sweep-progress-wrap').hidden = !state.running;
+        const resumable = !state.running && (state.runs || []).length > 0
+            && (state.runs || []).some(run => run.status !== 'COMPLETE');
+        $('resume-sweep').hidden = !resumable;
+        $('resume-sweep').disabled = state.running || actionBusy;
+        $('run-sweep').textContent = t(resumable ? 'Komplett neu starten' : 'Power-Limit-Test starten');
         $('run-sweep').disabled = state.running || actionBusy;
         if (state.running) {
             $('sweep-phase').textContent = t('{done}/{total} Geräte abgeschlossen · {phase}',
@@ -269,7 +274,7 @@ function renderSweepRuns(runs) {
         const card = make('article', 'worker-card');
         const info = make('div', '');
         const wave = run.mode === 'FULL' && Number.isInteger(run.referenceBatch)
-            ? ` · ${t('Welle {number}', {number: run.referenceBatch + 1})}` : '';
+            ? ` · ${t('Startgruppe {number}', {number: run.referenceBatch + 1})}` : '';
         info.append(make('strong', '', `${run.model} · ${run.algorithm}`),
             make('p', 'muted', `${run.coin} · ${t(run.mode === 'FULL' ? 'Referenzkurve' : 'Parallele Gerätevalidierung')}${wave} · ${run.deviceId}`));
         const tag = make('span', 'tag', t(statusLabel[run.status] || run.status));
@@ -324,18 +329,22 @@ async function renderProfiles() {
     }
 }
 
-async function startSweep() {
+async function startSweep(mode = 'restart') {
     if (actionBusy) return; actionBusy = true;
     $('run-sweep').disabled = true;
+    $('resume-sweep').disabled = true;
     try {
-        const response = await fetch('/api/agent/local/efficiency', {method: 'POST'});
+        const response = await fetch(`/api/agent/local/efficiency?mode=${encodeURIComponent(mode)}`, {method: 'POST'});
         if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || 'Der Effizienz-Sweep konnte nicht gestartet werden.'); }
-        notice('Effizienz-Sweep gestartet. Leistungsgrenzen werden schrittweise gesenkt und nach dem Lauf wiederhergestellt.');
+        notice(mode === 'resume'
+            ? 'Effizienz-Sweep wird mit den bereits abgeschlossenen Ergebnissen fortgesetzt.'
+            : 'Effizienz-Sweep neu gestartet. Leistungsgrenzen werden schrittweise gesenkt und nach dem Lauf wiederhergestellt.');
     } catch (error) { notice(error.message, true); }
     finally { actionBusy = false; await pollSweep(); }
 }
 
-$('run-sweep').addEventListener('click', startSweep);
+$('run-sweep').addEventListener('click', () => startSweep('restart'));
+$('resume-sweep').addEventListener('click', () => startSweep('resume'));
 $('sweep-cancel').addEventListener('click', async () => {
     if (actionBusy) return; actionBusy = true; $('sweep-cancel').disabled = true;
     try { const response = await fetch('/api/agent/local/efficiency/cancel', {method: 'POST'}); if (!response.ok) throw new Error('Der Sweep konnte nicht abgebrochen werden.'); notice('Abbruch angefordert. Leistungsgrenzen und Miner-Zustand werden wiederhergestellt.'); }

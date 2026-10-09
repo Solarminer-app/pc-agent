@@ -33,6 +33,7 @@ public class BenchmarkSharingService {
     private volatile ReportStatus manualReportStatus = ReportStatus.idle("MANUAL");
     private volatile ReportStatus periodicReportStatus = ReportStatus.idle("PERIODIC");
     private List<Sample> retrySamples = List.of();
+    private List<EfficiencySample> retryEfficiencySamples = List.of();
 
     public BenchmarkSharingService(MiningService mining, ObjectMapper json,
                                    RestClient.Builder client, @Value("${solarminer.agent.benchmark.url:https://portal.solarminer.app}") String url,
@@ -52,7 +53,7 @@ public class BenchmarkSharingService {
         if (!optedIn && !state.previouslyShared()) return;
         try {
             List<Sample> samples = optedIn ? sampleWorkers(mining.getWorkerStats()) : List.of();
-            send(optedIn, samples);
+            send(optedIn, samples, List.of());
             periodicReportStatus = new ReportStatus("PERIODIC", "SENT",
                     optedIn ? "Regelmäßiger Benchmark-Upload erfolgreich übermittelt." : "Widerruf der Benchmark-Freigabe übermittelt.",
                     samples.size(), Instant.now());
@@ -65,19 +66,33 @@ public class BenchmarkSharingService {
         // Keep the samples even when sharing is off so the post-benchmark prompt can offer them
         // for upload right after the operator grants consent.
         retrySamples = sampleWorkers(workers);
+        retryEfficiencySamples = List.of();
         if (!state.sharingEnabled())
             return manualReportStatus = new ReportStatus("MANUAL", "NOT_SHARED", "Benchmarkdaten wurden nicht hochgeladen: Teilen ist deaktiviert.", retrySamples.size(), Instant.now());
         if (retrySamples.isEmpty())
             return manualReportStatus = new ReportStatus("MANUAL", "NO_DATA", "Keine geeigneten Benchmark-Messwerte zum Hochladen vorhanden.", 0, Instant.now());
-        return deliverManual(retrySamples);
+        return deliverManual(retrySamples, List.of());
     }
 
     public synchronized ReportStatus retryManualResults() {
         if (!state.sharingEnabled())
             return manualReportStatus = new ReportStatus("MANUAL", "NOT_SHARED", "Benchmarkdaten wurden nicht hochgeladen: Teilen ist deaktiviert.", 0, Instant.now());
-        if (retrySamples.isEmpty())
+        if (retrySamples.isEmpty() && retryEfficiencySamples.isEmpty())
             return manualReportStatus = new ReportStatus("MANUAL", "NO_DATA", "Keine gespeicherten Benchmark-Messwerte zum erneuten Hochladen vorhanden.", 0, Instant.now());
-        return deliverManual(retrySamples);
+        return deliverManual(retrySamples, retryEfficiencySamples);
+    }
+
+    public synchronized ReportStatus reportEfficiencyResults(List<GpuEfficiencyStore.Profile> profiles) {
+        retrySamples = List.of();
+        retryEfficiencySamples = efficiencySamples(profiles);
+        if (!state.sharingEnabled())
+            return manualReportStatus = new ReportStatus("MANUAL", "NOT_SHARED",
+                    "Effizienzkurven wurden nicht hochgeladen: Teilen ist deaktiviert.",
+                    retryEfficiencySamples.size(), Instant.now());
+        if (retryEfficiencySamples.isEmpty())
+            return manualReportStatus = new ReportStatus("MANUAL", "NO_DATA",
+                    "Keine Effizienz-Messpunkte zum Hochladen vorhanden.", 0, Instant.now());
+        return deliverManual(List.of(), retryEfficiencySamples);
     }
 
     /**
@@ -86,14 +101,14 @@ public class BenchmarkSharingService {
      * left untouched, so the operator's "sharing off" setting keeps suppressing future sends.
      */
     public synchronized ReportStatus uploadManualResultsOnce() {
-        if (retrySamples.isEmpty())
+        if (retrySamples.isEmpty() && retryEfficiencySamples.isEmpty())
             return manualReportStatus = new ReportStatus("MANUAL", "NO_DATA", "Keine gespeicherten Benchmark-Messwerte zum erneuten Hochladen vorhanden.", 0, Instant.now());
-        int sampleCount = retrySamples.size();
+        int sampleCount = retrySamples.size() + retryEfficiencySamples.size();
         manualReportStatus = new ReportStatus("MANUAL", "UPLOADING", "Benchmarkdaten werden hochgeladen …", sampleCount, Instant.now());
         try {
-            client.post().uri("/api/telemetry/standalone-benchmarks")
-                    .body(new Batch(participantId(), true, retrySamples)).retrieve().toBodilessEntity();
+            postBatches(true, retrySamples, retryEfficiencySamples);
             retrySamples = List.of();
+            retryEfficiencySamples = List.of();
             return manualReportStatus = new ReportStatus("MANUAL", "SENT", "Benchmarkdaten erfolgreich ans Backend übermittelt.", sampleCount, Instant.now());
         } catch (RuntimeException e) {
             return manualReportStatus = new ReportStatus("MANUAL", "FAILED", "Upload ans Backend fehlgeschlagen. Du kannst den Upload erneut versuchen.", sampleCount, Instant.now());
@@ -102,14 +117,16 @@ public class BenchmarkSharingService {
 
     public UploadStatuses uploadStatuses() { return new UploadStatuses(manualReportStatus, periodicReportStatus); }
 
-    private ReportStatus deliverManual(List<Sample> samples) {
-        manualReportStatus = new ReportStatus("MANUAL", "UPLOADING", "Benchmarkdaten werden hochgeladen …", samples.size(), Instant.now());
+    private ReportStatus deliverManual(List<Sample> samples, List<EfficiencySample> efficiencySamples) {
+        int sampleCount = samples.size() + efficiencySamples.size();
+        manualReportStatus = new ReportStatus("MANUAL", "UPLOADING", "Benchmarkdaten werden hochgeladen …", sampleCount, Instant.now());
         try {
-            send(true, samples);
+            send(true, samples, efficiencySamples);
             retrySamples = List.of();
-            return manualReportStatus = new ReportStatus("MANUAL", "SENT", "Benchmarkdaten erfolgreich ans Backend übermittelt.", samples.size(), Instant.now());
+            retryEfficiencySamples = List.of();
+            return manualReportStatus = new ReportStatus("MANUAL", "SENT", "Benchmarkdaten erfolgreich ans Backend übermittelt.", sampleCount, Instant.now());
         } catch (RuntimeException e) {
-            return manualReportStatus = new ReportStatus("MANUAL", "FAILED", "Upload ans Backend fehlgeschlagen. Du kannst den Upload erneut versuchen.", samples.size(), Instant.now());
+            return manualReportStatus = new ReportStatus("MANUAL", "FAILED", "Upload ans Backend fehlgeschlagen. Du kannst den Upload erneut versuchen.", sampleCount, Instant.now());
         }
     }
 
@@ -132,10 +149,23 @@ public class BenchmarkSharingService {
         return Objects.toString(worker.deviceId(), worker.hardwareModel()) + ":" + worker.currentAlgorithm();
     }
 
-    private void send(boolean optedIn, List<Sample> samples) {
+    private void send(boolean optedIn, List<Sample> samples, List<EfficiencySample> efficiencySamples) {
+        postBatches(optedIn, samples, efficiencySamples);
+        writeState(new State(optedIn, optedIn));
+    }
+
+    private void postBatches(boolean optedIn, List<Sample> samples, List<EfficiencySample> efficiencySamples) {
+        if (efficiencySamples.isEmpty()) {
             client.post().uri("/api/telemetry/standalone-benchmarks")
-                    .body(new Batch(participantId(), optedIn, samples)).retrieve().toBodilessEntity();
-            writeState(new State(optedIn, optedIn));
+                    .body(new Batch(participantId(), optedIn, samples, List.of())).retrieve().toBodilessEntity();
+            return;
+        }
+        for (int offset = 0; offset < efficiencySamples.size(); offset += 512) {
+            int end = Math.min(efficiencySamples.size(), offset + 512);
+            client.post().uri("/api/telemetry/standalone-benchmarks")
+                    .body(new Batch(participantId(), optedIn, offset == 0 ? samples : List.of(),
+                            efficiencySamples.subList(offset, end))).retrieve().toBodilessEntity();
+        }
     }
 
     public Map<String, Object> comparison(String hardwareType, String hardwareModel, String algorithm) {
@@ -152,11 +182,43 @@ public class BenchmarkSharingService {
 
     private Sample sample(MinerStats.Worker worker) {
         String identity = worker.deviceId() == null || worker.deviceId().isBlank() ? worker.workerDisplayName() : worker.deviceId();
-        String deviceKey = UUID.nameUUIDFromBytes((participantId() + ":" + identity).getBytes(StandardCharsets.UTF_8)).toString();
+        String deviceKey = deviceKey(identity);
         return new Sample(deviceKey, worker.hardwareType(), worker.hardwareModel(), worker.currentAlgorithm(),
                 System.getProperty("os.name", "unknown"), System.getProperty("os.arch", "unknown"),
                 worker.terahashPerSecond() * 1_000_000_000_000d, positive(worker.approximatedPowerUsageWatts()) ? (double) worker.approximatedPowerUsageWatts() : null,
                 positive(worker.powerTargetWatts()) ? (double) worker.powerTargetWatts() : null);
+    }
+
+    private List<EfficiencySample> efficiencySamples(List<GpuEfficiencyStore.Profile> profiles) {
+        if (profiles == null) return List.of();
+        Map<String, EfficiencySample> points = new java.util.LinkedHashMap<>();
+        for (GpuEfficiencyStore.Profile profile : profiles) {
+            if (profile == null || !present(profile.deviceId()) || !present(profile.model())
+                    || !present(profile.coin()) || !present(profile.algorithm()) || profile.steps() == null) continue;
+            String pseudonym = deviceKey(profile.deviceId());
+            for (GpuEfficiencyStore.StepResult step : profile.steps()) {
+                if (step == null || step.limitWatts() <= 0) continue;
+                EfficiencySample sample = new EfficiencySample(pseudonym, "GPU", profile.model(), profile.coin(),
+                        profile.algorithm(), step.limitWatts(), positiveOrNull(step.medianHashrateHs()),
+                        positiveOrNull(step.avgPowerWatts()), finiteOrNull(step.maxTemperatureC()),
+                        step.stable(), step.note());
+                points.put(String.join("|", pseudonym, profile.coin(), profile.algorithm(),
+                        Integer.toString(step.limitWatts())), sample);
+            }
+        }
+        return List.copyOf(points.values());
+    }
+
+    private String deviceKey(String identity) {
+        return UUID.nameUUIDFromBytes((participantId() + ":" + identity).getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    private static Double positiveOrNull(Double value) {
+        return value != null && positive(value) ? value : null;
+    }
+
+    private static Double finiteOrNull(Double value) {
+        return value != null && Double.isFinite(value) ? value : null;
     }
 
     private String participantId() {
@@ -205,12 +267,18 @@ public class BenchmarkSharingService {
         return value != null && !value.isBlank() && !"-".equals(value);
     }
 
-    public record Batch(String uuid, boolean telemetryOptIn, List<Sample> benchmarks) {
+    public record Batch(String uuid, boolean telemetryOptIn, List<Sample> benchmarks,
+                        List<EfficiencySample> efficiencySweeps) {
     }
 
     public record Sample(String deviceKey, String hardwareType, String hardwareModel, String algorithm,
                          String minerOs, String processorArchitecture, double hashrateHs,
                          Double powerWatts, Double powerTargetWatts) {
+    }
+
+    public record EfficiencySample(String deviceKey, String hardwareType, String hardwareModel, String coin,
+                                   String algorithm, int powerLimitWatts, Double hashrateHs, Double powerWatts,
+                                   Double maxTemperatureC, boolean stable, String note) {
     }
 
     public record State(boolean previouslyShared, boolean sharingEnabled) {

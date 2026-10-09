@@ -53,8 +53,9 @@
                 <div><p class="kicker">POWER-LIMIT-SWEEP</p>
                     <h2>Power-Limit-Effizienztest</h2></div>
                 <span id="sweep-state" class="tag">Bereit</span></div>
-            <p class="muted">Baugleiche GPUs werden pro Coin und Algorithmus gruppiert. Referenzkurven verschiedener Coins laufen gleichzeitig auf unterschiedlichen Karten, damit früh erste Ergebnisse für viele Coins vorliegen. Anschließend validieren die Schwesterkarten den besten Wert parallel und weichen bei Bedarf schrittweise nach oben aus. Dieselbe GPU wird nie doppelt belegt. Ein Ergebnis wird erst gerätespezifisch gespeichert, wenn Miner, Pool, Temperatur und Shares stabil bleiben. Nach dem Lauf werden Leistungsgrenzen und Miner-Zustand verifiziert wiederhergestellt.</p>
+            <p class="muted">Baugleiche GPUs werden pro Coin und Algorithmus gruppiert. Während eine Referenzkarte ihre Kurve ermittelt, messen die noch wartenden Schwesterkarten bereits andere Coins. Sobald die Referenz fertig ist, werden ihre Validierungen sofort freigeschaltet und auf den nächsten passenden freien Karten ausgeführt. Dieselbe GPU wird nie doppelt belegt. Ein Ergebnis wird erst gerätespezifisch gespeichert, wenn Miner, Pool, Temperatur und Shares stabil bleiben. Nach dem Lauf werden Leistungsgrenzen und Miner-Zustand verifiziert wiederhergestellt.</p>
             <button id="run-sweep" class="button primary" type="button">Power-Limit-Test starten</button>
+            <button id="resume-sweep" class="button primary" type="button" hidden>Unterbrochenen Sweep fortsetzen</button>
             <button id="sweep-cancel" class="button subtle" type="button" hidden>Sweep abbrechen</button>
             <div id="sweep-progress-wrap" hidden>
                 <div class="detail"><span id="sweep-phase">—</span><strong id="sweep-remaining">Power-Limit schrittweise senken und Stabilität prüfen</strong></div>

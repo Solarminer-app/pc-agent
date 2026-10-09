@@ -316,3 +316,44 @@
   and full `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test
   standaloneJar` passed. Live multi-coin SRBMiner and driver validation remains
   a hardware rollout gate.
+
+## 2026-10-09 — Dependency-aware coin pipeline without batch barriers
+
+- Replaced the two-stage "all references, then all validations" execution with
+  a device-exclusive completion queue. Waiting sibling GPUs can run references
+  for other coins; each completed reference immediately unlocks its own sibling
+  validations, and unlocked validations have priority whenever their physical
+  device becomes free. Later reference start groups no longer wait for every
+  worker in an earlier group.
+- Ephemeral fee-backend overrides now live for the complete sweep session. This
+  avoids a concurrent task clearing a coin route while another card still needs
+  it for a restart between validation limits; the existing final safety path
+  still clears every override before miner and power-cap restoration completes.
+- Pure scheduler tests cover validation priority, fallback to another coin while
+  the validation device is occupied, and refusal to double-book the busy GPU.
+  `node --check` for both changed JavaScript files, `git diff --check`, and full
+  `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew clean test
+  standaloneJar --no-daemon` passed. Live multi-coin scheduling remains a
+  hardware rollout gate.
+
+## 2026-10-09 — Resume or restart an interrupted efficiency sweep
+
+- The local efficiency start endpoint now accepts `mode=resume` or
+  `mode=restart` (restart is the default for existing callers). Resume carries
+  forward only fully completed run/profile pairs from the interrupted in-memory
+  session and reconstructs the dependency queue around them. Reference and
+  validation roles must still match the newly discovered plan; incompatible,
+  cancelled, failed and queued work is measured again.
+- The Benchmarks page exposes both choices after an incomplete session:
+  "Unterbrochenen Sweep fortsetzen" and "Komplett neu starten". Reused runs are
+  visibly marked as checkpoint results while the remaining live queue and ETA
+  continue normally.
+- Cancelling after one or more stable steps retains those partial measurements
+  in session status but marks the run `CANCELLED`; it no longer overwrites a
+  previously complete persisted efficiency profile. Focused service/controller
+  tests cover checkpoint filtering and the resume API. `node --check` for both
+  changed JavaScript files, `git diff --check`, and full
+  `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew clean test
+  standaloneJar --no-daemon` passed. The checkpoint is lost on Agent restart by
+  design; persistent resume would require an explicit versioned sweep-state
+  contract rather than guessing from best-result profiles.
