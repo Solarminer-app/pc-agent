@@ -298,3 +298,21 @@
 - Tests cover strict cohort separation, upward validation candidates, parallel
   ETA accounting and JSON exposure of queue/sample/ETA state. JavaScript syntax,
   focused tests and full `sh gradlew test standaloneJar` passed on JDK 21.
+
+## 2026-10-09 — Breadth-first efficiency results across GPU coins
+
+- Reference curves for separate coin/algorithm cohorts are now packed into
+  conflict-free batches. Each concurrent reference owns a distinct physical GPU;
+  when all available cards are occupied, remaining coins move to the next batch.
+  This produces initial profiles across the supported GPU coins earlier while
+  retaining the complete descending reference curve and per-device validation.
+- The chosen reference is moved to the front of its cohort before execution, so
+  later sibling validation uses exactly the matching reference profile. The run
+  contract exposes its `referenceBatch`, and the ETA takes the longest run per
+  parallel reference batch instead of summing those runs as sequential work.
+- Focused scheduling tests verify that no batch assigns one device twice, all
+  cohorts remain scheduled, and same-batch reference ETAs are counted in
+  parallel. `node --check` for both changed JavaScript files, `git diff --check`
+  and full `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test
+  standaloneJar` passed. Live multi-coin SRBMiner and driver validation remains
+  a hardware rollout gate.

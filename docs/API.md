@@ -50,4 +50,9 @@ nur bei identischem Hersteller, Modell, Coin, Algorithmus sowie identischen
 Treiber- und Nutzergrenzen gruppiert: Eine Karte ermittelt die vollständige
 Kurve; die übrigen Karten validieren den Kandidaten parallel und erhöhen ihren
 eigenen Grenzwert bei Instabilität schrittweise. Persistierte Profile bleiben
-pro Geräte-ID und Algorithmus getrennt.
+pro Geräte-ID und Algorithmus getrennt. Referenzkurven verschiedener
+Coin-/Algorithmus-Kohorten werden in konfliktfreien Wellen auf unterschiedlichen
+physischen GPUs parallelisiert (`referenceBatch` im Run-Status). Dadurch liegen
+erste Ergebnisse für mehrere Coins früher vor; dieselbe GPU wird innerhalb einer
+Welle nie doppelt belegt. Die ETA zählt sowohl diese Referenzwellen als auch die
+Gerätevalidierungen mit ihrer tatsächlichen Parallelität.

@@ -20,6 +20,7 @@ window.SolarMinerI18nCatalog = {
     "Läuft": "Running",
     "Parallele Gerätevalidierung": "Parallel device validation",
     "Referenzkurve": "Reference curve",
+    "Welle {number}": "Wave {number}",
     "Ungefähre Restzeit: {time}": "Approximate time remaining: {time}",
     "ETA wird berechnet …": "Calculating ETA …",
     "{done}/{total} Geräte abgeschlossen · {phase}": "{done}/{total} devices complete · {phase}",

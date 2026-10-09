@@ -268,8 +268,10 @@ function renderSweepRuns(runs) {
     for (const run of runs) {
         const card = make('article', 'worker-card');
         const info = make('div', '');
+        const wave = run.mode === 'FULL' && Number.isInteger(run.referenceBatch)
+            ? ` · ${t('Welle {number}', {number: run.referenceBatch + 1})}` : '';
         info.append(make('strong', '', `${run.model} · ${run.algorithm}`),
-            make('p', 'muted', `${run.coin} · ${t(run.mode === 'FULL' ? 'Referenzkurve' : 'Parallele Gerätevalidierung')} · ${run.deviceId}`));
+            make('p', 'muted', `${run.coin} · ${t(run.mode === 'FULL' ? 'Referenzkurve' : 'Parallele Gerätevalidierung')}${wave} · ${run.deviceId}`));
         const tag = make('span', 'tag', t(statusLabel[run.status] || run.status));
         if (run.detail) info.append(make('p', '', run.detail));
         if (run.status === 'RUNNING') {

@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -95,7 +97,7 @@ public class EfficiencySweepService {
         Instant startedAt = Instant.now();
         List<List<List<Target>>> referenceBatches = referenceBatches(targetGroups(targets));
         List<List<Target>> cohorts = referenceBatches.stream().flatMap(List::stream).toList();
-        List<RunStatus> runs = initialRuns(cohorts);
+        List<RunStatus> runs = initialRuns(referenceBatches);
         session = new Session(true, "Vorbereitung", startedAt, 0, targets.size(), List.of(), runs,
                 estimateRemainingSeconds(runs, startedAt));
         try {
@@ -542,18 +544,51 @@ public class EfficiencySweepService {
         return groups.values().stream().map(List::copyOf).toList();
     }
 
-    private List<RunStatus> initialRuns(List<Target> targets) {
+    /**
+     * Assigns one cohort reference per physical GPU to each breadth-first batch. A cohort is
+     * reordered so its selected reference is always first; all remaining cards stay available
+     * for the later sibling validation. Batch barriers make it impossible for two coin runs to
+     * use the same physical GPU concurrently.
+     */
+    static List<List<List<Target>>> referenceBatches(List<List<Target>> cohorts) {
+        List<List<Target>> pending = new ArrayList<>(cohorts);
+        List<List<List<Target>>> batches = new ArrayList<>();
+        while (!pending.isEmpty()) {
+            Set<String> usedDevices = new HashSet<>();
+            List<List<Target>> batch = new ArrayList<>();
+            for (Iterator<List<Target>> iterator = pending.iterator(); iterator.hasNext(); ) {
+                List<Target> cohort = iterator.next();
+                Target reference = cohort.stream()
+                        .filter(candidate -> !usedDevices.contains(candidate.gpu().deviceId()))
+                        .findFirst().orElse(null);
+                if (reference == null) continue;
+                List<Target> reordered = new ArrayList<>(cohort.size());
+                reordered.add(reference);
+                cohort.stream().filter(candidate -> candidate != reference).forEach(reordered::add);
+                batch.add(List.copyOf(reordered));
+                usedDevices.add(reference.gpu().deviceId());
+                iterator.remove();
+            }
+            if (batch.isEmpty()) throw new IllegalStateException("Keine konfliktfreie GPU-Referenzplanung möglich");
+            batches.add(List.copyOf(batch));
+        }
+        return List.copyOf(batches);
+    }
+
+    private List<RunStatus> initialRuns(List<List<List<Target>>> referenceBatches) {
         List<RunStatus> runs = new ArrayList<>();
-        for (List<Target> group : targetGroups(targets)) {
-            for (int index = 0; index < group.size(); index++) {
-                Target target = group.get(index);
-                boolean reference = index == 0;
-                List<Integer> limits = reference
-                        ? candidateLimits(target.gpu().minWatts(), activeLimit(target.gpu()), stepWatts) : List.of();
-                runs.add(new RunStatus(runId(target), target.gpu().deviceId(), target.gpu().model(), target.coin(),
-                        target.algorithm(), reference ? "FULL" : "VALIDATION", "QUEUED", null, limits,
-                        List.of(), 0, SAMPLES_PER_STEP,
-                        reference ? "Vollständige Referenzkurve" : "Wartet auf Ergebnis der Referenzkarte"));
+        for (int batchIndex = 0; batchIndex < referenceBatches.size(); batchIndex++) {
+            for (List<Target> group : referenceBatches.get(batchIndex)) {
+                for (int index = 0; index < group.size(); index++) {
+                    Target target = group.get(index);
+                    boolean reference = index == 0;
+                    List<Integer> limits = reference
+                            ? candidateLimits(target.gpu().minWatts(), activeLimit(target.gpu()), stepWatts) : List.of();
+                    runs.add(new RunStatus(runId(target), target.gpu().deviceId(), target.gpu().model(), target.coin(),
+                            target.algorithm(), reference ? "FULL" : "VALIDATION", "QUEUED", null, limits,
+                            List.of(), 0, SAMPLES_PER_STEP, reference ? batchIndex : null,
+                            reference ? "Vollständige Referenzkurve" : "Wartet auf Ergebnis der Referenzkarte"));
+                }
             }
         }
         return List.copyOf(runs);
@@ -562,20 +597,20 @@ public class EfficiencySweepService {
     private synchronized void setPlannedLimits(Target target, List<Integer> limits, String mode, String detail) {
         mutateRun(target, current -> new RunStatus(current.id(), current.deviceId(), current.model(), current.coin(),
                 current.algorithm(), mode, "QUEUED", null, List.copyOf(limits), current.steps(), 0,
-                SAMPLES_PER_STEP, detail), detail);
+                SAMPLES_PER_STEP, current.referenceBatch(), detail), detail);
     }
 
     private synchronized void updateRun(Target target, String status, Integer limit,
                                         List<GpuEfficiencyStore.StepResult> steps, int samples, String detail) {
         mutateRun(target, current -> new RunStatus(current.id(), current.deviceId(), current.model(), current.coin(),
                 current.algorithm(), current.mode(), status, limit, current.plannedLimits(), List.copyOf(steps),
-                samples, SAMPLES_PER_STEP, detail), detail);
+                samples, SAMPLES_PER_STEP, current.referenceBatch(), detail), detail);
     }
 
     private synchronized void finishRun(Target target, String status, String detail) {
         mutateRun(target, current -> new RunStatus(current.id(), current.deviceId(), current.model(), current.coin(),
                 current.algorithm(), current.mode(), status, current.limitWatts(), current.plannedLimits(),
-                current.steps(), current.samples(), current.samplesRequired(), detail), detail);
+                current.steps(), current.samples(), current.samplesRequired(), current.referenceBatch(), detail), detail);
     }
 
     private void mutateRun(Target target, java.util.function.Function<RunStatus, RunStatus> change, String phase) {
@@ -598,7 +633,7 @@ public class EfficiencySweepService {
 
     static long estimateRemainingSeconds(List<RunStatus> runs, Instant startedAt) {
         long sequentialSeconds = 0;
-        Map<String, Long> parallelValidations = new LinkedHashMap<>();
+        Map<String, Long> parallelGroups = new LinkedHashMap<>();
         for (RunStatus run : runs) {
             if (run.terminal()) continue;
             int plannedSteps = Math.max(1, run.plannedLimits().size());
@@ -611,16 +646,18 @@ public class EfficiencySweepService {
                     + Math.max(0, plannedSteps - finishedSteps) * ESTIMATED_STARTUP_SECONDS;
             if (run.mode().equals("VALIDATION")) {
                 String group = String.join("|", run.coin(), run.algorithm(), run.model());
-                parallelValidations.merge(group, runSeconds, Math::max);
+                parallelGroups.merge("validation|" + group, runSeconds, Math::max);
+            } else if (run.referenceBatch() != null) {
+                parallelGroups.merge("reference|" + run.referenceBatch(), runSeconds, Math::max);
             } else sequentialSeconds += runSeconds;
         }
-        return sequentialSeconds + parallelValidations.values().stream().mapToLong(Long::longValue).sum();
+        return sequentialSeconds + parallelGroups.values().stream().mapToLong(Long::longValue).sum();
     }
 
     private static List<RunStatus> finalizePendingRuns(List<RunStatus> runs, String status, String detail) {
         return runs.stream().map(run -> run.terminal() ? run : new RunStatus(run.id(), run.deviceId(), run.model(),
                 run.coin(), run.algorithm(), run.mode(), status, run.limitWatts(), run.plannedLimits(), run.steps(),
-                run.samples(), run.samplesRequired(), detail)).toList();
+                run.samples(), run.samplesRequired(), run.referenceBatch(), detail)).toList();
     }
 
     private static double median(List<Double> values) {
@@ -662,7 +699,7 @@ public class EfficiencySweepService {
     public record RunStatus(String id, String deviceId, String model, String coin, String algorithm,
                             String mode, String status, Integer limitWatts, List<Integer> plannedLimits,
                             List<GpuEfficiencyStore.StepResult> steps, int samples, int samplesRequired,
-                            String detail) {
+                            Integer referenceBatch, String detail) {
         boolean terminal() {
             return status.equals("COMPLETE") || status.equals("FAILED") || status.equals("SKIPPED")
                     || status.equals("CANCELLED");
