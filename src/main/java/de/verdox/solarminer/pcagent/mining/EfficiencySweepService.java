@@ -44,9 +44,7 @@ public class EfficiencySweepService {
     /** Five-second samples; twelve points cover at least one minute of steady-state mining per step. */
     static final int SAMPLES_PER_STEP = 12;
     static final long SAMPLE_INTERVAL_MILLIS = 5_000;
-    private static final long ESTIMATED_STARTUP_SECONDS = 20;
-    /** Matches the Pearl health monitor's 90 s first-job window plus a scheduling margin. */
-    static final Duration STARTUP_GRACE = Duration.ofSeconds(95);
+    private static final long ESTIMATED_STARTUP_SECONDS = 45;
     private static final List<String> GPU_COINS = List.of("ravencoin", "ethereumclassic", "decred", "quantus");
 
     private final PearlMinerService pearl;
@@ -61,6 +59,15 @@ public class EfficiencySweepService {
     private final int stepWatts;
     private final double maxTemperatureC;
     private final double maxRejectedRatio;
+    /**
+     * Time a step waits for the first valid hashrate sample. The sweep restarts the miner at
+     * every power limit, and a cold restart costs real time before SRBMiner reports anything:
+     * DAG load for kawpow/etchash-class algorithms plus SRBMiner's one-minute average window
+     * can keep the reported hashrate at zero for close to three minutes while the miner is
+     * perfectly healthy. This grace must outlive the miner monitor's own hashrate watchdog,
+     * otherwise the sweep declares a working card unstable.
+     */
+    private final Duration startupGrace;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> Thread.ofPlatform().name("pc-agent-efficiency-sweep").daemon(true).unstarted(r));
     private volatile Session session = Session.idle();
     private volatile boolean cancel;
@@ -71,7 +78,8 @@ public class EfficiencySweepService {
                                   GpuEfficiencyStore store, BenchmarkSharingService sharing, LocalRunLock lock,
                                   @Value("${solarminer.agent.sweep.step-watts:15}") int stepWatts,
                                   @Value("${solarminer.agent.sweep.max-temperature-c:85}") double maxTemperatureC,
-                                  @Value("${solarminer.agent.sweep.max-rejected-ratio:0.10}") double maxRejectedRatio) {
+                                  @Value("${solarminer.agent.sweep.max-rejected-ratio:0.10}") double maxRejectedRatio,
+                                  @Value("${solarminer.agent.sweep.startup-grace-seconds:240}") long startupGraceSeconds) {
         this.pearl = pearl;
         this.gpuCoins = gpuCoins;
         this.power = power;
@@ -84,6 +92,7 @@ public class EfficiencySweepService {
         this.stepWatts = Math.max(5, stepWatts);
         this.maxTemperatureC = maxTemperatureC;
         this.maxRejectedRatio = maxRejectedRatio;
+        this.startupGrace = Duration.ofSeconds(Math.max(60, startupGraceSeconds));
     }
 
     public synchronized Session start() {
@@ -529,7 +538,7 @@ public class EfficiencySweepService {
         List<Double> rates = new ArrayList<>();
         List<Double> watts = new ArrayList<>();
         double maxTemp = Double.NEGATIVE_INFINITY;
-        Instant startupDeadline = Instant.now().plus(STARTUP_GRACE);
+        Instant startupDeadline = Instant.now().plus(startupGrace);
         MinerStats.Worker worker = null;
         while (rates.size() < SAMPLES_PER_STEP) {
             if (cancel) return new GpuEfficiencyStore.StepResult(limit, null, null, null, false, "Abgebrochen");

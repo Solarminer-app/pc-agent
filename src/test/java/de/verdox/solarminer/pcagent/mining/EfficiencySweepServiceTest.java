@@ -49,7 +49,7 @@ class EfficiencySweepServiceTest {
         var first = run("one", "VALIDATION", List.of(155, 170));
         var second = run("two", "VALIDATION", List.of(155, 170));
 
-        assertEquals(160, EfficiencySweepService.estimateRemainingSeconds(
+        assertEquals(210, EfficiencySweepService.estimateRemainingSeconds(
                 List.of(first, second), Instant.now()));
     }
 
@@ -91,7 +91,7 @@ class EfficiencySweepServiceTest {
         var second = run("two", "FULL", List.of(200, 185), 0);
         var nextBatch = run("one-again", "FULL", List.of(200, 185), 1);
 
-        assertEquals(320, EfficiencySweepService.estimateRemainingSeconds(
+        assertEquals(420, EfficiencySweepService.estimateRemainingSeconds(
                 List.of(first, second, nextBatch), Instant.now()));
     }
 

@@ -373,3 +373,29 @@
 - `BenchmarkSharingEfficiencyTest` covers retention of both stable and unstable
   points while consent is disabled. The cross-repository receiver, schema and
   validation live in `admin-portal` migration V16 and its ingest service.
+
+## 2026-10-09 — Sweep hashrate grace and compact run-list design
+
+- The power-limit sweep restarts the miner at every step, but the per-step
+  startup grace was only 95 s while SRBMiner legitimately needs longer: DAG
+  build plus its one-minute average window keep the reported hashrate at zero
+  for minutes on a healthy card. The sweep therefore declared working cards
+  unstable ("Miner liefert trotz Pool-Jobs keine Hashrate"). The grace is now a
+  configurable `solarminer.agent.sweep.startup-grace-seconds` (default 240,
+  floor 60) and the ETA startup estimate rose from 20 s to 45 s per step.
+- `GpuCoinMinerService`'s own first-hashrate watchdog was raised from 180 s to
+  the named constant `HASHRATE_STARTUP_WATCHDOG_SECONDS = 300` so the sweep's
+  grace (240 s) always decides stability before the miner monitor kills the
+  process mid-measurement.
+- Benchmarks page run list redesign: only RUNNING runs keep a full highlighted
+  card; QUEUED runs collapse into a "Wartende Läufe (n)" `<details>` group and
+  terminal runs into an expanded "Abgeschlossene Läufe (n)" group of one-line
+  disclosure rows (best stable watts in the summary). Operator-opened
+  disclosures survive the 1 s re-render via `openSweepGroups`/`openSweepRows`.
+  New i18n keys added in alphabetical position; the sweep explainer paragraph
+  was updated to state the four-minute hashrate grace and the collapsed layout.
+- ETA unit tests updated for the 45 s startup estimate (160→210, 320→420).
+  `node --check` for both changed JavaScript files, `git diff --check`, and
+  full `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test
+  standaloneJar --no-daemon` passed. Live multi-coin timing behaviour remains
+  a hardware rollout gate.

@@ -12,7 +12,8 @@
 window.SolarMinerI18nCatalog = {
   frontend: {
     "Abgebrochen": "Cancelled",
-    "Baugleiche GPUs werden pro Coin und Algorithmus gruppiert: Eine Referenzkarte ermittelt die vollständige Effizienzkurve, anschließend validieren alle Schwesterkarten den besten Wert parallel und weichen bei Bedarf schrittweise nach oben aus. Ein Ergebnis wird erst gerätespezifisch gespeichert, wenn Miner, Pool, Temperatur und Shares stabil bleiben. Nach dem Lauf werden Leistungsgrenzen und Miner-Zustand verifiziert wiederhergestellt.": "Identical GPUs are grouped per coin and algorithm: one reference card measures the full efficiency curve, then all sibling cards validate the best value in parallel and move upward step by step if needed. A result is stored for a device only after its miner, pool, temperature and shares remain stable. Power limits and miner state are verified and restored after the run.",
+    "Abgeschlossene Läufe ({count})": "Completed runs ({count})",
+    "Baugleiche GPUs werden pro Coin und Algorithmus gruppiert. Während eine Referenzkarte ihre Kurve ermittelt, messen die noch wartenden Schwesterkarten bereits andere Coins. Sobald die Referenz fertig ist, werden ihre Validierungen sofort freigeschaltet und auf den nächsten passenden freien Karten ausgeführt. Dieselbe GPU wird nie doppelt belegt. Nach jedem Power-Wechsel erhält der Miner bis zu vier Minuten Zeit, eine gültige Hashrate zu melden, bevor ein Schritt als instabil gilt. Ein Ergebnis wird erst gerätespezifisch gespeichert, wenn Miner, Pool, Temperatur und Shares stabil bleiben. Nach dem Lauf werden Leistungsgrenzen und Miner-Zustand verifiziert wiederhergestellt. Wartende und abgeschlossene Läufe sind zu kompakten Gruppen eingeklappt; nur der laufende Messpunkt bleibt ausgeklappt.": "Identical GPUs are grouped per coin and algorithm. While one reference card measures its curve, the still-waiting sibling cards already measure other coins. As soon as the reference finishes, its validations unlock immediately and run on the next matching free card. The same GPU is never double-booked. After every power change the miner gets up to four minutes to report a valid hashrate before a step counts as unstable. A result is stored for a device only after its miner, pool, temperature and shares remain stable. Power limits and miner state are verified and restored after the run. Waiting and completed runs are collapsed into compact groups; only the live measurement stays expanded.",
     "Fehlgeschlagen": "Failed",
     "Fertig": "Complete",
     "Geplant": "Planned",
@@ -864,6 +865,7 @@ window.SolarMinerI18nCatalog = {
     "Warte auf Messwerte": "Waiting for readings",
     "Warte auf Windows-Freigabe …": "Waiting for Windows approval …",
     "Warte auf aktuelle Agent-Daten, bevor du eine Änderung ausführst.": "Wait for current agent data before making changes.",
+    "Wartende Läufe ({count})": "Waiting runs ({count})",
     "Was darf der Node minen?": "What may the Node mine?",
     "Was gerade arbeitet": "What is running now",
     "Welche Geräte der Node verwendet, legst du im Mining-Profil fest →": "Assign devices used by the Node in the mining profile →",

@@ -250,6 +250,10 @@ async function pollSweep() {
 
 let lastProfileSignature = null;
 let lastSweepRunSignature = null;
+// The run list re-renders on every poll; remember which disclosures the operator opened
+// so a re-render never collapses their view mid-run.
+const openSweepGroups = new Map();
+const openSweepRows = new Set();
 
 function formatDuration(seconds) {
     const value = Math.max(0, Math.round(Number(seconds) || 0));
@@ -270,30 +274,78 @@ function renderSweepRuns(runs) {
     root.replaceChildren();
     if (!runs.length) return;
     const statusLabel = {QUEUED: 'Geplant', RUNNING: 'Läuft', COMPLETE: 'Fertig', FAILED: 'Fehlgeschlagen', SKIPPED: 'Übersprungen', CANCELLED: 'Abgebrochen'};
-    for (const run of runs) {
-        const card = make('article', 'worker-card');
-        const info = make('div', '');
-        const wave = run.mode === 'FULL' && Number.isInteger(run.referenceBatch)
-            ? ` · ${t('Startgruppe {number}', {number: run.referenceBatch + 1})}` : '';
-        info.append(make('strong', '', `${run.model} · ${run.algorithm}`),
-            make('p', 'muted', `${run.coin} · ${t(run.mode === 'FULL' ? 'Referenzkurve' : 'Parallele Gerätevalidierung')}${wave} · ${run.deviceId}`));
-        const tag = make('span', 'tag', t(statusLabel[run.status] || run.status));
-        if (run.detail) info.append(make('p', '', run.detail));
-        if (run.status === 'RUNNING') {
-            info.append(make('p', 'muted', t('{watts} W · {samples}/{required} Messpunkte',
-                {watts: run.limitWatts ?? '—', samples: run.samples, required: run.samplesRequired})));
-        }
-        const completed = new Map((run.steps || []).map(step => [step.limitWatts, step]));
-        const plan = (run.plannedLimits || []).map(limit => {
-            const step = completed.get(limit);
-            if (!step) return `${limit} W ○`;
-            const measurement = step.medianHashrateHs ? ` · ${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W` : '';
-            return `${limit} W ${step.stable ? '✓' : '✗'}${measurement}`;
-        }).join('  ·  ');
-        if (plan) info.append(make('p', 'muted', plan));
-        card.append(info, tag);
-        root.append(card);
-    }
+    const isTerminal = status => status === 'COMPLETE' || status === 'FAILED' || status === 'SKIPPED' || status === 'CANCELLED';
+    // Only live runs get a full card; queued and finished runs collapse into compact
+    // disclosure rows so a long plan never buries the run that is actually measuring.
+    for (const run of runs.filter(r => r.status === 'RUNNING')) root.append(liveRunCard(run, statusLabel));
+    const waiting = runs.filter(r => r.status === 'QUEUED');
+    const finished = runs.filter(r => isTerminal(r.status));
+    if (waiting.length) root.append(runGroup(t('Wartende Läufe ({count})', {count: waiting.length}), waiting, statusLabel, false));
+    if (finished.length) root.append(runGroup(t('Abgeschlossene Läufe ({count})', {count: finished.length}), finished, statusLabel, true));
+}
+
+function runIdentity(run) {
+    const wave = run.mode === 'FULL' && Number.isInteger(run.referenceBatch)
+        ? ` · ${t('Startgruppe {number}', {number: run.referenceBatch + 1})}` : '';
+    return `${run.coin} · ${t(run.mode === 'FULL' ? 'Referenzkurve' : 'Parallele Gerätevalidierung')}${wave}`;
+}
+
+function runPlanLine(run) {
+    const completed = new Map((run.steps || []).map(step => [step.limitWatts, step]));
+    return (run.plannedLimits || []).map(limit => {
+        const step = completed.get(limit);
+        if (!step) return `${limit} W ○`;
+        const measurement = step.medianHashrateHs ? ` · ${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W` : '';
+        return `${limit} W ${step.stable ? '✓' : '✗'}${measurement}`;
+    }).join('  ·  ');
+}
+
+function liveRunCard(run, statusLabel) {
+    const card = make('article', 'worker-card sweep-live-card');
+    const info = make('div', '');
+    info.append(make('strong', '', `${run.model} · ${run.algorithm}`), make('p', 'muted', runIdentity(run)));
+    if (run.detail) info.append(make('p', '', run.detail));
+    info.append(make('p', 'muted', t('{watts} W · {samples}/{required} Messpunkte',
+        {watts: run.limitWatts ?? '—', samples: run.samples, required: run.samplesRequired})));
+    const steps = runPlanLine(run);
+    if (steps) info.append(make('p', 'muted', steps));
+    card.append(info, make('span', 'tag ready', t(statusLabel[run.status] || run.status)));
+    return card;
+}
+
+function runGroup(label, runs, statusLabel, defaultOpen) {
+    const group = make('details', 'sweep-run-group');
+    const key = label.replace(/\(\d+\)/, '');
+    group.open = openSweepGroups.has(key) ? openSweepGroups.get(key) : defaultOpen;
+    group.addEventListener('toggle', () => openSweepGroups.set(key, group.open));
+    group.append(make('summary', '', label));
+    const rows = make('div', 'sweep-run-rows');
+    for (const run of runs) rows.append(runRow(run, statusLabel));
+    group.append(rows);
+    return group;
+}
+
+function runRow(run, statusLabel) {
+    const row = make('details', 'sweep-run-row');
+    row.open = openSweepRows.has(run.id);
+    row.addEventListener('toggle', () => {
+        if (row.open) openSweepRows.add(run.id); else openSweepRows.delete(run.id);
+    });
+    const summary = make('summary', '');
+    summary.append(make('strong', '', `${run.model} · ${run.coin} · ${run.algorithm}`));
+    const best = run.status === 'COMPLETE' && run.limitWatts != null
+        ? make('span', 'sweep-run-best', `${run.limitWatts} W`) : null;
+    if (best) summary.append(best);
+    summary.append(make('span', `tag${run.status === 'COMPLETE' ? ' ready' : run.status === 'FAILED' ? ' blocked' : ''}`,
+        t(statusLabel[run.status] || run.status)));
+    row.append(summary);
+    const body = make('div', 'sweep-run-body');
+    body.append(make('p', '', `${runIdentity(run)} · ${run.deviceId}`));
+    if (run.detail) body.append(make('p', '', run.detail));
+    const steps = runPlanLine(run);
+    if (steps) body.append(make('p', '', steps));
+    row.append(body);
+    return row;
 }
 
 async function renderProfiles() {

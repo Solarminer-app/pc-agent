@@ -42,6 +42,14 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class GpuCoinMinerService {
     private static final Duration HASHRATE_GRACE = Duration.ofSeconds(20);
+    /**
+     * Watchdog: seconds a freshly launched miner may take before it reports its first
+     * hashrate. Cold starts (DAG build, driver init) plus SRBMiner's one-minute average
+     * window legitimately need several minutes on memory-heavy algorithms. The efficiency
+     * sweep's own per-step grace (240 s default) must stay BELOW this value so the sweep,
+     * not this watchdog, makes the stability call.
+     */
+    static final int HASHRATE_STARTUP_WATCHDOG_SECONDS = 300;
     private final ObjectMapper mapper;
     private final ProxyConfigurationService proxy;
     private final PearlMinerService pearl;
@@ -383,7 +391,7 @@ public class GpuCoinMinerService {
                 fail(run, "Pool-Job oder Fee-Route nicht verfügbar");
                 process.destroy(); return;
             }
-            if (hadJob && ((!hadHashrate && Duration.between(launched, Instant.now()).toSeconds() >= 180)
+            if (hadJob && ((!hadHashrate && Duration.between(launched, Instant.now()).toSeconds() >= HASHRATE_STARTUP_WATCHDOG_SECONDS)
                     || (hadHashrate && Duration.between(lastHashrate, Instant.now()).toSeconds() >= 120))) {
                 fail(run, "GPU liefert trotz Pool-Jobs keine Hashrate; SRBMiner- und GPU-Treiber prüfen");
                 process.destroy(); return;
