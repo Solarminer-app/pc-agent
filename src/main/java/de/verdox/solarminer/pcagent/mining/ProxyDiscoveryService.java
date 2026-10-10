@@ -95,9 +95,11 @@ public class ProxyDiscoveryService {
                 int port = entry.getValue().asInt(-1);
                 if (port > 0 && port <= 65535) ports.put(entry.getKey(), port);
             });
-            if (ports.getOrDefault("monero", -1) != expectedMoneroPort) return null;
+            String monero = de.verdox.solarminer.pcagent.coin.Coin.MONERO.id();
+            String pearl = de.verdox.solarminer.pcagent.coin.Coin.PEARL.id();
+            if (ports.getOrDefault(monero, -1) != expectedMoneroPort) return null;
             return new ProxyCandidate(packet.getAddress().getHostAddress(), apiPort,
-                    ports.get("monero"), ports.getOrDefault("pearl", 0), ports);
+                    ports.get(monero), ports.getOrDefault(pearl, 0), ports);
         } catch (Exception ignored) {
             return null;
         }

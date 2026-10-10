@@ -2,6 +2,7 @@ package de.verdox.solarminer.pcagent.mining;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import de.verdox.solarminer.pcagent.coin.DownloadState;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -48,7 +49,7 @@ public class ProxyReleaseService {
     private final String repository;
     private final Path releaseDirectory;
     private final AtomicBoolean working = new AtomicBoolean();
-    private volatile String state = "CHECKING";
+    private volatile DownloadState state = DownloadState.CHECKING;
     private volatile String detail = "";
     private volatile int progress;
     private volatile String version = "";
@@ -64,7 +65,9 @@ public class ProxyReleaseService {
             throw new IllegalStateException("solarminer.agent.proxy.repository must be owner/name");
     }
 
-    public String state() { return state; }
+    /** Typed lifecycle state; {@link #state()} stays a wire-name string for the gate contract. */
+    public DownloadState downloadState() { return state; }
+    public String state() { return state.wireName(); }
     public String detail() { return detail; }
     public int progress() { return progress; }
     public String version() { return version; }
@@ -77,17 +80,17 @@ public class ProxyReleaseService {
     /** Starts the GitHub lookup in the background. Returns false when a lookup is already running. */
     public boolean refresh() {
         if (working.compareAndSet(false, true)) {
-            state = "CHECKING";
+            state = DownloadState.CHECKING;
             detail = "";
             progress = 0;
             Thread.ofVirtual().name("stratum-proxy-release-check").start(() -> {
                 try {
                     installLatest();
-                    state = "READY";
+                    state = DownloadState.READY;
                     progress = 100;
                     detail = "";
                 } catch (Exception failure) {
-                    state = "FAILED";
+                    state = DownloadState.FAILED;
                     detail = failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
                     LOGGER.log(Level.WARNING, "Stratum proxy release update failed", failure);
                 } finally {
@@ -108,7 +111,7 @@ public class ProxyReleaseService {
         Path cached = newestCachedRelease();
         if (cached == null) return false;
         adopt(cached);
-        state = "READY";
+        state = DownloadState.READY;
         progress = 100;
         detail = "GitHub ist nicht erreichbar - der zuletzt gespeicherte Proxy wird verwendet.";
         return true;
@@ -147,7 +150,7 @@ public class ProxyReleaseService {
             return;
         }
 
-        state = "DOWNLOADING";
+        state = DownloadState.DOWNLOADING;
         progress = 0;
         Path staging = Files.createTempFile(releaseDirectory, "stratum-proxy-", ".part");
         try {

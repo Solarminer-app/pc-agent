@@ -2,6 +2,7 @@ package de.verdox.solarminer.pcagent.mining;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
 import jakarta.annotation.PostConstruct;
@@ -163,15 +164,7 @@ public class EnergyJournalService {
     }
 
     private static String coin(String algorithm) {
-        return switch (algorithm == null ? "" : algorithm.toLowerCase()) {
-            case "randomx" -> "monero";
-            case "pearlhash" -> "pearl";
-            case "kawpow" -> "ravencoin";
-            case "etchash" -> "ethereumclassic";
-            case "blake3_decred", "blake3" -> "decred";
-            case "quantus", "qpow" -> "quantus";
-            default -> "unknown";
-        };
+        return Coin.byAlgorithm(algorithm).map(Coin::id).orElse("unknown");
     }
 
     private void checkpoint(Instant now) {

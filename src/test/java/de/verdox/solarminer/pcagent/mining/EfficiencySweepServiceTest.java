@@ -1,5 +1,7 @@
 package de.verdox.solarminer.pcagent.mining;
 
+import de.verdox.solarminer.pcagent.coin.SweepMode;
+import de.verdox.solarminer.pcagent.coin.SweepRunState;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -46,8 +48,8 @@ class EfficiencySweepServiceTest {
 
     @Test
     void etaCountsSiblingValidationRunsInParallel() {
-        var first = run("one", "VALIDATION", List.of(155, 170));
-        var second = run("two", "VALIDATION", List.of(155, 170));
+        var first = run("one", SweepMode.VALIDATION, List.of(155, 170));
+        var second = run("two", SweepMode.VALIDATION, List.of(155, 170));
 
         assertEquals(210, EfficiencySweepService.estimateRemainingSeconds(
                 List.of(first, second), Instant.now()));
@@ -87,9 +89,9 @@ class EfficiencySweepServiceTest {
 
     @Test
     void etaCountsCoinReferencesInTheSameBatchInParallel() {
-        var first = run("one", "FULL", List.of(200, 185), 0);
-        var second = run("two", "FULL", List.of(200, 185), 0);
-        var nextBatch = run("one-again", "FULL", List.of(200, 185), 1);
+        var first = run("one", SweepMode.FULL, List.of(200, 185), 0);
+        var second = run("two", SweepMode.FULL, List.of(200, 185), 0);
+        var nextBatch = run("one-again", SweepMode.FULL, List.of(200, 185), 1);
 
         assertEquals(420, EfficiencySweepService.estimateRemainingSeconds(
                 List.of(first, second, nextBatch), Instant.now()));
@@ -97,8 +99,8 @@ class EfficiencySweepServiceTest {
 
     @Test
     void schedulerPrefersUnlockedSameCoinValidationBeforeAnotherReference() {
-        var validation = task(targetForCoin("one", "pearl", "PearlHash"), "VALIDATION");
-        var otherCoin = task(targetForCoin("two", "ravencoin", "KAWPOW"), "FULL");
+        var validation = task(targetForCoin("one", "pearl", "PearlHash"), SweepMode.VALIDATION);
+        var otherCoin = task(targetForCoin("two", "ravencoin", "KAWPOW"), SweepMode.FULL);
         List<EfficiencySweepService.SweepTask> validations = new java.util.ArrayList<>(List.of(validation));
         List<EfficiencySweepService.SweepTask> references = new java.util.ArrayList<>(List.of(otherCoin));
 
@@ -111,8 +113,8 @@ class EfficiencySweepServiceTest {
 
     @Test
     void schedulerUsesOtherCoinWorkWhileValidationDeviceIsBusy() {
-        var blockedValidation = task(targetForCoin("one", "pearl", "PearlHash"), "VALIDATION");
-        var otherCoin = task(targetForCoin("two", "ravencoin", "KAWPOW"), "FULL");
+        var blockedValidation = task(targetForCoin("one", "pearl", "PearlHash"), SweepMode.VALIDATION);
+        var otherCoin = task(targetForCoin("two", "ravencoin", "KAWPOW"), SweepMode.FULL);
         List<EfficiencySweepService.SweepTask> validations = new java.util.ArrayList<>(List.of(blockedValidation));
         List<EfficiencySweepService.SweepTask> references = new java.util.ArrayList<>(List.of(otherCoin));
 
@@ -126,8 +128,8 @@ class EfficiencySweepServiceTest {
 
     @Test
     void resumeReusesOnlyFullyCompletedRunsAndNotCancelledPartialResults() {
-        var complete = withStatus(identifiedRun("one", "FULL", List.of(200, 185)), "COMPLETE");
-        var cancelled = withStatus(identifiedRun("two", "FULL", List.of(200, 185)), "CANCELLED");
+        var complete = withStatus(identifiedRun("one", SweepMode.FULL, List.of(200, 185)), SweepRunState.COMPLETE);
+        var cancelled = withStatus(identifiedRun("two", SweepMode.FULL, List.of(200, 185)), SweepRunState.CANCELLED);
         var completeProfile = profile("one", "pearl", "PearlHash", 185);
         var partialProfile = profile("two", "pearl", "PearlHash", 200);
         var previous = new EfficiencySweepService.Session(false, "Abgebrochen", Instant.now(), 2, 2,
@@ -137,11 +139,11 @@ class EfficiencySweepServiceTest {
 
         assertEquals(Set.of("one|pearl|PearlHash"), checkpoint.keySet());
         var resumed = EfficiencySweepService.applyCheckpoint(
-                List.of(identifiedRun("one", "FULL", List.of(200, 185)),
-                        identifiedRun("two", "FULL", List.of(200, 185))),
+                List.of(identifiedRun("one", SweepMode.FULL, List.of(200, 185)),
+                        identifiedRun("two", SweepMode.FULL, List.of(200, 185))),
                 previous.runs(), checkpoint);
-        assertEquals("COMPLETE", resumed.getFirst().status());
-        assertEquals("QUEUED", resumed.get(1).status());
+        assertEquals(SweepRunState.COMPLETE, resumed.getFirst().status());
+        assertEquals(SweepRunState.QUEUED, resumed.get(1).status());
     }
 
     @Test
@@ -175,14 +177,14 @@ class EfficiencySweepServiceTest {
                 200, 25.0, "measured", writable, error);
     }
 
-    private static EfficiencySweepService.RunStatus run(String id, String mode, List<Integer> limits) {
+    private static EfficiencySweepService.RunStatus run(String id, SweepMode mode, List<Integer> limits) {
         return run(id, mode, limits, null);
     }
 
-    private static EfficiencySweepService.RunStatus run(String id, String mode, List<Integer> limits,
+    private static EfficiencySweepService.RunStatus run(String id, SweepMode mode, List<Integer> limits,
                                                          Integer referenceBatch) {
         return new EfficiencySweepService.RunStatus(id, id, "TITAN RTX", "pearl", "PearlHash", mode,
-                "QUEUED", null, limits, List.of(), 0, EfficiencySweepService.SAMPLES_PER_STEP, referenceBatch, "");
+                SweepRunState.QUEUED, null, limits, List.of(), 0, EfficiencySweepService.SAMPLES_PER_STEP, referenceBatch, "");
     }
 
     private static EfficiencySweepService.Target target(String id, String model, int min, int max, String algorithm) {
@@ -198,17 +200,17 @@ class EfficiencySweepServiceTest {
         return new EfficiencySweepService.Target(coin, algorithm, gpu, null);
     }
 
-    private static EfficiencySweepService.SweepTask task(EfficiencySweepService.Target target, String mode) {
+    private static EfficiencySweepService.SweepTask task(EfficiencySweepService.Target target, SweepMode mode) {
         return new EfficiencySweepService.SweepTask(target, target.coin() + "|" + target.algorithm(), mode, null);
     }
 
-    private static EfficiencySweepService.RunStatus withStatus(EfficiencySweepService.RunStatus run, String status) {
+    private static EfficiencySweepService.RunStatus withStatus(EfficiencySweepService.RunStatus run, SweepRunState status) {
         return new EfficiencySweepService.RunStatus(run.id(), run.deviceId(), run.model(), run.coin(), run.algorithm(),
                 run.mode(), status, run.limitWatts(), run.plannedLimits(), run.steps(), run.samples(),
                 run.samplesRequired(), run.referenceBatch(), run.detail());
     }
 
-    private static EfficiencySweepService.RunStatus identifiedRun(String device, String mode, List<Integer> limits) {
+    private static EfficiencySweepService.RunStatus identifiedRun(String device, SweepMode mode, List<Integer> limits) {
         var run = run(device, mode, limits);
         return new EfficiencySweepService.RunStatus(device + "|pearl|PearlHash", device, run.model(), run.coin(),
                 run.algorithm(), run.mode(), run.status(), run.limitWatts(), run.plannedLimits(), run.steps(),

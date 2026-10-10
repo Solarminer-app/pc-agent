@@ -1,9 +1,11 @@
 package de.verdox.solarminer.pcagent.mining;
 
+import de.verdox.solarminer.pcagent.coin.Coin;
+import de.verdox.solarminer.pcagent.coin.WorkerCoinPolicy;
+import de.verdox.solarminer.pcagent.coin.WorkerIds;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
-import de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService;
+import de.verdox.solarminer.pcagent.miner.MinerFactory;
 import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -25,13 +27,10 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class EconomicPlanningService {
     public static final int PROTOCOL_VERSION = 1;
-    private static final Set<String> GPU_COINS = Set.of("pearl", "ravencoin", "ethereumclassic", "decred", "quantus");
-
     private final AgentControlSettingsService controls;
     private final MiningService mining;
     private final LocalGpuPowerService gpus;
-    private final PearlMinerService pearl;
-    private final GpuCoinMinerService gpuCoins;
+    private final MinerFactory miners;
     private final ProxyConfigurationService proxy;
     private final GpuEfficiencyStore efficiencyProfiles;
     private final MiningPerformanceProfileStore benchmarkProfiles;
@@ -41,15 +40,14 @@ public class EconomicPlanningService {
     private volatile AppliedPlan lastPlan;
 
     public EconomicPlanningService(AgentControlSettingsService controls, MiningService mining,
-                                   LocalGpuPowerService gpus, PearlMinerService pearl,
-                                   GpuCoinMinerService gpuCoins, ProxyConfigurationService proxy,
+                                   LocalGpuPowerService gpus, MinerFactory miners,
+                                   ProxyConfigurationService proxy,
                                    GpuEfficiencyStore efficiencyProfiles, MiningPerformanceProfileStore benchmarkProfiles,
                                    WorkerAssignmentService assignments) {
         this.controls = controls;
         this.mining = mining;
         this.gpus = gpus;
-        this.pearl = pearl;
-        this.gpuCoins = gpuCoins;
+        this.miners = miners;
         this.proxy = proxy;
         this.efficiencyProfiles = efficiencyProfiles;
         this.benchmarkProfiles = benchmarkProfiles;
@@ -59,9 +57,9 @@ public class EconomicPlanningService {
     public Capabilities capabilities() {
         List<MinerStats.Worker> live = mining.getWorkerStats();
         List<WorkerCapability> workers = new ArrayList<>();
-        workers.add(worker("cpu", "CPU", "CPU", List.of("monero"), live));
+        workers.add(worker(WorkerIds.CPU, "CPU", "CPU", List.of(Coin.MONERO.id()), live));
         for (LocalGpuPowerService.Gpu gpu : gpus.discover()) {
-            workers.add(worker(gpu.deviceId(), "GPU", gpu.model(), GPU_COINS.stream().sorted().toList(), live));
+            workers.add(worker(gpu.deviceId(), "GPU", gpu.model(), Coin.gpuCoins().stream().map(Coin::id).sorted().toList(), live));
         }
         return new Capabilities(PROTOCOL_VERSION, Instant.now(), workers, lastPlan == null ? null : lastPlan.expiresAt());
     }
@@ -112,7 +110,8 @@ public class EconomicPlanningService {
                 .collect(java.util.stream.Collectors.toMap(WorkerCapability::workerId, value -> value));
         for (Assignment assignment : request.assignments()) {
             WorkerCapability worker = workers.get(assignment.workerId());
-            if (worker == null || !"AUTO".equals(worker.coinPolicy()) || !worker.externalControlEnabled())
+            if (worker == null || WorkerCoinPolicy.from(worker.coinPolicy()) != WorkerCoinPolicy.AUTO
+                    || !worker.externalControlEnabled())
                 return PlanResult.rejected("Worker ist nicht lokal für ökonomische Auswahl freigegeben: " + assignment.workerId());
             CoinCapability coin = worker.coins().stream().filter(value -> value.coin().equals(assignment.coin())).findFirst().orElse(null);
             if (coin == null || coin.profile() == null)
@@ -153,18 +152,13 @@ public class EconomicPlanningService {
         lastPlan = null;
     }
 
-    private boolean configured(String coin) {
-        if ("monero".equals(coin)) return true; // XMRig's configuration is maintained by its existing route owner.
-        if ("pearl".equals(coin)) return pearl.configuration() != null;
-        return gpuCoins.configuration(coin) != null;
+    private boolean configured(String coinId) {
+        return miners.miner(coinId).map(miner -> miner.configured()).orElse(false);
     }
 
-    private static String algorithm(String coin) {
-        return switch (coin) {
-            case "monero" -> "randomx";
-            case "pearl" -> "pearlhash";
-            default -> GpuCoinMinerService.algorithm(coin);
-        };
+    private static String algorithm(String coinId) {
+        Coin coin = Coin.byIdOrNull(coinId);
+        return coin == null ? null : coin.algorithm();
     }
 
     public record Capabilities(int protocolVersion, Instant collectedAt, List<WorkerCapability> workers, Instant activePlanExpiresAt) { }

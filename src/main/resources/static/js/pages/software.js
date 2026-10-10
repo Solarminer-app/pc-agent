@@ -23,11 +23,12 @@
     return [...grouped.values()];
   }
 
-  const coinName = id => ({monero: 'Monero', pearl: 'Pearl', ravencoin: 'Ravencoin', ethereumclassic: 'Ethereum Classic'})[id] || id;
+  // Coin display names arrive with the catalog data; no coin table lives in the UI.
+  const coinName = option => option.coinName || option.coin;
   function render() {
     const list = packages.filter(item => {
       const device = item.device.includes('CPU') ? 'CPU' : 'GPU';
-      const haystack = [item.name, ...item.coins.map(coinName), ...item.algorithms].join(' ').toLowerCase();
+      const haystack = [item.name, ...item.variants.map(coinName), ...item.algorithms].join(' ').toLowerCase();
       return (filter === 'all' || filter === device) && (!search || haystack.includes(search));
     });
     $('catalog-installed-count').textContent = t(`${packages.filter(item => item.installed).length} installiert`);
@@ -42,7 +43,7 @@
         item.downloadStatus === 'DOWNLOADING' ? 'Wird installiert' : item.installed ? 'Installiert' : item.selectable ? 'Installierbar' : 'Nicht integriert');
       head.append(identity, status); card.append(head);
       const supported = el('div', 'software-support');
-      [...new Set(item.variants.map(entry => `${coinName(entry.coin)} · ${entry.algorithm}`))]
+      [...new Set(item.variants.map(entry => `${coinName(entry)} · ${entry.algorithm}`))]
         .forEach(value => supported.append(el('span', 'software-chip', value)));
       card.append(supported);
       const facts = el('dl', 'software-facts');
@@ -59,7 +60,7 @@
       if (item.installed) {
         const workers = el('a', 'button primary', 'Worker zuweisen'); workers.href = '/workers.html'; actions.append(workers);
         const remove = el('button', 'button subtle', 'Deinstallieren'); remove.type = 'button'; remove.disabled = busy;
-        remove.addEventListener('click', () => mutate(item.id === 'xmrig' ? '/api/agent/local/monero/remove' : '/api/agent/local/pearl/remove', `${item.name} entfernen?`, 'Software wurde entfernt.'));
+        remove.addEventListener('click', () => mutate(`/api/agent/local/${item.coins[0]}/remove`, `${item.name} entfernen?`, 'Software wurde entfernt.'));
         actions.append(remove);
       } else if (item.selectable) {
         const install = el('button', 'button primary', item.downloadStatus === 'DOWNLOADING' ? 'Installation läuft …' : 'Installieren');

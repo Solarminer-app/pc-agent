@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.springframework.stereotype.Service;
+import de.verdox.solarminer.pcagent.coin.DownloadState;
 import de.verdox.solarminer.pcagent.mining.WindowsAntivirusBlock;
 
 import java.io.IOException;
@@ -45,7 +46,7 @@ public class SrbDownloadService {
     private final ObjectMapper mapper;
     private final PearlMinerService miner;
     private final AtomicBoolean downloading = new AtomicBoolean();
-    private volatile String status = "PENDING";
+    private volatile DownloadState status = DownloadState.PENDING;
     private volatile String detail = "";
     private volatile int progress = 0;
 
@@ -56,25 +57,25 @@ public class SrbDownloadService {
 
     public boolean retry() {
         if (miner.binaryAvailable()) {
-            status = "READY";
+            status = DownloadState.READY;
             detail = "";
             progress = 100;
             return true;
         }
         if (!downloading.compareAndSet(false, true)) return false;
-        status = "DOWNLOADING";
+        status = DownloadState.DOWNLOADING;
         detail = "";
         progress = 0;
         Thread.ofVirtual().name("srbminer-download").start(() -> {
             try {
                 install();
                 progress = 100;
-                status = "READY";
+                status = DownloadState.READY;
                 detail = "";
             } catch (Exception e) {
-                status = WindowsAntivirusBlock.causedBy(e) ? "BLOCKED_BY_ANTIVIRUS"
-                        : e instanceof UnsupportedOperationException ? "UNSUPPORTED" : "FAILED";
-                detail = "BLOCKED_BY_ANTIVIRUS".equals(status) ? WindowsAntivirusBlock.DETAIL
+                status = WindowsAntivirusBlock.causedBy(e) ? DownloadState.BLOCKED_BY_ANTIVIRUS
+                        : e instanceof UnsupportedOperationException ? DownloadState.UNSUPPORTED : DownloadState.FAILED;
+                detail = status == DownloadState.BLOCKED_BY_ANTIVIRUS ? WindowsAntivirusBlock.DETAIL
                         : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                 LOGGER.log(Level.WARNING, "SRBMiner-MULTI installation failed", e);
             } finally {
@@ -84,7 +85,9 @@ public class SrbDownloadService {
         return true;
     }
 
-    public String status() { return status; }
+    /** Typed lifecycle state; {@link #status()} carries the same value as the REST wire name. */
+    public DownloadState state() { return status; }
+    public String status() { return status.wireName(); }
     public String detail() { return detail; }
     public int progress() { return progress; }
     public Path installDirectory() { return miner.executablePath().getParent().toAbsolutePath().normalize(); }
@@ -109,10 +112,10 @@ public class SrbDownloadService {
             }
             Files.deleteIfExists(executable);
             Files.deleteIfExists(manifest);
-            status = "PENDING"; detail = "SRBMiner entfernt; die Pearl-Konfiguration bleibt gespeichert."; progress = 0;
+            status = DownloadState.PENDING; detail = "SRBMiner entfernt; die Pearl-Konfiguration bleibt gespeichert."; progress = 0;
             return true;
         } catch (IOException e) {
-            status = "FAILED"; detail = "SRBMiner konnte nicht vollständig entfernt werden: " + e.getMessage();
+            status = DownloadState.FAILED; detail = "SRBMiner konnte nicht vollständig entfernt werden: " + e.getMessage();
             return false;
         } finally { downloading.set(false); }
     }

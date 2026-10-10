@@ -1,5 +1,6 @@
 package de.verdox.solarminer.pcagent.mining;
 
+import de.verdox.solarminer.pcagent.coin.Coin;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -82,15 +83,25 @@ public class MinerConsoleService {
         }
     }
 
+    /** Per-GPU console id of any GPU coin, e.g. "pearl-NVIDIA-0". */
+    public static boolean isGpuConsoleId(String miner) {
+        return miner != null && miner.matches(
+                "(" + String.join("|", Coin.gpuCoins().stream().map(Coin::id).toList()) + ")-(NVIDIA|AMD)-[0-9]{1,5}");
+    }
+
+    /** True for every console id the agent knows: a mining coin or one of its GPU consoles. */
+    public static boolean isKnownConsole(String miner) {
+        return miner != null && (Coin.miningCoins().stream().anyMatch(coin -> coin.id().equals(miner)) || isGpuConsoleId(miner));
+    }
+
     public Path file(String miner) {
-        if (miner.matches("(pearl|ravencoin|ethereumclassic|decred|quantus)-(NVIDIA|AMD)-[0-9]{1,5}"))
-            return directory.resolve(miner + "-console.log");
-        return directory.resolve(switch (miner) {
-            case "monero" -> "xmrig-console.log";
-            case "pearl" -> "srbminer-console.log";
-            case "ravencoin", "ethereumclassic", "decred", "quantus" -> miner + "-console.log";
-            default -> throw new IllegalArgumentException("Unknown miner");
-        });
+        if (isGpuConsoleId(miner)) return directory.resolve(miner + "-console.log");
+        Coin coin = Coin.byIdOrNull(miner);
+        // Historical file names stay as they are: the operator UI and bug reports reference them.
+        if (coin == Coin.MONERO) return directory.resolve("xmrig-console.log");
+        if (coin == Coin.PEARL) return directory.resolve("srbminer-console.log");
+        if (coin != null && coin != Coin.NONE) return directory.resolve(coin.id() + "-console.log");
+        throw new IllegalArgumentException("Unknown miner");
     }
 
     public record ConsoleChunk(long nextOffset, String runId, String data, boolean hasMore) { }

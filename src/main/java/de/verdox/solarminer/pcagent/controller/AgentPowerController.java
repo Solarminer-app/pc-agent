@@ -109,7 +109,8 @@ public class AgentPowerController {
 
     private void logExternalChange(String message) {
         String line = Instant.now() + " [SolarMiner] [Remote Control] " + message;
-        if (controls.workerEnabled("cpu")) consoles.append("monero", line);
+        if (controls.workerEnabled(de.verdox.solarminer.pcagent.coin.WorkerIds.CPU))
+            consoles.append(de.verdox.solarminer.pcagent.coin.Coin.MONERO.id(), line);
         var selected = gpus.discover().stream().filter(gpu -> mining.externallySelected(gpu.deviceId())).toList();
         selected.stream().map(gpu -> controls.get().coinFor(gpu.deviceId())).distinct().forEach(coin -> consoles.append(coin, line));
         selected.forEach(gpu -> consoles.append(controls.get().coinFor(gpu.deviceId()) + "-" + gpu.vendor() + "-" + gpu.index(), line));
@@ -129,16 +130,17 @@ public class AgentPowerController {
 
     @PostMapping("/workers/{workerId}/external-control")
     public AgentControlSettingsService.Settings workerControl(@PathVariable String workerId, @RequestParam boolean enabled) {
-        if (!"cpu".equals(workerId) && gpus.discover().stream().noneMatch(gpu -> gpu.deviceId().equals(workerId)))
+        if (!de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(workerId) && gpus.discover().stream().noneMatch(gpu -> gpu.deviceId().equals(workerId)))
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Worker wurde nicht erkannt");
         if (!controls.setWorkerEnabled(workerId, enabled))
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Worker-Freigabe konnte nicht gespeichert werden");
         String line = Instant.now() + " [SolarMiner] [Remote Control] External control for " + workerId + (enabled ? " enabled" : " disabled");
-        if ("cpu".equals(workerId)) consoles.append("monero", line);
+        if (de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(workerId))
+            consoles.append(de.verdox.solarminer.pcagent.coin.Coin.MONERO.id(), line);
         else {
-            consoles.append("pearl", line);
+            consoles.append(de.verdox.solarminer.pcagent.coin.Coin.PEARL.id(), line);
             gpus.discover().stream().filter(gpu -> gpu.deviceId().equals(workerId)).findFirst().ifPresent(gpu ->
-                    consoles.append("pearl-" + gpu.vendor() + "-" + gpu.index(), line));
+                    consoles.append(de.verdox.solarminer.pcagent.coin.Coin.PEARL.id() + "-" + gpu.vendor() + "-" + gpu.index(), line));
         }
         return controls.get();
     }
@@ -146,10 +148,10 @@ public class AgentPowerController {
     /** Persistent local assignment; selecting a tab never changes this profile. */
     @PostMapping("/workers/{workerId}/coin")
     public AgentControlSettingsService.Settings workerCoin(@PathVariable String workerId, @RequestParam String coin) {
-        if (!"cpu".equals(workerId) && gpus.discover().stream().noneMatch(g -> g.deviceId().equals(workerId)))
+        if (!de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(workerId) && gpus.discover().stream().noneMatch(g -> g.deviceId().equals(workerId)))
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Gerät wurde nicht erkannt");
-        if (!java.util.Set.of("none", "monero", "pearl", "ravencoin", "ethereumclassic", "decred", "quantus").contains(coin)
-                || ("cpu".equals(workerId) ? !("none".equals(coin) || "monero".equals(coin)) : "monero".equals(coin)))
+        de.verdox.solarminer.pcagent.coin.Coin parsedCoin = de.verdox.solarminer.pcagent.coin.Coin.byIdOrNull(coin);
+        if (parsedCoin == null || !parsedCoin.assignableTo(de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(workerId)))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Coin passt nicht zur Hardware");
         return withControl(() -> {
             if (!coin.equals(controls.get().coinFor(workerId)) && !mining.stopExternalWorker(workerId))
@@ -163,7 +165,7 @@ public class AgentPowerController {
     /** Local operator opt-in; an attached Node can never enable automatic coin selection itself. */
     @PostMapping("/workers/{workerId}/coin-policy")
     public AgentControlSettingsService.Settings workerCoinPolicy(@PathVariable String workerId, @RequestParam String policy) {
-        if (!"cpu".equals(workerId) && gpus.discover().stream().noneMatch(g -> g.deviceId().equals(workerId)))
+        if (!de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(workerId) && gpus.discover().stream().noneMatch(g -> g.deviceId().equals(workerId)))
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Gerät wurde nicht erkannt");
         if (!controls.setWorkerCoinPolicy(workerId, policy))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Coin-Policy muss AUTO oder FIXED sein");

@@ -39,6 +39,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+import de.verdox.solarminer.pcagent.miner.MinerConfig;
 
 class MiningControllerValidationTest {
     private final WindowsLhmBootstrapService sensors = mock(WindowsLhmBootstrapService.class);
@@ -72,7 +73,8 @@ class MiningControllerValidationTest {
                 mock(XmrDownloadService.class), sensors, proxyDiscovery,
                 earnings, payouts, mock(ReferralConfigurationService.class),
                 mock(FeeTransparencyService.class), mock(WalletBalanceService.class),
-                mock(WindowsDefenderExclusionService.class), minerCatalog, localRuns)).build();
+                mock(WindowsDefenderExclusionService.class), minerCatalog, localRuns,
+                new de.verdox.solarminer.pcagent.miner.MinerFactory(cpu, pearl, gpuCoins, gpuPower))).build();
     }
 
     @Test
@@ -80,6 +82,12 @@ class MiningControllerValidationTest {
         when(sensors.readyForAgent()).thenReturn(false);
         when(proxy.configure("proxy.lan")).thenReturn(true);
         when(proxy.setMode("external")).thenReturn(true);
+        when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.MONERO)).thenReturn("stratum+tcp://proxy.lan:3335");
+        when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.PEARL)).thenReturn("stratum+tcp://proxy.lan:3334");
+        when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN)).thenReturn("stratum+tcp://proxy.lan:3336");
+        when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.ETHEREUMCLASSIC)).thenReturn("stratum+tcp://proxy.lan:3337");
+        when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.DECRED)).thenReturn("stratum+tcp://proxy.lan:3338");
+        when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.QUANTUS)).thenReturn("stratum+tcp://proxy.lan:3339");
         when(proxy.moneroUrl()).thenReturn("stratum+tcp://proxy.lan:3335");
         when(proxy.pearlUrl()).thenReturn("stratum+tcp://proxy.lan:3334");
         when(proxy.ravencoinUrl()).thenReturn("stratum+tcp://proxy.lan:3336");
@@ -100,7 +108,9 @@ class MiningControllerValidationTest {
 
         verify(proxy).configure("proxy.lan");
         verify(proxy).setMode("external");
-        verify(xmrConfig).updateProxyRoute(XmrDownloadService.CONFIG_PATH, "stratum+tcp://proxy.lan:3335");
+        // Routes now migrate through the coin adapters (MinerFactory), which delegate to the
+        // same config services as before; the adapter call is the contract the controller owns.
+        verify(cpu).updateProxyRoute("stratum+tcp://proxy.lan:3335");
         verify(pearl).updateProxyRoute("stratum+tcp://proxy.lan:3334");
         verify(gpuCoins).updateProxyRoute("ravencoin", "stratum+tcp://proxy.lan:3336");
         verify(gpuCoins).updateProxyRoute("ethereumclassic", "stratum+tcp://proxy.lan:3337");
@@ -121,7 +131,7 @@ class MiningControllerValidationTest {
                                  "wallet":"","worker":"pc","devices":"NVIDIA:0"}
                                 """))
                 .andExpect(status().isOk());
-        ArgumentCaptor<GpuCoinMinerService.Config> saved = ArgumentCaptor.forClass(GpuCoinMinerService.Config.class);
+        ArgumentCaptor<MinerConfig> saved = ArgumentCaptor.forClass(MinerConfig.class);
         verify(gpuCoins).configure(eq("ravencoin"), saved.capture());
         assertEquals("stratum+tcp://rvn.2miners.com:6060", saved.getValue().poolUrl());
         assertEquals(houseWallet, saved.getValue().wallet());
@@ -152,7 +162,7 @@ class MiningControllerValidationTest {
                                  "worker":"pc","devices":"NVIDIA:0"}
                                 """))
                 .andExpect(status().isOk());
-        ArgumentCaptor<GpuCoinMinerService.Config> saved = ArgumentCaptor.forClass(GpuCoinMinerService.Config.class);
+        ArgumentCaptor<MinerConfig> saved = ArgumentCaptor.forClass(MinerConfig.class);
         verify(gpuCoins).configure(eq("ethereumclassic"), saved.capture());
         assertEquals("stratum+tcp://etc.kryptex.network:7033", saved.getValue().poolUrl());
         verify(payouts).markDefault("ethereumclassic", false);
@@ -225,7 +235,7 @@ class MiningControllerValidationTest {
         String houseWallet = "prl1" + "q".repeat(30);
         when(payouts.resolve("pearl")).thenReturn(Optional.of(new PayoutDefaultsService.DefaultPayout("pearl",
                 "solarminer-prl-pearlhash", "stratum+ssl://prl.kryptex.network:8048", houseWallet + "/solarminer", "")));
-        when(proxy.matches("stratum+tcp://127.0.0.1:3334", "pearl")).thenReturn(true);
+        when(proxy.matches("stratum+tcp://127.0.0.1:3334", de.verdox.solarminer.pcagent.coin.Coin.PEARL)).thenReturn(true);
         controller().perform(post("/api/agent/local/pearl/configuration").contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"poolUrl":"","proxyUrl":"stratum+tcp://127.0.0.1:3334",
@@ -234,7 +244,7 @@ class MiningControllerValidationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(true));
 
-        ArgumentCaptor<PearlMinerService.Config> saved = ArgumentCaptor.forClass(PearlMinerService.Config.class);
+        ArgumentCaptor<MinerConfig> saved = ArgumentCaptor.forClass(MinerConfig.class);
         verify(pearl).configure(saved.capture());
         assertEquals("stratum+ssl://prl.kryptex.network:8048", saved.getValue().poolUrl());
         assertEquals(houseWallet, saved.getValue().wallet());

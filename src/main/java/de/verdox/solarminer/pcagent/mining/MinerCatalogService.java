@@ -44,11 +44,21 @@ public class MinerCatalogService {
     }
 
     /** Metadata is API data so future installers can be added without teaching the UI coin-specific facts. */
-    public record MinerOption(String id, String coin, String name, String device, String algorithm,
+    public record MinerOption(String id, String coin, String coinName, String name, String device, String algorithm,
                               Double developerFeePercent, List<String> advantages, List<String> disadvantages,
                               String projectUrl, boolean experimental, boolean installed,
                               String downloadStatus, String downloadDetail, boolean selectable,
-                              String unavailableReason) { }
+                              String unavailableReason) {
+        /** Static catalog definitions carry no display name; {@code state} resolves it from the coin id. */
+        public MinerOption(String id, String coin, String name, String device, String algorithm,
+                    Double developerFeePercent, List<String> advantages, List<String> disadvantages,
+                    String projectUrl, boolean experimental, boolean installed,
+                    String downloadStatus, String downloadDetail, boolean selectable,
+                    String unavailableReason) {
+            this(id, coin, null, name, device, algorithm, developerFeePercent, advantages, disadvantages,
+                    projectUrl, experimental, installed, downloadStatus, downloadDetail, selectable, unavailableReason);
+        }
+    }
 
     public List<MinerOption> options(String coin) {
         return definitions().stream().filter(option -> option.coin().equals(coin)).map(this::state).toList();
@@ -99,36 +109,36 @@ public class MinerCatalogService {
     private List<MinerOption> definitions() {
         // Registering a future miner is intentionally one self-contained entry plus its adapter.
         return List.of(
-                new MinerOption("xmrig", "monero", "XMRig", "CPU", "RandomX", 1.0,
+                new MinerOption("xmrig", de.verdox.solarminer.pcagent.coin.Coin.MONERO.id(), "XMRig", "CPU", "RandomX", 1.0,
                         List.of("Sehr verbreitet", "RandomX-Optimierungen und Huge Pages"),
                         List.of("Developer Fee", "Nur CPU-Pfad im PC-Agent"), "https://xmrig.com/", false,
                         false, null, null, true, null),
-                new MinerOption("srbminer-multi", "pearl", "SRBMiner-MULTI", "GPU", "PearlHash", 2.0,
+                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.PEARL.id(), "SRBMiner-MULTI", "GPU", "PearlHash", 2.0,
                         List.of("Gemeinsamer GPU-Installer", "Pro-GPU-Steuerung"),
                         List.of("Developer Fee", "Treiber- und GPU-Kompatibilität erforderlich"), "https://github.com/doktor83/SRBMiner-Multi", false,
                         false, null, null, true, null),
-                new MinerOption("srbminer-multi", "ravencoin", "SRBMiner-MULTI", "GPU", "KAWPOW", 0.85,
+                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN.id(), "SRBMiner-MULTI", "GPU", "KAWPOW", 0.85,
                         List.of("KAWPOW-Unterstützung", "Gemeinsamer GPU-Installer"),
                         List.of("Developer Fee", "End-to-End-Route noch experimentell"), "https://github.com/doktor83/SRBMiner-Multi", true,
                         false, null, null, true, null),
-                new MinerOption("srbminer-multi", "ethereumclassic", "SRBMiner-MULTI", "GPU", "ETCHash", 0.65,
+                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.ETHEREUMCLASSIC.id(), "SRBMiner-MULTI", "GPU", "ETCHash", 0.65,
                         List.of("ETCHash-Unterstützung", "Gemeinsamer GPU-Installer"),
                         List.of("Developer Fee", "End-to-End-Route noch experimentell"), "https://github.com/doktor83/SRBMiner-Multi", true,
                         false, null, null, true, null),
-                new MinerOption("srbminer-multi", "decred", "SRBMiner-MULTI", "GPU", "BLAKE3 (Decred)", null,
+                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.DECRED.id(), "SRBMiner-MULTI", "GPU", "BLAKE3 (Decred)", null,
                         List.of("BLAKE3-Decred-Unterstützung", "Bereits verwendeter GPU-Installer"),
                         List.of("GPU und Poolkonto erforderlich", "SolarMiner-Fee-Ziel noch nicht provisioniert"), "https://github.com/doktor83/SRBMiner-Multi", true,
                         false, null, null, true, null),
-                new MinerOption("srbminer-multi", "quantus", "SRBMiner-MULTI", "GPU", "QPoW (Poseidon2)", 2.5,
+                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.QUANTUS.id(), "SRBMiner-MULTI", "GPU", "QPoW (Poseidon2)", 2.5,
                         List.of("Kryptex QTC pool support", "NVIDIA and AMD RDNA GPU path"),
                         List.of("2.5% miner fee", "SolarMiner QTC fee route and accepted-share credits are not yet verified"), "https://github.com/doktor83/SRBMiner-Multi", true,
                         false, null, null, true, null),
-                new MinerOption("teamredminer", "ravencoin", "TeamRedMiner", "AMD GPU", "KAWPOW", 2.0,
+                new MinerOption("teamredminer", de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN.id(), "TeamRedMiner", "AMD GPU", "KAWPOW", 2.0,
                         List.of("Auf AMD-GPUs spezialisiert", "Dokumentierte lokale API"),
                         List.of("Nur AMD", "ETC-Dev-Fee ist auf Polaris niedriger", "Adapter und reale Fee-/Share-Prüfung stehen aus"), "https://github.com/todxx/teamredminer", true,
                         false, "NOT_INTEGRATED", "Noch nicht technisch integriert", false,
                         "Noch nicht integrierter Adapter: kein Download, Start oder Fee-Pfad verfügbar."),
-                new MinerOption("teamredminer", "ethereumclassic", "TeamRedMiner", "AMD GPU", "ETCHash", 1.0,
+                new MinerOption("teamredminer", de.verdox.solarminer.pcagent.coin.Coin.ETHEREUMCLASSIC.id(), "TeamRedMiner", "AMD GPU", "ETCHash", 1.0,
                         List.of("Auf AMD-GPUs spezialisiert", "Dokumentierte lokale API"),
                         List.of("Nur AMD", "Adapter und reale Fee-/Share-Prüfung stehen aus"), "https://github.com/todxx/teamredminer", true,
                         false, "NOT_INTEGRATED", "Noch nicht technisch integriert", false,
@@ -138,7 +148,10 @@ public class MinerCatalogService {
     private MinerOption state(MinerOption definition) {
         boolean xmr = definition.id().equals("xmrig");
         boolean installed = xmr ? xmrMiner.binaryAvailable() : pearlMiner.binaryAvailable();
-        return new MinerOption(definition.id(), definition.coin(), definition.name(), definition.device(), definition.algorithm(),
+        return new MinerOption(definition.id(), definition.coin(),
+                java.util.Optional.ofNullable(de.verdox.solarminer.pcagent.coin.Coin.byIdOrNull(definition.coin()))
+                        .map(de.verdox.solarminer.pcagent.coin.Coin::displayName).orElse(definition.coin()),
+                definition.name(), definition.device(), definition.algorithm(),
                 definition.developerFeePercent(), definition.advantages(), definition.disadvantages(), definition.projectUrl(),
                 definition.experimental(), installed, xmr ? xmrig.status() : srb.status(), xmr ? xmrig.detail() : srb.detail(),
                 definition.selectable(), definition.unavailableReason());

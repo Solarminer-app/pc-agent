@@ -2,6 +2,8 @@ package de.verdox.solarminer.pcagent.mining;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import de.verdox.solarminer.pcagent.coin.DownloadState;
+import de.verdox.solarminer.pcagent.mining.ProxyLifecycle;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -61,7 +63,7 @@ public class ManagedProxyService {
     /** Dev-fee tier handed to the proxy child at startup: "node" (full) or "proxy" (reduced). */
     private volatile String feeTier = "node";
     private volatile Process process;
-    private volatile String status = "external";
+    private volatile ProxyLifecycle status = ProxyLifecycle.EXTERNAL;
     private volatile String detail = "";
     private volatile long lastStartAttempt;
     private volatile long lastReleaseRefreshAttempt;
@@ -94,7 +96,7 @@ public class ManagedProxyService {
         this.rollMode = "stateful".equalsIgnoreCase(rollMode) ? "stateful" : "random";
         this.standalone = standalone;
         if (standalone) {
-            status = "starting";
+            status = ProxyLifecycle.STARTING;
         } else {
             // An external proxy does not require a downloaded local proxy. Treating its
             // release/startup state as a global boot requirement blocks the operator UI.
@@ -126,17 +128,17 @@ public class ManagedProxyService {
         Process current = process;
         if (current != null) {
             if (current.isAlive()) {
-                if (status.equals("starting")) probeReadiness(current);
+                if (status == ProxyLifecycle.STARTING) probeReadiness(current);
                 return;
             }
             process = null;
             int exitCode = current.exitValue();
-            status = "failed";
+            status = ProxyLifecycle.FAILED;
             detail = "Der lokale Proxy wurde beendet (Exit-Code " + exitCode + "). Protokoll: " + logFile();
             LOGGER.warning("Stratum proxy process exited with code " + exitCode);
         }
         if (!releases.ready()) {
-            if (releases.state().equals("FAILED") && releases.useCachedRelease()) return;
+            if (releases.downloadState() == DownloadState.FAILED && releases.useCachedRelease()) return;
             refreshRelease(false);
             return;
         }
@@ -158,11 +160,11 @@ public class ManagedProxyService {
                     .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile().toFile()))
                     .start();
             process = started;
-            status = "starting";
+            status = ProxyLifecycle.STARTING;
             detail = "";
             LOGGER.info("Started Stratum proxy " + releases.version() + " as process " + started.pid());
         } catch (Exception failure) {
-            status = "failed";
+            status = ProxyLifecycle.FAILED;
             detail = "Der lokale Proxy konnte nicht gestartet werden: " + failure.getMessage();
             LOGGER.log(Level.WARNING, detail, failure);
         }
@@ -196,13 +198,13 @@ public class ManagedProxyService {
         if (!current.isAlive()) return;
         if (!ready) {
             if (System.currentTimeMillis() - lastStartAttempt > Duration.ofSeconds(90).toMillis()) {
-                status = "failed";
+                status = ProxyLifecycle.FAILED;
                 detail = "Der lokale Proxy hat sich nicht gemeldet. Protokoll: " + logFile();
                 stopProcess();
             }
             return;
         }
-        status = "running";
+        status = ProxyLifecycle.RUNNING;
         detail = "";
         gateOpen = true;
     }
@@ -310,14 +312,14 @@ public class ManagedProxyService {
             standalone = false;
             gateOpen = true;
             stopProcess();
-            status = "external";
+            status = ProxyLifecycle.EXTERNAL;
             detail = "";
             return true;
         }
         standalone = true;
         gateOpen = false;
         lastStartAttempt = 0;
-        status = "starting";
+        status = ProxyLifecycle.STARTING;
         detail = "";
         startIfNeeded();
         return running();
@@ -370,7 +372,7 @@ public class ManagedProxyService {
 
     public boolean standalone() { return standalone; }
     public boolean running() { Process current = process; return current != null && current.isAlive(); }
-    public String status() { return running() ? "running" : status; }
+    public String status() { return (running() ? ProxyLifecycle.RUNNING : status).wireName(); }
     public String detail() { return detail; }
     public String version() { return releases.version(); }
     public boolean gateOpen() { return gateOpen; }
@@ -398,39 +400,39 @@ public class ManagedProxyService {
         Process current = process;
         if (current != null && !current.isAlive()) {
             process = null;
-            status = "failed";
+            status = ProxyLifecycle.FAILED;
             detail = "Der lokale Proxy wurde beendet (Exit-Code " + current.exitValue() + "). Protokoll: " + logFile();
         }
         if (standalone && gateOpen && !running()) gateOpen = false;
 
         // The dashboard gate is also polled during boot. Let that request kick off a cached
         // release instead of relying exclusively on the scheduled maintenance task.
-        if (!gateOpen && releases.state().equals("FAILED") && releases.useCachedRelease()) {
-            status = "starting";
+        if (!gateOpen && releases.downloadState() == DownloadState.FAILED && releases.useCachedRelease()) {
+            status = ProxyLifecycle.STARTING;
             detail = "";
         }
         if (!gateOpen && releases.ready()) startIfNeeded();
 
         if (running()) {
-            if (!gateOpen && status.equals("starting")) probeReadiness(process);
+            if (!gateOpen && status == ProxyLifecycle.STARTING) probeReadiness(process);
             if (!running()) return gateOpen
-                    ? new ProxyGate(true, "running", 100, releases.version(), detail)
-                    : new ProxyGate(false, "failed", 0, releases.version(), detail);
+                    ? new ProxyGate(true, ProxyLifecycle.RUNNING.wireName(), 100, releases.version(), detail)
+                    : new ProxyGate(false, ProxyLifecycle.FAILED.wireName(), 0, releases.version(), detail);
             return gateOpen
-                    ? new ProxyGate(true, "running", 100, releases.version(), "")
-                    : new ProxyGate(false, "starting", 100, releases.version(), detail);
+                    ? new ProxyGate(true, ProxyLifecycle.RUNNING.wireName(), 100, releases.version(), "")
+                    : new ProxyGate(false, ProxyLifecycle.STARTING.wireName(), 100, releases.version(), detail);
         }
         if (!gateOpen) {
-            String releaseState = releases.state();
-            if (releaseState.equals("CHECKING"))
-                return new ProxyGate(false, "checking", 0, releases.version(), detail);
-            if (releaseState.equals("DOWNLOADING"))
-                return new ProxyGate(false, "downloading", releases.progress(), releases.version(), detail);
+            DownloadState releaseState = releases.downloadState();
+            if (releaseState == DownloadState.CHECKING)
+                return new ProxyGate(false, ProxyLifecycle.CHECKING.wireName(), 0, releases.version(), detail);
+            if (releaseState == DownloadState.DOWNLOADING)
+                return new ProxyGate(false, ProxyLifecycle.DOWNLOADING.wireName(), releases.progress(), releases.version(), detail);
             String failure = detail.isBlank() ? releases.detail() : detail;
             if (failure.isBlank()) failure = "Der lokale Proxy-Prozess wurde noch nicht gestartet.";
-            return new ProxyGate(false, "failed", 0, releases.version(), failure);
+            return new ProxyGate(false, ProxyLifecycle.FAILED.wireName(), 0, releases.version(), failure);
         }
-        return new ProxyGate(true, "running", 100, releases.version(), detail);
+        return new ProxyGate(true, ProxyLifecycle.RUNNING.wireName(), 100, releases.version(), detail);
     }
 
     public record ProxyGate(boolean ready, String state, int percent, String version, String detail) { }

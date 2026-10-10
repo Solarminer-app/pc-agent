@@ -9,6 +9,10 @@ import de.verdox.solarminer.pcagent.mining.MinerConsoleService;
 import de.verdox.solarminer.pcagent.mining.PayoutDefaultsService;
 import de.verdox.solarminer.pcagent.mining.MinerProcessRegistry;
 import de.verdox.solarminer.pcagent.mining.MinerShareTelemetry;
+import de.verdox.solarminer.pcagent.coin.Coin;
+import de.verdox.solarminer.pcagent.miner.CpuMiner;
+import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import java.util.List;
 import de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService;
 import de.verdox.solarminer.pcagent.lowlevel.sensor.HardwareSensorReader;
 import jakarta.annotation.PreDestroy;
@@ -38,7 +42,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 @Service
-public class XmrMinerService {
+public class XmrMinerService implements CpuMiner {
     private static final Logger LOGGER = Logger.getLogger(XmrMinerService.class.getName());
     private static final Path XMRIG_DIR = Paths.get("./solarminer-agent/xmrig/").toAbsolutePath().normalize();
 
@@ -101,7 +105,7 @@ public class XmrMinerService {
         if (minerStatus != MinerStats.MinerStatus.ERROR || desiredPowerUsage <= 0 || isMiningProcessAlive()) return;
         if (crashRestartAttempts >= 3) return;
         crashRestartAttempts++;
-        console.append("monero", "[SolarMiner] XMRig watchdog restart " + crashRestartAttempts + "/3");
+        console.append(Coin.MONERO.id(), "[SolarMiner] XMRig watchdog restart " + crashRestartAttempts + "/3");
         startMining();
     }
 
@@ -160,12 +164,12 @@ public class XmrMinerService {
     public synchronized boolean ensureDefaultConfiguration() {
         if (configService.isProxyRouteConfigured()) return true;
         if (configService.hasConfiguredPoolLogin() || proxyConfigurationService.moneroUrl() == null) return false;
-        PayoutDefaultsService.DefaultPayout payout = payoutDefaultsService.resolve("monero").orElse(null);
+        PayoutDefaultsService.DefaultPayout payout = payoutDefaultsService.resolve(Coin.MONERO.id()).orElse(null);
         if (payout == null) return false;
         try {
             configService.configureXmrig(XmrDownloadService.CONFIG_PATH, proxyConfigurationService.moneroUrl(),
                     payout.poolUrl() + ";" + payout.login() + ";x", false);
-            payoutDefaultsService.markDefault("monero", true);
+            payoutDefaultsService.markDefault(Coin.MONERO.id(), true);
             return true;
         } catch (IOException | IllegalArgumentException e) {
             LOGGER.log(Level.WARNING, "Default Monero payout could not be initialized", e);
@@ -179,13 +183,13 @@ public class XmrMinerService {
      * that is already in config.json stays in use.
      */
     private void refreshDefaultPayout() {
-        if (!payoutDefaultsService.usesDefault("monero")) return;
-        PayoutDefaultsService.DefaultPayout payout = payoutDefaultsService.resolve("monero").orElse(null);
+        if (!payoutDefaultsService.usesDefault(Coin.MONERO.id())) return;
+        PayoutDefaultsService.DefaultPayout payout = payoutDefaultsService.resolve(Coin.MONERO.id()).orElse(null);
         if (payout == null) return;
         try {
             if (configService.updateProxyRoute(XmrDownloadService.CONFIG_PATH, proxyConfigurationService.moneroUrl(),
                     payout.poolUrl() + ";" + payout.login() + ";x")) {
-                console.append("monero", "[SolarMiner] Payout updated to the current SolarMiner default target");
+                console.append(Coin.MONERO.id(), "[SolarMiner] Payout updated to the current SolarMiner default target");
             }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Default Monero payout could not be refreshed", e);
@@ -202,7 +206,7 @@ public class XmrMinerService {
             LOGGER.info("An XMRig process is already running outside this agent; refusing to start a duplicate.");
             return;
         }
-        console.started("monero");
+        console.started(Coin.MONERO.id());
         lastStartError = null;
         acceptedShares = null;
         rejectedShares = null;
@@ -210,10 +214,10 @@ public class XmrMinerService {
 
         ensureDefaultConfiguration();
 
-        if (!configService.isProxyRouteConfigured() || !proxyConfigurationService.miningReady("monero")) {
+        if (!configService.isProxyRouteConfigured() || !proxyConfigurationService.miningReady(Coin.MONERO)) {
             LOGGER.severe("Cannot start XMRig: a reachable SolarMiner proxy with a loaded fee route is required in standalone mode");
             lastStartError = "Start rejected: SolarMiner proxy or Monero fee target is not ready";
-            console.append("monero", "[SolarMiner] " + lastStartError);
+            console.append(Coin.MONERO.id(), "[SolarMiner] " + lastStartError);
             minerStatus = MinerStats.MinerStatus.ERROR;
             return;
         }
@@ -226,7 +230,7 @@ public class XmrMinerService {
         if (!executableFile.exists()) {
             LOGGER.severe("Cannot start mining: Executable not found at " + executableFile.getAbsolutePath());
             lastStartError = "Start rejected: XMRig executable is missing: " + executableFile.getAbsolutePath();
-            console.append("monero", "[SolarMiner] " + lastStartError);
+            console.append(Coin.MONERO.id(), "[SolarMiner] " + lastStartError);
             minerStatus = MinerStats.MinerStatus.ERROR;
             return;
         }
@@ -251,11 +255,11 @@ public class XmrMinerService {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(started.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        console.append("monero", line);
+                        console.append(Coin.MONERO.id(), line);
                     }
                 } catch (Exception e) {
                     LOGGER.log(Level.WARNING, "Error reading XMRig output stream", e);
-                    console.append("monero", "[SolarMiner] Could not read miner output: " + e.getMessage());
+                    console.append(Coin.MONERO.id(), "[SolarMiner] Could not read miner output: " + e.getMessage());
                 }
             });
 
@@ -264,7 +268,7 @@ public class XmrMinerService {
                 catch (Exception ignored) { }
                 if (minerStatus == MinerStats.MinerStatus.MINING) {
                     LOGGER.severe("XMRig process crashed or exited unexpectedly with code: " + process.exitValue());
-                    console.append("monero", "[SolarMiner] XMRig exited with code " + process.exitValue());
+                    console.append(Coin.MONERO.id(), "[SolarMiner] XMRig exited with code " + process.exitValue());
                     lastStartError = "XMRig exited with code " + process.exitValue();
                     minerStatus = MinerStats.MinerStatus.ERROR;
                 }
@@ -288,7 +292,7 @@ public class XmrMinerService {
             } else {
                 lastStartError = "XMRig could not be started: " + reason;
             }
-            console.append("monero", "[SolarMiner] " + lastStartError);
+            console.append(Coin.MONERO.id(), "[SolarMiner] " + lastStartError);
             minerStatus = MinerStats.MinerStatus.ERROR;
             currentHashesPerSecond = 0;
         }
@@ -300,7 +304,7 @@ public class XmrMinerService {
         }
 
         if (isManagedProcessAlive()) {
-            console.append("monero", "[SolarMiner] Stop requested by: " + MinerStopContext.source());
+            console.append(Coin.MONERO.id(), "[SolarMiner] Stop requested by: " + MinerStopContext.source());
             LOGGER.info("Sending kill signal to XMRig process...");
             minerProcess.destroyForcibly();
             try {
@@ -309,7 +313,7 @@ public class XmrMinerService {
                 Thread.currentThread().interrupt();
             }
             LOGGER.info("XMRig process terminated.");
-            console.append("monero", "[SolarMiner] XMRig stopped");
+            console.append(Coin.MONERO.id(), "[SolarMiner] XMRig stopped");
         }
         MinerProcessRegistry.stop("xmrig");
 
@@ -441,4 +445,37 @@ public class XmrMinerService {
         String executableName = System.getProperty("os.name", "").toLowerCase().contains("win") ? "xmrig.exe" : "xmrig";
         return XMRIG_DIR.resolve(executableName).toFile().isFile();
     }
+
+    // --- CpuMiner contract: coin-independent view used by orchestration through the MinerFactory. ---
+
+    @Override public Coin coin() { return Coin.MONERO; }
+    /** XMRig's route is owned by its configuration service; planning treats the CPU worker as configured. */
+    @Override public boolean configured() { return true; }
+    @Override public boolean routeConfigured() { return configService.isProxyRouteConfigured(); }
+    /** Splits the XMRig "pool;wallet.worker;pass" login into the coin-independent route view. */
+    @Override public de.verdox.solarminer.pcagent.miner.MinerConfig savedRoute() {
+        if (!configService.isProxyRouteConfigured()) return null;
+        de.verdox.solarminer.pcagent.dto.Pools pool = configService.readUserPoolFromConfig();
+        String[] login = pool.poolUsername().split(";", -1);
+        if (login.length != 3) return null;
+        int workerSeparator = login[1].lastIndexOf('.');
+        if (workerSeparator < 1 || workerSeparator == login[1].length() - 1) return null;
+        return new de.verdox.solarminer.pcagent.miner.MinerConfig(login[0], null,
+                login[1].substring(0, workerSeparator), login[1].substring(workerSeparator + 1), null);
+    }
+    @Override public boolean running() { return isMiningProcessAlive(); }
+    @Override public String lastError() { return lastStartError; }
+    @Override public MinerStats.MinerStatus status() {
+        if (minerStatus == MinerStats.MinerStatus.MINING && !isMiningProcessAlive()) return MinerStats.MinerStatus.ERROR;
+        return minerStatus;
+    }
+    @Override public List<MinerStats.Worker> workerStats(List<LocalGpuPowerService.Gpu> cards) { return List.of(getWorkerStats()); }
+    @Override public boolean startAll() { startMining(); return isMiningProcessAlive(); }
+    @Override public boolean stopAll() { hardStopMining(); return true; }
+    @Override public boolean pauseAll() { hardStopMining(); return true; }
+    @Override public boolean setPowerCap(long watts) { setDesiredPowerUsage(watts); return true; }
+    @Override public boolean updateProxyRoute(String proxyUrl) throws java.io.IOException {
+        return configService.updateProxyRoute(XmrDownloadService.CONFIG_PATH, proxyUrl);
+    }
+    @Override public void appendBenchmarkEvent(String message) { console.append(Coin.MONERO.id(), message); }
 }

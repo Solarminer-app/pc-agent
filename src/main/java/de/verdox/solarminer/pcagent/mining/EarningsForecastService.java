@@ -33,13 +33,10 @@ public class EarningsForecastService {
     private static final Logger LOGGER = Logger.getLogger(EarningsForecastService.class.getName());
     private static final Duration CACHE_TIME = Duration.ofMinutes(10);
     private static final double SECONDS_PER_DAY = 86_400.0;
-    private static final List<CoinDefinition> COINS = List.of(
-            new CoinDefinition("monero", "XMR", "randomx"),
-            new CoinDefinition("pearl", "PRL", "pearlhash"),
-            new CoinDefinition("ravencoin", "RVN", "kawpow"),
-            new CoinDefinition("ethereumclassic", "ETC", "etchash"),
-            new CoinDefinition("decred", "DCR", "blake3_decred"),
-            new CoinDefinition("quantus", "QTC", "quantus"));
+    /** The forecast set derives from the closed coin enum; no separate coin table lives here. */
+    private static final List<CoinDefinition> COINS = de.verdox.solarminer.pcagent.coin.Coin.miningCoins().stream()
+            .map(coin -> new CoinDefinition(coin.id(), coin.ticker(), coin.algorithm()))
+            .toList();
 
     private final ObjectMapper mapper;
     private final HttpClient httpClient;

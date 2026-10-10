@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
 import java.util.List;
+import de.verdox.solarminer.pcagent.miner.MinerConfig;
 
 /** Exclusive SolarMiner-Node contract. The global external-control gate protects this namespace. */
 @RestController
@@ -112,7 +113,7 @@ public class ExternalAgentController {
     }
 
     @PostMapping("/pearl/configuration")
-    public boolean pearl(@RequestBody PearlMinerService.Config request) throws IOException {
+    public boolean pearl(@RequestBody MinerConfig request) throws IOException {
         return mining.setPearlConfiguration(request);
     }
 

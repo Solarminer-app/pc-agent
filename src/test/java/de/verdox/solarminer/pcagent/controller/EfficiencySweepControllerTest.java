@@ -1,5 +1,7 @@
 package de.verdox.solarminer.pcagent.controller;
 
+import de.verdox.solarminer.pcagent.coin.SweepMode;
+import de.verdox.solarminer.pcagent.coin.SweepRunState;
 import de.verdox.solarminer.pcagent.mining.EfficiencySweepService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -21,7 +23,7 @@ class EfficiencySweepControllerTest {
     void statusExposesQueueLiveSamplesAndEta() throws Exception {
         EfficiencySweepService sweep = mock(EfficiencySweepService.class);
         var run = new EfficiencySweepService.RunStatus("gpu|pearl", "GPU-one", "TITAN RTX", "pearl",
-                "PearlHash", "FULL", "RUNNING", 170, List.of(200, 185, 170), List.of(), 4, 12,
+                "PearlHash", SweepMode.FULL, SweepRunState.RUNNING, 170, List.of(200, 185, 170), List.of(), 4, 12,
                 0, "TITAN RTX · PearlHash · 170 W");
         when(sweep.status()).thenReturn(new EfficiencySweepService.Session(true, "170 W", Instant.now(),
                 0, 2, List.of(), List.of(run), 240L));

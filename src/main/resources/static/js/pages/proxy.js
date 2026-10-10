@@ -37,10 +37,10 @@ function render(data) {
   text('local-state', local ? 'AUSGEWÄHLT' : 'AUF DIESEM PC'); text('external-state', local ? 'IM NETZWERK' : 'AUSGEWÄHLT');
   if (!hostDirty && document.activeElement !== $('external-host')) $('external-host').value = current?.host || '';
   const routes = $('proxy-routes'); routes.replaceChildren();
-  for (const [key, name, experimental] of [['monero','Monero',false],['pearl','Pearl',false],['ravencoin','Ravencoin',true],['ethereumclassic','Ethereum Classic',true]]) {
-    const card = document.createElement('article'); card.className = 'route-coin'; const title = document.createElement('h3'); title.textContent = name;
-    const state = document.createElement('span'); state.className = 'tag ' + (current?.[key + 'FeeReady'] && !experimental ? 'ready' : ''); state.textContent = t(experimental ? 'VORBEREITET' : current?.[key + 'FeeReady'] ? 'FEE-ZIEL GELADEN' : 'FEE-ZIEL FEHLT');
-    const route = document.createElement('p'); route.textContent = current?.[key + 'Url'] || t('Keine Route verfügbar'); card.append(title,state,route); routes.append(card);
+  for (const coin of current?.coinRoutes || []) {
+    const card = document.createElement('article'); card.className = 'route-coin'; const title = document.createElement('h3'); title.textContent = coin.name;
+    const state = document.createElement('span'); state.className = 'tag ' + (coin.feeReady && !coin.experimental ? 'ready' : ''); state.textContent = t(coin.experimental ? 'VORBEREITET' : coin.feeReady ? 'FEE-ZIEL GELADEN' : 'FEE-ZIEL FEHLT');
+    const route = document.createElement('p'); route.textContent = coin.url || t('Keine Route verfügbar'); card.append(title,state,route); routes.append(card);
   }
   controls();
 }

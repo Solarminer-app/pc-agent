@@ -25,6 +25,8 @@ class BenchmarkSessionServiceTest {
         XmrMinerService xmr = mock(XmrMinerService.class);
         PearlMinerService pearl = mock(PearlMinerService.class);
         LocalRunLock lock = mock(LocalRunLock.class);
+        var miners = new de.verdox.solarminer.pcagent.miner.MinerFactory(xmr, pearl,
+                mock(de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService.class), mock(de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService.class));
         WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
         when(assignments.prepareBenchmarkDefaults()).thenReturn(Map.of("pearl",
                 "SolarMiner default payout for pearl is unavailable. Check the proxy and fee target."));
@@ -33,7 +35,7 @@ class BenchmarkSessionServiceTest {
         when(pearl.binaryAvailable()).thenReturn(false);
         when(lock.tryBegin("benchmark")).thenReturn(true);
 
-        BenchmarkSessionService service = new BenchmarkSessionService(mining, xmr, pearl,
+        BenchmarkSessionService service = new BenchmarkSessionService(mining, miners,
                 mock(BenchmarkSharingService.class), mock(MinerConsoleService.class), lock,
                 mock(MiningPerformanceProfileStore.class), assignments);
 
@@ -47,13 +49,15 @@ class BenchmarkSessionServiceTest {
         XmrMinerService xmr = mock(XmrMinerService.class);
         PearlMinerService pearl = mock(PearlMinerService.class);
         WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
+        var miners = new de.verdox.solarminer.pcagent.miner.MinerFactory(xmr, pearl,
+                mock(de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService.class), mock(de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService.class));
         when(assignments.prepareBenchmarkDefaults()).thenReturn(Map.of("pearl",
                 "SolarMiner default payout for pearl is unavailable. Check the proxy and fee target."));
         when(assignments.benchmarkGpuPhases()).thenReturn(List.of());
         when(xmr.readyForStart()).thenReturn(false);
         when(pearl.binaryAvailable()).thenReturn(false);
 
-        BenchmarkSessionService service = new BenchmarkSessionService(mock(MiningService.class), xmr, pearl,
+        BenchmarkSessionService service = new BenchmarkSessionService(mock(MiningService.class), miners,
                 mock(BenchmarkSharingService.class), mock(MinerConsoleService.class), mock(LocalRunLock.class),
                 mock(MiningPerformanceProfileStore.class), assignments);
 
