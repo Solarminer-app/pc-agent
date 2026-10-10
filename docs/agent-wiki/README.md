@@ -25,6 +25,7 @@ Start with [pc-agent.md](pc-agent.md) — the ownership map for the source tree.
 | Page | Use |
 | --- | --- |
 | [pc-agent.md](pc-agent.md) | Source ownership map (paths moved: `pc-agent/src/...` → `src/...`) |
+| [frontend-i18n.md](frontend-i18n.md) | German/English catalog contract and verification |
 | [Economic dispatch (C10)](economic-dispatch.md) | Node capability/short-lived-plan boundary and cold-start policy |
 | [MINER-INTEGRATION-GUIDE.md](../../MINER-INTEGRATION-GUIDE.md) | Adding a miner to an existing coin |
 | [pc-agent-miner-candidates.md](pc-agent-miner-candidates.md) | Miner candidate backlog |

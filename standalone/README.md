@@ -70,3 +70,39 @@ For the Linux `amd64` container, GPU-specific Compose overlays and the explicit
 XMR/RandomX host preparation are documented in [DOCKER.md](DOCKER.md). The
 container does not download or start a miner by itself; use the local agent UI
 to explicitly install and configure it after startup.
+
+The stable release also publishes two bootstrap scripts:
+
+```sh
+# Native Linux: private verified Java 21 runtime + verified Agent JAR
+curl -fL https://github.com/Solarminer-app/pc-agent/releases/latest/download/install-linux.sh -o install-linux.sh
+sh install-linux.sh
+
+# Docker without GPU passthrough (use nvidia or amd when required)
+curl -fL https://github.com/Solarminer-app/pc-agent/releases/latest/download/install-docker.sh -o install-docker.sh
+sh install-docker.sh --gpu none
+
+# Beta channel: fetch the bootstrap from beta, then select the beta prerelease
+curl -fL https://raw.githubusercontent.com/Solarminer-app/pc-agent/beta/standalone/install-linux.sh -o install-linux.sh
+sh install-linux.sh --channel beta
+```
+
+`install-linux.sh` installs missing basic tools through a recognized system
+package manager, but keeps Java private under the user's data directory. Both
+the Adoptium JRE and Agent JAR are SHA-256 verified. `install-docker.sh`
+installs Docker Engine and Compose from the system package manager when they
+are missing, validates the release-owned Compose files, and starts them. It
+does not install or replace kernel/GPU drivers: NVIDIA requires an existing
+driver and NVIDIA Container Toolkit; AMD requires working `/dev/kfd` and
+`/dev/dri` devices. Installer output and errors are bilingual (German/English).
+
+Auf Deutsch: `install-linux.sh` installiert fehlende Basiswerkzeuge über einen
+erkannten Paketmanager, hält Java aber privat im Datenverzeichnis des Nutzers.
+Adoptium-JRE und Agent-JAR werden per SHA-256 geprüft. `install-docker.sh`
+installiert fehlendes Docker samt Compose aus dem System-Paketmanager, prüft
+die Release-Compose-Dateien und startet sie. Kernel- oder GPU-Treiber werden
+nicht verändert: NVIDIA setzt einen vorhandenen Treiber samt NVIDIA Container
+Toolkit voraus, AMD funktionierende `/dev/kfd`- und `/dev/dri`-Geräte.
+Stable und Beta sind getrennte Kanäle und Datenverzeichnisse. Die Beta-Skripte
+ermitteln den neuesten `pc-agent-beta-*`-Prerelease; Docker verwendet dabei
+`latest-beta` statt `latest`.

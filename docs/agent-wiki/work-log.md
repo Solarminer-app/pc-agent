@@ -498,3 +498,65 @@
   downloading or starting the Agent without one. A present Defender exclusion
   remains a report-only success path; only a missing exclusion produces the
   optional UAC prompt.
+
+## 2026-10-10 — START: Mining/Controller-Abstraktion (Adapter-Schichten, Service-Reduktion)
+
+**Ziel (vom Owner beauftragt, läuft noch):** Das gesamte `mining`-Package und die
+Controller-Ebene des PC-Agents auf Abstraktionspotenzial prüfen. Gewünschtes Ergebnis:
+Adapter-Schichten für Pools, Wallets, Coins, Miner-Engines, damit die Anzahl der
+Services sinkt und pro-Coin/pro-Miner-Logik aus Services UND Frontend verschwindet.
+**Status: Analysephase, noch keine Code-Änderungen.**
+
+Vorgehen / Andockpunkte für andere Agenten:
+- Bestehende Closed Seams (nicht verletzen): `coin/Coin` (einzige Coin-Identität),
+  `miner/MinerFactory` (einziger Beschaffungspfad für Miner), `miner/CoinMiner`
+  (Lifecycle-Vertrag), `mining/PoolBalanceProvider` (Pool-Adapter-Seam),
+  `mining/ProxyLifecycle`, `mining/LocalRunLock`.
+- Analyse parallel delegiert in 3 Stränge: (1) `mining/`-Package-Duplikate &
+  Merge-Kandidaten, (2) Miner-Engine-Duplikate Xmr/Pearl/GpuCoin +
+  `MinerEngineAdapter`-Vorschlag, (3) Controller-/Endpoint-Oberfläche +
+  Frontend-Polling und Aggregate-Endpoint-Vorschlag.
+- Größte Dateien als Hotspots identifiziert: EfficiencySweepService (816),
+  PearlMinerService (696), MiningController (668), MiningService (599),
+  GpuCoinMinerService (543), LocalGpuPowerService (534), XmrMinerService (481),
+  ManagedProxyService (461).
+- Frontend-Hotspots: `src/main/resources/static/js/` (Polling-Last pro Refresh).
+- Ergebnisse der Analyse-Stränge und der konsolidierte Refactor-Plan werden
+  HIER nachgeliefert (Eintrag ergänzen, nicht ersetzen).
+- Wire-Format-Gesetz bleibt: Enum-Wire-Namen sind REST-Verträge für statisches UI
+  UND Solar-Miner-Node; jede Konsolidierung braucht pinning-Tests bevor Endpoints
+  bewegt werden (Vorbild: `ProxyOverviewWireFormatTest`).
+
+## 2026-10-10 — NVIDIA-SRBMiner-Version und Worker-Konsolenpopup
+
+- Die offizielle SRBMiner-MULTI-Matrix nennt NVIDIA Pascal, Turing, Ampere,
+  Ada Lovelace, Hopper und Blackwell. Release 3.7.3 macht die neuen
+  PearlHash-Kernel für SM86, SM89 und SM120 zum Standard und entfernt die
+  vorübergehenden Kernel-Schalter. Der PC-Agent pinnt deshalb nun Windows und
+  Linux auf den geprüften 3.7.3-Vertrag. Er übergibt weiterhin ausschließlich
+  die per PCI-Adresse aus `--list-devices` ermittelte `--gpu-id`; SRBMiner wählt
+  den Architektur-Kernel. Ein atomar geschriebenes Versionskennzeichen sorgt
+  dafür, dass alte oder nicht versionierte Installationen erst nach einem
+  ausdrücklichen, SHA-256-geprüften Update wieder als einsatzbereit gelten.
+- Ein Klick auf eine Worker-Zeile öffnet nun die persistierte, pro Worker
+  getrennte Miner-Konsole als Dialog. Der Client lädt binäre UTF-8-Blöcke
+  inkrementell, verwirft bei einem neuen Miner-Lauf die alte Ansicht, folgt
+  neuer Ausgabe am unteren Rand und bietet den vollständigen Log-Download.
+  `Einrichten`/`Ändern` bleibt die separate Zuweisungsaktion. Sämtliche neue
+  Dialog-, Status- und Accessibility-Texte sind im deutschen/englischen
+  Frontend-Katalog geschlossen; Miner-Rohausgabe bleibt unverändert.
+
+## 2026-10-10 — Release-owned one-command installers
+
+- Added stable-release bootstrap assets for native Linux, Docker and Windows. Native Linux installs missing base tools through apt/dnf/yum/zypper/pacman/apk, provisions a private Adoptium x64 JRE 21, verifies its published SHA-256, then verifies and starts the PC-Agent JAR. Windows downloads the existing release launcher, which already provisions and verifies its private JRE and Agent. Docker installs Engine/Compose through the system package manager when absent, downloads release-owned base/NVIDIA/AMD Compose files, validates the selected stack and starts it.
+- GPU/kernel drivers are an explicit safety boundary: the Docker bootstrap checks existing NVIDIA driver + Container Toolkit or AMD `/dev/kfd` + `/dev/dri`, but never installs or replaces host drivers. The new POSIX installer diagnostics are bilingual German/English. Package-manager/Docker output remains external verbatim text, and the delegated pre-existing Windows launcher startup checks remain English-only as already recorded in `standalone/README.md`. Starting the Agent still does not download or start a miner.
+- The stable release workflow now publishes all three bootstrap scripts and all three Compose assets, and syntax-checks both POSIX shell installers before upload. Landing and documentation consumers use `Solarminer-app/pc-agent/releases/latest/download/**`; these URLs require the first stable release from this repository before public rollout.
+- Stable/beta channel selection is explicit end to end. The beta branch bootstrap resolves the newest published `pc-agent-beta-*` prerelease, uses separate native/Docker data directories and selects `latest-beta`; the stable path continues to use GitHub's latest stable release and `latest`. The beta workflow now publishes the same installer and Compose asset set as the stable workflow.
+- Verification: `sh -n` and `bash -n` for both shell scripts, release-asset staging checks, landing tests/typecheck/lint/build, Compose base/NVIDIA/AMD validation and `git diff --check`. PowerShell and Docusaurus build tools were unavailable locally; the Windows bootstrap, package-manager mutation, Docker daemon, UAC, GPU drivers and future stable-release downloads were not executed.
+
+## 2026-10-10 — PC-Agent-Frontend DE/EN-Durchgang
+
+- Alle neun HTML-Seiten sowie alle JavaScript-Dateien unter `src/main/resources/static/js/` auf sichtbare Texte, Statusmeldungen, Formulardetails und Accessibility-Labels geprüft. Fehlende statische und dynamische Katalogeinträge ergänzt; variable Sätze verwenden nun Platzhalter statt fertig zusammengesetzter, nicht auflösbarer Übersetzungsschlüssel.
+- Benchmark-, Sweep-, Hardware-, Telemetrie-, Proxy-, Wallet-, Software- und Worker-Meldungen aus der Agent-API werden an den sichtbaren Stellen über `s()` lokalisiert. Bekannte deutsche und englische Agent-Status sowie variable Diagnosepräfixe sind im geschlossenen Katalog bzw. in `i18n.js` abgedeckt. Bereits übersetzte dynamische Meldungen werden beim Weiterreichen durch gemeinsame UI-Helfer nicht erneut als fehlende Übersetzung gemeldet.
+- `scripts/check-i18n.cjs` prüft alle neun statischen Seiten, literale `t()`-Schlüssel, Platzhalter sowie die Umwandlung in beide Sprachrichtungen; Vertrag und Ausnahmen stehen in `docs/agent-wiki/frontend-i18n.md`. Externe Miner-Rohausgabe, Diagnoseausgabe fremder Tools sowie technische Hardware-/Pool-/Wallet-Kennungen bleiben unverändert.
+- Verifikation: `node scripts/check-i18n.cjs`, `node --check` für alle Frontend-JavaScript-Dateien und `git diff --check` erfolgreich. Ein visueller Browserlauf mit Agent-API war auf diesem Host nicht verfügbar.
