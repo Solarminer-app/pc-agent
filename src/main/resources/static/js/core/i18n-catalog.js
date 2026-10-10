@@ -11,6 +11,7 @@
 // Keys use {placeholder} tokens (e.g. 'Aktualisiert {time}') filled by t(text, params).
 window.SolarMinerI18nCatalog = {
   frontend: {
+    "Miner-Katalog konnte nicht geladen werden: {error}": "Could not load miner catalog: {error}",
     "Aktiviere zuerst die globale Remote-Steuerung, um Worker freizugeben.": "Enable global remote control first to make workers available.",
     "aktiv": "enabled",
     "Automatisierung konnte nicht geladen werden: {error}": "Could not load automation: {error}",

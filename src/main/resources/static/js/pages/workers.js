@@ -8,7 +8,7 @@
   let workers = [], miners = [], energy = null, sensors = null;
   let search = '', coin = null, hardware = 'all', selected = null;
   const pendingWorkers = new Set();
-  let loadRevision = 0;
+  let loading = false, catalogReady = false;
 
   const notice = (message, error = false, translated = false) => {
     const node = $('notice'); node.textContent = translated ? message : t(message); node.className = `notice${error ? ' error' : ''}`; node.hidden = !message;
@@ -113,7 +113,7 @@
     {label: 'Session-Energie', key: 'energy', width: '18%', render: energyCell},
     {label: 'Aktion', key: 'status', width: '18%', align: 'right', render: worker => {
       const wrap = ui.element('div', 'row-actions');
-      const configure = ui.element('button', 'button subtle', worker.coin === 'none' ? 'Einrichten' : 'Ändern'); configure.type = 'button'; configure.disabled = pendingWorkers.has(worker.deviceId);
+      const configure = ui.element('button', 'button subtle', worker.coin === 'none' ? 'Einrichten' : 'Ändern'); configure.type = 'button'; configure.disabled = !catalogReady || pendingWorkers.has(worker.deviceId);
       configure.addEventListener('click', event => { event.stopPropagation(); openEditor(worker); }); wrap.append(configure);
       if (worker.coin !== 'none') {
         const running = worker.status === 'MINING'; const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, running ? 'Pausieren' : 'Starten');
@@ -233,28 +233,31 @@
   }
 
   async function load() {
-    const revision = ++loadRevision;
+    if (loading) return;
+    loading = true;
     try {
-      // Hardware and catalog are the only data required to assign a worker. Never let an
-      // optional sensor endpoint keep the complete table (and its assignment actions) empty.
-      const [nextWorkers, nextMiners] = await Promise.all([
-        ui.getJson('/api/agent/local/workers'),
-        ui.getJson('/api/agent/local/miner-options')
-      ]);
-      if (revision !== loadRevision) return;
-      workers = nextWorkers; miners = nextMiners;
+      // Render the inventory as soon as it arrives. Miner discovery may take longer and is
+      // needed only for assignment, not for showing or starting existing workers.
+      workers = await ui.getJson('/api/agent/local/workers');
       $('connection').className = 'badge online'; $('connection').textContent = t('Agent verbunden'); render();
-
-      const optional = await Promise.allSettled([
-        fetch('/api/agent/local/energy', {cache: 'no-store'}).then(response => response.ok ? response.json() : null)
-      ]);
-      if (revision !== loadRevision) return;
-      if (optional[0].status === 'fulfilled' && optional[0].value) energy = optional[0].value;
-      render();
+      try {
+        miners = await ui.getJson('/api/agent/local/miner-options');
+        catalogReady = true;
+        renderTable();
+      } catch (error) {
+        catalogReady = false;
+        renderTable();
+        notice(t('Miner-Katalog konnte nicht geladen werden: {error}', {error: s(error.message)}), true, true);
+      }
+      try {
+        const response = await fetch('/api/agent/local/energy', {cache: 'no-store', signal: AbortSignal.timeout(8000)});
+        if (response.ok) { energy = await response.json(); renderKpis(); renderTable(); }
+      } catch (_) { /* Energy is optional for the worker inventory. */ }
     } catch (error) {
-      if (revision !== loadRevision) return;
       $('connection').className = 'badge offline'; $('connection').textContent = t('Agent nicht erreichbar');
       notice(`Worker konnten nicht geladen werden: ${error.message}`, true);
+    } finally {
+      loading = false;
     }
   }
 
