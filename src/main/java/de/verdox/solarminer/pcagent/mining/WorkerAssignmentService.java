@@ -143,15 +143,35 @@ public class WorkerAssignmentService {
         }
     }
 
-    /** A sequential benchmark can prepare the house route for assigned Pearl GPUs without starting them. */
-    public synchronized void prepareBenchmarkDefault() {
-        if (pearl.configuration() != null) return;
-        for (LocalGpuPowerService.Gpu gpu : gpuPower.discover()) {
-            if ("pearl".equals(controls.get().coinFor(gpu.deviceId()))) {
-                ensureGpuDefault("pearl", new Hardware("GPU", gpu.vendor(), gpu.index()));
-                return;
+    /** Prepares every assigned GPU coin with the SolarMiner house route, without starting it. */
+    public synchronized Map<String, String> prepareBenchmarkDefaults() {
+        Map<String, String> unavailable = new LinkedHashMap<>();
+        for (String coin : List.of("pearl", "ravencoin", "ethereumclassic", "decred", "quantus")) {
+            if (configurationFor(coin)) continue;
+            for (LocalGpuPowerService.Gpu gpu : gpuPower.discover()) {
+                if (!coin.equals(controls.get().coinFor(gpu.deviceId()))) continue;
+                try {
+                    ensureGpuDefault(coin, new Hardware("GPU", gpu.vendor(), gpu.index()));
+                } catch (IllegalStateException failure) {
+                    unavailable.put(coin, failure.getMessage());
+                }
+                break;
             }
         }
+        return Map.copyOf(unavailable);
+    }
+
+    /** GPU benchmark phases with an installed miner and a valid local route. */
+    public synchronized List<String> benchmarkGpuPhases() {
+        List<String> phases = new ArrayList<>();
+        if (pearl.binaryAvailable() && pearl.configuration() != null) phases.add("pearl");
+        for (String coin : List.of("ravencoin", "ethereumclassic", "decred", "quantus"))
+            if (gpuCoins.binaryAvailable() && gpuCoins.configuration(coin) != null) phases.add(coin);
+        return List.copyOf(phases);
+    }
+
+    private boolean configurationFor(String coin) {
+        return "pearl".equals(coin) ? pearl.configuration() != null : gpuCoins.configuration(coin) != null;
     }
 
     private static String error(String detail, String fallback) {

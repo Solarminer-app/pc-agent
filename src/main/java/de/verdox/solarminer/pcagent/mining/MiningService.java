@@ -371,6 +371,18 @@ public class MiningService {
         return xmrMinerService.isMiningProcessAlive();
     }
 
+    /** Most recent local start diagnostic for operator-facing workflows such as benchmarks. */
+    public String lastStartError(String coin) {
+        if (GpuCoinMinerService.supported(coin)) return gpuCoins.lastError();
+        return "pearl".equals(coin) ? pearlMinerService.lastError() : xmrMinerService.lastStartError();
+    }
+
+    /** GPU coin workers that were running before a sequential benchmark took ownership. */
+    public List<String> runningGpuCoins() {
+        return List.of("ravencoin", "ethereumclassic", "decred", "quantus").stream()
+                .filter(gpuCoins::running).toList();
+    }
+
     public synchronized void usePearl(PearlMinerService.Config config) throws IOException {
         pearlMinerService.configure(config);
         if (!switchCoin("pearl")) throw new IOException("Could not select Pearl after configuration");

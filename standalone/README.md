@@ -1,11 +1,14 @@
 # SolarMiner PC-Agent Standalone
 
-On the first Windows launcher run, a bootstrap checks write access to the
-install folder, the current Administrator token needed for NVIDIA power-limit
-writes, `nvidia-smi` availability and the Defender exclusion state. It explains
-the scanning tradeoff and asks before an elevated UAC helper adds the
-PC-Agent install folder as an exclusion; the helper verifies Defender's state.
-Run `start-agent.ps1 -Bootstrap` to review the checks again. The Agent's
+On every Windows launcher start, a bootstrap checks write access to the install
+folder, the current Administrator token needed for NVIDIA power-limit writes,
+`nvidia-smi` availability and the Defender exclusion state. When the exclusion
+is missing, it explains the scanning tradeoff and asks before an elevated UAC
+helper adds the PC-Agent install folder; the helper verifies Defender's state.
+The launcher requires Administrator rights and stops before downloading or
+starting the Agent when they are absent. A verified Defender exclusion is only
+reported; it is never requested or added again.
+The beta launcher runs the same checks in its separate `%LOCALAPPDATA%\SolarMiner\PC-Agent-Beta` directory. Startup-check output is English-only. `-Bootstrap` remains available for a manual review. The Agent's
 per-GPU capability probe still requires a same-value write and readback;
 launcher privilege alone does not establish dynamic power scaling. AMD power
 limits on Windows remain unavailable without a supported ADLX helper.
@@ -14,7 +17,7 @@ limits on Windows remain unavailable without a supported ADLX helper.
 
 Download `start-agent.bat` from the latest [PC-Agent GitHub release](https://github.com/Solarminer-app/pc-agent/releases/latest) and run it. The launcher stores the Agent and its private Java 21 runtime under `%LOCALAPPDATA%\SolarMiner\PC-Agent`. It downloads the latest stable Agent JAR when needed, verifies its SHA-256, and downloads a Windows x64 JRE from Adoptium on first run, verifying Adoptium's package checksum. The JAR already contains the Agent, embedded proxy, and Java dependencies. Later starts reuse the downloaded runtime and Agent; a new release replaces the Agent JAR after checksum verification.
 
-The launcher requires Windows PowerShell 5.1 and an internet connection. The first launch downloads the runtime and Agent, so it can take a few minutes. The local UI is at `http://127.0.0.1:8084/`. When `start-agent.ps1` is beside the batch file, the batch file runs that local copy; otherwise, it fetches the matching PowerShell launcher from the latest GitHub release, so only `start-agent.bat` needs to be downloaded manually. Until a release contains a launcher fix, run the batch file from this source directory with its adjacent PowerShell script.
+The launcher requires Windows PowerShell 5.1 and an internet connection. The first launch downloads the runtime and Agent, so it can take a few minutes. The local UI is at `http://127.0.0.1:8084/`. On every launch, the batch file refreshes its PowerShell implementation from the latest matching GitHub release through a temporary file, then atomically replaces the cached copy. If the refresh fails, it clearly reports that it is starting the last saved launcher; it fails only when no saved launcher exists. This ensures launcher-language and security fixes reach existing installations.
 
 The `Release SolarMiner PC-Agent` workflow keeps publishing the Docker image and additionally creates or updates the `pc-agent-v<version>` GitHub release with the standalone JAR, SHA-256 file, `start-agent.bat`, and its PowerShell implementation. Releases are triggered by pushing a matching `pc-agent-v*` tag, or by manually dispatching the workflow with the version from `gradle.properties`.
 

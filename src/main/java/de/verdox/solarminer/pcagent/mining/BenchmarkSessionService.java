@@ -44,15 +44,25 @@ public class BenchmarkSessionService {
     public synchronized Session start(String mode) {
         if (!"LIVE".equals(mode) && !"INSTALLED".equals(mode)) throw new IllegalArgumentException("Unknown benchmark mode");
         if (session.running()) throw new IllegalStateException("A benchmark is already running");
-        if ("INSTALLED".equals(mode)) assignments.prepareBenchmarkDefault();
+        List<String> setupSkipped = new ArrayList<>();
+        if ("INSTALLED".equals(mode)) {
+            assignments.prepareBenchmarkDefaults().forEach((coin, reason) -> {
+                if (reason != null && !reason.isBlank()) setupSkipped.add(coin + " (" + reason + ")");
+            });
+        }
         List<String> phases = "INSTALLED".equals(mode) ? installedPhases() : List.of("live");
-        if (phases.isEmpty()) throw new IllegalStateException("Install and configure at least one miner before running this benchmark");
+        if (phases.isEmpty()) {
+            String detail = setupSkipped.isEmpty()
+                    ? "Install and configure at least one miner before running this benchmark"
+                    : "Benchmark cannot start: " + String.join("; ", setupSkipped);
+            throw new IllegalStateException(detail);
+        }
         if (!lock.tryBegin("benchmark")) throw new IllegalStateException("Ein anderer Messlauf (Effizienz-Sweep) läuft gerade; der Benchmark wartet, bis er beendet ist");
         cancel = false;
         Instant start = Instant.now();
         int phaseCount = phases.size();
         session = new Session(true, mode, "Preparing", start, null, null, 0, phaseCount, List.of(), null);
-        executor.submit(() -> run(mode, phases));
+        executor.submit(() -> run(mode, phases, setupSkipped));
         return session;
     }
 
@@ -71,11 +81,11 @@ public class BenchmarkSessionService {
     private List<String> installedPhases() {
         List<String> phases = new ArrayList<>();
         if (xmr.readyForStart()) phases.add("monero");
-        if (pearl.binaryAvailable() && pearl.configuration() != null) phases.add("pearl");
+        phases.addAll(assignments.benchmarkGpuPhases());
         return List.copyOf(phases);
     }
 
-    private void run(String mode, List<String> phases) {
+    private void run(String mode, List<String> phases, List<String> setupSkipped) {
         if ("INSTALLED".equals(mode) && (xmr.hasExternalMinerProcess() || pearl.hasExternalMinerProcess())) {
             Session old = session;
             session = new Session(false, mode, "Sequential benchmark skipped: externally started miners cannot be safely paused and restored",
@@ -90,22 +100,26 @@ public class BenchmarkSessionService {
         // while it is connecting to the pool, although its managed process is already running.
         Set<String> pearlWasMining = pearl.runningGpuDeviceIds();
         Set<String> pearlPausedBefore = pearl.manuallyPausedGpuKeys();
+        List<String> gpuCoinsWasMining = mining.runningGpuCoins();
         Map<String, List<MinerStats.Worker>> observations = new LinkedHashMap<>();
-        List<String> skipped = new ArrayList<>();
+        List<String> skipped = new ArrayList<>(setupSkipped);
         int index = 0;
         String error = null;
         try {
+            for (String skippedSetup : setupSkipped)
+                benchmarkLog("pearl", "Benchmark setup skipped: " + skippedSetup);
             if ("INSTALLED".equals(mode)) {
                 update(mode, "Pausing current miners", 0, phases.size(), observations);
                 if (xmrWasMining) pauseForBenchmark("monero", "capturing the pre-benchmark state");
                 if (!pearlWasMining.isEmpty()) pauseForBenchmark("pearl", "capturing the pre-benchmark state");
+                for (String coin : gpuCoinsWasMining) pauseForBenchmark(coin, "capturing the pre-benchmark state");
             }
             for (String phase : phases) {
                 if (cancel) break;
                 index++;
                 if ("INSTALLED".equals(mode)) {
                     if (!mining.resumeMining(phase)) {
-                        String detail = "monero".equals(phase) ? xmr.lastStartError() : pearl.lastError();
+                        String detail = mining.lastStartError(phase);
                         String reason = detail == null || detail.isBlank() ? "Miner did not start; check its console" : detail;
                         skipped.add(phase + " (" + reason + ")");
                         benchmarkLog(phase, "Benchmark start failed: " + reason);
@@ -187,6 +201,7 @@ public class BenchmarkSessionService {
                     if (xmrWasMining) restored = mining.resumeMining("monero");
                     else mining.restoreCpuPauseState(cpuPausedBefore);
                     restored = pearl.restoreWorkerState(pearlPausedBefore, pearlWasMining) && restored;
+                    for (String coin : gpuCoinsWasMining) restored = mining.resumeMining(coin) && restored;
                     if (!restored) error = "Could not fully restore miner state";
                     benchmarkLog("monero", restored ? "Previous miner state restored."
                             : "Previous miner state could not be fully restored.");
@@ -214,10 +229,7 @@ public class BenchmarkSessionService {
         String entry = "[Benchmark] " + message;
         if ("monero".equals(phase)) consoles.append("monero", entry);
         else if ("pearl".equals(phase)) pearl.appendBenchmarkEvent(entry);
-        else {
-            consoles.append("monero", entry);
-            pearl.appendBenchmarkEvent(entry);
-        }
+        else consoles.append(phase, entry);
     }
     private boolean pauseForBenchmark(String phase, String reason) {
         return MinerStopContext.with("Benchmark: " + reason, () -> mining.pauseMining(phase));
@@ -226,7 +238,8 @@ public class BenchmarkSessionService {
     static List<MinerStats.Worker> phaseWorkers(List<MinerStats.Worker> workers, String phase, boolean miningOnly) {
         return workers.stream()
                 .filter(w -> "live".equals(phase) || ("monero".equals(phase)
-                        ? "CPU".equalsIgnoreCase(w.hardwareType()) : "GPU".equalsIgnoreCase(w.hardwareType())))
+                        ? "CPU".equalsIgnoreCase(w.hardwareType())
+                        : phase.equals(coinForAlgorithm(w.currentAlgorithm()))))
                 .filter(w -> !miningOnly || isMining(w))
                 .toList();
     }

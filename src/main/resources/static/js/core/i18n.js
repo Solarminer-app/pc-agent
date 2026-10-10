@@ -70,8 +70,14 @@
         return `SolarMiner-Proxy-Route für ${key.slice('SolarMiner proxy route for '.length).replace(' is unavailable', '')} nicht verfügbar.`;
       if (key.startsWith('SolarMiner default payout could not be configured: '))
         return `SolarMiner-Standardziel konnte nicht eingerichtet werden: ${s(key.slice('SolarMiner default payout could not be configured: '.length))}`;
+      if (key.startsWith('Benchmark cannot start: '))
+        return `Benchmark kann nicht gestartet werden: ${s(key.slice('Benchmark cannot start: '.length))}`;
+      if (key.startsWith('Benchmark setup skipped: '))
+        return `Benchmark-Vorbereitung übersprungen: ${s(key.slice('Benchmark setup skipped: '.length))}`;
+      const skippedCoin = key.match(/^([a-z]+) \((.+)\)$/);
+      if (skippedCoin) return `${skippedCoin[1]} (${s(skippedCoin[2])})`;
       if (key.includes(' · ')) return key.split(' · ').map(s).join(' · ');
-      if (key.includes('; skipped: ')) { const [result, skipped] = key.split('; skipped: '); return `${s(result)}; übersprungen: ${skipped}`; }
+      if (key.includes('; skipped: ')) { const [result, skipped] = key.split('; skipped: '); return `${s(result)}; übersprungen: ${s(skipped)}`; }
       return text;
     }
     // English locale: German agent status messages translate through the frontend catalog.

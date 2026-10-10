@@ -1,5 +1,12 @@
 # PC-Agent work log
 
+## 2026-10-10 — Benchmark default-payout fallback and actionable failure
+
+- Sequential benchmarks now cover every locally integrated coin (Monero, Pearl, Ravencoin, Ethereum Classic, Decred and Quantus). An unavailable SolarMiner default payout skips only that coin's phase rather than aborting another ready miner; the skipped phase is recorded in its console and the final session summary. GPU-coin phases select only their own algorithm's workers and restore GPU miners that were running before the session.
+- When no phase can run, the start endpoint reports the precise default-payout/proxy/fee-target reason instead of only saying that a miner must be configured. The frontend renders these dynamic Agent diagnostics in German and English, including nested skipped-coin messages.
+- The default payout remains proxy-resolved at start time; no wallet or pool credentials are invented or persisted when the SolarMiner target is unavailable.
+- Verification: JDK 21 focused `BenchmarkSessionServiceTest`, `node --check src/main/resources/static/js/core/i18n.js`, and `git diff --check` passed.
+
 ## 2026-10-09 — Worker start diagnostics, wallet-free start, Windows bootstrap, AMD Docker sensors
 
 - Local worker starts now return HTTP 400/409 with a concrete reason instead of a bare `false`; the Workers UI displays the response and refreshes the worker state. Sequential benchmark skips retain the miner's start error in the session phase summary and console. The benchmark start UI reads Spring's `detail` response field. These messages remain local to the Agent API; Node protocol payloads did not change.
@@ -439,3 +446,35 @@
   full `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test
   standaloneJar --no-daemon` passed. Live multi-coin timing behaviour remains
   a hardware rollout gate.
+
+## 2026-10-10 — Make GPU relay close test deterministic
+
+- `GpuStratumRelayTest.closeClosesListenerAndActiveMinerConnections` continues
+  to verify that closing the relay terminates an already active miner socket.
+  Removed the immediate follow-up connect assertion: it raced listener shutdown
+  against the OS TCP connect/accept path and was not a reliable contract check.
+- The focused test could not be run in this environment because the Gradle
+  8.14.5 distribution was not cached and outbound network access is blocked.
+
+## 2026-10-10 — Apply Windows bootstrap to the beta launcher
+
+- Both standalone launchers run the non-privileged permission, driver and
+  Defender-state preflight on every start. If the exact install-directory
+  exclusion is missing, the explicit UAC option is offered again; neither
+  launcher silently changes Defender. Stable and beta retain separate markers
+  only as timestamps of their most recent completed checks. `-Bootstrap`
+  remains accepted for a manual invocation. Startup-check output is English-only;
+  localized Windows exception messages remain external operating-system text.
+- The startup preflight uses a console header, three numbered sections
+  (installation directory, GPU power-control readiness and Defender), indented
+  outcomes, and a highlighted action-required line before an optional UAC
+  prompt. The output makes the no-change/default-safe path explicit.
+- Stable and beta batch launchers now refresh their cached PowerShell launcher
+  asset on each run using a temporary file and atomic replace. A failed refresh
+  retains the last known-good cached launcher and states that fallback; a new
+  install without one fails clearly. This closes the stale-launcher path that
+  otherwise kept former bilingual output after a launcher release.
+- Stable and beta launchers now require an Administrator token and stop before
+  downloading or starting the Agent without one. A present Defender exclusion
+  remains a report-only success path; only a missing exclusion produces the
+  optional UAC prompt.
