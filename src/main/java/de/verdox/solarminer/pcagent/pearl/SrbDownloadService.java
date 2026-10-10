@@ -37,8 +37,15 @@ import java.util.zip.ZipInputStream;
 @Service
 public class SrbDownloadService {
     private static final Logger LOGGER = Logger.getLogger(SrbDownloadService.class.getName());
-    private static final String WINDOWS_VERSION = "3.7.0";
-    private static final URI LINUX_RELEASE_API = URI.create("https://api.github.com/repos/doktor83/SRBMiner-Multi/releases/latest");
+    /**
+     * 3.7.3 is the first stable release whose PearlHash defaults select the new kernels for
+     * NVIDIA SM86, SM89 and SM120 while retaining SRBMiner's standard kernels for the other
+     * supported NVIDIA generations. Keep both operating systems on the same reviewed CLI:
+     * the former Linux "latest" lookup could silently remove parameters used by the agent.
+     */
+    static final String SRBMINER_VERSION = "3.7.3";
+    private static final URI RELEASE_API = URI.create(
+            "https://api.github.com/repos/doktor83/SRBMiner-Multi/releases/tags/" + SRBMINER_VERSION);
     private static final long MAX_ARCHIVE_BYTES = 300L * 1024 * 1024;
     private static final long MAX_EXTRACTED_BYTES = 1024L * 1024 * 1024;
     private final HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL)
@@ -111,6 +118,7 @@ public class SrbDownloadService {
                 }
             }
             Files.deleteIfExists(executable);
+            Files.deleteIfExists(PearlMinerService.versionPath(executable));
             Files.deleteIfExists(manifest);
             status = DownloadState.PENDING; detail = "SRBMiner entfernt; die Pearl-Konfiguration bleibt gespeichert."; progress = 0;
             return true;
@@ -129,10 +137,7 @@ public class SrbDownloadService {
         if (!windows && !os.contains("linux"))
             throw new UnsupportedOperationException("No official SRBMiner package for this operating system");
 
-        URI releaseApi = windows
-                ? URI.create("https://api.github.com/repos/doktor83/SRBMiner-Multi/releases/tags/" + WINDOWS_VERSION)
-                : LINUX_RELEASE_API;
-        HttpRequest releaseRequest = HttpRequest.newBuilder(releaseApi).timeout(Duration.ofSeconds(20))
+        HttpRequest releaseRequest = HttpRequest.newBuilder(RELEASE_API).timeout(Duration.ofSeconds(20))
                 .header("Accept", "application/vnd.github+json")
                 .header("User-Agent", "SolarMiner-PC-Agent").GET().build();
         HttpResponse<InputStream> releaseResponse = http.send(releaseRequest, HttpResponse.BodyHandlers.ofInputStream());
@@ -150,7 +155,7 @@ public class SrbDownloadService {
         if (release.path("prerelease").asBoolean() || release.path("draft").asBoolean())
             throw new IOException("SRBMiner release is not stable");
         String tag = release.path("tag_name").asText();
-        if (windows ? !tag.equals(WINDOWS_VERSION) : !tag.matches("[0-9]+\\.[0-9]+\\.[0-9]+"))
+        if (!tag.equals(SRBMINER_VERSION))
             throw new IOException("Unexpected SRBMiner release tag");
         String name = "SRBMiner-Multi-" + tag.replace('.', '-') + (windows ? "-win64.zip" : "-Linux.tar.gz");
         JsonNode asset = null;
@@ -209,6 +214,17 @@ public class SrbDownloadService {
                 }
             }
             installedFiles.add(target.relativize(executable).toString());
+            Path version = PearlMinerService.versionPath(executable);
+            Path versionTemp = Files.createTempFile(target, "srbminer-version-", ".tmp");
+            try {
+                Files.writeString(versionTemp, SRBMINER_VERSION + System.lineSeparator());
+                try {
+                    Files.move(versionTemp, version, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(versionTemp, version, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } finally { Files.deleteIfExists(versionTemp); }
+            installedFiles.add(target.relativize(version).toString());
             Path manifest = target.resolve(".solarminer-srbminer-files.json");
             Path manifestTemp = Files.createTempFile(target, "srbminer-manifest-", ".tmp");
             try {

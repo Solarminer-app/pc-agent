@@ -9,6 +9,8 @@
   let search = '', coin = null, hardware = 'all', selected = null;
   const pendingWorkers = new Set();
   let loading = false, catalogReady = false;
+  let consoleTimer = null, consoleOffset = 0, consoleRunId = '', consoleId = null, consoleSession = 0;
+  let consoleDecoder = new TextDecoder();
 
   const notice = (message, error = false, translated = false) => {
     const node = $('notice'); node.textContent = translated ? message : t(message); node.className = `notice${error ? ' error' : ''}`; node.hidden = !message;
@@ -130,7 +132,7 @@
     if (!$('worker-hidden').hidden) $('worker-hidden').textContent = t('{count} ausgeblendet · Filter zurücksetzen', {count: workers.length - list.length});
     $('idle-devices').hidden = !workers.some(worker => worker.coin === 'none');
     if (!$('idle-devices').hidden) $('idle-devices').textContent = t('{count} Komponenten sind noch keinem Mining-Profil zugewiesen.', {count: workers.filter(worker => worker.coin === 'none').length});
-    $('worker-table').replaceChildren(ui.table({columns, rows: list, empty: 'Keine Worker passen zu den Filtern.', onRow: openEditor}));
+    $('worker-table').replaceChildren(ui.table({columns, rows: list, empty: 'Keine Worker passen zu den Filtern.', onRow: openConsole}));
   }
 
   function render() { renderStatus(); renderKpis(); renderScope(); renderTable(); }
@@ -179,6 +181,80 @@
     updatePoolSummary(worker.coin, worker.poolUrl, worker.configured);
     coinSelect.onchange = () => { populateMinerSelect(coinSelect.value, null); updatePoolSummary(coinSelect.value, null, false); };
     $('worker-editor').showModal();
+  }
+
+  function workerConsoleId(worker) {
+    if (worker.coin === 'none') return null;
+    if (worker.hardwareType === 'CPU') return worker.coin;
+    return `${worker.coin}-${worker.vendor}-${worker.index}`;
+  }
+
+  function stopConsolePolling() {
+    if (consoleTimer) clearTimeout(consoleTimer);
+    consoleTimer = null;
+  }
+
+  function closeConsole() {
+    stopConsolePolling();
+    consoleSession += 1;
+    consoleId = null;
+    if ($('worker-console').open) $('worker-console').close();
+  }
+
+  function decodedChunk(data, final = false) {
+    if (!data) return consoleDecoder.decode(undefined, {stream: !final});
+    const raw = atob(data), bytes = Uint8Array.from(raw, character => character.charCodeAt(0));
+    return consoleDecoder.decode(bytes, {stream: !final});
+  }
+
+  async function pollConsole(session) {
+    if (session !== consoleSession || !consoleId || !$('worker-console').open) return;
+    try {
+      let more = true;
+      while (more && session === consoleSession && consoleId && $('worker-console').open) {
+        const response = await fetch(`/api/agent/local/console/${encodeURIComponent(consoleId)}?offset=${consoleOffset}`, {cache: 'no-store'});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const chunk = await response.json();
+        if (session !== consoleSession) return;
+        if (consoleRunId && chunk.runId && chunk.runId !== consoleRunId) {
+          consoleOffset = 0; consoleDecoder = new TextDecoder(); $('worker-console-output').textContent = '';
+          continue;
+        }
+        if (chunk.runId) consoleRunId = chunk.runId;
+        const output = $('worker-console-output');
+        const pinned = output.scrollTop + output.clientHeight >= output.scrollHeight - 24;
+        output.textContent += decodedChunk(chunk.data);
+        consoleOffset = Number(chunk.nextOffset || 0);
+        more = Boolean(chunk.hasMore);
+        if (pinned) output.scrollTop = output.scrollHeight;
+      }
+      $('worker-console-notice').hidden = true;
+    } catch (error) {
+      const message = $('worker-console-notice');
+      message.textContent = t('Konsolenausgabe konnte nicht geladen werden: {error}', {error: s(error.message)});
+      message.hidden = false;
+    } finally {
+      if (session === consoleSession && consoleId && $('worker-console').open)
+        consoleTimer = setTimeout(() => pollConsole(session), 1000);
+    }
+  }
+
+  function openConsole(worker) {
+    stopConsolePolling();
+    consoleSession += 1;
+    const session = consoleSession;
+    consoleId = workerConsoleId(worker); consoleOffset = 0; consoleRunId = ''; consoleDecoder = new TextDecoder();
+    $('worker-console-title').textContent = t('Miner-Konsole · {worker}', {worker: worker.hardwareModel});
+    $('worker-console-meta').textContent = `${worker.coinName || coinTicker(worker.coin)} · ${worker.algorithm || '—'} · ${worker.deviceId}`;
+    $('worker-console-output').textContent = '';
+    const download = $('worker-console-download');
+    download.hidden = !consoleId;
+    if (consoleId) download.href = `/api/agent/local/console/${encodeURIComponent(consoleId)}/download`;
+    const message = $('worker-console-notice');
+    message.hidden = Boolean(consoleId);
+    message.textContent = consoleId ? '' : t('Weise diesem Worker zuerst einen Coin zu. Danach erscheint hier seine Minerausgabe.');
+    $('worker-console').showModal();
+    if (consoleId) pollConsole(session);
   }
 
   function updatePoolSummary(coinId, poolUrl, configured) {
@@ -266,7 +342,9 @@
   });
   $('worker-hidden').addEventListener('click', () => { search = ''; coin = null; hardware = 'all'; document.querySelectorAll('[data-hardware]').forEach(node => node.classList.toggle('selected', node.dataset.hardware === 'all')); render(); });
   $('worker-form').addEventListener('submit', save);
+  $('worker-console-close').addEventListener('click', closeConsole);
+  $('worker-console').addEventListener('close', stopConsolePolling);
   $('refresh').addEventListener('click', load);
   document.addEventListener('solarminer:preferences-changed', () => { if (workers.length) render(); });
-  load(); setInterval(() => { if (!document.hidden && !$('worker-editor').open) load(); }, 5000);
+  load(); setInterval(() => { if (!document.hidden && !$('worker-editor').open && !$('worker-console').open) load(); }, 5000);
 })();

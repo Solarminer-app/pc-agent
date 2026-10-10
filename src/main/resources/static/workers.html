@@ -58,7 +58,7 @@
             </div>
             <p id="idle-devices" class="notice-line" hidden></p>
             <div id="worker-table"></div>
-            <p class="muted">Leistungs- und Energiewerte werden nur angezeigt, wenn der Agent einen echten Sensorwert
+            <p class="muted">Klicke einen Worker an, um seine fortlaufende Miner-Konsole zu öffnen. Leistungs- und Energiewerte werden nur angezeigt, wenn der Agent einen echten Sensorwert
                 erhält. Fehlende Messwerte werden nicht als null Verbrauch gewertet.</p>
         </section>
         <dialog id="worker-editor" class="worker-editor">
@@ -74,6 +74,20 @@
                 <div class="dialog-actions"><button class="button subtle" value="cancel" type="submit">Abbrechen</button>
                     <button id="worker-save" class="button primary" value="default" type="submit">Zuweisung speichern</button></div>
             </form>
+        </dialog>
+        <dialog id="worker-console" class="worker-console" aria-labelledby="worker-console-title">
+            <section>
+                <div class="panel-head">
+                    <div><p class="kicker">LIVE-AUSGABE</p><h2 id="worker-console-title">Miner-Konsole</h2></div>
+                    <div class="row-actions">
+                        <a id="worker-console-download" class="button subtle" href="#">Log herunterladen</a>
+                        <button id="worker-console-close" class="button subtle" type="button">Schließen</button>
+                    </div>
+                </div>
+                <p id="worker-console-meta" class="muted"></p>
+                <div id="worker-console-notice" class="notice-line" role="status" aria-live="polite" hidden></div>
+                <pre id="worker-console-output" tabindex="0" aria-label="Fortlaufende Minerausgabe"></pre>
+            </section>
         </dialog>
         <footer>SolarMiner PC-Agent</footer>
     </main>

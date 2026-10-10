@@ -307,8 +307,8 @@ public class PearlMinerService implements GpuCoinMiner {
         console.started(run.consoleId);
         console.append(Coin.PEARL.id(), "[" + key + "] New miner start");
         if (route == null || !proxyConfigurationService.matches(route.proxyUrl(), Coin.PEARL)
-                || !proxyConfigurationService.miningReady(Coin.PEARL) || !Files.isRegularFile(executable)) {
-            return fail(run, !Files.isRegularFile(executable) ? "SRBMiner-MULTI executable is missing"
+                || !proxyConfigurationService.miningReady(Coin.PEARL) || !binaryAvailable()) {
+            return fail(run, !binaryAvailable() ? "Reviewed SRBMiner-MULTI version is missing"
                     : "Pearl requires a reachable SolarMiner proxy with a loaded fee target");
         }
         try {
@@ -318,10 +318,8 @@ public class PearlMinerService implements GpuCoinMiner {
             URI proxy = URI.create(route.proxyUrl());
             String suffix = "-" + (gpu.vendor().equals("NVIDIA") ? "n" : "a") + gpu.index();
             String worker = route.worker().substring(0, Math.min(route.worker().length(), 32 - suffix.length())) + suffix;
-            List<String> command = List.of(executable.toString(), "--disable-cpu", "--algorithm", "pearlhash",
-                    "--pool", proxy.getHost() + ":" + proxy.getPort(), "--wallet", route.wallet(),
-                    "--worker", encodedWorker(route.poolUrl(), worker), "--tls", "false",
-                    "--api-enable", "--api-port", Integer.toString(apiPort), "--gpu-id", Integer.toString(srbId));
+            List<String> command = buildCommand(executable, proxy, route.wallet(),
+                    encodedWorker(route.poolUrl(), worker), apiPort, srbId);
             Process started = new ProcessBuilder(command).directory(executable.getParent().toFile())
                     .redirectErrorStream(true).start();
             run.process = started;
@@ -363,6 +361,16 @@ public class PearlMinerService implements GpuCoinMiner {
         console.append(run.consoleId, "[SolarMiner] " + error);
         console.append(Coin.PEARL.id(), "[" + run.key + "] " + error);
         return false;
+    }
+
+    static List<String> buildCommand(Path executable, URI proxy, String wallet, String worker,
+                                     int apiPort, int srbId) {
+        // SRBMiner 3.7.3 selects its PearlHash kernel from the CUDA SM itself. The temporary
+        // --pearl-k1/--pearl-k2 switches must not be reconstructed from marketing model names.
+        return List.of(executable.toString(), "--disable-cpu", "--algorithm", "pearlhash",
+                "--pool", proxy.getHost() + ":" + proxy.getPort(), "--wallet", wallet,
+                "--worker", worker, "--tls", "false", "--api-enable", "--api-port",
+                Integer.toString(apiPort), "--gpu-id", Integer.toString(srbId));
     }
 
     private void monitor(GpuRun run, Process started) {
@@ -582,7 +590,25 @@ public class PearlMinerService implements GpuCoinMiner {
     }
     public String lastError() { return lastError; }
     public MinerConfig configuration() { return config; }
-    public boolean binaryAvailable() { return Files.isRegularFile(executable); }
+    /**
+     * A legacy unversioned binary is deliberately not startable. SRBMiner 3.7.3 changed the
+     * PearlHash kernel selection for recent NVIDIA architectures, so merely finding an older
+     * executable is no longer sufficient evidence that every advertised GPU starts correctly.
+     */
+    public boolean binaryAvailable() { return compatibleBinary(executable); }
+
+    static boolean compatibleBinary(Path executable) {
+        if (!Files.isRegularFile(executable)) return false;
+        try {
+            return Files.readString(versionPath(executable)).strip().equals(SrbDownloadService.SRBMINER_VERSION);
+        } catch (IOException ignored) {
+            return false;
+        }
+    }
+
+    static Path versionPath(Path executable) {
+        return executable.resolveSibling(".solarminer-srbminer-version");
+    }
     public Path executablePath() { return executable; }
     public Path configurationPath() { return configFile; }
     public List<GpuState> gpuStates(List<LocalGpuPowerService.Gpu> cards) {
