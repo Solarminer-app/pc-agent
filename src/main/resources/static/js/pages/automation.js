@@ -54,16 +54,17 @@
 
   async function updateGlobal(input) {
     if (!settings || saving) return;
+    const enabled = input.checked;
     saving = true; render();
     try {
       const response = await fetch('/api/agent/local/power-control/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
         dynamicPowerScalingEnabled: settings.dynamicPowerScalingEnabled,
-        externalControlEnabled: input.checked,
+        externalControlEnabled: enabled,
         workerExternalControl: settings.workerExternalControl || {}
       })});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       settings = await response.json();
-      notice(input.checked ? 'Remote-Steuerung aktiviert. Wähle nun die verfügbaren Worker aus.' : 'Remote-Steuerung deaktiviert. Die Dev-Fee nutzt wieder den Proxy-Tarif von 1 %.');
+      notice(enabled ? 'Remote-Steuerung aktiviert. Wähle nun die verfügbaren Worker aus.' : 'Remote-Steuerung deaktiviert. Die Dev-Fee nutzt wieder den Proxy-Tarif von 1 %.');
       await load();
     } catch (error) {
       notice(t('Remote-Steuerung konnte nicht geändert werden: {error}', {error: window.SolarMinerI18n.s(error.message)}), true);
@@ -72,12 +73,13 @@
 
   async function updateWorker(worker, input) {
     if (saving || !settings?.externalControlEnabled) return;
+    const enabled = input.checked;
     saving = true; render();
     try {
-      const response = await fetch(`/api/agent/local/power-control/workers/${encodeURIComponent(worker.deviceId)}/external-control?enabled=${input.checked}`, {method: 'POST'});
+      const response = await fetch(`/api/agent/local/power-control/workers/${encodeURIComponent(worker.deviceId)}/external-control?enabled=${enabled}`, {method: 'POST'});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       settings = await response.json();
-      notice(input.checked ? 'Worker für die Node freigegeben.' : 'Worker auf lokale Steuerung beschränkt.');
+      notice(enabled ? 'Worker für die Node freigegeben.' : 'Worker auf lokale Steuerung beschränkt.');
       await load();
     } catch (error) {
       notice(t('Worker-Freigabe konnte nicht geändert werden: {error}', {error: window.SolarMinerI18n.s(error.message)}), true);
