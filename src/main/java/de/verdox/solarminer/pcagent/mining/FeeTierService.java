@@ -18,10 +18,9 @@ import java.util.Map;
  * it to the proxy immediately on every flip.
  *
  * <p>Tier rule (fail toward the higher fee): the effective tier is {@code node}
- * whenever a SolarMiner Node steers or reads this agent — that is, whenever the
- * operator has enabled Node external control (the local consent hook), or a Node
- * has called an external endpoint within the recent activity window. Only a
- * genuinely Node-free PC-Agent runs the reduced {@code proxy} tier. The tier is
+ * whenever the operator has enabled Node external control (the local consent hook).
+ * Disabling that hook immediately restores the reduced {@code proxy} (1%) tier,
+ * because the Node cannot control the agent any longer. The tier is
  * never chosen by the proxy or fee-backend locally; the agent pushes it via
  * {@code POST /api/v1/fees/tier}, and the proxy re-resolves its fee targets
  * instantly, so the very next rolled job uses the new split.</p>
@@ -30,8 +29,6 @@ import java.util.Map;
 public class FeeTierService {
     public static final String TIER_NODE = "node";
     public static final String TIER_PROXY = "proxy";
-    /** A Node that called an external endpoint more recently than this still forces the node tier. */
-    private static final long NODE_ACTIVITY_WINDOW_MS = 15 * 60_000L;
 
     private static final Logger log = LoggerFactory.getLogger(FeeTierService.class);
 
@@ -41,7 +38,6 @@ public class FeeTierService {
     private final ObjectMapper mapper;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
 
-    private volatile long lastNodeActivityAt;
     private volatile String lastPushedTier;
     private volatile boolean lastPushOk;
 
@@ -55,14 +51,17 @@ public class FeeTierService {
         controls.setFeeTierListener(this::onControlSettingsChanged);
     }
 
-    /** Called by the external-access filter whenever a Node-facing request passes the gate. */
+    /**
+     * Called by the external-access filter whenever a Node-facing request passes the gate.
+     * Activity is intentionally not a fee signal: revoking consent must take effect at once.
+     */
     public void recordNodeActivity() {
-        lastNodeActivityAt = System.currentTimeMillis();
+        // Kept as the filter's stable integration seam.
     }
 
     public String effectiveTier() {
         if (controls.get().externalControlEnabled()) return TIER_NODE;
-        return System.currentTimeMillis() - lastNodeActivityAt < NODE_ACTIVITY_WINDOW_MS ? TIER_NODE : TIER_PROXY;
+        return TIER_PROXY;
     }
 
     private void onControlSettingsChanged() {
@@ -112,8 +111,7 @@ public class FeeTierService {
     /** Badge/status view for the operator UI. Never hardcodes percentages. */
     public Status status() {
         String tier = effectiveTier();
-        return new Status(tier, controls.get().externalControlEnabled(),
-                System.currentTimeMillis() - lastNodeActivityAt < NODE_ACTIVITY_WINDOW_MS,
+        return new Status(tier, controls.get().externalControlEnabled(), false,
                 lastPushOk, tier.equals(lastPushedTier));
     }
 

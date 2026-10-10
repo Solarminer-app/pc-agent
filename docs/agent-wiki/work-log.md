@@ -2,7 +2,7 @@
 
 ## 2026-10-10 — Benchmark default-payout fallback and actionable failure
 
-- Sequential benchmarks now cover every locally integrated coin (Monero, Pearl, Ravencoin, Ethereum Classic, Decred and Quantus). An unavailable SolarMiner default payout skips only that coin's phase rather than aborting another ready miner; the skipped phase is recorded in its console and the final session summary. GPU-coin phases select only their own algorithm's workers and restore GPU miners that were running before the session.
+- Sequential benchmarks now cover every locally integrated coin (Monero, Pearl, Ravencoin, Ethereum Classic, Decred and Quantus). Before the run, every installed GPU miner with a detected GPU receives its SolarMiner default route when neither a worker assignment nor an operator wallet/pool route exists. An unavailable default payout skips only that coin's phase rather than aborting another ready miner; the skipped phase is recorded in its console and the final session summary. GPU-coin phases select only their own algorithm's workers and restore GPU miners that were running before the session.
 - When no phase can run, the start endpoint reports the precise default-payout/proxy/fee-target reason instead of only saying that a miner must be configured. The frontend renders these dynamic Agent diagnostics in German and English, including nested skipped-coin messages.
 - The default payout remains proxy-resolved at start time; no wallet or pool credentials are invented or persisted when the SolarMiner target is unavailable.
 - Verification: JDK 21 focused `BenchmarkSessionServiceTest`, `node --check src/main/resources/static/js/core/i18n.js`, and `git diff --check` passed.

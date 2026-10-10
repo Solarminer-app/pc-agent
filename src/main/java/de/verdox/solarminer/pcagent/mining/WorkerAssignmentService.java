@@ -76,10 +76,6 @@ public class WorkerAssignmentService {
         }
 
         if (!controls.setWorkerCoin(deviceId, coin)) throw new IOException("Worker-Zuweisung konnte nicht gespeichert werden");
-        if (!controls.setWorkerEnabled(deviceId, request.externalControlEnabled())) {
-            controls.setWorkerCoin(deviceId, oldCoin);
-            throw new IOException("Worker-Steuerungsmodus konnte nicht gespeichert werden");
-        }
         try {
             synchronizeConfiguredDevices(oldCoin, coin);
         } catch (IOException | RuntimeException failure) {
@@ -109,6 +105,11 @@ public class WorkerAssignmentService {
     }
 
     private void ensureGpuDefault(String coin, Hardware hardware) {
+        String assigned = assignedDevices(coin);
+        ensureGpuDefault(coin, hardware, assigned.isBlank() ? hardware.vendor + ":" + hardware.index : assigned);
+    }
+
+    private void ensureGpuDefault(String coin, Hardware hardware, String device) {
         if ("pearl".equals(coin) && pearl.configuration() != null) return;
         GpuCoinMinerService.Config existing = "pearl".equals(coin) ? null : gpuCoins.configuration(coin);
         if (existing != null && !payouts.usesDefault(coin)) return;
@@ -125,8 +126,6 @@ public class WorkerAssignmentService {
         };
         if (proxyUrl == null) throw new IllegalStateException("SolarMiner proxy route for " + coin + " is unavailable");
         String worker = error(payout.workerPart(), "solarminer");
-        String assigned = assignedDevices(coin);
-        String device = assigned.isBlank() ? hardware.vendor + ":" + hardware.index : assigned;
         if (existing != null) {
             if (existing.poolUrl().equals(payout.poolUrl()) && existing.wallet().equals(payout.walletPart())
                     && existing.worker().equals(worker) && existing.devices().equals(device)
@@ -143,19 +142,23 @@ public class WorkerAssignmentService {
         }
     }
 
-    /** Prepares every assigned GPU coin with the SolarMiner house route, without starting it. */
+    /**
+     * Prepares every installed GPU miner with the SolarMiner house route, without starting it.
+     * A benchmark must not require a prior Worker assignment or a manually saved payout route.
+     */
     public synchronized Map<String, String> prepareBenchmarkDefaults() {
         Map<String, String> unavailable = new LinkedHashMap<>();
+        List<LocalGpuPowerService.Gpu> cards = gpuPower.discover();
+        if (cards.isEmpty()) return Map.of();
+        String devices = cards.stream().map(gpu -> gpu.vendor() + ":" + gpu.index()).collect(java.util.stream.Collectors.joining(","));
+        LocalGpuPowerService.Gpu first = cards.getFirst();
         for (String coin : List.of("pearl", "ravencoin", "ethereumclassic", "decred", "quantus")) {
             if (configurationFor(coin)) continue;
-            for (LocalGpuPowerService.Gpu gpu : gpuPower.discover()) {
-                if (!coin.equals(controls.get().coinFor(gpu.deviceId()))) continue;
-                try {
-                    ensureGpuDefault(coin, new Hardware("GPU", gpu.vendor(), gpu.index()));
-                } catch (IllegalStateException failure) {
-                    unavailable.put(coin, failure.getMessage());
-                }
-                break;
+            if (!("pearl".equals(coin) ? pearl.binaryAvailable() : gpuCoins.binaryAvailable())) continue;
+            try {
+                ensureGpuDefault(coin, new Hardware("GPU", first.vendor(), first.index()), devices);
+            } catch (IllegalStateException failure) {
+                unavailable.put(coin, failure.getMessage());
             }
         }
         return Map.copyOf(unavailable);
@@ -287,7 +290,8 @@ public class WorkerAssignmentService {
     }
 
     private record Hardware(String type, String vendor, Integer index) { }
-    public record Assignment(String coin, String minerSoftwareId, boolean externalControlEnabled) { }
+    /** Worker setup deliberately has no remote-control flag; automation consent is centralized. */
+    public record Assignment(String coin, String minerSoftwareId) { }
     public record WorkerView(String deviceId, String hardwareType, String hardwareModel, String vendor, Integer index,
                              String coin, String coinName, String algorithm, String minerSoftwareId, String minerSoftwareName,
                              boolean minerInstalled, boolean configured, String poolUrl, boolean externalControlEnabled,

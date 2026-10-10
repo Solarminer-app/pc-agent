@@ -45,6 +45,28 @@ class WorkerAssignmentServiceTest {
         org.mockito.Mockito.verify(coins).configure(org.mockito.ArgumentMatchers.eq("ravencoin"), any(GpuCoinMinerService.Config.class));
         verify(payouts).markDefault("ravencoin", true);
     }
+
+    @Test
+    void benchmarkPreparesAnInstalledGpuMinerWithoutWorkerAssignmentOrOwnWallet() throws Exception {
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test GPU", 100, 250,
+                100, 250, 200, 150.0, "measured", true, null);
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        when(power.discover()).thenReturn(List.of(gpu));
+        PearlMinerService pearl = mock(PearlMinerService.class);
+        when(pearl.binaryAvailable()).thenReturn(true);
+        PayoutDefaultsService payouts = mock(PayoutDefaultsService.class);
+        when(payouts.resolve("pearl")).thenReturn(java.util.Optional.of(new PayoutDefaultsService.DefaultPayout(
+                "pearl", "house", "stratum+tcp://pool.example:3333", "prl1abcdefghijklmnopqrstuvwxyz234567.worker", "x")));
+        ProxyConfigurationService proxy = mock(ProxyConfigurationService.class);
+        when(proxy.pearlUrl()).thenReturn("stratum+tcp://127.0.0.1:3335");
+        WorkerAssignmentService service = new WorkerAssignmentService(mock(AgentControlSettingsService.class), mock(MiningService.class),
+                power, mock(MinerCatalogService.class), pearl, mock(GpuCoinMinerService.class),
+                mock(de.verdox.solarminer.pcagent.xmr.XmrMinerService.class), payouts, proxy);
+
+        assertEquals(Map.of(), service.prepareBenchmarkDefaults());
+        verify(pearl).configure(any(PearlMinerService.Config.class));
+        verify(payouts).markDefault("pearl", true);
+    }
     @Test
     void gpuWorkersUseTheMinerAlgorithmForLiveStatus() {
         var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test GPU", 100, 250,
@@ -89,7 +111,6 @@ class WorkerAssignmentServiceTest {
             state.set(new AgentControlSettingsService.Settings(true, false, Map.of(), Map.of("cpu", "monero")));
             return true;
         });
-        when(controls.setWorkerEnabled("cpu", false)).thenReturn(true);
         MinerCatalogService.MinerOption xmrig = new MinerCatalogService.MinerOption("xmrig", "monero", "XMRig",
                 "CPU", "RandomX", 1.0, List.of(), List.of(), "https://xmrig.com", false,
                 true, "READY", "", true, null);
@@ -103,7 +124,7 @@ class WorkerAssignmentServiceTest {
                 mock(de.verdox.solarminer.pcagent.xmr.XmrMinerService.class), mock(PayoutDefaultsService.class),
                 mock(ProxyConfigurationService.class));
         WorkerAssignmentService.WorkerView result = service.assign("cpu",
-                new WorkerAssignmentService.Assignment("monero", "xmrig", false));
+                new WorkerAssignmentService.Assignment("monero", "xmrig"));
 
         assertEquals("monero", result.coin());
         assertEquals("xmrig", result.minerSoftwareId());
@@ -123,6 +144,6 @@ class WorkerAssignmentServiceTest {
                 mock(ProxyConfigurationService.class));
 
         assertThrows(IllegalArgumentException.class, () -> service.assign("cpu",
-                new WorkerAssignmentService.Assignment("pearl", "srbminer-multi", false)));
+                new WorkerAssignmentService.Assignment("pearl", "srbminer-multi")));
     }
 }

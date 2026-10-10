@@ -32,12 +32,12 @@ class FeeTierServiceTest {
     }
 
     @Test
-    void recentNodePresenceForcesNodeTierEvenWithoutConsentHook() {
+    void recentNodePresenceDoesNotOverrideDisabledRemoteControl() {
         AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
         when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(true, false));
         FeeTierService service = service(controls);
         service.recordNodeActivity();
-        assertEquals(FeeTierService.TIER_NODE, service.effectiveTier());
+        assertEquals(FeeTierService.TIER_PROXY, service.effectiveTier());
     }
 
     @Test

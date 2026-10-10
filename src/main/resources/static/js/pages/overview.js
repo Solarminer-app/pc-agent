@@ -51,7 +51,7 @@
     else if (unconfigured) items.push(['warn', 'Einrichtung unvollständig', `${unconfigured.name}: ${t('Pool, Auszahlung oder Geräteauswahl fehlen.')}`, '/workers.html', 'Worker einrichten →']);
     if (!data.proxy?.reachable) items.push(['bad', 'Mining-Verbindung getrennt', 'Der Proxy ist nicht erreichbar; ohne ihn starten die Miner nicht.', '/proxy.html', 'Verbindung prüfen →']);
     if (errors.length) items.push(['bad', t('{count} Worker mit Fehler', {count: errors.length}), errors.map(worker => worker.workerDisplayName).join(', '), '/workers.html', 'Worker prüfen →']);
-    if (settings?.externalControlEnabled && !enabledIds.length) items.push(['warn', 'Node-Steuerung erlaubt, aber kein Gerät freigegeben', 'Ordne im Worker-Bereich mindestens ein Gerät zu, damit der Node automatisch regeln darf.', '/workers.html', 'Worker öffnen →']);
+    if (settings?.externalControlEnabled && !enabledIds.length) items.push(['warn', 'Node-Steuerung erlaubt, aber kein Gerät freigegeben', 'Wähle unter Node-Automatisierung mindestens einen Worker aus, damit der Node automatisch regeln darf.', '/automation.html', 'Node-Automatisierung öffnen →']);
     if (!items.length) items.push(['ok', 'Alles im erwarteten Bereich', 'Keine offene Aktion. Die Messwerte unten zeigen den laufenden Betrieb.', null, null]);
     for (const [tone, title, description, href, action] of items) {
       const row = ui.element('div', `notice-line ${tone}`);

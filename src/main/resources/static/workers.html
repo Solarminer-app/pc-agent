@@ -35,7 +35,7 @@
     <main>
         <div class="page-title">
             <div><p class="kicker">BETRIEB</p><h1>Worker</h1>
-                <p>Hier weist du CPU und GPUs einem Coin, einer installierten Miner-Software und einem Steuerungsmodus zu.</p></div>
+                <p>Hier weist du CPU und GPUs einem Coin und einer installierten Miner-Software zu.</p></div>
             <a class="button subtle" href="/mining.html">Miner-Software verwalten →</a></div>
         <div id="status-strip" class="sticky-strip" aria-label="Betriebsstatus"></div>
         <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
@@ -47,8 +47,7 @@
                 <button type="button" class="filter-button" data-hardware="GPU">GPU</button>
                 <button type="button" class="filter-button" data-hardware="CPU">CPU</button>
             </div>
-            <label class="node-global-control"><input id="global-node-control" type="checkbox">
-                <span>Node-Automatik global erlauben</span></label>
+            <a class="button subtle" href="/automation.html">Node-Automatisierung verwalten →</a>
             <a class="muted" href="/hardware.html">Leistungsgrenzen je GPU →</a>
         </div>
         <section class="panel" aria-labelledby="worker-title">
@@ -71,8 +70,6 @@
                 <label class="field"><span>Miner-Software</span><select id="worker-miner"></select>
                     <small id="worker-miner-help" class="muted"></small>
                     <a id="worker-miner-install" href="/mining.html" hidden>Kompatible Miner-Software installieren →</a></label>
-                <label class="worker-control-choice"><input id="worker-node-control" type="checkbox">
-                    <span><strong>Dieses Gerät für die Node freigeben</strong><small>Die globale Node-Automatik kann zusätzlich alle Freigaben sperren.</small></span></label>
                 <div id="worker-pool-summary" class="notice-line"></div>
                 <div class="dialog-actions"><button class="button subtle" value="cancel" type="submit">Abbrechen</button>
                     <button id="worker-save" class="button primary" value="default" type="submit">Zuweisung speichern</button></div>
