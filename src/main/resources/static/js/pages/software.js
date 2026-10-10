@@ -31,8 +31,8 @@
       const haystack = [item.name, ...item.variants.map(coinName), ...item.algorithms].join(' ').toLowerCase();
       return (filter === 'all' || filter === device) && (!search || haystack.includes(search));
     });
-    $('catalog-installed-count').textContent = t(`${packages.filter(item => item.installed).length} installiert`);
-    $('catalog-available-count').textContent = t(`${packages.length} verfügbar`);
+    $('catalog-installed-count').textContent = t('{count} installiert', {count: packages.filter(item => item.installed).length});
+    $('catalog-available-count').textContent = t('{count} verfügbar', {count: packages.length});
     const grid = $('software-grid'); grid.replaceChildren();
     if (!list.length) { grid.append(el('p', 'table-empty', 'Keine Miner-Software passt zu diesem Filter.')); return; }
     for (const item of list) {
@@ -48,12 +48,12 @@
       card.append(supported);
       const facts = el('dl', 'software-facts');
       const fact = (name, value) => { facts.append(el('dt', '', name), el('dd', '', value)); };
-      fact('Developer Fee', item.developerFeePercent == null ? '—' : `${item.developerFeePercent} %`);
+      fact('Entwicklergebühr', item.developerFeePercent == null ? '—' : `${item.developerFeePercent} %`);
       fact('Plattform', item.device);
       fact('Projekt', item.projectUrl || '—');
       card.append(facts);
-      const copy = el('p', 'muted', item.downloadDetail || item.unavailableReason ||
-        (item.installed ? 'Die Software ist bereit und kann einem Worker zugewiesen werden.' : 'Installation erfolgt aus der verifizierten offiziellen Release-Quelle.'));
+      const copy = el('p', 'muted', item.installed ? 'Die Software ist bereit und kann einem Worker zugewiesen werden.' : 'Installation erfolgt aus der verifizierten offiziellen Release-Quelle.');
+      if (item.downloadDetail || item.unavailableReason) copy.textContent = window.SolarMinerI18n.s(item.downloadDetail || item.unavailableReason);
       card.append(copy);
       const actions = el('div', 'software-actions');
       if (item.projectUrl) { const link = el('a', 'button subtle', 'Projektseite ↗'); link.href = item.projectUrl; link.target = '_blank'; link.rel = 'noopener noreferrer'; actions.append(link); }
@@ -79,7 +79,7 @@
       const response = await fetch(path, {method: 'POST'});
       if (!response.ok || await response.json() !== true) throw new Error(`HTTP ${response.status}`);
       notice(success); await load();
-    } catch (error) { notice(`Aktion fehlgeschlagen: ${error.message}`, true); }
+    } catch (error) { notice(t('Aktion fehlgeschlagen: {error}', {error: window.SolarMinerI18n.s(error.message)}), true); }
     finally { busy = false; render(); }
   }
 
@@ -90,7 +90,7 @@
       packages = group(await response.json()); render();
       $('connection').className = 'badge online'; $('connection').textContent = t('Agent verbunden');
     } catch (error) {
-      notice(`Miner-Katalog konnte nicht geladen werden: ${error.message}`, true);
+      notice(t('Miner-Katalog konnte nicht geladen werden: {error}', {error: window.SolarMinerI18n.s(error.message)}), true);
       $('connection').className = 'badge offline'; $('connection').textContent = t('Agent nicht erreichbar');
     }
   }

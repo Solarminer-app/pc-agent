@@ -44,14 +44,14 @@
   function renderStatus() {
     const strip = $('status-strip'); strip.replaceChildren();
     const add = (label, value, tone) => {
-      const item = ui.element('span', 'strip-item'); item.append(ui.element('span', '', `${label}: `));
+      const item = ui.element('span', 'strip-item'); item.append(ui.element('span', '', `${t(label)}: `));
       const pill = ui.statusPill(null, value); if (tone) pill.classList.add(tone); item.append(pill); strip.append(item);
     };
     add('Agent', 'verbunden', 'tone-ok');
     add('Zugewiesen', `${workers.filter(worker => worker.coin !== 'none').length}/${workers.length}`,
       workers.some(worker => worker.coin === 'none') ? 'tone-warn' : 'tone-ok');
     const broken = workers.filter(worker => worker.coin !== 'none' && (!worker.minerInstalled || !worker.configured)).length;
-    if (broken) add('Handlungsbedarf', `${broken} Worker`, 'tone-bad');
+    if (broken) add('Handlungsbedarf', t('{count} Worker', {count: broken}), 'tone-bad');
   }
 
   function renderKpis() {
@@ -68,8 +68,8 @@
       ui.metric({label: 'Leistung', value: totalWatts ? ui.power(totalWatts) : '—', detail: 'Nur verfügbare Sensorwerte'}),
       ui.metric({label: 'Algorithmen', value: algorithms.size ? String(algorithms.size) : '—', detail: [...algorithms].map(([name, value]) => `${name} ${ui.hashrate(value)}`).join(' · ') || 'Keine Hashrate'}),
       ui.metric({label: 'Höchste Temperatur', value: temps.length ? ui.temperature(Math.max(...temps)) : '—', detail: 'Miner- oder Host-Sensor'}),
-      ui.metric({label: 'Energie heute', value: today ? `${Number(today.kilowattHours).toLocaleString(window.SolarMinerI18n.locale, {maximumFractionDigits: 3})} kWh` : '—', detail: today ? `${Math.round(today.measurementCoverage * 100)} % Messabdeckung` : 'Journal wird geladen'}),
-      ui.metric({label: 'Stromkosten heute', value: today ? money(today.cost) : '—', detail: `Tarif ${energy ? Number(tariff == null ? energy.settings.pricePerKwh : tariff).toLocaleString(preferences.locale, {maximumFractionDigits: 4}) : '—'} ${tariffCurrency || ''}/kWh`})
+      ui.metric({label: 'Energie heute', value: today ? `${Number(today.kilowattHours).toLocaleString(window.SolarMinerI18n.locale, {maximumFractionDigits: 3})} kWh` : '—', detail: today ? t('{percent} % Messabdeckung', {percent: Math.round(today.measurementCoverage * 100)}) : 'Journal wird geladen'}),
+      ui.metric({label: 'Stromkosten heute', value: today ? money(today.cost) : '—', detail: t('Tarif {price} {currency}/kWh', {price: energy ? Number(tariff == null ? energy.settings.pricePerKwh : tariff).toLocaleString(preferences.locale, {maximumFractionDigits: 4}) : '—', currency: tariffCurrency || ''})})
     );
   }
 
@@ -83,7 +83,7 @@
     }
     const input = ui.element('input', 'scope-search'); input.type = 'search'; input.placeholder = t('Worker, Gerät, Coin oder Miner suchen'); input.value = search;
     input.addEventListener('input', event => { search = event.target.value.trim().toLowerCase(); renderTable(); });
-    const count = ui.element('span', 'scope-count', `${filtered().length} Worker`);
+    const count = ui.element('span', 'scope-count', t('{count} Worker', {count: filtered().length}));
     bar.append(chips, input, count); $('scope-bar').replaceChildren(bar);
   }
 
@@ -92,7 +92,7 @@
     if (!session) return null;
     const wrap = ui.element('div');
     wrap.append(ui.element('strong', '', `${(Number(session.wattHours) / 1000).toLocaleString(window.SolarMinerI18n.locale, {maximumFractionDigits: 3})} kWh`));
-    wrap.append(ui.element('span', 'cell-sub', `${duration(session.runtimeSeconds)} · ${Math.round(session.runtimeSeconds ? session.measuredSeconds / session.runtimeSeconds * 100 : 0)} % gemessen`));
+    wrap.append(ui.element('span', 'cell-sub', t('{duration} · {percent} % gemessen', {duration: duration(session.runtimeSeconds), percent: Math.round(session.runtimeSeconds ? session.measuredSeconds / session.runtimeSeconds * 100 : 0)})));
     return wrap;
   }
 
@@ -103,14 +103,14 @@
     }},
     {label: 'Zuweisung', key: 'coinName', width: '18%', render: worker => {
       const wrap = ui.element('div');
-      wrap.append(ui.element('strong', '', worker.coin === 'none' ? 'Nicht zugewiesen' : `${worker.coinName} · ${worker.minerSoftwareName || 'kein Miner'}`));
-      wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? 'Freie Kapazität' : `${worker.algorithm} · ${worker.configured ? worker.poolUrl ? 'Pool eingerichtet' : 'Standardroute' : t('SolarMiner-Standardziel wird beim Start geprüft')}`)); return wrap;
+      wrap.append(ui.element('strong', '', worker.coin === 'none' ? t('Nicht zugewiesen') : `${worker.coinName} · ${worker.minerSoftwareName || t('kein Miner')}`));
+      wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? t('Freie Kapazität') : `${worker.algorithm} · ${worker.configured ? worker.poolUrl ? t('Pool eingerichtet') : t('Standardroute') : t('SolarMiner-Standardziel wird beim Start geprüft')}`)); return wrap;
     }},
     {label: 'Status', key: 'status', width: '11%', render: worker => ui.statusPill(worker.status)},
     {label: 'Live', key: 'telemetry', width: '16%', render: worker => {
       if (worker.status !== 'MINING') return null;
       const wrap = ui.element('div'); wrap.append(ui.element('strong', '', ui.hashrate(hps(worker))));
-      wrap.append(ui.element('span', 'cell-sub', `${watts(worker) ? ui.power(watts(worker)) : 'Leistung —'} · ${temperature(worker) != null ? ui.temperature(temperature(worker)) : 'Temperatur —'}`)); return wrap;
+      wrap.append(ui.element('span', 'cell-sub', `${watts(worker) ? ui.power(watts(worker)) : t('Leistung —')} · ${temperature(worker) != null ? ui.temperature(temperature(worker)) : t('Temperatur —')}`)); return wrap;
     }},
     {label: 'Session-Energie', key: 'energy', width: '18%', render: energyCell},
     {label: 'Aktion', key: 'status', width: '18%', align: 'right', render: worker => {
@@ -282,7 +282,7 @@
       });
       if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || `HTTP ${response.status}`); }
       notice('Zuweisung gespeichert. Ein laufender vorheriger Worker wurde sicher angehalten.'); await load();
-    } catch (error) { notice(`Zuweisung fehlgeschlagen: ${error.message}`, true); }
+    } catch (error) { notice(t('Zuweisung fehlgeschlagen: {error}', {error: s(error.message)}), true, true); }
     finally {
       pendingWorkers.delete(worker.deviceId);
       renderTable();
@@ -300,7 +300,7 @@
         throw new Error(body?.detail || body?.message || `HTTP ${response.status}`);
       }
       if (await response.json() !== true) throw new Error(t('Die Worker-Aktion wurde nicht angewendet. Prüfe die Miner-Konsole.'));
-      notice(command === 'start' ? `${worker.hardwareModel} wurde gestartet.` : `${worker.hardwareModel} wurde pausiert.`); await load();
+      notice(t(command === 'start' ? '{worker} wurde gestartet.' : '{worker} wurde pausiert.', {worker: worker.hardwareModel}), false, true); await load();
     } catch (error) { notice(`${t('Worker-Aktion fehlgeschlagen:')} ${window.SolarMinerI18n.s(error.message)}`, true, true); await load(); }
     finally {
       pendingWorkers.delete(worker.deviceId);
@@ -331,7 +331,7 @@
       } catch (_) { /* Energy is optional for the worker inventory. */ }
     } catch (error) {
       $('connection').className = 'badge offline'; $('connection').textContent = t('Agent nicht erreichbar');
-      notice(`Worker konnten nicht geladen werden: ${error.message}`, true);
+      notice(t('Worker konnten nicht geladen werden: {error}', {error: s(error.message)}), true, true);
     } finally {
       loading = false;
     }

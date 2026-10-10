@@ -40,9 +40,9 @@
         || {value, name: 'Eigener Pool', region: 'Eigener/noch nicht katalogisierter Pool', feePercent: null};
     },
     feeLabel(entry) {
-      if (entry.value === 'solarminer') return 'SolarMiner-Standardziel · ohne eigene Auszahlung';
-      if (entry.value === 'custom') return 'Eigene Pool-Adresse';
       const t = window.SolarMinerI18n?.t || (value => value);
+      if (entry.value === 'solarminer') return t('SolarMiner-Standardziel · ohne eigene Auszahlung');
+      if (entry.value === 'custom') return t('Eigene Pool-Adresse');
       return `${entry.name} · ${t(entry.region)}${entry.feePercent != null ? ` · ${entry.feePercent} % ${t('Poolgebühr')}` : ''}`;
     },
     validUrl(value) { return /^stratum\+(tcp|ssl):\/\/[A-Za-z0-9._-]+:[0-9]{1,5}$/.test(String(value || '').trim()); }

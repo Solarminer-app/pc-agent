@@ -16,7 +16,7 @@
     const add = (label, value, tone, href) => {
       const item = document.createElement('span');
       item.className = 'strip-item';
-      item.append(ui.element('span', '', `${label}: `));
+      item.append(ui.element('span', '', `${t(label)}: `));
       const pill = ui.statusPill(null, value);
       if (tone) pill.classList.add(tone);
       item.append(pill);
@@ -48,7 +48,7 @@
           || (id === 'cpu' ? 'none' : settings.workerCoins['*'] || 'none')) !== 'none')) : [];
     const items = [];
     if (!installed.length) items.push(['warn', 'Noch kein Miner installiert', 'Wähle in der Miner-Bibliothek einen passenden Build und installiere ihn.', '/mining.html', 'Miner installieren →']);
-    else if (unconfigured) items.push(['warn', 'Einrichtung unvollständig', `${unconfigured.name}: ${t('Pool, Auszahlung oder Geräteauswahl fehlen.')}`, '/workers.html', 'Worker einrichten →']);
+    else if (unconfigured) items.push(['warn', 'Einrichtung unvollständig', t('{coin}: Pool, Auszahlung oder Geräteauswahl fehlen.', {coin: unconfigured.name}), '/workers.html', 'Worker einrichten →']);
     if (!data.proxy?.reachable) items.push(['bad', 'Mining-Verbindung getrennt', 'Der Proxy ist nicht erreichbar; ohne ihn starten die Miner nicht.', '/proxy.html', 'Verbindung prüfen →']);
     if (errors.length) items.push(['bad', t('{count} Worker mit Fehler', {count: errors.length}), errors.map(worker => worker.workerDisplayName).join(', '), '/workers.html', 'Worker prüfen →']);
     if (settings?.externalControlEnabled && !enabledIds.length) items.push(['warn', 'Node-Steuerung erlaubt, aber kein Gerät freigegeben', 'Wähle unter Node-Automatisierung mindestens einen Worker aus, damit der Node automatisch regeln darf.', '/automation.html', 'Node-Automatisierung öffnen →']);
@@ -114,7 +114,7 @@
       ui.metric({label: 'Laufende Sessions', value: ui.kilowattHours(activeWh), detail: t('{count} Worker · {duration}', {count: energy.activeSessions.length, duration: ui.duration(activeSeconds)}), tone: energy.activeSessions.length ? 'ok' : ''}),
       ui.metric({label: 'Heute', value: ui.kilowattHours(Number(energy.today.kilowattHours) * 1000), detail: `${money(energy.today.cost)} ${t('Stromkosten')}`}),
       ui.metric({label: '7 Tage', value: ui.kilowattHours(Number(energy.last7Days.kilowattHours) * 1000, 2), detail: `${money(energy.last7Days.cost)} ${t('Stromkosten')}`}),
-      ui.metric({label: 'Messabdeckung', value: `${Math.round(energy.today.measurementCoverage * 100)} %`, detail: 'Fehlende Sensorintervalle werden nicht geschätzt'})
+      ui.metric({label: 'Messabdeckung', value: `${Math.round(energy.today.measurementCoverage * 100)} %`, detail: t('Fehlende Sensorintervalle werden nicht geschätzt')})
     );
     $('energy-note').textContent = t('Komponentenverbrauch aus verfügbaren CPU-Package- und GPU-Board-Sensoren · Tarif {tariff} {currency}/kWh. Netzteil- und übrige Systemverluste können fehlen.',
       {tariff: Number(tariff == null ? energy.settings.pricePerKwh : tariff).toLocaleString(preferences.locale, {maximumFractionDigits: 4}), currency: tariffCurrency});

@@ -87,7 +87,7 @@
     bar.hidden = !downloading;
     if (downloading) barFill.style.width = Math.max(2, Math.min(100, percent)) + '%';
     detail.textContent = (version ? t('Version {version}', {version}) + ' · ' : '')
-      + (message || t('Ohne Proxy kann dieser PC nicht minen.'));
+      + (window.SolarMinerI18n.s(message) || t('Ohne Proxy kann dieser PC nicht minen.'));
     retry.hidden = state !== 'failed' || retrying;
   }
 
@@ -122,7 +122,7 @@
     try {
       await window.SolarMinerUI.postJson('/api/agent/local/proxy-gate/retry');
     } catch (error) {
-      detail.textContent = t('Erneuter Versuch fehlgeschlagen: {error}', {error: error.message});
+      detail.textContent = t('Erneuter Versuch fehlgeschlagen: {error}', {error: window.SolarMinerI18n.s(error.message)});
     } finally {
       retrying = false;
       retry.disabled = false;

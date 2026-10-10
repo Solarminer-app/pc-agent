@@ -50,7 +50,7 @@ function rangeControl(gpu, enabled) {
         const span = +min.max - +min.min;
         selected.style.left = (span ? 100 * (+min.value - +min.min) / span : 0) + '%';
         selected.style.right = (span ? 100 - 100 * (+max.value - +max.min) / span : 0) + '%';
-        values.replaceChildren(node('span', '', 'Min. ' + fmt(min.value) + ' W'), node('strong', '', fmt(min.value) + '–' + fmt(max.value) + ' W'), node('span', '', 'Max. ' + fmt(max.value) + ' W'));
+        values.replaceChildren(node('span', '', i18n.t('Min. {watts} W', {watts: fmt(min.value)})), node('strong', '', fmt(min.value) + '–' + fmt(max.value) + ' W'), node('span', '', i18n.t('Max. {watts} W', {watts: fmt(max.value)})));
     };
     const edit = () => {
         draw();
@@ -87,10 +87,10 @@ function rangeControl(gpu, enabled) {
             gpu.userMaxPowerLimitWatts = value.maximumWatts;
             state.classList.remove('hardware-draft');
             state.textContent = i18n.t('Leistungsgrenzen gespeichert.');
-            notice(gpu.model + ': ' + i18n.t('Leistungsgrenzen gespeichert.'));
+            notice(i18n.t('{gpu}: Leistungsgrenzen gespeichert.', {gpu: gpu.model}));
             save.blur();
         } catch (error) {
-            notice(error.message, true);
+            notice(i18n.s(error.message), true);
         } finally {
             saving = false;
             min.disabled = max.disabled = !enabled;
@@ -129,7 +129,7 @@ function renderSettings(data) {
             notice('Leistungsregelung aktualisiert.');
         } catch (error) {
             input.checked = !input.checked;
-            notice(error.message, true);
+            notice(i18n.s(error.message), true);
         } finally {
             saving = false;
             input.disabled = false;
@@ -153,12 +153,12 @@ function render(data) {
         card.append(head);
         if (!gpu.supportsDynamicPowerScaling) {
             card.append(node('p', 'muted', 'Für dieses Gerät ist nur Start/Stopp verfügbar. Leistungsgrenzen können nicht zuverlässig angewendet werden.'));
-            if (gpu.regulationError) card.append(node('p', 'muted', gpu.regulationError));
+            if (gpu.regulationError) card.append(node('p', 'muted', i18n.s(gpu.regulationError)));
             list.append(card);
             continue;
         }
         const stats = node('div', 'hardware-gpu-stats');
-        stats.append(node('span', '', 'Treiber ' + fmt(gpu.driverMinPowerLimitWatts) + '–' + fmt(gpu.driverMaxPowerLimitWatts) + ' W'), node('span', '', 'Limit ' + (gpu.currentPowerLimitWatts ?? '—') + ' W'), node('span', '', i18n.t('Aufnahme') + ' ' + (gpu.currentUsageWatts == null ? '—' : fmt(gpu.currentUsageWatts) + ' W')));
+        stats.append(node('span', '', i18n.t('Treiber {min}–{max} W', {min: fmt(gpu.driverMinPowerLimitWatts), max: fmt(gpu.driverMaxPowerLimitWatts)})), node('span', '', i18n.t('Limit {watts} W', {watts: gpu.currentPowerLimitWatts ?? '—'})), node('span', '', i18n.t('Aufnahme {watts}', {watts: gpu.currentUsageWatts == null ? '—' : fmt(gpu.currentUsageWatts) + ' W'})));
         card.append(stats, rangeControl(gpu, data.dynamicPowerScalingEnabled));
         if (!data.dynamicPowerScalingEnabled) card.append(node('p', 'muted', 'Dynamische Leistungsregelung ist ausgeschaltet. Aktiviere sie oben, um Grenzen zu bearbeiten.'));
         const details = node('details', 'hardware-identity');
@@ -186,11 +186,11 @@ async function refresh() {
         if ($('notice').dataset.kind === 'connection') $('notice').hidden = true;
         $('connection').className = 'badge online';
         $('connection').textContent = i18n.t('Agent verbunden');
-        $('updated').textContent = i18n.t('Aktualisiert ' + new Date().toLocaleTimeString(i18n.locale));
+        $('updated').textContent = i18n.t('Aktualisiert {time}', {time: new Date().toLocaleTimeString(i18n.locale)});
     } catch (error) {
         $('connection').className = 'badge offline';
         $('connection').textContent = i18n.t('Agent nicht erreichbar');
-        notice('Hardwaredaten konnten nicht geladen werden: ' + error.message, true, 'connection');
+        notice(i18n.t('Hardwaredaten konnten nicht geladen werden: {error}', {error: i18n.s(error.message)}), true, 'connection');
     } finally {
         refreshing = false;
     }
