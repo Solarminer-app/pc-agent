@@ -52,8 +52,8 @@ public class MiningOptimizationController {
                 throw new IllegalArgumentException("Diese RandomX-Optimierung wird auf diesem Betriebssystem nicht unterstützt");
         }
         if (wasRunning && (!request.enabled() || !windowsHugePages.isWindows() || windowsHugePages.availableInCurrentSession())) {
-            mining.pauseMining("monero");
-            mining.resumeMining("monero");
+            mining.pauseMining(de.verdox.solarminer.pcagent.coin.Coin.MONERO.id());
+            mining.resumeMining(de.verdox.solarminer.pcagent.coin.Coin.MONERO.id());
         }
         return status();
     }

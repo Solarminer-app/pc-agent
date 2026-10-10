@@ -19,12 +19,13 @@ import java.util.Map;
 @Component
 public class KryptexPoolBalanceProvider implements PoolBalanceProvider {
     private static final String API_BASE = "https://pool.kryptex.com";
+    /** Adapter-local mapping to Kryptex's own coin slugs; Decred has no Kryptex pool. */
     private static final Map<String, String> COINS = Map.of(
-            "monero", "xmr",
-            "pearl", "prl",
-            "ravencoin", "rvn",
-            "ethereumclassic", "etc",
-            "quantus", "qtc");
+            de.verdox.solarminer.pcagent.coin.Coin.MONERO.id(), "xmr",
+            de.verdox.solarminer.pcagent.coin.Coin.PEARL.id(), "prl",
+            de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN.id(), "rvn",
+            de.verdox.solarminer.pcagent.coin.Coin.ETHEREUMCLASSIC.id(), "etc",
+            de.verdox.solarminer.pcagent.coin.Coin.QUANTUS.id(), "qtc");
 
     private final ObjectMapper mapper;
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();

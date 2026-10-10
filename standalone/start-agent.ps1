@@ -1,3 +1,4 @@
+param([switch]$Bootstrap)
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -5,6 +6,91 @@ $installDir = Join-Path $env:LOCALAPPDATA 'SolarMiner\PC-Agent'
 $runtimeDir = Join-Path $installDir 'runtime'
 $jarPath = Join-Path $installDir 'solarminer-pc-agent-standalone.jar'
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+
+function Write-StartupSection([string]$title) {
+    Write-Host ''
+    Write-Host "[$title]"
+}
+
+function Write-StartupItem([string]$text) {
+    Write-Host "  - $text"
+}
+
+function Write-StartupAction([string]$text) {
+    Write-Host "  ACTION REQUIRED: $text" -ForegroundColor Yellow
+}
+
+function Test-DefenderExclusion([string]$path) {
+    try {
+        $preferences = Get-MpPreference -ErrorAction Stop
+        return [bool](@($preferences.ExclusionPath) | Where-Object { $_ -and $_.TrimEnd('\') -ieq $path.TrimEnd('\') })
+    } catch {
+        Write-StartupItem "Defender status unavailable: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Invoke-FirstStartBootstrap {
+    $marker = Join-Path $installDir 'bootstrap-reviewed.txt'
+    $firstReview = -not (Test-Path -LiteralPath $marker)
+    $runReason = if ($Bootstrap) { 'manual request' } else { 'automatic start' }
+    Write-Host ''
+    Write-Host '=================================================='
+    Write-Host 'SolarMiner PC-Agent - Startup checks'
+    Write-Host "Reason: $runReason"
+    Write-Host '=================================================='
+    Write-StartupSection '1/3 Install directory'
+    $probe = Join-Path $installDir ('write-probe-' + [guid]::NewGuid().ToString('N'))
+    try {
+        [System.IO.File]::WriteAllText($probe, 'ok')
+        Write-StartupItem 'Install folder is writable [OK]'
+    } finally { Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $probe }
+    Write-StartupSection '2/3 GPU power-control readiness'
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    $administrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    Write-StartupItem "Administrator token for GPU power limits: $administrator"
+    if (-not $administrator) {
+        Write-StartupAction 'Administrator rights are required. Close this window, then start the launcher with Run as administrator.'
+        throw 'SolarMiner PC-Agent requires Administrator rights to start.'
+    }
+    $nvidia = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
+    $nvidiaStatus = if ($nvidia) { 'available' } else { 'not found; normal without an NVIDIA GPU' }
+    Write-StartupItem "NVIDIA driver tool: $nvidiaStatus"
+    Write-StartupItem 'AMD Windows power-limit writes require a supported ADLX helper.'
+    Write-StartupSection '3/3 Windows Defender'
+    $defender = Get-Command Get-MpPreference -ErrorAction SilentlyContinue
+    if ($defender) {
+        if (Test-DefenderExclusion $installDir) {
+            Write-StartupItem 'Defender exclusion verified for this install folder [OK]'
+        } else {
+            Write-StartupAction "Defender exclusion is missing for: $installDir"
+            Write-StartupItem 'An exclusion reduces scanning of all files here, including miners.'
+            $choice = Read-Host 'Add this folder as a Defender exclusion with UAC? [y/N]'
+            if ($choice -match '^(y|yes)$') {
+                try {
+                    $escaped = $installDir.Replace("'", "''")
+                    $command = "`$ErrorActionPreference='Stop'; Add-MpPreference -ExclusionPath '$escaped'"
+                    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+                    $arguments = '-NoProfile -NonInteractive -EncodedCommand ' + $encoded
+                    $process = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -Wait -PassThru
+                    if ($process.ExitCode -ne 0 -or -not (Test-DefenderExclusion $installDir)) {
+                        Write-Warning 'Defender did not confirm the exclusion. Review Windows Security policies and Protection history.'
+                    } else { Write-StartupItem 'Defender exclusion verified [OK]' }
+                } catch { Write-Warning "Defender approval failed or was declined: $($_.Exception.Message)" }
+            }
+        }
+    } else { Write-StartupAction 'Windows Defender cmdlets are unavailable. Check security software manually.' }
+    [System.IO.File]::WriteAllText($marker, [DateTime]::UtcNow.ToString('o'))
+    Write-Host ''
+    Write-Host '--------------------------------------------------'
+    if ($firstReview) {
+        Write-Host 'Startup checks complete. They run automatically on every start.'
+    } else { Write-Host 'Startup checks complete.' }
+    Write-Host '--------------------------------------------------'
+}
+
+Invoke-FirstStartBootstrap
 
 Write-Host 'Checking for the latest SolarMiner PC-Agent release...'
 $headers = @{ 'User-Agent' = 'SolarMiner-PC-Agent-Launcher' }
@@ -72,7 +158,7 @@ if (-not (Test-Path -LiteralPath $javaExe)) {
 Write-Host 'Starting SolarMiner PC-Agent. Open http://127.0.0.1:8084/ in your browser.'
 Push-Location $installDir
 try {
-    & $javaExe -jar $jarPath '--solarminer.agent.standalone=true'
+    & $javaExe -jar $jarPath '--solarminer.agent.standalone=true' '--server.address=0.0.0.0'
     if ($LASTEXITCODE -ne 0) { throw "PC-Agent exited with code $LASTEXITCODE." }
 } finally {
     Pop-Location

@@ -43,7 +43,7 @@
       const balance = byCoin[wallet.coin] || {};
       const status = balance.poolStatus || 'UNSUPPORTED_POOL';
       const amount = balance.poolBalance ?? null;
-      items.append(chip(wallet.symbol, `${wallet.name} · im Pool`, amount, wallet.ticker,
+      items.append(chip(wallet.symbol, t('{coin} · im Pool', {coin: wallet.name}), amount, wallet.ticker,
         status, 'Pool-Guthaben vor Auszahlung'));
       if (wallet.coin === 'pearl') items.append(chip(wallet.symbol, 'Pearl · auf Adresse', balance.onChainBalance,
         'PRL', balance.onChainStatus || 'UNAVAILABLE', 'Bereits ausgezahlter Bestand'));

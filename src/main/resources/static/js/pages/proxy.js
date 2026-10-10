@@ -17,14 +17,14 @@ async function activate(mode) {
     if (mode === 'external') await command('/api/agent/local/proxy?host=' + encodeURIComponent($('external-host').value.trim()));
     await command('/api/agent/local/proxy/mode?mode=' + mode); hostDirty = false;
     notice('Verbindung geändert. Alle Miner wurden pausiert. Starte sie auf der Miner-Seite erneut.');
-  } catch (error) { notice(error.message, true); }
+  } catch (error) { notice(window.SolarMinerI18n.s(error.message), true); }
   finally { busy = false; await refresh(); controls(); }
 }
 function render(data) {
   current = data.proxy; const local = current?.mode === 'standalone';
   text('proxy-heading', local ? 'Lokaler Proxy ausgewählt' : 'Externer Proxy ausgewählt'); text('proxy-mode', local ? 'LOKAL' : 'EXTERN');
   text('proxy-state', current?.reachable ? 'Proxy erreichbar' : 'Proxy nicht erreichbar');
-  text('proxy-description', local ? current?.managedStatus === 'running' ? 'Der enthaltene Proxy läuft auf diesem PC.' : current?.managedDetail || 'Der lokale Proxy ist noch nicht bereit.' : current?.host || 'Kein externer Host gespeichert.');
+  text('proxy-description', local ? current?.managedStatus === 'running' ? 'Der enthaltene Proxy läuft auf diesem PC.' : window.SolarMinerI18n.s(current?.managedDetail) || 'Der lokale Proxy ist noch nicht bereit.' : current?.host || 'Kein externer Host gespeichert.');
   const dashboard = $('proxy-dashboard-link');
   const dashboardAvailable = local
     ? current?.managedStatus === 'running'
@@ -37,17 +37,17 @@ function render(data) {
   text('local-state', local ? 'AUSGEWÄHLT' : 'AUF DIESEM PC'); text('external-state', local ? 'IM NETZWERK' : 'AUSGEWÄHLT');
   if (!hostDirty && document.activeElement !== $('external-host')) $('external-host').value = current?.host || '';
   const routes = $('proxy-routes'); routes.replaceChildren();
-  for (const [key, name, experimental] of [['monero','Monero',false],['pearl','Pearl',false],['ravencoin','Ravencoin',true],['ethereumclassic','Ethereum Classic',true]]) {
-    const card = document.createElement('article'); card.className = 'route-coin'; const title = document.createElement('h3'); title.textContent = name;
-    const state = document.createElement('span'); state.className = 'tag ' + (current?.[key + 'FeeReady'] && !experimental ? 'ready' : ''); state.textContent = t(experimental ? 'VORBEREITET' : current?.[key + 'FeeReady'] ? 'FEE-ZIEL GELADEN' : 'FEE-ZIEL FEHLT');
-    const route = document.createElement('p'); route.textContent = current?.[key + 'Url'] || t('Keine Route verfügbar'); card.append(title,state,route); routes.append(card);
+  for (const coin of current?.coinRoutes || []) {
+    const card = document.createElement('article'); card.className = 'route-coin'; const title = document.createElement('h3'); title.textContent = coin.name;
+    const state = document.createElement('span'); state.className = 'tag ' + (coin.feeReady && !coin.experimental ? 'ready' : ''); state.textContent = t(coin.experimental ? 'VORBEREITET' : coin.feeReady ? 'FEE-ZIEL GELADEN' : 'FEE-ZIEL FEHLT');
+    const route = document.createElement('p'); route.textContent = coin.url || t('Keine Route verfügbar'); card.append(title,state,route); routes.append(card);
   }
   controls();
 }
 async function refresh() {
   if (refreshing) return; refreshing = true;
-  try { const response = await fetch('/api/agent/local/overview', {cache:'no-store'}); if (!response.ok) throw new Error('HTTP ' + response.status); render(await response.json()); if ($('notice').dataset.kind === 'connection') $('notice').hidden = true; $('connection').className = 'badge online'; text('connection','Agent verbunden'); text('updated','Aktualisiert ' + new Date().toLocaleTimeString(window.SolarMinerI18n.locale)); }
-  catch (error) { current = null; controls(); $('connection').className = 'badge offline'; text('connection','Agent nicht erreichbar'); notice('Proxy-Daten konnten nicht geladen werden: ' + error.message,true,'connection'); }
+  try { const response = await fetch('/api/agent/local/overview', {cache:'no-store'}); if (!response.ok) throw new Error('HTTP ' + response.status); render(await response.json()); if ($('notice').dataset.kind === 'connection') $('notice').hidden = true; $('connection').className = 'badge online'; text('connection','Agent verbunden'); text('updated',t('Aktualisiert {time}', {time: new Date().toLocaleTimeString(window.SolarMinerI18n.locale)})); }
+  catch (error) { current = null; controls(); $('connection').className = 'badge offline'; text('connection','Agent nicht erreichbar'); notice(t('Proxy-Daten konnten nicht geladen werden: {error}', {error: window.SolarMinerI18n.s(error.message)}),true,'connection'); }
   finally { refreshing = false; }
 }
 $('external-host').addEventListener('input',()=>{hostDirty=true;});
@@ -57,7 +57,7 @@ async function setRollMode(mode) {
   try {
     await command('/api/agent/local/proxy/roll-mode?mode=' + mode);
     notice('Fee-Verteilung geändert. Der lokale Proxy wurde neu gestartet und alle Miner wurden pausiert. Starte sie auf der Miner-Seite erneut.');
-  } catch (error) { notice(error.message, true); }
+  } catch (error) { notice(window.SolarMinerI18n.s(error.message), true); }
   finally { busy = false; await refresh(); controls(); }
 }
 $('roll-random').addEventListener('click',()=>setRollMode('random'));
@@ -73,7 +73,7 @@ $('proxy-discover').addEventListener('click',async()=>{
       const button=document.createElement('button'); button.type='button'; button.className='button subtle'; button.textContent=candidate.host + ' ' + t('auswählen');
       button.addEventListener('click',()=>{ $('external-host').value=candidate.host;hostDirty=true;$('external-host').focus(); }); $('proxy-candidates').append(button);
     }
-  } catch (error) { text('discovery-status',t('Suche fehlgeschlagen:') + ' ' + error.message); }
+  } catch (error) { text('discovery-status',t('Suche fehlgeschlagen: {error}', {error: window.SolarMinerI18n.s(error.message)})); }
   finally {busy=false;controls();}
 });
 $('refresh').addEventListener('click',refresh); refresh(); setInterval(()=>{if(!document.hidden && !busy)refresh();},12000);

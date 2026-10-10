@@ -100,12 +100,21 @@ jobs:
             exit 1
           fi
 
-      - name: Prepare Windows launcher release assets
+      - name: Prepare installer and launcher release assets
         shell: bash
         run: |
           set -euo pipefail
           cp standalone/start-agent.bat build/distributions/
           cp standalone/start-agent.ps1 build/distributions/
+          cp standalone/install-linux.sh build/distributions/
+          cp standalone/install-docker.sh build/distributions/
+          cp standalone/install-windows.ps1 build/distributions/
+          cp docker-compose.pc-agent.yml build/distributions/pc-agent.compose.yml
+          cp docker-compose.pc-agent.nvidia.yml build/distributions/pc-agent.nvidia.compose.yml
+          cp docker-compose.pc-agent.amd.yml build/distributions/pc-agent.amd.compose.yml
+          sh -n build/distributions/install-linux.sh
+          sh -n build/distributions/install-docker.sh
+          pwsh -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile("standalone/install-windows.ps1", [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }'
           cd build/distributions
           sha256sum solarminer-pc-agent-standalone.jar > solarminer-pc-agent-standalone.jar.sha256
 

@@ -18,7 +18,9 @@ public class WindowsDefenderExclusionService {
 
     public void addMinerDirectory(String coin, Path directory) throws IOException, InterruptedException {
         if (!isWindows()) throw new IOException("Diese Funktion ist nur unter Windows verfügbar.");
-        if (!("monero".equals(coin) || "pearl".equals(coin))) throw new IOException("Unbekannter Miner.");
+        de.verdox.solarminer.pcagent.coin.Coin parsed = de.verdox.solarminer.pcagent.coin.Coin.byIdOrNull(coin);
+        if (parsed == null || !(parsed.isCpu() || parsed == de.verdox.solarminer.pcagent.coin.Coin.PEARL))
+            throw new IOException("Unbekannter Miner.");
         Path normalized = directory.toAbsolutePath().normalize();
         if (!normalized.toString().matches("(?i)^[a-z]:\\\\.*"))
             throw new IOException("Der Installationsordner ist kein gültiger Windows-Pfad.");

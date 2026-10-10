@@ -9,6 +9,8 @@ import de.verdox.solarminer.pcagent.mining.MinerProcessRegistry;
 import de.verdox.solarminer.pcagent.mining.MinerStopContext;
 import de.verdox.solarminer.pcagent.mining.MinerShareTelemetry;
 import de.verdox.solarminer.pcagent.mining.ProxyConfigurationService;
+import de.verdox.solarminer.pcagent.coin.Coin;
+import de.verdox.solarminer.pcagent.miner.GpuCoinMiner;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -37,11 +39,21 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import de.verdox.solarminer.pcagent.miner.MinerConfig;
+import de.verdox.solarminer.pcagent.miner.GpuState;
 
 /** Manages RVN/ETC GPU processes through the same SRBMiner installation as Pearl. */
 @Service
 public class GpuCoinMinerService {
     private static final Duration HASHRATE_GRACE = Duration.ofSeconds(20);
+    /**
+     * Watchdog: seconds a freshly launched miner may take before it reports its first
+     * hashrate. Cold starts (DAG build, driver init) plus SRBMiner's one-minute average
+     * window legitimately need several minutes on memory-heavy algorithms. The efficiency
+     * sweep's own per-step grace (240 s default) must stay BELOW this value so the sweep,
+     * not this watchdog, makes the stability call.
+     */
+    static final int HASHRATE_STARTUP_WATCHDOG_SECONDS = 300;
     private final ObjectMapper mapper;
     private final ProxyConfigurationService proxy;
     private final PearlMinerService pearl;
@@ -49,7 +61,13 @@ public class GpuCoinMinerService {
     private final MinerConsoleService console;
     private final Path configDirectory;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build();
-    private final Map<String, Config> configs = new ConcurrentHashMap<>();
+    private final Map<String, MinerConfig> configs = new ConcurrentHashMap<>();
+    /**
+     * Ephemeral fee-backend configurations used only while the efficiency sweep measures a
+     * coin the operator never configured. They are never written to disk and are removed
+     * when the sweep ends, so the operator's configuration state is untouched.
+     */
+    private final Map<String, MinerConfig> sweepOverrides = new ConcurrentHashMap<>();
     private final Map<String, Run> runs = new ConcurrentHashMap<>();
     private final Set<String> manuallyPaused = ConcurrentHashMap.newKeySet();
     private volatile String lastError;
@@ -79,36 +97,52 @@ public class GpuCoinMinerService {
                                @Value("${solarminer.gpu-coin.config-directory:./solarminer-agent/srbminer}") String directory) {
         this.mapper = mapper; this.proxy = proxy; this.pearl = pearl; this.power = power; this.console = console;
         this.configDirectory = Path.of(directory).toAbsolutePath().normalize();
-        for (String coin : List.of("ravencoin", "ethereumclassic", "decred", "quantus")) {
+        for (Coin coin : srbCoins()) {
             try {
-                Path file = file(coin);
+                Path file = file(coin.id());
                 if (Files.isRegularFile(file)) {
-                    Config config = mapper.readValue(file.toFile(), Config.class);
-                    validate(coin, config);
-                    configs.put(coin, config);
+                    MinerConfig config = mapper.readValue(file.toFile(), MinerConfig.class);
+                    validate(coin.id(), config);
+                    configs.put(coin.id(), config);
                 }
             } catch (Exception e) {
-                lastError = coin + ": gespeicherte Konfiguration ungültig: " + e.getMessage();
+                lastError = coin.id() + ": gespeicherte Konfiguration ungültig: " + e.getMessage();
             }
         }
     }
 
-    public static boolean supported(String coin) { return "ravencoin".equals(coin) || "ethereumclassic".equals(coin) || "decred".equals(coin) || "quantus".equals(coin); }
-    public static String algorithm(String coin) {
-        return switch (coin) {
-            case "ravencoin" -> "kawpow";
-            case "ethereumclassic" -> "etchash";
-            case "decred" -> "blake3_decred";
-            case "quantus" -> "quantus";
-            default -> throw new IllegalArgumentException("Unbekannter GPU-Coin");
-        };
+    /** True when this service owns the coin (all GPU coins except Pearl, which has its own adapter). */
+    /** GPU coins served by this shared SRBMiner adapter (Pearl has its own adapter). */
+    public static java.util.List<Coin> srbCoins() { return Coin.sharedSrbCoins(); }
+    public static boolean supported(String coin) {
+        Coin parsed = Coin.byIdOrNull(coin);
+        return parsed != null && parsed.isSharedSrbCoin();
     }
+    public static String algorithm(String coin) {
+        Coin parsed = Coin.byIdOrNull(coin);
+        if (parsed == null || !supported(parsed.id())) throw new IllegalArgumentException("Unbekannter GPU-Coin");
+        return parsed.algorithm();
+    }
+
     private Path file(String coin) { return configDirectory.resolve("solarminer-" + coin + ".json"); }
-    public Config configuration(String coin) { return configs.get(coin); }
+    public MinerConfig configuration(String coin) { return configs.get(coin); }
+    /** Operator config wins; the ephemeral sweep override is only consulted for unconfigured coins. */
+    private MinerConfig effectiveConfig(String coin) {
+        MinerConfig configured = configs.get(coin);
+        return configured != null ? configured : sweepOverrides.get(coin);
+    }
+    public void setSweepOverride(String coin, MinerConfig config) { sweepOverrides.put(coin, config); }
+    public void clearSweepOverride(String coin) { sweepOverrides.remove(coin); }
     public boolean binaryAvailable() { return pearl.binaryAvailable(); }
     public String lastError() { return lastError; }
+    /** True when the given stratum url is this agent's proxy endpoint for the coin. */
+    public boolean routeMatches(String coin, String stratumUrl) { return proxy.matches(stratumUrl, coin); }
+    /** SRBMiner started outside the agent (shared binary with Pearl). */
+    public boolean hasExternalSrbMiner() { return pearl.hasExternalMinerProcess(); }
+    /** Mirror an orchestration event into a coin's aggregate console. */
+    public void appendConsoleEvent(String coin, String message) { console.append(coin, message); }
 
-    public static void validate(String coin, Config config) {
+    public static void validate(String coin, MinerConfig config) {
         if (!supported(coin)) throw new IllegalArgumentException("Unbekannter GPU-Coin");
         if (config == null) throw new IllegalArgumentException("Konfiguration fehlt");
         if (config.poolUrl() == null || !config.poolUrl().matches("^stratum\\+(tcp|ssl)://[A-Za-z0-9.-]+:[1-9][0-9]{0,4}$")
@@ -117,11 +151,11 @@ public class GpuCoinMinerService {
         if (config.proxyUrl() == null || !config.proxyUrl().matches("^stratum\\+tcp://[A-Za-z0-9.-]+:[1-9][0-9]{0,4}$")
                 || URI.create(config.proxyUrl()).getPort() > 65535)
             throw new IllegalArgumentException("Proxy muss stratum+tcp://host:port sein");
-        boolean validWallet = switch (coin) {
-            case "ravencoin" -> validRavencoinAddress(config.wallet());
-            case "ethereumclassic" -> config.wallet() != null && config.wallet().matches("^0x[0-9a-fA-F]{40}$");
-            case "decred" -> validDecredAddress(config.wallet());
-            case "quantus" -> config.wallet() != null && config.wallet().matches("qz[1-9A-HJ-NP-Za-km-z]{38,58}");
+        boolean validWallet = switch (Coin.byIdOrNull(coin)) {
+            case RAVENCOIN -> validRavencoinAddress(config.wallet());
+            case ETHEREUMCLASSIC -> config.wallet() != null && config.wallet().matches("^0x[0-9a-fA-F]{40}$");
+            case DECRED -> validDecredAddress(config.wallet());
+            case QUANTUS -> config.wallet() != null && config.wallet().matches("qz[1-9A-HJ-NP-Za-km-z]{38,58}");
             default -> false;
         };
         if (!validWallet)
@@ -179,10 +213,29 @@ public class GpuCoinMinerService {
         } catch (NoSuchAlgorithmException e) { throw new IllegalStateException("SHA-256 unavailable", e); }
     }
 
-    public synchronized void configure(String coin, Config config) throws IOException {
+    public synchronized void configure(String coin, MinerConfig config) throws IOException {
         validate(coin, config);
         if (!proxy.matches(config.proxyUrl(), coin)) throw new IllegalArgumentException("SolarMiner-Proxy-Route stimmt nicht");
         if (!stop(coin)) throw new IOException("GPU-Miner konnten nicht angehalten werden");
+        writeConfig(coin, config);
+        configs.put(coin, config);
+        manuallyPaused.removeIf(key -> key.startsWith(coin + ":"));
+        lastError = null;
+    }
+
+    /** Updates only an existing coin's proxy endpoint after the shared connection changes. */
+    public synchronized boolean updateProxyRoute(String coin, String proxyUrl) throws IOException {
+        MinerConfig current = configs.get(coin);
+        if (current == null || current.proxyUrl().equals(proxyUrl)) return false;
+        MinerConfig updated = new MinerConfig(current.poolUrl(), proxyUrl, current.wallet(), current.worker(), current.devices());
+        validate(coin, updated);
+        if (!proxy.matches(proxyUrl, coin)) throw new IllegalArgumentException("SolarMiner-Proxy-Route stimmt nicht");
+        writeConfig(coin, updated);
+        configs.put(coin, updated);
+        return true;
+    }
+
+    private void writeConfig(String coin, MinerConfig config) throws IOException {
         Files.createDirectories(configDirectory);
         Path temp = Files.createTempFile(configDirectory, coin + "-", ".json");
         try {
@@ -190,13 +243,10 @@ public class GpuCoinMinerService {
             try { Files.move(temp, file(coin), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
             catch (java.nio.file.AtomicMoveNotSupportedException e) { Files.move(temp, file(coin), StandardCopyOption.REPLACE_EXISTING); }
         } finally { Files.deleteIfExists(temp); }
-        configs.put(coin, config);
-        manuallyPaused.removeIf(key -> key.startsWith(coin + ":"));
-        lastError = null;
     }
 
     public List<LocalGpuPowerService.Gpu> selected(String coin) {
-        Config config = configs.get(coin);
+        MinerConfig config = effectiveConfig(coin);
         if (config == null) return List.of();
         List<String> devices = List.of(config.devices().split(","));
         return power.discover().stream().filter(gpu -> devices.contains(gpu.vendor() + ":" + gpu.index())).toList();
@@ -225,7 +275,7 @@ public class GpuCoinMinerService {
         if (manuallyPaused.contains(key)) return false;
         Run run = runs.computeIfAbsent(key, ignored -> new Run(coin, gpu));
         if (run.running()) return true;
-        Config config = configs.get(coin);
+        MinerConfig config = effectiveConfig(coin);
         if (config == null || !proxy.matches(config.proxyUrl(), coin) || !proxy.miningReady(coin)
                 || !proxy.feeReady(coin) || !binaryAvailable())
             return fail(run, "SolarMiner-Proxy, Fee-Ziel oder SRBMiner für " + coin + " nicht bereit");
@@ -233,14 +283,14 @@ public class GpuCoinMinerService {
             return fail(run, "SRBMiner läuft bereits für einen anderen Coin oder außerhalb des PC-Agent");
         try {
             int gpuId = pearl.mappedGpuId(gpu);
-            int apiPort = 13000 + switch (coin) { case "ravencoin" -> 0; case "ethereumclassic" -> 1000; case "decred" -> 2000; default -> 3000; } + gpuId;
+            int apiPort = 13000 + apiPortOffset(Coin.byIdOrNull(coin)) + gpuId;
             String suffix = "-" + (vendor.equals("NVIDIA") ? "n" : "a") + index;
             String worker = config.worker().substring(0, Math.min(config.worker().length(), 32 - suffix.length())) + suffix;
             String login = encodedLogin(config, worker);
             if (run.relay != null) run.relay.close();
             var relay = new de.verdox.solarminer.pcagent.mining.GpuStratumRelay(config.proxyUrl(), login, mapper);
             run.relay = relay;
-            Config relayed = new Config(config.poolUrl(), relay.localUrl(), config.wallet(), config.worker(), config.devices());
+            MinerConfig relayed = new MinerConfig(config.poolUrl(), relay.localUrl(), config.wallet(), config.worker(), config.devices());
             List<String> command = buildCommand(pearl.executablePath(), coin, relayed, login, apiPort, gpuId);
             Process process = new ProcessBuilder(command).directory(pearl.executablePath().getParent().toFile())
                     .redirectErrorStream(true).start();
@@ -284,13 +334,13 @@ public class GpuCoinMinerService {
         return runs.values().stream().anyMatch(run -> !run.coin.equals(coin) && run.gpu.deviceId().equals(deviceId) && run.running());
     }
 
-    static String encodedLogin(Config config, String worker) {
+    static String encodedLogin(MinerConfig config, String worker) {
         String route = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(config.poolUrl().getBytes(StandardCharsets.UTF_8));
         return config.wallet() + ".sm1." + route + "." + worker;
     }
 
-    static List<String> buildCommand(Path executable, String coin, Config config, String login,
+    static List<String> buildCommand(Path executable, String coin, MinerConfig config, String login,
                                      int apiPort, int gpuId) {
         URI uri = URI.create(config.proxyUrl());
         List<String> command = new ArrayList<>(List.of(executable.toString(), "--disable-cpu", "--algorithm-gpu", algorithm(coin),
@@ -298,8 +348,11 @@ public class GpuCoinMinerService {
                 "--tls", "false", "--api-enable", "--api-port", Integer.toString(apiPort),
                 "--gpu-id", Integer.toString(gpuId)));
         // Select the proxy's dialect explicitly, including extranonce negotiation.
-        if ("ethereumclassic".equals(coin)) command.addAll(List.of("--esm", "2"));
-        if ("ravencoin".equals(coin)) command.addAll(List.of("--nicehash", "true"));
+        switch (Coin.byIdOrNull(coin)) {
+            case ETHEREUMCLASSIC -> command.addAll(List.of("--esm", "2"));
+            case RAVENCOIN -> command.addAll(List.of("--nicehash", "true"));
+            default -> { }
+        }
         return List.copyOf(command);
     }
 
@@ -315,7 +368,7 @@ public class GpuCoinMinerService {
         return false;
     }
 
-    private void drain(Run run, Process process, Config config) {
+    private void drain(Run run, Process process, MinerConfig config) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -370,7 +423,7 @@ public class GpuCoinMinerService {
                 fail(run, "Pool-Job oder Fee-Route nicht verfügbar");
                 process.destroy(); return;
             }
-            if (hadJob && ((!hadHashrate && Duration.between(launched, Instant.now()).toSeconds() >= 180)
+            if (hadJob && ((!hadHashrate && Duration.between(launched, Instant.now()).toSeconds() >= HASHRATE_STARTUP_WATCHDOG_SECONDS)
                     || (hadHashrate && Duration.between(lastHashrate, Instant.now()).toSeconds() >= 120))) {
                 fail(run, "GPU liefert trotz Pool-Jobs keine Hashrate; SRBMiner- und GPU-Treiber prüfen");
                 process.destroy(); return;
@@ -440,7 +493,8 @@ public class GpuCoinMinerService {
         return MinerStats.MinerStatus.PAUSED;
     }
     public List<GpuState> gpuStates(String coin, List<LocalGpuPowerService.Gpu> cards) {
-        List<String> selected = configs.containsKey(coin) ? List.of(configs.get(coin).devices().split(",")) : List.of();
+        MinerConfig config = effectiveConfig(coin);
+        List<String> selected = config != null ? List.of(config.devices().split(",")) : List.of();
         return cards.stream().map(gpu -> {
             String key = coin + ":" + gpu.vendor() + ":" + gpu.index();
             Run run = runs.get(key);
@@ -451,7 +505,7 @@ public class GpuCoinMinerService {
         }).toList();
     }
     public List<MinerStats.Worker> workerStats(String coin, List<LocalGpuPowerService.Gpu> cards) {
-        Config config = configs.get(coin);
+        MinerConfig config = effectiveConfig(coin);
         if (config == null) return List.of();
         List<Pools> pools = List.of(new Pools(config.poolUrl(), config.wallet() + "/" + config.worker(), ""));
         return gpuStates(coin, cards).stream().filter(GpuState::selected).map(state -> {
@@ -475,8 +529,15 @@ public class GpuCoinMinerService {
         run.rejectedShares = counters.rejected();
         run.poolCounters = counters;
     }
-    @PreDestroy public void shutdown() { stop("ravencoin"); stop("ethereumclassic"); stop("decred"); stop("quantus"); }
-    public record Config(String poolUrl, String proxyUrl, String wallet, String worker, String devices) { }
-    public record GpuState(String vendor, int index, String model, boolean selected, MinerStats.MinerStatus status,
-                           boolean running, boolean poolHealthy, boolean manuallyPaused, String connectionDetail, String lastError) { }
+    /** SRBMiner API port block reserved per coin so parallel coins never share a status port. */
+    static int apiPortOffset(Coin coin) {
+        return switch (coin) {
+            case RAVENCOIN -> 0;
+            case ETHEREUMCLASSIC -> 1000;
+            case DECRED -> 2000;
+            default -> 3000;
+        };
+    }
+
+    @PreDestroy public void shutdown() { for (Coin coin : srbCoins()) stop(coin.id()); }
 }

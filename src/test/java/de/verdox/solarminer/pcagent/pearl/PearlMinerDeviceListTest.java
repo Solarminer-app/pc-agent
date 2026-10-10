@@ -6,6 +6,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class PearlMinerDeviceListTest {
     @Test
+    void mapsAmdByPciAddressInsteadOfDrmOrDriverEnumerationOrder() {
+        String output = "GPU0 [0][1] Radeon RX 6800 [00000000:21:00.0]\n"
+                + "GPU1 [1][0] Radeon RX 6700 [00000000:03:00.0]\n";
+
+        assertEquals(1, PearlMinerService.findAmdGpuId(output, "0000:03:00.0"));
+        assertEquals(0, PearlMinerService.findAmdGpuId(output, "0000:21:00.0"));
+    }
+
+    @Test
     void mapsColoredCudaListingFromLinuxPseudoTerminal() {
         String output = "\u001b[0m\u001b[1;32mGPU0\u001b[0m  \u001b[1;33m[CUDA][0] [0000:01:00.0] : nvidia_titan_rtx\u001b[0m\r\n"
                 + "\u001b[0m\u001b[1;32mGPU1\u001b[0m  \u001b[1;33m[CUDA][1] [0000:21:00.0] : nvidia_titan_rtx\u001b[0m\r\n"

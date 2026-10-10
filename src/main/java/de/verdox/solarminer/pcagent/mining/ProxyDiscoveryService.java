@@ -32,16 +32,19 @@ public class ProxyDiscoveryService {
     private static final int DISCOVERY_TIMEOUT_MS = 2200;
     private final ObjectMapper mapper;
     private final int discoveryPort;
+    private final int heartbeatPort;
     private final int expectedApiPort;
     private final int expectedMoneroPort;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(700)).build();
 
     public ProxyDiscoveryService(ObjectMapper mapper,
             @Value("${solarminer.agent.proxy.discovery-port:8091}") int discoveryPort,
+            @Value("${solarminer.agent.proxy.heartbeat-port:8092}") int heartbeatPort,
             @Value("${solarminer.agent.proxy.api-port:8090}") int expectedApiPort,
             @Value("${solarminer.agent.proxy.monero-port:3335}") int expectedMoneroPort) {
         this.mapper = mapper;
         this.discoveryPort = discoveryPort;
+        this.heartbeatPort = heartbeatPort;
         this.expectedApiPort = expectedApiPort;
         this.expectedMoneroPort = expectedMoneroPort;
     }
@@ -52,7 +55,9 @@ public class ProxyDiscoveryService {
         try (DatagramSocket socket = new DatagramSocket(null)) {
             socket.setReuseAddress(true);
             socket.setBroadcast(true);
-            socket.bind(new java.net.InetSocketAddress(0));
+            // Proxies publish periodic heartbeats to this stable port. Sending the legacy
+            // query from the same socket keeps compatibility with older proxy releases.
+            socket.bind(new java.net.InetSocketAddress(heartbeatPort));
             for (InetAddress broadcast : broadcastAddresses()) {
                 socket.send(new DatagramPacket(query, query.length, broadcast, discoveryPort));
             }
@@ -90,9 +95,11 @@ public class ProxyDiscoveryService {
                 int port = entry.getValue().asInt(-1);
                 if (port > 0 && port <= 65535) ports.put(entry.getKey(), port);
             });
-            if (ports.getOrDefault("monero", -1) != expectedMoneroPort) return null;
+            String monero = de.verdox.solarminer.pcagent.coin.Coin.MONERO.id();
+            String pearl = de.verdox.solarminer.pcagent.coin.Coin.PEARL.id();
+            if (ports.getOrDefault(monero, -1) != expectedMoneroPort) return null;
             return new ProxyCandidate(packet.getAddress().getHostAddress(), apiPort,
-                    ports.get("monero"), ports.getOrDefault("pearl", 0), ports);
+                    ports.get(monero), ports.getOrDefault(pearl, 0), ports);
         } catch (Exception ignored) {
             return null;
         }

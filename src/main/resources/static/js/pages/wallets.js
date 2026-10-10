@@ -77,7 +77,7 @@
       if (!response.ok || result !== true) throw new Error(result?.message || `HTTP ${response.status}`);
       notice(`${coin.name}: ${t('Wallet und Pool-Ziel gespeichert.')}`); await load();
       window.dispatchEvent(new Event('solarminer:wallets-changed'));
-    } catch (error) { notice(`${coin.name}: ${t('Speichern fehlgeschlagen:')} ${error.message}`, true); }
+    } catch (error) { notice(t('{coin}: Speichern fehlgeschlagen: {error}', {coin: coin.name, error: window.SolarMinerI18n.s(error.message)}), true); }
     finally { busy = false; form.querySelector('button[type=submit]').disabled = !proxyUrl(coin); }
   }
   function render() {
@@ -85,12 +85,10 @@
   }
   async function load() {
     try {
-      const response = await fetch('/api/agent/local/overview', {cache: 'no-store'});
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      overview = await response.json(); render();
+      overview = await window.SolarMinerUI.getJson('/api/agent/local/overview'); render();
       $('connection').className = 'badge online'; $('connection').textContent = t('Agent verbunden');
     } catch (error) {
-      notice(`${t('Wallet-Daten konnten nicht geladen werden:')} ${error.message}`, true);
+      notice(t('Wallet-Daten konnten nicht geladen werden: {error}', {error: window.SolarMinerI18n.s(error.message)}), true);
       $('connection').className = 'badge offline'; $('connection').textContent = t('Agent nicht erreichbar');
     }
   }

@@ -1,8 +1,8 @@
 package de.verdox.solarminer.pcagent.mining;
 
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
-import de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService;
-import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
+import de.verdox.solarminer.pcagent.coin.Coin;
+import de.verdox.solarminer.pcagent.miner.CoinMiner;
+import de.verdox.solarminer.pcagent.miner.MinerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -13,33 +13,21 @@ import java.util.logging.Logger;
 public class StandaloneFeeGuard {
     private static final Logger LOGGER = Logger.getLogger(StandaloneFeeGuard.class.getName());
     private final ProxyConfigurationService proxy;
-    private final XmrMinerService xmr;
-    private final PearlMinerService pearl;
-    private final GpuCoinMinerService gpuCoins;
+    private final MinerFactory miners;
 
-    public StandaloneFeeGuard(ProxyConfigurationService proxy, XmrMinerService xmr, PearlMinerService pearl,
-                              GpuCoinMinerService gpuCoins) {
+    public StandaloneFeeGuard(ProxyConfigurationService proxy, MinerFactory miners) {
         this.proxy = proxy;
-        this.xmr = xmr;
-        this.pearl = pearl;
-        this.gpuCoins = gpuCoins;
+        this.miners = miners;
     }
 
     @Scheduled(fixedDelay = 10_000)
     public void enforce() {
         if (!proxy.standalone()) return;
-        if (xmr.isMiningProcessAlive() && !proxy.miningReady("monero")) {
-            LOGGER.warning("Stopping XMRig: standalone proxy or Monero fee target unavailable");
-            xmr.hardStopMining();
-        }
-        if (pearl.running() && !proxy.miningReady("pearl")) {
-            LOGGER.warning("Stopping SRBMiner-MULTI: standalone proxy or Pearl fee target unavailable");
-            pearl.stop();
-        }
-        for (String coin : java.util.List.of("ravencoin", "ethereumclassic", "decred", "quantus")) {
-            if (gpuCoins.running(coin) && !proxy.miningReady(coin)) {
-                LOGGER.warning("Stopping SRBMiner-MULTI: " + coin + " fee route unavailable");
-                gpuCoins.stop(coin);
+        for (Coin coin : Coin.miningCoins()) {
+            CoinMiner miner = miners.miner(coin);
+            if (miner.running() && !proxy.miningReady(coin.id())) {
+                LOGGER.warning("Stopping miner for " + coin.id() + ": standalone proxy or fee target unavailable");
+                miner.stopAll();
             }
         }
     }

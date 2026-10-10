@@ -28,15 +28,16 @@ java -jar build/distributions/solarminer-pc-agent-standalone.jar --solarminer.ag
 For development, `./gradlew bootRun` starts Spring Boot directly.
 
 See [standalone/README.md](standalone/README.md) for the Windows launcher and
-release packaging, and [standalone/DOCKER.md](standalone/DOCKER.md) for the
-Docker image (`verdox/solar-miner-pc-agent`).
+the Linux/Docker bootstrap scripts, and [standalone/DOCKER.md](standalone/DOCKER.md)
+for the Docker image (`verdox/solar-miner-pc-agent`).
 
 ## Releases
 
 Push a `pc-agent-v<version>` tag matching `pcAgentVersion` in
 `gradle.properties`. The `release.yml` workflow runs tests, verifies that no
 Stratum proxy classes are bundled, publishes the Docker image, and creates the
-GitHub release with the standalone JAR, SHA-256 and Windows launchers.
+GitHub release with the standalone JAR, SHA-256, Windows launchers, one-command
+bootstrap scripts, and the base/NVIDIA/AMD Compose files.
 
 ## Working here
 

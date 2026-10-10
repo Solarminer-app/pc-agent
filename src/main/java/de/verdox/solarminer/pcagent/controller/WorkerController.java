@@ -33,7 +33,11 @@ public class WorkerController {
     }
 
     @PostMapping("/{deviceId}/start")
-    public boolean start(@PathVariable String deviceId) { return workers.start(deviceId); }
+    public boolean start(@PathVariable String deviceId) {
+        try { return workers.start(deviceId); }
+        catch (IllegalArgumentException failure) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, failure.getMessage()); }
+        catch (IllegalStateException failure) { throw new ResponseStatusException(HttpStatus.CONFLICT, failure.getMessage()); }
+    }
 
     @PostMapping("/{deviceId}/pause")
     public boolean pause(@PathVariable String deviceId) { return workers.pause(deviceId); }

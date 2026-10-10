@@ -1667,6 +1667,46 @@ th[aria-sort=descending] .table-sort::after {
     backdrop-filter: blur(3px)
 }
 
+.worker-console {
+    width: min(1040px, calc(100vw - 28px));
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 24px 80px #000b
+}
+
+.worker-console::backdrop {
+    background: #05080dbb;
+    backdrop-filter: blur(3px)
+}
+
+.worker-console section {
+    display: grid;
+    gap: 12px;
+    padding: 24px
+}
+
+.worker-console .panel-head {
+    margin: 0
+}
+
+.worker-console pre {
+    min-height: 360px;
+    max-height: min(64vh, 720px);
+    margin: 0;
+    padding: 16px;
+    overflow: auto;
+    border: 1px solid #314155;
+    border-radius: 9px;
+    background: #070b10;
+    color: #d7e3ef;
+    font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere
+}
+
 .worker-editor form {
     display: grid;
     gap: 17px;

@@ -32,7 +32,7 @@ public class XmrConfigService {
     }
 
     public void configureXmrig(Path configPath, String poolUrl, String wallet, boolean useTls) throws IOException {
-        if (useTls || !proxyConfigurationService.matches(poolUrl, "monero") || !validProxyLogin(wallet)) {
+        if (useTls || !proxyConfigurationService.matches(poolUrl, de.verdox.solarminer.pcagent.coin.Coin.MONERO) || !validProxyLogin(wallet)) {
             throw new IllegalArgumentException("XMRig must use the configured SolarMiner Monero proxy and pool;wallet;pass login");
         }
         File configFile = configPath.toFile();
@@ -115,13 +115,23 @@ public class XmrConfigService {
         JsonNode pools = rootObject.path("pools");
         if (!pools.isArray() || pools.isEmpty() || !(pools.get(0) instanceof ObjectNode firstPool)) return false;
         if (poolUrl.equals(firstPool.path("url").asText()) && login.equals(firstPool.path("user").asText())) return false;
-        if (!proxyConfigurationService.matches(poolUrl, "monero") || !validProxyLogin(login))
+        if (!proxyConfigurationService.matches(poolUrl, de.verdox.solarminer.pcagent.coin.Coin.MONERO) || !validProxyLogin(login))
             throw new IllegalArgumentException("XMRig must use the configured SolarMiner Monero proxy and pool;wallet;pass login");
         firstPool.put("url", poolUrl);
         firstPool.put("user", login);
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(configFile, rootObject);
         LOGGER.info("Updated the XMRig proxy payout route");
         return true;
+    }
+
+    /** Moves an existing valid XMRig route to the selected SolarMiner proxy without changing payout credentials. */
+    public boolean updateProxyRoute(Path configPath, String poolUrl) throws IOException {
+        File configFile = configPath.toFile();
+        if (!configFile.exists()) return false;
+        JsonNode root = objectMapper.readTree(configFile);
+        JsonNode pools = root == null ? null : root.path("pools");
+        if (!pools.isArray() || pools.isEmpty()) return false;
+        return updateProxyRoute(configPath, poolUrl, pools.get(0).path("user").asText());
     }
 
     public boolean isProxyRouteConfigured() {
@@ -131,7 +141,8 @@ public class XmrConfigService {
             JsonNode pools = root.path("pools");
             if (!pools.isArray() || pools.size() != 1) return false;
             JsonNode pool = pools.get(0);
-            return proxyConfigurationService.matches(pool.path("url").asText(), "monero")
+            return proxyConfigurationService.matches(pool.path("url").asText(),
+                    de.verdox.solarminer.pcagent.coin.Coin.MONERO)
                     && validProxyLogin(pool.path("user").asText())
                     && !pool.path("tls").asBoolean();
         } catch (IOException e) {

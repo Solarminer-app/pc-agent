@@ -42,6 +42,32 @@ class ProxyConfigurationServiceTest {
         } finally { server.stop(0); }
     }
 
+    @Test
+    void remoteMoneroRequiresItsOwnListenerAndFeeTarget() throws Exception {
+        AtomicBoolean listenerOnline = new AtomicBoolean(true);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/network/ip", exchange -> respond(exchange, "127.0.0.1"));
+        server.createContext("/api/dashboard", exchange -> respond(exchange,
+                "{\"coins\":[{\"coin\":\"monero\",\"port\":3335,\"listenerStatus\":\""
+                        + (listenerOnline.get() ? "online" : "offline") + "\"}]}"));
+        server.createContext("/api/v1/fees/monero/targets", exchange -> respond(exchange,
+                "[{\"targetId\":\"house\",\"poolAddress\":\"stratum+tcp://pool.example:1010\","
+                        + "\"workerName\":\"house.rig\",\"percentage\":2.5,\"house\":true}]"));
+        server.start();
+        try {
+            Path file = directory.resolve("remote-monero-host.txt");
+            ProxyConfigurationService proxy = new ProxyConfigurationService(new ObjectMapper(),
+                    new ManagedProxyService(false, "./lib/proxy.jar"),
+                    new ReferralConfigurationService(file.resolveSibling("remote-monero-referral.txt").toString()),
+                    file.toString(), 3335, 3334, 3336, 3337, 3338, 3339, server.getAddress().getPort(),
+                    file.resolveSibling("remote-monero-mode.txt").toString(), false);
+            assertTrue(proxy.configure("127.0.0.1"));
+            assertTrue(proxy.miningReady("monero"));
+            listenerOnline.set(false);
+            assertFalse(proxy.miningReady("monero"));
+        } finally { server.stop(0); }
+    }
+
     private static void respond(com.sun.net.httpserver.HttpExchange exchange, String body) throws java.io.IOException {
         byte[] data = body.getBytes(StandardCharsets.UTF_8);
         exchange.sendResponseHeaders(200, data.length);
@@ -88,11 +114,15 @@ class ProxyConfigurationServiceTest {
         ProxyConfigurationService proxy = proxy(file, true);
         assertTrue(proxy.standalone());
 
+        assertTrue(proxy.configure("proxy.lan"));
+        assertEquals("127.0.0.1", proxy.host(), "local mode must keep using its loopback proxy");
         assertTrue(proxy.setMode("external"));
         assertFalse(proxy.standalone());
+        assertEquals("proxy.lan", proxy.host());
 
         ProxyConfigurationService reloaded = proxy(file, true);
         assertFalse(reloaded.standalone());
+        assertEquals("proxy.lan", reloaded.host());
     }
 
     @Test

@@ -39,4 +39,44 @@ Controller source: [`MiningController`](../src/main/java/de/verdox/solarminer/pc
 | `POST` | `/api/agent/external/{monero|pearl}/configuration` | Node-owned miner configuration. |
 | `GET` / `POST` | `/api/agent/local/**` | Same-origin dashboard APIs for local status, settings, mining, telemetry, benchmarks and diagnostics. |
 
-Dynamic GPU-Power-Regelung wird aktuell nur für NVIDIA-Karten angeboten, deren `nvidia-smi` eine stabile UUID, Treibergrenzen und den zurückgelesenen Sollwert liefert. AMD-Karten und andere nicht verifizierbare GPUs bleiben sichtbar, werden aber nicht per Power-Limit geregelt, bis ein entsprechender Treiberadapter stabile IDs und eine Set/Readback-Prüfung bietet. Der Agent ändert weder Spannung noch Takt und versucht beim regulären Beenden, die vor dem ersten SolarMiner-Eingriff gelesenen Limits wiederherzustellen.
+Dynamic GPU-Power-Regelung wird nur angeboten, nachdem ein Same-Value-Schreibtest und der anschließende Readback erfolgreich waren. NVIDIA verwendet die stabile GPU-UUID und `nvidia-smi -pl`. AMD verwendet bevorzugt AMD-SMI mit UUID/BDF; unter Linux steht zusätzlich der `amdgpu`-hwmon-Power-Cap über den stabilen PCI-BDF zur Verfügung. Jeder Zielwert bleibt innerhalb der Treiber- und Nutzergrenzen. Der Agent ändert weder Spannung noch Takt. Vor dem ersten Eingriff persistiert er die aktuellen Limits für Rollback, reguläres Beenden und Wiederherstellung beim nächsten Start nach einem Prozessabbruch.
+
+`GET /api/agent/local/efficiency` liefert während eines Power-Limit-Tests additiv
+die Run-Warteschlange `runs` und `secondsRemaining`. Jeder Run bleibt über
+`deviceId`, Coin und Algorithmus gerätespezifisch und enthält Modus (`FULL` oder
+`VALIDATION`), Status, aktuellen Grenzwert, geplante Grenzwerte, abgeschlossene
+Schrittergebnisse sowie aktuelle/benötigte Messpunkte. Baugleiche Karten werden
+nur bei identischem Hersteller, Modell, Coin, Algorithmus sowie identischen
+Treiber- und Nutzergrenzen gruppiert: Eine Karte ermittelt die vollständige
+Kurve; die übrigen Karten validieren den Kandidaten parallel und erhöhen ihren
+eigenen Grenzwert bei Instabilität schrittweise. Persistierte Profile bleiben
+pro Geräte-ID und Algorithmus getrennt. Referenzkurven verschiedener
+Coin-/Algorithmus-Kohorten werden zunächst konfliktfrei auf unterschiedliche
+physische GPUs verteilt (`referenceBatch` beschreibt die Startgruppe im
+Run-Status). Zwischen den Startgruppen besteht keine Ausführungsbarriere: Sobald
+eine GPU frei wird, nimmt sie bevorzugt eine bereits freigeschaltete Validierung
+und ansonsten die nächste Coin-Referenz. Dadurch liegen erste Ergebnisse für
+mehrere Coins früher vor, zusammengehörige Coin-Tasks folgen möglichst direkt
+aufeinander und dieselbe GPU wird nie doppelt belegt. Die ETA bleibt eine
+konservative Näherung auf Basis der geplanten parallelen Gruppen.
+
+`POST /api/agent/local/efficiency?mode=restart` startet sämtliche Runs neu
+(und bleibt der abwärtskompatible Standard ohne Parameter). Nach Abbruch oder
+Fehler setzt `mode=resume` denselben Sweep fort: Nur vollständig abgeschlossene,
+zum aktuellen Referenz-/Validierungsmodus passende Runs samt Profil werden als
+Checkpoint übernommen; abgebrochene Teilkurven, fehlgeschlagene und noch
+geplante Runs werden erneut ausgeführt. Ein abgebrochener Teilrun bleibt in der
+Session sichtbar, überschreibt aber kein vollständig validiertes persistiertes
+Profil. Nach einem Agent-Neustart existiert der Session-Checkpoint nicht mehr;
+persistierte Profile allein gelten absichtlich nicht als Fortsetzungsnachweis.
+
+Nach Abschluss oder Abbruch übergibt der Sweep alle tatsächlich vorhandenen
+Schrittergebnisse an den bestehenden consent-gesteuerten Benchmark-Upload.
+`POST /api/telemetry/standalone-benchmarks` enthält dafür additiv
+`efficiencySweeps`: pseudonyme Geräte-ID, GPU-Modell, Coin, Algorithmus,
+Power-Limit, gemessene H/s/Watt/Maximaltemperatur, Stabilitätsflag und Hinweis.
+Auch eine Kurve ohne stabilen Bestwert liefert ihre gemessenen/instabilen Punkte;
+sie wird lokal weiterhin nicht als validiertes Bestprofil behandelt. Mehr als
+512 Punkte werden auf mehrere idempotente Requests verteilt. Bei deaktivierter
+Freigabe bleiben die Punkte für den bestehenden einmaligen Upload-Dialog im
+laufenden Agent-Prozess erhalten und werden nicht ungefragt übertragen.

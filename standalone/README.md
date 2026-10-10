@@ -1,10 +1,23 @@
 # SolarMiner PC-Agent Standalone
 
+On every Windows launcher start, a bootstrap checks write access to the install
+folder, the current Administrator token needed for NVIDIA power-limit writes,
+`nvidia-smi` availability and the Defender exclusion state. When the exclusion
+is missing, it explains the scanning tradeoff and asks before an elevated UAC
+helper adds the PC-Agent install folder; the helper verifies Defender's state.
+The launcher requires Administrator rights and stops before downloading or
+starting the Agent when they are absent. A verified Defender exclusion is only
+reported; it is never requested or added again.
+The beta launcher runs the same checks in its separate `%LOCALAPPDATA%\SolarMiner\PC-Agent-Beta` directory. Startup-check output is English-only. `-Bootstrap` remains available for a manual review. The Agent's
+per-GPU capability probe still requires a same-value write and readback;
+launcher privilege alone does not establish dynamic power scaling. AMD power
+limits on Windows remain unavailable without a supported ADLX helper.
+
 ## Windows installer launcher
 
 Download `start-agent.bat` from the latest [PC-Agent GitHub release](https://github.com/Solarminer-app/pc-agent/releases/latest) and run it. The launcher stores the Agent and its private Java 21 runtime under `%LOCALAPPDATA%\SolarMiner\PC-Agent`. It downloads the latest stable Agent JAR when needed, verifies its SHA-256, and downloads a Windows x64 JRE from Adoptium on first run, verifying Adoptium's package checksum. The JAR already contains the Agent, embedded proxy, and Java dependencies. Later starts reuse the downloaded runtime and Agent; a new release replaces the Agent JAR after checksum verification.
 
-The launcher requires Windows PowerShell 5.1 and an internet connection. The first launch downloads the runtime and Agent, so it can take a few minutes. The local UI is at `http://127.0.0.1:8084/`. When `start-agent.ps1` is beside the batch file, the batch file runs that local copy; otherwise, it fetches the matching PowerShell launcher from the latest GitHub release, so only `start-agent.bat` needs to be downloaded manually. Until a release contains a launcher fix, run the batch file from this source directory with its adjacent PowerShell script.
+The launcher requires Windows PowerShell 5.1 and an internet connection. The first launch downloads the runtime and Agent, so it can take a few minutes. The local UI is at `http://127.0.0.1:8084/`. On every launch, the batch file refreshes its PowerShell implementation from the latest matching GitHub release through a temporary file, then atomically replaces the cached copy. If the refresh fails, it clearly reports that it is starting the last saved launcher; it fails only when no saved launcher exists. This ensures launcher-language and security fixes reach existing installations.
 
 The `Release SolarMiner PC-Agent` workflow keeps publishing the Docker image and additionally creates or updates the `pc-agent-v<version>` GitHub release with the standalone JAR, SHA-256 file, `start-agent.bat`, and its PowerShell implementation. Releases are triggered by pushing a matching `pc-agent-v*` tag, or by manually dispatching the workflow with the version from `gradle.properties`.
 
@@ -21,7 +34,7 @@ The output is `build/distributions/solarminer-pc-agent-standalone.jar`. Run it f
 & "$env:JAVA_HOME\bin\java.exe" -jar build\distributions\solarminer-pc-agent-standalone.jar --solarminer.agent.standalone=true
 ```
 
-Open `http://127.0.0.1:8084/` for the PC-Agent overview. Open **Mining**, choose CPU or GPU, then use **Herunterladen & installieren** for Monero/XMRig or Pearl/SRBMiner-MULTI. Neither miner is downloaded on agent startup. Installed miners appear in the left rail; select one to configure its pool, wallet and worker, then start it. Installation progress and errors appear on the Mining catalog. Stop the application with Ctrl+C. On another PC, copy the single JAR and run the same `java -jar` command with that PC's Java 21 installation. The optional `start-agent.bat` and `start-agent.sh` scripts work when placed beside the JAR.
+Open `http://127.0.0.1:8084/` for the PC-Agent overview. Open **Mining**, choose CPU or GPU, then use **Herunterladen & installieren** for Monero/XMRig or Pearl/SRBMiner-MULTI. Neither miner is downloaded on agent startup. Installed miners appear in the left rail; select one to configure its pool, wallet and worker, then start it. Installation progress and errors appear on the Mining catalog. Stop the application with Ctrl+C. On another PC, copy the single JAR and run the same `java -jar` command with that PC's Java 21 installation. The optional `start-agent.bat` and `start-agent.sh` scripts work when placed beside the JAR. The launchers bind the Agent explicitly to `0.0.0.0:8084` so a Node on the private LAN can reach its identity endpoint; on Windows, allow the Java listener on the Private firewall profile, never on a public network.
 
 The second header row reads actual balances for the configured payout destinations. For Kryptex routes it shows the XMR/PRL credit still held by the pool. For Pearl it also shows the on-chain balance of the configured payout address via pearlchain.live (one address, not an entire multi-address wallet). A Monero wallet's on-chain balance cannot be read from its public address. Unsupported pools and unavailable APIs show a dash instead of zero. `GET /api/agent/local/wallet-balances` supplies these amounts; successful upstream results are cached for one minute. Approximate fiat values use the agent's existing XMR/USD and PRL/USD market data plus the public Frankfurter USD exchange rate; the user can select EUR, USD or CHF in the header. The displayed aggregate includes only the balances whose amounts and prices are available.
 
@@ -30,6 +43,8 @@ The **Benchmarks** page offers a timed measurement of miners already running or 
 For development, `bootRun` starts Spring Boot directly from the compiled Agent and the bundled proxy classes. On a fresh development data directory it selects the local proxy; a persisted UI selection of an external proxy remains respected. Use this Gradle task as an IntelliJ run configuration with Gradle JVM 21. It does not require building the JAR first.
 
 On Windows the Agent does not start LibreHardwareMonitor automatically. Open the local Telemetry view and explicitly approve its start only when hardware sensors are wanted. The Agent configures LibreHardwareMonitor with storage/SMART collection disabled, so the monitor is not used for disk or partition discovery. Mining, installation and local miner control work without this optional sensor process.
+
+GPU power limiting is separate from sensor elevation. NVIDIA power-cap writes require an Administrator-started Agent on Windows and root-equivalent driver permission on Linux. The Agent verifies this with a same-value write and shows the card as non-regulatable when permission or driver support is missing. AMD Linux uses AMD-SMI when installed and otherwise the standard writable `amdgpu` hwmon power-cap. AMD consumer tuning on native Windows requires an ADLX-backed helper and is not enabled merely because Radeon telemetry is visible; the Agent fails closed rather than claiming a writable watt limit. Running the complete Agent as Administrator also elevates its downloaded miner children, so operators should use that mode only on a dedicated mining PC.
 
 The JAR contains the PC-Agent and the Stratum proxy source/classes and dependencies. It starts the proxy in a separate Spring context in the same JVM; the proxy API and Stratum listener bind to loopback. The agent UI does not expose proxy controls or status. The service fetches fee targets from the SolarMiner fee backend and refuses mining unless a valid fee route is loaded. Internet access to the fee backend is required; an empty or unavailable fee response leaves mining stopped.
 
@@ -55,3 +70,39 @@ For the Linux `amd64` container, GPU-specific Compose overlays and the explicit
 XMR/RandomX host preparation are documented in [DOCKER.md](DOCKER.md). The
 container does not download or start a miner by itself; use the local agent UI
 to explicitly install and configure it after startup.
+
+The stable release also publishes two bootstrap scripts:
+
+```sh
+# Native Linux: private verified Java 21 runtime + verified Agent JAR
+curl -fL https://github.com/Solarminer-app/pc-agent/releases/latest/download/install-linux.sh -o install-linux.sh
+sh install-linux.sh
+
+# Docker without GPU passthrough (use nvidia or amd when required)
+curl -fL https://github.com/Solarminer-app/pc-agent/releases/latest/download/install-docker.sh -o install-docker.sh
+sh install-docker.sh --gpu none
+
+# Beta channel: fetch the bootstrap from beta, then select the beta prerelease
+curl -fL https://raw.githubusercontent.com/Solarminer-app/pc-agent/beta/standalone/install-linux.sh -o install-linux.sh
+sh install-linux.sh --channel beta
+```
+
+`install-linux.sh` installs missing basic tools through a recognized system
+package manager, but keeps Java private under the user's data directory. Both
+the Adoptium JRE and Agent JAR are SHA-256 verified. `install-docker.sh`
+installs Docker Engine and Compose from the system package manager when they
+are missing, validates the release-owned Compose files, and starts them. It
+does not install or replace kernel/GPU drivers: NVIDIA requires an existing
+driver and NVIDIA Container Toolkit; AMD requires working `/dev/kfd` and
+`/dev/dri` devices. Installer output and errors are bilingual (German/English).
+
+Auf Deutsch: `install-linux.sh` installiert fehlende Basiswerkzeuge über einen
+erkannten Paketmanager, hält Java aber privat im Datenverzeichnis des Nutzers.
+Adoptium-JRE und Agent-JAR werden per SHA-256 geprüft. `install-docker.sh`
+installiert fehlendes Docker samt Compose aus dem System-Paketmanager, prüft
+die Release-Compose-Dateien und startet sie. Kernel- oder GPU-Treiber werden
+nicht verändert: NVIDIA setzt einen vorhandenen Treiber samt NVIDIA Container
+Toolkit voraus, AMD funktionierende `/dev/kfd`- und `/dev/dri`-Geräte.
+Stable und Beta sind getrennte Kanäle und Datenverzeichnisse. Die Beta-Skripte
+ermitteln den neuesten `pc-agent-beta-*`-Prerelease; Docker verwendet dabei
+`latest-beta` statt `latest`.

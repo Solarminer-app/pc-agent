@@ -2,6 +2,7 @@ package de.verdox.solarminer.pcagent.mining;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import de.verdox.solarminer.pcagent.coin.Coin;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -77,8 +78,8 @@ public class PayoutDefaultsService {
         }
 
         private int separator() {
-            return java.util.Set.of("ravencoin", "ethereumclassic", "decred", "quantus").contains(coin)
-                    ? login.lastIndexOf('.') : login.lastIndexOf('/');
+            Coin parsed = de.verdox.solarminer.pcagent.coin.Coin.byIdOrNull(coin);
+            return parsed != null && parsed.isSharedSrbCoin() ? login.lastIndexOf('.') : login.lastIndexOf('/');
         }
 
         public String maskedWallet() {
@@ -148,7 +149,8 @@ public class PayoutDefaultsService {
             }
             // New GPU coins have no legacy fee targets: an unmarked referral target must
             // never become the operator's default payout destination.
-            return java.util.Set.of("ravencoin", "ethereumclassic", "decred", "quantus").contains(coin) ? null : first;
+            Coin parsed = de.verdox.solarminer.pcagent.coin.Coin.byIdOrNull(coin);
+            return parsed != null && parsed.isSharedSrbCoin() ? null : first;
         } catch (Exception e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             LOGGER.log(Level.FINE, "Fee-backend payout target could not be resolved for " + coin, e);

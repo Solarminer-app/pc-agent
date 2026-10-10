@@ -55,6 +55,17 @@ class NodeMiningProfileTest {
         assertFalse(controls.setWorkerCoin("GPU-a", "monero"));
     }
 
+    @Test void economicCoinSelectionRequiresAndPersistsExplicitLocalOptIn() {
+        var controls = controls();
+        assertEquals("FIXED", controls.get().coinPolicyFor("GPU-a"));
+        assertFalse(controls.get().permitsEconomicSelection("GPU-a"));
+        assertTrue(controls.setWorkerCoin("GPU-a", "ravencoin"));
+        assertTrue(controls.setWorkerCoinPolicy("GPU-a", "AUTO"));
+        assertTrue(controls().get().permitsEconomicSelection("GPU-a"));
+        assertTrue(controls.setWorkerCoinPolicy("GPU-a", "FIXED"));
+        assertEquals("FIXED", controls().get().coinPolicyFor("GPU-a"));
+    }
+
     @Test void nodeStartsAssignedCoinsRegardlessOfCurrentlyViewedOrPreferredCoin() {
         var controls = controls(); controls.setWorkerCoin("cpu", "none"); controls.setWorkerCoin("GPU-a", "ravencoin");
         var cpu = mock(XmrMinerService.class); var pearl = mock(PearlMinerService.class);
@@ -69,7 +80,7 @@ class NodeMiningProfileTest {
         when(coins.stopGpu("quantus", "NVIDIA", 0)).thenReturn(true);
         when(coins.startGpu("ravencoin", "NVIDIA", 0)).thenReturn(true);
         when(power.setTotalPowerTarget(anyLong(), anyList())).thenReturn(true);
-        var mining = new MiningService(cpu, pearl, coins, power, mock(HardwareIdentityService.class), controls, identity(), directory.resolve("coin.txt").toString());
+        var mining = new MiningService(new de.verdox.solarminer.pcagent.miner.MinerFactory(cpu, pearl, coins, power), power, mock(HardwareIdentityService.class), controls, identity(), directory.resolve("coin.txt").toString());
         assertTrue(mining.switchCoin("monero"));
         assertTrue(mining.resumeExternally());
         verify(cpu, never()).startMining();
@@ -91,7 +102,7 @@ class NodeMiningProfileTest {
         when(cpu.getWorkerStats()).thenReturn(worker("cpu", "RandomX"));
         when(pearl.workerStats(anyList())).thenReturn(List.of(worker("GPU-a", "PearlHash")));
         when(coins.workerStats(eq("ravencoin"), anyList())).thenReturn(List.of(worker("GPU-a", "kawpow")));
-        var mining = new MiningService(cpu, pearl, coins, power, mock(HardwareIdentityService.class), controls, identity(), directory.resolve("coin.txt").toString());
+        var mining = new MiningService(new de.verdox.solarminer.pcagent.miner.MinerFactory(cpu, pearl, coins, power), power, mock(HardwareIdentityService.class), controls, identity(), directory.resolve("coin.txt").toString());
         var workers = mining.getExternallyVisibleWorkerStats();
         assertEquals(1, workers.size()); assertEquals("kawpow", workers.getFirst().currentAlgorithm());
         controls.setWorkerCoin("GPU-a", "none");

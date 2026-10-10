@@ -1,5 +1,7 @@
 # Agent entry point — SolarMiner PC-Agent
 
+**Every agent must check language support on every change.** The PC-Agent UI supports German and English. Translate all new static and dynamic UI text, API error/status text displayed by the UI, onboarding and accessibility labels through the closed frontend/agent i18n catalog. Check both languages before declaring a change complete; never add German-only strings or silently rely on an untranslated fallback. External miner output may remain verbatim, but surrounding diagnostics must be localized.
+
 Read `docs/agent-wiki/README.md` and `docs/agent-wiki/pc-agent.md` (ownership
 map) and inspect Git status before changing code. Preserve existing work. For
 Java work, use focused IntelliJ IDEA MCP navigation when that server is

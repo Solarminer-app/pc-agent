@@ -53,7 +53,7 @@ public class WalletBalanceService {
 
         BigDecimal onChainBalance = null;
         String onChainStatus = "NOT_SUPPORTED";
-        if ("pearl".equals(target.coin())) {
+        if (de.verdox.solarminer.pcagent.coin.Coin.PEARL.id().equals(target.coin())) {
             String wallet = target.wallet().trim();
             onChainBalance = cached("chain:pearl:" + wallet, () -> readPearlChainBalance(wallet));
             onChainStatus = onChainBalance == null ? "UNAVAILABLE" : "AVAILABLE";

@@ -23,15 +23,16 @@
     return [...grouped.values()];
   }
 
-  const coinName = id => ({monero: 'Monero', pearl: 'Pearl', ravencoin: 'Ravencoin', ethereumclassic: 'Ethereum Classic'})[id] || id;
+  // Coin display names arrive with the catalog data; no coin table lives in the UI.
+  const coinName = option => option.coinName || option.coin;
   function render() {
     const list = packages.filter(item => {
       const device = item.device.includes('CPU') ? 'CPU' : 'GPU';
-      const haystack = [item.name, ...item.coins.map(coinName), ...item.algorithms].join(' ').toLowerCase();
+      const haystack = [item.name, ...item.variants.map(coinName), ...item.algorithms].join(' ').toLowerCase();
       return (filter === 'all' || filter === device) && (!search || haystack.includes(search));
     });
-    $('catalog-installed-count').textContent = t(`${packages.filter(item => item.installed).length} installiert`);
-    $('catalog-available-count').textContent = t(`${packages.length} verfügbar`);
+    $('catalog-installed-count').textContent = t('{count} installiert', {count: packages.filter(item => item.installed).length});
+    $('catalog-available-count').textContent = t('{count} verfügbar', {count: packages.length});
     const grid = $('software-grid'); grid.replaceChildren();
     if (!list.length) { grid.append(el('p', 'table-empty', 'Keine Miner-Software passt zu diesem Filter.')); return; }
     for (const item of list) {
@@ -42,24 +43,24 @@
         item.downloadStatus === 'DOWNLOADING' ? 'Wird installiert' : item.installed ? 'Installiert' : item.selectable ? 'Installierbar' : 'Nicht integriert');
       head.append(identity, status); card.append(head);
       const supported = el('div', 'software-support');
-      [...new Set(item.variants.map(entry => `${coinName(entry.coin)} · ${entry.algorithm}`))]
+      [...new Set(item.variants.map(entry => `${coinName(entry)} · ${entry.algorithm}`))]
         .forEach(value => supported.append(el('span', 'software-chip', value)));
       card.append(supported);
       const facts = el('dl', 'software-facts');
       const fact = (name, value) => { facts.append(el('dt', '', name), el('dd', '', value)); };
-      fact('Developer Fee', item.developerFeePercent == null ? '—' : `${item.developerFeePercent} %`);
+      fact('Entwicklergebühr', item.developerFeePercent == null ? '—' : `${item.developerFeePercent} %`);
       fact('Plattform', item.device);
       fact('Projekt', item.projectUrl || '—');
       card.append(facts);
-      const copy = el('p', 'muted', item.downloadDetail || item.unavailableReason ||
-        (item.installed ? 'Die Software ist bereit und kann einem Worker zugewiesen werden.' : 'Installation erfolgt aus der verifizierten offiziellen Release-Quelle.'));
+      const copy = el('p', 'muted', item.installed ? 'Die Software ist bereit und kann einem Worker zugewiesen werden.' : 'Installation erfolgt aus der verifizierten offiziellen Release-Quelle.');
+      if (item.downloadDetail || item.unavailableReason) copy.textContent = window.SolarMinerI18n.s(item.downloadDetail || item.unavailableReason);
       card.append(copy);
       const actions = el('div', 'software-actions');
       if (item.projectUrl) { const link = el('a', 'button subtle', 'Projektseite ↗'); link.href = item.projectUrl; link.target = '_blank'; link.rel = 'noopener noreferrer'; actions.append(link); }
       if (item.installed) {
         const workers = el('a', 'button primary', 'Worker zuweisen'); workers.href = '/workers.html'; actions.append(workers);
         const remove = el('button', 'button subtle', 'Deinstallieren'); remove.type = 'button'; remove.disabled = busy;
-        remove.addEventListener('click', () => mutate(item.id === 'xmrig' ? '/api/agent/local/monero/remove' : '/api/agent/local/pearl/remove', `${item.name} entfernen?`, 'Software wurde entfernt.'));
+        remove.addEventListener('click', () => mutate(`/api/agent/local/${item.coins[0]}/remove`, `${item.name} entfernen?`, 'Software wurde entfernt.'));
         actions.append(remove);
       } else if (item.selectable) {
         const install = el('button', 'button primary', item.downloadStatus === 'DOWNLOADING' ? 'Installation läuft …' : 'Installieren');
@@ -78,7 +79,7 @@
       const response = await fetch(path, {method: 'POST'});
       if (!response.ok || await response.json() !== true) throw new Error(`HTTP ${response.status}`);
       notice(success); await load();
-    } catch (error) { notice(`Aktion fehlgeschlagen: ${error.message}`, true); }
+    } catch (error) { notice(t('Aktion fehlgeschlagen: {error}', {error: window.SolarMinerI18n.s(error.message)}), true); }
     finally { busy = false; render(); }
   }
 
@@ -89,7 +90,7 @@
       packages = group(await response.json()); render();
       $('connection').className = 'badge online'; $('connection').textContent = t('Agent verbunden');
     } catch (error) {
-      notice(`Miner-Katalog konnte nicht geladen werden: ${error.message}`, true);
+      notice(t('Miner-Katalog konnte nicht geladen werden: {error}', {error: window.SolarMinerI18n.s(error.message)}), true);
       $('connection').className = 'badge offline'; $('connection').textContent = t('Agent nicht erreichbar');
     }
   }

@@ -1,6 +1,6 @@
 // Shared view layer for every PC-Agent page: one formatting, one status language, one table.
 // Text rule: user-facing strings go through SolarMinerI18n.t(); agent-provided strings go
-// through s(). See pc-agent/FRONTEND-I18N.md.
+// through s(). See docs/agent-wiki/frontend-i18n.md.
 (() => {
   const i18n = () => window.SolarMinerI18n;
   const t = (value, params) => window.SolarMinerI18n?.t(value, params) ?? value;
@@ -175,7 +175,7 @@
         const value = column.render(row, index);
         if (value == null) cell.textContent = '—';
         else if (value instanceof Node) cell.append(value);
-        else cell.textContent = String(value);
+        else cell.textContent = t(String(value));
         tr.append(cell);
       }
       body.append(tr);
@@ -192,7 +192,7 @@
     strip.replaceChildren();
     for (const {label, value, tone, href} of entries) {
       const item = element('span', 'strip-item');
-      item.append(element('span', '', `${label}: `));
+      item.append(element('span', '', `${t(label)}: `));
       const pill = statusPill(null, value);
       if (tone) pill.classList.add(tone);
       item.append(pill);

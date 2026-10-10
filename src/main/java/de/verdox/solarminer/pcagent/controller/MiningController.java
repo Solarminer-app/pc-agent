@@ -2,6 +2,10 @@ package de.verdox.solarminer.pcagent.controller;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
 
+import de.verdox.solarminer.pcagent.coin.Coin;
+import de.verdox.solarminer.pcagent.coin.DownloadState;
+import de.verdox.solarminer.pcagent.coin.FeeRollMode;
+import de.verdox.solarminer.pcagent.coin.ProxyMode;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.dto.Pools;
 import de.verdox.solarminer.pcagent.mining.MiningService;
@@ -14,6 +18,11 @@ import de.verdox.solarminer.pcagent.mining.WindowsDefenderExclusionService;
 import de.verdox.solarminer.pcagent.mining.ProxyConfigurationService;
 import de.verdox.solarminer.pcagent.mining.ProxyDiscoveryService;
 import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
+import de.verdox.solarminer.pcagent.mining.LocalRunLock;
+import de.verdox.solarminer.pcagent.miner.CoinMiner;
+import de.verdox.solarminer.pcagent.miner.CpuMiner;
+import de.verdox.solarminer.pcagent.miner.GpuCoinMiner;
+import de.verdox.solarminer.pcagent.miner.MinerFactory;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService;
 import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
@@ -25,6 +34,8 @@ import de.verdox.solarminer.pcagent.lowlevel.sensor.WindowsLhmBootstrapService;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.ResponseEntity;
 import java.util.List;
+import de.verdox.solarminer.pcagent.miner.MinerConfig;
+import de.verdox.solarminer.pcagent.miner.GpuState;
 
 @RestController
 @RequestMapping("/api/agent/local")
@@ -48,6 +59,8 @@ public class MiningController {
     private final WalletBalanceService walletBalanceService;
     private final WindowsDefenderExclusionService defenderExclusionService;
     private final MinerCatalogService minerCatalog;
+    private final LocalRunLock localRuns;
+    private final MinerFactory miners;
 
     public MiningController(MiningService miningService, XmrConfigService xmrConfigService,
                             PearlMinerService pearlMinerService, GpuCoinMinerService gpuCoins, LocalGpuPowerService gpuPowerService,
@@ -61,7 +74,9 @@ public class MiningController {
                             FeeTransparencyService feeTransparencyService,
                             WalletBalanceService walletBalanceService,
                             WindowsDefenderExclusionService defenderExclusionService,
-                            MinerCatalogService minerCatalog) {
+                            MinerCatalogService minerCatalog,
+                            LocalRunLock localRuns,
+                            MinerFactory miners) {
         this.miningService = miningService;
         this.xmrConfigService = xmrConfigService;
         this.proxyConfigurationService = proxyConfigurationService;
@@ -80,6 +95,21 @@ public class MiningController {
         this.walletBalanceService = walletBalanceService;
         this.defenderExclusionService = defenderExclusionService;
         this.minerCatalog = minerCatalog;
+        this.localRuns = localRuns;
+        this.miners = miners;
+    }
+
+    /** The adapter for a mining coin, or null for unknown ids and the unassigned marker. */
+    private CoinMiner adapter(Coin coin) { return coin == null || coin == Coin.NONE ? null : miners.miner(coin); }
+
+    /**
+     * A running benchmark or efficiency sweep owns the miners and the GPU power limits: it
+     * snapshots the previous state to restore it afterwards, so a concurrent local control
+     * would both corrupt the measurement and leave a worker running against the operator's
+     * intent. Cancel the measurement run first.
+     */
+    private boolean localRunsFree() {
+        return !localRuns.busy();
     }
 
     @GetMapping("identify")
@@ -91,7 +121,7 @@ public class MiningController {
     public boolean setPoolConfiguration(@RequestParam String poolUrl, @RequestParam String poolUser,
                                         @RequestParam double devFeePercentage) throws java.io.IOException {
         if (!lhmBootstrapService.readyForAgent()) return false;
-        if (!proxyConfigurationService.matches(poolUrl, "monero")) return false;
+        if (!proxyConfigurationService.matches(poolUrl, Coin.MONERO)) return false;
         xmrMinerService.hardStopMining();
         xmrConfigService.configureXmrig(XmrDownloadService.CONFIG_PATH, poolUrl, poolUser, false);
         return miningService.useMonero();
@@ -99,16 +129,16 @@ public class MiningController {
 
     @GetMapping("/proxy")
     public ProxyOverview proxy() {
-        return new ProxyOverview(proxyConfigurationService.host(), proxyConfigurationService.moneroUrl(),
-                proxyConfigurationService.pearlUrl(), proxyConfigurationService.ravencoinUrl(),
-                proxyConfigurationService.ethereumclassicUrl(), proxyConfigurationService.decredUrl(), proxyConfigurationService.quantusUrl(), proxyConfigurationService.isReachable(),
+        List<ProxyOverview.CoinRoute> routes = Coin.miningCoins().stream()
+                .map(coin -> new ProxyOverview.CoinRoute(coin.id(), coin.displayName(),
+                        proxyConfigurationService.coinUrl(coin), proxyConfigurationService.feeReady(coin),
+                        coin.experimental()))
+                .toList();
+        return new ProxyOverview(proxyConfigurationService.host(), proxyConfigurationService.isReachable(),
                 proxyConfigurationService.standalone() ? "standalone" : "external",
                 proxyConfigurationService.rollMode(),
                 proxyConfigurationService.managedStatus(), proxyConfigurationService.managedDetail(),
-                proxyConfigurationService.managedVersion(),
-                proxyConfigurationService.feeReady("monero"), proxyConfigurationService.feeReady("pearl"),
-                proxyConfigurationService.feeReady("ravencoin"), proxyConfigurationService.feeReady("ethereumclassic"),
-                proxyConfigurationService.feeReady("decred"), proxyConfigurationService.feeReady("quantus"));
+                proxyConfigurationService.managedVersion(), routes);
     }
 
     /** The node may set this through the LAN API; local edits are intentionally allowed but not authoritative. */
@@ -136,7 +166,6 @@ public class MiningController {
 
     @PostMapping("/proxy")
     public boolean configureProxy(@RequestParam String host) {
-        if (!lhmBootstrapService.readyForAgent()) return false;
         if (host.equals(proxyConfigurationService.host())) return true;
         if (!proxyConfigurationService.configure(host)) return false;
         payoutDefaultsService.invalidate();
@@ -145,12 +174,26 @@ public class MiningController {
 
     @PostMapping("/proxy/mode")
     public boolean configureProxyMode(@RequestParam String mode) {
-        if (!lhmBootstrapService.readyForAgent()) return false;
-        if (!"local".equals(mode) && !"external".equals(mode)) return false;
+        if (ProxyMode.from(mode) == null) return false;
         if (!miningService.pauseAll("Proxy mode was configured")) return false;
         if (!proxyConfigurationService.setMode(mode)) return false;
+        try {
+            migrateMinerProxyRoutes();
+        } catch (java.io.IOException | IllegalArgumentException e) {
+            throw new IllegalStateException("Proxy wurde gewählt, aber Miner-Routen konnten nicht aktualisiert werden: " + e.getMessage(), e);
+        }
         payoutDefaultsService.invalidate();
         return true;
+    }
+
+    /** Existing miner files retain their endpoint; keep them aligned with the selected shared proxy. */
+    private void migrateMinerProxyRoutes() throws java.io.IOException {
+        for (Coin coin : Coin.miningCoins()) {
+            String proxyUrl = proxyConfigurationService.coinUrl(coin);
+            if (proxyUrl == null) continue;
+            CoinMiner miner = adapter(coin);
+            if (miner != null) miner.updateProxyRoute(proxyUrl);
+        }
     }
 
     /**
@@ -160,26 +203,58 @@ public class MiningController {
      */
     @PostMapping("/proxy/roll-mode")
     public boolean configureProxyRollMode(@RequestParam String mode) {
-        if (!lhmBootstrapService.readyForAgent()) return false;
-        if (!"random".equals(mode) && !"stateful".equals(mode)) return false;
+        if (FeeRollMode.from(mode) == null) return false;
         if (!miningService.pauseAll("Fee roll mode was configured")) return false;
         return proxyConfigurationService.setRollMode(mode);
     }
 
     @PostMapping("/proxy/discover")
     public List<ProxyDiscoveryService.ProxyCandidate> discoverProxy() throws java.io.IOException {
-        if (!lhmBootstrapService.readyForAgent()) return List.of();
         return proxyDiscoveryService.discover();
     }
 
-    public record ProxyOverview(String host, String moneroUrl, String pearlUrl,
-                                String ravencoinUrl, String ethereumclassicUrl, String decredUrl, String quantusUrl, boolean reachable,
-                                String mode, String feeRollMode, String managedStatus, String managedDetail, String managedVersion,
-                                boolean moneroFeeReady, boolean pearlFeeReady,
-                                boolean ravencoinFeeReady, boolean ethereumclassicFeeReady, boolean decredFeeReady, boolean quantusFeeReady) { }
+    /**
+     * Proxy connection state plus one entry per mineable coin. The coin set comes from the
+     * {@link Coin} enum; nothing here enumerates coins. {@link #coinWireFields()} keeps the
+     * historical flat wire fields ({@code <coinId>Url}, {@code <coinId>FeeReady}) that the
+     * SolarMiner-Node and the operator UI still read, so the JSON stays backward compatible.
+     */
+    public record ProxyOverview(String host, boolean reachable, String mode, String feeRollMode,
+                                String managedStatus, String managedDetail, String managedVersion,
+                                List<CoinRoute> coinRoutes) {
+        /** The proxy's stratum route and fee readiness for one coin. */
+        public record CoinRoute(String coin, String name, String url, boolean feeReady, boolean experimental) { }
 
-    @PostMapping("/monero/configuration")
-    public boolean setMoneroConfiguration(@RequestBody MoneroConfiguration request) throws java.io.IOException {
+        @com.fasterxml.jackson.annotation.JsonAnyGetter
+        public java.util.Map<String, Object> coinWireFields() {
+            java.util.Map<String, Object> wire = new java.util.LinkedHashMap<>();
+            for (CoinRoute route : coinRoutes) {
+                wire.put(route.coin() + "Url", route.url());
+                wire.put(route.coin() + "FeeReady", route.feeReady());
+            }
+            return wire;
+        }
+    }
+
+    /**
+     * Saves the payout route for any coin. The route shape is the coin-independent
+     * {@link MinerConfig}; the owning adapter validates wallet and device syntax. CPU and
+     * Pearl keep their dedicated flows because their config files differ from the SRB shape.
+     */
+    @PostMapping("/{coin}/configuration")
+    public boolean setCoinConfiguration(@PathVariable String coin, @RequestBody MinerConfig config) throws java.io.IOException {
+        if (!localRunsFree()) throw new IllegalArgumentException("Ein Messlauf (Benchmark oder Effizienz-Sweep) läuft gerade; breche ihn ab, bevor du die Miner-Konfiguration änderst");
+        Coin parsed = Coin.byIdOrNull(coin);
+        if (parsed == null || parsed == Coin.NONE) throw new IllegalArgumentException("Unbekannter Coin");
+        if (parsed.isCpu())
+            return setMoneroConfiguration(new MoneroConfiguration(config == null ? null : config.poolUrl(),
+                    config == null ? null : config.wallet(), config == null ? null : config.worker()));
+        if (parsed == Coin.PEARL) return setPearlConfiguration(config);
+        return setGpuCoinConfiguration(parsed.id(), config);
+    }
+
+    /** CPU route save; kept as a plain method for the external Node compatibility endpoint. */
+    public boolean setMoneroConfiguration(MoneroConfiguration request) throws java.io.IOException {
         if (request == null || request.worker() == null
                 || !request.worker().matches("^[A-Za-z0-9_-]{1,32}$")
                 || proxyConfigurationService.moneroUrl() == null) return false;
@@ -187,10 +262,10 @@ public class MiningController {
         if (request.wallet() == null || request.wallet().isBlank()) {
             // Without an own payout address the fee-backend decides pool and wallet together,
             // so the local route ends up exactly on the house target the proxy fees towards.
-            PayoutDefaultsService.DefaultPayout payout = payoutDefaultsService.resolve("monero").orElse(null);
+            PayoutDefaultsService.DefaultPayout payout = payoutDefaultsService.resolve(Coin.MONERO.id()).orElse(null);
             if (payout == null) return false;
             login = payout.poolUrl() + ";" + payout.login() + ";x";
-            payoutDefaultsService.markDefault("monero", true);
+            payoutDefaultsService.markDefault(Coin.MONERO.id(), true);
         } else {
             if (request.poolUrl() == null) return false;
             java.net.URI pool;
@@ -202,7 +277,7 @@ public class MiningController {
                     || pool.getRawQuery() != null || pool.getRawFragment() != null
                     || !request.wallet().matches("^[1-9A-HJ-NP-Za-km-z]{95,120}$")) return false;
             login = request.poolUrl() + ";" + request.wallet() + "." + request.worker() + ";x";
-            payoutDefaultsService.markDefault("monero", false);
+            payoutDefaultsService.markDefault(Coin.MONERO.id(), false);
         }
         xmrMinerService.hardStopMining();
         xmrConfigService.configureXmrig(XmrDownloadService.CONFIG_PATH,
@@ -212,24 +287,15 @@ public class MiningController {
 
     public record MoneroConfiguration(String poolUrl, String wallet, String worker) { }
 
-    @PostMapping("/pearl/download")
-    public boolean retryPearlDownload() {
-        return minerCatalog.downloadSelected("pearl");
-    }
-
+    /** Installs the selected miner binary for any known coin through the shared catalog. */
     @PostMapping("/{coin}/download")
-    public boolean downloadGpuCoin(@PathVariable String coin) {
-        return GpuCoinMinerService.supported(coin) && minerCatalog.downloadSelected(coin);
+    public boolean downloadCoin(@PathVariable String coin) {
+        return miners.supports(coin) && minerCatalog.downloadSelected(coin);
     }
 
     @PostMapping("/{coin}/miners/{minerId}/download")
     public boolean downloadMiner(@PathVariable String coin, @PathVariable String minerId) {
         return minerCatalog.download(coin, minerId);
-    }
-
-    @PostMapping("/monero/download")
-    public boolean installMonero() {
-        return minerCatalog.downloadSelected("monero");
     }
 
     @PostMapping("/{coin}/defender-exclusion")
@@ -243,16 +309,17 @@ public class MiningController {
             if (!defenderExclusionService.isWindows())
                 return ResponseEntity.status(400).body(new DefenderExclusionResult(false,
                         "Diese Funktion ist nur unter Windows verfügbar."));
-            java.nio.file.Path directory = switch (coin) {
-                case "monero" -> xmrDownloadService.installDirectory();
-                case "pearl" -> srbDownloadService.installDirectory();
+            Coin parsedCoin = Coin.byIdOrNull(coin);
+            java.nio.file.Path directory = switch (parsedCoin) {
+                case MONERO -> xmrDownloadService.installDirectory();
+                case PEARL -> srbDownloadService.installDirectory();
                 default -> null;
             };
             if (directory == null) return ResponseEntity.status(404)
                     .body(new DefenderExclusionResult(false, "Unbekannter Miner."));
-            String downloadStatus = "monero".equals(coin)
+            String downloadStatus = parsedCoin.isCpu()
                     ? xmrDownloadService.status() : srbDownloadService.status();
-            if (!"BLOCKED_BY_ANTIVIRUS".equals(downloadStatus))
+            if (!DownloadState.BLOCKED_BY_ANTIVIRUS.wireName().equals(downloadStatus))
                 return ResponseEntity.status(409).body(new DefenderExclusionResult(false,
                         "Eine Defender-Ausnahme ist nur nach einer erkannten Blockierung verfügbar."));
             defenderExclusionService.addMinerDirectory(coin, directory);
@@ -284,80 +351,80 @@ public class MiningController {
         }
     }
 
-    @PostMapping("/pearl/remove")
-    public boolean removePearlMiner() {
-        if ("DOWNLOADING".equals(srbDownloadService.status()) || !pearlMinerService.stop()
-                || !gpuCoins.stop("ravencoin") || !gpuCoins.stop("ethereumclassic") || !gpuCoins.stop("decred") || !gpuCoins.stop("quantus")) return false;
-        return srbDownloadService.remove();
-    }
-
+    /** Removes the binary backing a coin; the owning adapter decides what "installed" means. */
     @PostMapping("/{coin}/remove")
-    public boolean removeGpuCoinMiner(@PathVariable String coin) {
-        return GpuCoinMinerService.supported(coin) && removePearlMiner();
+    public boolean removeCoinMiner(@PathVariable String coin) {
+        Coin parsed = Coin.byIdOrNull(coin);
+        if (parsed == null) return false;
+        if (parsed.isCpu()) {
+            if (xmrDownloadService.state() == DownloadState.DOWNLOADING || !miningService.pauseMining(parsed.id())) return false;
+            return xmrDownloadService.remove();
+        }
+        if (parsed.isGpu()) {
+            // Every GPU coin shares one SRBMiner installation; removing it stops all coin runs first.
+            if (srbDownloadService.state() == DownloadState.DOWNLOADING || !pearlMinerService.stop()) return false;
+            for (Coin coinId : Coin.sharedSrbCoins()) if (!gpuCoins.stop(coinId.id())) return false;
+            return srbDownloadService.remove();
+        }
+        return false;
     }
 
-    @PostMapping("/monero/remove")
-    public boolean removeMoneroMiner() {
-        if ("DOWNLOADING".equals(xmrDownloadService.status()) || !miningService.pauseMining("monero")) return false;
-        return xmrDownloadService.remove();
-    }
-
-    @PostMapping("/pearl/configuration")
-    public boolean setPearlConfiguration(@RequestBody PearlMinerService.Config configuration) throws java.io.IOException {
+    /** Pearl route save; kept as a plain method for the external Node compatibility endpoint. */
+    public boolean setPearlConfiguration(MinerConfig configuration) throws java.io.IOException {
+        if (!localRunsFree()) throw new IllegalArgumentException("Ein Messlauf (Benchmark oder Effizienz-Sweep) läuft gerade; breche ihn ab, bevor du die Miner-Konfiguration änderst");
         boolean feeBackendPayout = configuration == null
                 || configuration.wallet() == null || configuration.wallet().isBlank();
-        PearlMinerService.Config effective = feeBackendPayout
+        MinerConfig effective = feeBackendPayout
                 ? withFeeBackendPayout(configuration) : configuration;
         PearlMinerService.validate(effective);
-        if (!proxyConfigurationService.matches(effective.proxyUrl(), "pearl"))
+        if (!proxyConfigurationService.matches(effective.proxyUrl(), Coin.PEARL))
             throw new IllegalArgumentException("SolarMiner-Proxy für Pearl fehlt oder stimmt nicht mit der gespeicherten Verbindung überein");
         pearlMinerService.configure(effective);
-        payoutDefaultsService.markDefault("pearl", feeBackendPayout);
+        payoutDefaultsService.markDefault(Coin.PEARL.id(), feeBackendPayout);
         return true;
     }
 
-    @PostMapping("/{coin}/configuration")
-    public boolean setGpuCoinConfiguration(@PathVariable String coin,
-                                           @RequestBody GpuCoinMinerService.Config config) throws java.io.IOException {
+    private boolean setGpuCoinConfiguration(String coin, MinerConfig config) throws java.io.IOException {
         if (!GpuCoinMinerService.supported(coin)) throw new IllegalArgumentException("Unbekannter GPU-Coin");
         boolean feeBackendPayout = config == null || config.wallet() == null || config.wallet().isBlank();
-        GpuCoinMinerService.Config effective = feeBackendPayout ? withGpuCoinFeeBackendPayout(coin, config) : config;
+        MinerConfig effective = feeBackendPayout ? withGpuCoinFeeBackendPayout(coin, config) : config;
         gpuCoins.configure(coin, effective);
         payoutDefaultsService.markDefault(coin, feeBackendPayout);
         return miningService.switchCoin(coin);
     }
 
-    private GpuCoinMinerService.Config withGpuCoinFeeBackendPayout(String coin, GpuCoinMinerService.Config request) {
+    private MinerConfig withGpuCoinFeeBackendPayout(String coin, MinerConfig request) {
         if (request == null) throw new IllegalArgumentException("GPU-Coin-Konfiguration fehlt");
         PayoutDefaultsService.DefaultPayout payout = payoutDefaultsService.resolve(coin).orElseThrow(
                 () -> new IllegalArgumentException("Kein SolarMiner-Standard-Auszahlungsziel für " + coin + " erreichbar"));
         String wallet = payout.walletPart();
         String worker = payout.workerPart();
         if (worker == null || worker.isBlank()) worker = "solarminer";
-        return new GpuCoinMinerService.Config(payout.poolUrl(), request.proxyUrl(), wallet, worker, request.devices());
+        return new MinerConfig(payout.poolUrl(), request.proxyUrl(), wallet, worker, request.devices());
     }
 
     @PostMapping("/{coin}/gpus/{vendor}/{index}/resume")
     public boolean resumeGpuCoin(@PathVariable String coin, @PathVariable String vendor, @PathVariable int index) {
-        return lhmBootstrapService.readyForAgent() && gpuCoins.resumeGpu(coin, vendor, index);
+        return localRunsFree() && lhmBootstrapService.readyForAgent()
+                && miners.gpuMiner(coin).map(miner -> miner.resumeGpu(vendor, index)).orElse(false);
     }
 
     @PostMapping("/{coin}/gpus/{vendor}/{index}/pause")
     public boolean pauseGpuCoin(@PathVariable String coin, @PathVariable String vendor, @PathVariable int index) {
-        return gpuCoins.pauseGpu(coin, vendor, index);
+        return localRunsFree() && miners.gpuMiner(coin).map(miner -> miner.pauseGpu(vendor, index)).orElse(false);
     }
 
     /**
      * An empty wallet means the fee-backend payout is used. Its pool and worker always belong
      * together, so a half-entered own route is never mixed with the house wallet.
      */
-    private PearlMinerService.Config withFeeBackendPayout(PearlMinerService.Config request) {
+    private MinerConfig withFeeBackendPayout(MinerConfig request) {
         if (request == null) throw new IllegalArgumentException("Pearl-Konfiguration fehlt");
-        PayoutDefaultsService.DefaultPayout payout = payoutDefaultsService.resolve("pearl").orElseThrow(
+        PayoutDefaultsService.DefaultPayout payout = payoutDefaultsService.resolve(Coin.PEARL.id()).orElseThrow(
                 () -> new IllegalArgumentException("Kein SolarMiner-Standard-Auszahlungsziel für Pearl erreichbar"));
         String worker = payout.workerPart() != null ? payout.workerPart()
                 : request.worker() == null || request.worker().isBlank() ? "solarminer" : request.worker();
-        return new PearlMinerService.Config(payout.poolUrl(), request.proxyUrl(), payout.walletPart(),
+        return new MinerConfig(payout.poolUrl(), request.proxyUrl(), payout.walletPart(),
                 worker, request.devices());
     }
 
@@ -375,16 +442,13 @@ public class MiningController {
     /** Local file checks only: navigation must not wait for GPU discovery, pools or market data. */
     @GetMapping("/miner-catalog")
     public List<MinerInstallation> minerCatalog() {
-        return List.of(
-                installation("monero", "Monero"), installation("pearl", "Pearl"),
-                installation("ravencoin", "Ravencoin"), installation("ethereumclassic", "Ethereum Classic"),
-                installation("decred", "Decred"), installation("quantus", "Quantus"));
+        return Coin.miningCoins().stream().map(this::installation).toList();
     }
 
-    private MinerInstallation installation(String coin, String name) {
-        MinerCatalogService.MinerOption selected = minerCatalog.selected(coin);
-        return new MinerInstallation(coin, name, selected.device(), selected.algorithm(), selected.installed(),
-                selected.experimental(), selected.id(), minerCatalog.options(coin));
+    private MinerInstallation installation(Coin coin) {
+        MinerCatalogService.MinerOption selected = minerCatalog.selected(coin.id());
+        return new MinerInstallation(coin.id(), coin.displayName(), selected.device(), selected.algorithm(), selected.installed(),
+                selected.experimental(), selected.id(), minerCatalog.options(coin.id()));
     }
 
     public record MinerInstallation(String id, String name, String device, String algorithm,
@@ -411,28 +475,16 @@ public class MiningController {
             MinerStats stats = miningService.getStats(gpus);
             List<EarningsForecastService.Forecast> earnings = earningsForecastService.forecasts(stats.workers());
             String active = miningService.activeCoin();
-            boolean xmrConfigured = xmrConfigService.isProxyRouteConfigured();
-            boolean pearlConfigured = pearlMinerService.configuration() != null
-                    && proxyConfigurationService.matches(pearlMinerService.configuration().proxyUrl(), "pearl");
-            List<CoinOverview> coins = List.of(
-                    new CoinOverview("monero", "Monero", "XMR", "CPU", "RandomX",
-                            xmrMinerService.getWorkerStats().miningStatus(),
-                            xmrConfigured, minerCatalog.selectedIsInstalled("monero"), false, minerCatalog.selected("monero"), minerCatalog.options("monero")),
-                    new CoinOverview("pearl", "Pearl", "PRL", "GPU", "PearlHash",
-                            pearlMinerService.status(),
-                            pearlConfigured, minerCatalog.selectedIsInstalled("pearl"), false, minerCatalog.selected("pearl"), minerCatalog.options("pearl")),
-                    new CoinOverview("ravencoin", "Ravencoin", "RVN", "GPU", "KAWPOW",
-                            gpuCoins.status("ravencoin"), gpuCoins.configuration("ravencoin") != null,
-                            minerCatalog.selectedIsInstalled("ravencoin"), true, minerCatalog.selected("ravencoin"), minerCatalog.options("ravencoin")),
-                    new CoinOverview("ethereumclassic", "Ethereum Classic", "ETC", "GPU", "ETCHash",
-                            gpuCoins.status("ethereumclassic"), gpuCoins.configuration("ethereumclassic") != null,
-                            minerCatalog.selectedIsInstalled("ethereumclassic"), true, minerCatalog.selected("ethereumclassic"), minerCatalog.options("ethereumclassic")),
-                    new CoinOverview("decred", "Decred", "DCR", "GPU", "BLAKE3",
-                            gpuCoins.status("decred"), gpuCoins.configuration("decred") != null,
-                            minerCatalog.selectedIsInstalled("decred"), true, minerCatalog.selected("decred"), minerCatalog.options("decred")),
-                    new CoinOverview("quantus", "Quantus", "QTC", "GPU", "QPoW (Poseidon2)",
-                            gpuCoins.status("quantus"), gpuCoins.configuration("quantus") != null,
-                            minerCatalog.selectedIsInstalled("quantus"), true, minerCatalog.selected("quantus"), minerCatalog.options("quantus")));
+            boolean pearlConfigured = adapter(Coin.PEARL).routeConfigured();
+            List<CoinOverview> coins = Coin.miningCoins().stream().map(coin -> {
+                CoinMiner miner = adapter(coin);
+                return new CoinOverview(coin.id(), coin.displayName(), coin.ticker(), coin.deviceLabel(),
+                        coin.displayAlgorithm(), overviewStatus(miner), miner.setupComplete(),
+                        minerCatalog.selectedIsInstalled(coin.id()), coin.experimental(),
+                        minerCatalog.selected(coin.id()), minerCatalog.options(coin.id()));
+            }).toList();
+            java.util.Map<String, GpuCoinOverview> gpuCoinViews = new java.util.LinkedHashMap<>();
+            for (Coin coin : Coin.sharedSrbCoins()) gpuCoinViews.put(coin.id(), gpuOverview(coin.id(), gpus));
             return new AgentOverview(stats, active, System.getProperty("os.name", "unknown"),
                     System.getProperty("os.arch", "unknown"), coins, earnings, gpus, proxyResult.join(), savedMoneroConfiguration(),
                     pearlMinerService.configuration(),
@@ -445,10 +497,16 @@ public class MiningController {
                             pearlMinerService.running(), pearlMinerService.poolHealthy(), pearlMinerService.gpuStates(gpus),
                             srbDownloadService.installDirectory().toString()),
                     payoutResult.join(), new ReferralOverview(referralConfigurationService.get()), feeResult.join(),
-                    java.util.Map.of("ravencoin", gpuOverview("ravencoin", gpus),
-                            "ethereumclassic", gpuOverview("ethereumclassic", gpus),
-                            "decred", gpuOverview("decred", gpus), "quantus", gpuOverview("quantus", gpus)));
+                    java.util.Map.copyOf(gpuCoinViews));
         }
+    }
+
+    /**
+     * Overview-level status: the CPU row also reports externally started miners as mining
+     * (its worker view), every other adapter reports its own process status.
+     */
+    private MinerStats.MinerStatus overviewStatus(CoinMiner miner) {
+        return miner instanceof CpuMiner cpu ? cpu.getWorkerStats().miningStatus() : miner.status();
     }
 
     private GpuCoinOverview gpuOverview(String coin, List<LocalGpuPowerService.Gpu> gpus) {
@@ -459,26 +517,20 @@ public class MiningController {
     /** Fee-backend payout per coin, shown so an empty wallet is never silently an unknown destination. */
     @GetMapping("/payout-defaults")
     public List<PayoutOverview> payoutDefaults() {
-        return java.util.List.of("monero", "pearl", "ravencoin", "ethereumclassic", "decred", "quantus").stream()
-                .map(coin -> {
-                    PayoutDefaultsService.DefaultView view = payoutDefaultsService.view(coin);
-                    return new PayoutOverview(coin, view.available(), view.targetId(), view.poolUrl(),
-                            view.maskedWallet(), payoutDefaultsService.usesDefault(coin));
-                }).toList();
+        return Coin.miningCoins().stream().map(coin -> {
+            PayoutDefaultsService.DefaultView view = payoutDefaultsService.view(coin.id());
+            return new PayoutOverview(coin.id(), view.available(), view.targetId(), view.poolUrl(),
+                    view.maskedWallet(), payoutDefaultsService.usesDefault(coin.id()));
+        }).toList();
     }
 
     public record PayoutOverview(String coin, boolean available, String targetId, String poolUrl,
                                  String maskedWallet, boolean inUse) { }
 
+    /** The CPU adapter parses its own login format; the controller only re-wraps the route. */
     private MoneroConfiguration savedMoneroConfiguration() {
-        if (!xmrConfigService.isProxyRouteConfigured()) return null;
-        Pools pool = xmrConfigService.readUserPoolFromConfig();
-        String[] login = pool.poolUsername().split(";", -1);
-        if (login.length != 3) return null;
-        int workerSeparator = login[1].lastIndexOf('.');
-        if (workerSeparator < 1 || workerSeparator == login[1].length() - 1) return null;
-        return new MoneroConfiguration(login[0], login[1].substring(0, workerSeparator),
-                login[1].substring(workerSeparator + 1));
+        MinerConfig route = miners.cpuMiner(Coin.MONERO.id()).map(CpuMiner::savedRoute).orElse(null);
+        return route == null ? null : new MoneroConfiguration(route.poolUrl(), route.wallet(), route.worker());
     }
 
     /**
@@ -488,28 +540,22 @@ public class MiningController {
      */
     @GetMapping("/wallet-targets")
     public List<WalletTarget> walletTargets() {
-        MoneroConfiguration monero = savedMoneroConfiguration();
-        PearlMinerService.Config pearl = pearlMinerService.configuration();
         List<WalletTarget> targets = new java.util.ArrayList<>();
-        if (monero != null && monero.wallet() != null && !monero.wallet().isBlank())
-            targets.add(new WalletTarget("monero", "Monero", "XMR", monero.wallet(), monero.poolUrl()));
-        if (pearl != null && pearl.wallet() != null && !pearl.wallet().isBlank())
-            targets.add(new WalletTarget("pearl", "Pearl", "PRL", pearl.wallet(), pearl.poolUrl()));
-        for (var entry : COIN_IDENTITIES) {
-            GpuCoinMinerService.Config config = gpuCoins.configuration(entry.id());
+        for (Coin coin : Coin.miningCoins()) {
+            MinerConfig config = savedRouteOf(coin);
             if (config != null && config.wallet() != null && !config.wallet().isBlank())
-                targets.add(new WalletTarget(entry.id(), entry.name(), entry.ticker(), config.wallet(), config.poolUrl()));
+                targets.add(new WalletTarget(coin.id(), coin.displayName(), coin.ticker(), config.wallet(), config.poolUrl()));
         }
         return List.copyOf(targets);
     }
 
-    /** Same coin identities the overview exposes; kept here so the strip never pulls the overview. */
-    private record CoinIdentity(String id, String name, String ticker) { }
-    private static final List<CoinIdentity> COIN_IDENTITIES = List.of(
-            new CoinIdentity("ravencoin", "Ravencoin", "RVN"),
-            new CoinIdentity("ethereumclassic", "Ethereum Classic", "ETC"),
-            new CoinIdentity("decred", "Decred", "DCR"),
-            new CoinIdentity("quantus", "Quantus", "QTC"));
+    /** The coin-independent saved payout route as reported by the coin's adapter. */
+    private MinerConfig savedRouteOf(Coin coin) {
+        CoinMiner miner = adapter(coin);
+        if (miner instanceof CpuMiner cpu) return cpu.savedRoute();
+        if (miner instanceof GpuCoinMiner gpu) return gpu.configuration();
+        return null;
+    }
 
     public record WalletTarget(String coin, String name, String ticker, String wallet, String poolUrl) { }
 
@@ -534,7 +580,7 @@ public class MiningController {
                                 List<CoinOverview> coins,
                                 List<EarningsForecastService.Forecast> earnings,
                                 List<LocalGpuPowerService.Gpu> gpus, ProxyOverview proxy,
-                                MoneroConfiguration moneroConfiguration, PearlMinerService.Config pearlConfiguration,
+                                MoneroConfiguration moneroConfiguration, MinerConfig pearlConfiguration,
                                 DownloadReadiness monero,
                                 PearlReadiness pearl,
                                 List<PayoutOverview> payoutDefaults,
@@ -542,8 +588,8 @@ public class MiningController {
                                 List<FeeTransparencyService.FeeOverview> fees,
                                 java.util.Map<String, GpuCoinOverview> gpuCoins) { }
 
-    public record GpuCoinOverview(GpuCoinMinerService.Config configuration, String minerError,
-                                  boolean running, List<GpuCoinMinerService.GpuState> gpus) { }
+    public record GpuCoinOverview(MinerConfig configuration, String minerError,
+                                  boolean running, List<GpuState> gpus) { }
 
     public record DownloadReadiness(String downloadStatus, String downloadDetail, int downloadProgress,
                                     String minerError, String installDirectory) { }
@@ -556,7 +602,7 @@ public class MiningController {
     public record PearlReadiness(boolean configured, boolean binaryAvailable,
                                  String downloadStatus, String downloadDetail, int downloadProgress,
                                  String minerError, String connectionDetail, boolean running,
-                                 boolean poolHealthy, List<PearlMinerService.GpuState> gpus,
+                                 boolean poolHealthy, List<GpuState> gpus,
                                  String installDirectory) { }
 
     @GetMapping("/earnings")
@@ -571,58 +617,48 @@ public class MiningController {
 
     @PostMapping("/miners/{coin}/resume")
     public boolean resumeMiner(@PathVariable String coin) {
-        return miningService.resumeMining(coin);
+        return localRunsFree() && miningService.resumeMining(coin);
     }
 
     @PostMapping("/miners/{coin}/pause")
     public boolean pauseMiner(@PathVariable String coin) {
-        return miningService.pauseMining(coin);
+        return localRunsFree() && miningService.pauseMining(coin);
     }
 
     @PostMapping("/miners/{coin}/power-target")
     public boolean setMinerPowerTarget(@PathVariable String coin, @RequestParam long powerTarget) {
-        return lhmBootstrapService.readyForAgent() && miningService.setTarget(coin, powerTarget);
-    }
-
-    @PostMapping("/pearl/gpus/{vendor}/{index}/resume")
-    public boolean resumePearlGpu(@PathVariable String vendor, @PathVariable int index) {
-        return lhmBootstrapService.readyForAgent() && pearlMinerService.resumeGpuManually(vendor, index);
-    }
-
-    @PostMapping("/pearl/gpus/{vendor}/{index}/pause")
-    public boolean pausePearlGpu(@PathVariable String vendor, @PathVariable int index) {
-        return pearlMinerService.pauseGpuManually(vendor, index);
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && miningService.setTarget(coin, powerTarget);
     }
 
     @PostMapping("/coin")
     public boolean selectCoin(@RequestParam String coin) {
-        if (!lhmBootstrapService.readyForAgent()) return false;
+        if (!localRunsFree() || !lhmBootstrapService.readyForAgent()) return false;
         return miningService.switchCoin(coin);
     }
 
     @PostMapping("/setPowerTarget")
     public boolean setPowerTarget(@RequestParam long powerTarget) {
-        return lhmBootstrapService.readyForAgent() && miningService.setTarget(powerTarget);
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && miningService.setTarget(powerTarget);
     }
 
     @PostMapping("/increasePowerTarget")
     public boolean increasePowerTarget(@RequestParam long powerTarget) {
-        return lhmBootstrapService.readyForAgent() && miningService.increasePowerTarget(powerTarget);
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && miningService.increasePowerTarget(powerTarget);
     }
 
     @PostMapping("/decreasePowerTarget")
     public boolean decreasePowerTarget(@RequestParam long powerTarget) {
-        return lhmBootstrapService.readyForAgent() && miningService.decreasePowerTarget(powerTarget);
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && miningService.decreasePowerTarget(powerTarget);
     }
 
     @PostMapping("/pause")
     public boolean pause() {
-        return miningService.pauseAll("Local dashboard global pause request");
+        return localRunsFree() && miningService.pauseAll("Local dashboard global pause request");
     }
 
     @PostMapping("/resume")
     public boolean resume() {
-        return lhmBootstrapService.readyForAgent() && miningService.resumeAll();
+        return localRunsFree() && lhmBootstrapService.readyForAgent() && miningService.resumeAll();
     }
 
     @GetMapping

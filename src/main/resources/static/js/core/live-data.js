@@ -1,7 +1,7 @@
 // One Server-Sent-Events connection per page. Push is the primary path; a REST fetch happens
 // only for the first paint, after a local mutation, and as a watchdog when a channel stops
 // reporting. Every channel carries its own age so a page can never keep showing dead numbers.
-// See pc-agent/FRONTEND-I18N.md for the text rule and docs/agent-wiki/pc-agent.md for the contract.
+// See docs/agent-wiki/frontend-i18n.md for the text rule and docs/agent-wiki/pc-agent.md for the contract.
 (() => {
   const channels = new Map();
   let stream = null, backoffMs = 1000, watchdog = null;

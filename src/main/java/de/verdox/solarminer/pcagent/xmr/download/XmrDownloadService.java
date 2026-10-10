@@ -3,6 +3,7 @@ package de.verdox.solarminer.pcagent.xmr.download;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.springframework.stereotype.Service;
+import de.verdox.solarminer.pcagent.coin.DownloadState;
 import de.verdox.solarminer.pcagent.mining.WindowsAntivirusBlock;
 import java.io.*;
 import java.net.URI;
@@ -23,11 +24,14 @@ public class XmrDownloadService {
     private static final long MAX_BYTES = 300L * 1024 * 1024;
     private final XMRigApiClient apiClient;
     private final AtomicBoolean downloading = new AtomicBoolean();
-    private volatile String status = "PENDING", detail = "";
+    private volatile DownloadState status = DownloadState.PENDING;
+    private volatile String detail = "";
     private volatile int progress;
 
     public XmrDownloadService(XMRigApiClient apiClient) { this.apiClient = apiClient; }
-    public String status() { return status; }
+    /** Typed lifecycle state; {@link #status()} carries the same value as the REST wire name. */
+    public DownloadState state() { return status; }
+    public String status() { return status.wireName(); }
     public String detail() { return detail; }
     public int progress() { return progress; }
     public Path installDirectory() { return MAIN_PATH.toAbsolutePath().normalize(); }
@@ -37,24 +41,24 @@ public class XmrDownloadService {
         try {
             String name = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? "xmrig.exe" : "xmrig";
             Files.deleteIfExists(MAIN_PATH.toAbsolutePath().normalize().resolve(name));
-            status = "PENDING"; detail = "XMRig entfernt; die Pool-Konfiguration bleibt gespeichert."; progress = 0;
+            status = DownloadState.PENDING; detail = "XMRig entfernt; die Pool-Konfiguration bleibt gespeichert."; progress = 0;
             return true;
         } catch (IOException e) {
-            status = "FAILED"; detail = "XMRig konnte nicht entfernt werden: " + e.getMessage();
+            status = DownloadState.FAILED; detail = "XMRig konnte nicht entfernt werden: " + e.getMessage();
             return false;
         } finally { downloading.set(false); }
     }
 
     public boolean retry() {
-        if (binaryAvailable()) { status = "READY"; progress = 100; return true; }
+        if (binaryAvailable()) { status = DownloadState.READY; progress = 100; return true; }
         if (!downloading.compareAndSet(false, true)) return false;
-        status = "DOWNLOADING"; detail = ""; progress = 0;
+        status = DownloadState.DOWNLOADING; detail = ""; progress = 0;
         Thread.ofVirtual().name("xmrig-download").start(() -> {
-            try { install(); status = "READY"; progress = 100; }
+            try { install(); status = DownloadState.READY; progress = 100; }
             catch (Exception e) {
-                status = WindowsAntivirusBlock.causedBy(e) ? "BLOCKED_BY_ANTIVIRUS"
-                        : e instanceof UnsupportedOperationException ? "UNSUPPORTED" : "FAILED";
-                detail = "BLOCKED_BY_ANTIVIRUS".equals(status) ? WindowsAntivirusBlock.DETAIL
+                status = WindowsAntivirusBlock.causedBy(e) ? DownloadState.BLOCKED_BY_ANTIVIRUS
+                        : e instanceof UnsupportedOperationException ? DownloadState.UNSUPPORTED : DownloadState.FAILED;
+                detail = status == DownloadState.BLOCKED_BY_ANTIVIRUS ? WindowsAntivirusBlock.DETAIL
                         : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                 LOGGER.log(Level.WARNING, "XMRig installation failed", e);
             } finally { downloading.set(false); }

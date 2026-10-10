@@ -15,7 +15,7 @@
 // Static HTML stays German in the source and is translated exactly once at
 // DOMContentLoaded. There is deliberately NO MutationObserver: every dynamic string must
 // already pass through t() or s() when it is built, which keeps the obligation enforceable.
-// See pc-agent/FRONTEND-I18N.md for the full rule set.
+// See docs/agent-wiki/frontend-i18n.md for the full rule set.
 (() => {
   const preferenceKey = 'solarminer.pc-agent.language';
   const supported = ['de', 'en'];
@@ -24,12 +24,18 @@
 
   const catalog = window.SolarMinerI18nCatalog || {frontend: {}, agent: {}};
   const missingKeys = new Set();
+  const translatedStrings = new Set();
 
   const normalize = value => value.replace(/\s+/g, ' ').trim();
+  const rememberTranslation = value => {
+    if (translatedStrings.size >= 1024) translatedStrings.clear();
+    translatedStrings.add(normalize(value));
+  };
 
   function t(text, params) {
     if (typeof text !== 'string') return text;
     const key = normalize(text);
+    if (locale === 'en' && translatedStrings.has(key)) return text;
     let out = key;
     if (locale === 'en') {
       const hit = catalog.frontend[key];
@@ -42,6 +48,7 @@
       } else out = hit;
     }
     if (params) out = out.replace(/\{(\w+)\}/g, (_, name) => params[name] ?? '');
+    if (locale === 'en' && catalog.frontend[key] !== undefined) rememberTranslation(out);
     return out;
   }
 
@@ -57,6 +64,8 @@
     if (locale === 'de') {
       const hit = catalog.agent[key];
       if (hit) return hit;
+      const sourceStatus = key.match(/^(available|starting|stopped|failed|api-disabled|api-unavailable|not-started): (.+)$/);
+      if (sourceStatus) return `${s(sourceStatus[1])}: ${s(sourceStatus[2])}`;
       // Documented prefix rules for compound agent messages (benchmark phases, miner errors).
       if (key.startsWith('Benchmarking ')) return `Benchmark: ${key.slice(13)}`;
       if (key.startsWith('Error: ')) return `Fehler: ${s(key.slice(7))}`;
@@ -64,12 +73,83 @@
         return `Mining-Zustand konnte nicht vollständig wiederhergestellt werden: ${s(key.slice('Could not fully restore miner state: '.length))}`;
       if (key.startsWith('Worker did not start or stopped: '))
         return `Worker nicht gestartet oder angehalten: ${key.slice('Worker did not start or stopped: '.length)}`;
+      if (key.startsWith('SolarMiner default payout for '))
+        return `SolarMiner-Standardziel für ${key.slice('SolarMiner default payout for '.length).replace(' is unavailable. Check the proxy and fee target.', '')} nicht verfügbar. Prüfe Proxy und Fee-Ziel.`;
+      if (key.startsWith('SolarMiner proxy route for '))
+        return `SolarMiner-Proxy-Route für ${key.slice('SolarMiner proxy route for '.length).replace(' is unavailable', '')} nicht verfügbar.`;
+      if (key.startsWith('SolarMiner default payout could not be configured: '))
+        return `SolarMiner-Standardziel konnte nicht eingerichtet werden: ${s(key.slice('SolarMiner default payout could not be configured: '.length))}`;
+      if (key.startsWith('Benchmark cannot start: '))
+        return `Benchmark kann nicht gestartet werden: ${s(key.slice('Benchmark cannot start: '.length))}`;
+      if (key.startsWith('Benchmark setup skipped: '))
+        return `Benchmark-Vorbereitung übersprungen: ${s(key.slice('Benchmark setup skipped: '.length))}`;
+      if (key.startsWith('Pool connected, last job '))
+        return `Pool verbunden, letzter Job vor ${key.slice('Pool connected, last job '.length).replace(' s ago', ' s')}`;
+      if (key.startsWith('Miner API returned HTTP '))
+        return `Miner-API meldet HTTP ${key.slice('Miner API returned HTTP '.length)}`;
+      if (key.startsWith('SRBMiner on ') && key.includes(' exited (code '))
+        return key.replace('SRBMiner on ', 'SRBMiner auf ').replace(' exited (code ', ' beendet (Code ');
+      if (key.startsWith('SRBMiner on ') && key.includes(' could not be started: '))
+        return key.replace('SRBMiner on ', 'SRBMiner auf ').replace(' could not be started: ', ' konnte nicht gestartet werden: ');
+      if (key.startsWith('No XMRig archive for ')) return `Kein XMRig-Archiv für ${key.slice('No XMRig archive for '.length)}`;
+      if (key.startsWith('No SRBMiner asset for ')) return `Keine SRBMiner-Release-Datei für ${key.slice('No SRBMiner asset for '.length)}`;
+      if (key.startsWith('GitHub release API returned HTTP ')) return `GitHub-Release-API meldet HTTP ${key.slice('GitHub release API returned HTTP '.length)}`;
+      if (key.startsWith('SRBMiner download returned HTTP ')) return `SRBMiner-Download meldet HTTP ${key.slice('SRBMiner download returned HTTP '.length)}`;
+      if (key.startsWith('Unsafe SRBMiner archive entry: ')) return `Unsicherer Eintrag im SRBMiner-Archiv: ${key.slice('Unsafe SRBMiner archive entry: '.length)}`;
+      const skippedCoin = key.match(/^([a-z]+) \((.+)\)$/);
+      if (skippedCoin) return `${skippedCoin[1]} (${s(skippedCoin[2])})`;
       if (key.includes(' · ')) return key.split(' · ').map(s).join(' · ');
-      if (key.includes('; skipped: ')) { const [result, skipped] = key.split('; skipped: '); return `${s(result)}; übersprungen: ${skipped}`; }
+      if (key.includes('; skipped: ')) { const [result, skipped] = key.split('; skipped: '); return `${s(result)}; übersprungen: ${s(skipped)}`; }
       return text;
     }
     // English locale: German agent status messages translate through the frontend catalog.
-    return catalog.frontend[key] ?? text;
+    let translated = catalog.frontend[key];
+    if (translated === undefined) {
+      if (key.startsWith('Fehler: ')) translated = `Error: ${s(key.slice(8))}`;
+      else if (key.startsWith('SRBMiner konnte nicht vollständig entfernt werden: '))
+        translated = `Could not fully remove SRBMiner: ${s(key.slice('SRBMiner konnte nicht vollständig entfernt werden: '.length))}`;
+      else if (key.startsWith('Der lokale Proxy wurde beendet (Exit-Code '))
+        translated = key.replace('Der lokale Proxy wurde beendet (Exit-Code ', 'The local proxy exited (code ').replace('). Protokoll: ', '). Log: ');
+      else if (key.startsWith('Der lokale Proxy konnte nicht gestartet werden: '))
+        translated = `Could not start the local proxy: ${s(key.slice('Der lokale Proxy konnte nicht gestartet werden: '.length))}`;
+      else if (key.startsWith('Proxy wurde gewählt, aber Miner-Routen konnten nicht aktualisiert werden: '))
+        translated = `Proxy selected, but miner routes could not be updated: ${s(key.slice('Proxy wurde gewählt, aber Miner-Routen konnten nicht aktualisiert werden: '.length))}`;
+      else if (key.startsWith('Der lokale Proxy hat sich nicht gemeldet. Protokoll: '))
+        translated = `The local proxy did not respond. Log: ${key.slice('Der lokale Proxy hat sich nicht gemeldet. Protokoll: '.length)}`;
+      else if (key.startsWith('Power-Cap nicht schreibbar (Administrator/root und Treiber prüfen): '))
+        translated = `Power cap is not writable (check administrator/root access and driver): ${s(key.slice('Power-Cap nicht schreibbar (Administrator/root und Treiber prüfen): '.length))}`;
+      else if (key.startsWith('Nicht unterstützter GPU-Hersteller: '))
+        translated = `Unsupported GPU vendor: ${key.slice('Nicht unterstützter GPU-Hersteller: '.length)}`;
+      else if (key.startsWith('Ungültige ') && key.endsWith('-Wallet'))
+        translated = `Invalid ${key.slice('Ungültige '.length)}`;
+      else if (key.startsWith('Kein SolarMiner-Standard-Auszahlungsziel für '))
+        translated = `No SolarMiner default payout available for ${key.slice('Kein SolarMiner-Standard-Auszahlungsziel für '.length).replace(' erreichbar', '')}`;
+      else if (key.startsWith('GPU-Tool fehlgeschlagen: '))
+        translated = `GPU tool failed: ${s(key.slice('GPU-Tool fehlgeschlagen: '.length))}`;
+      else if (key.startsWith('XMRig konnte nicht entfernt werden: '))
+        translated = `Could not remove XMRig: ${s(key.slice('XMRig konnte nicht entfernt werden: '.length))}`;
+      else if (key.startsWith('GPU hasht, letzter Pool-Job vor '))
+        translated = `GPU hashing, last pool job ${key.slice('GPU hasht, letzter Pool-Job vor '.length)} ago`;
+      else if (/^GPU wurde [\d.,]+ °C heiß; Grenze über dem Schwellwert von [\d.,]+ °C$/.test(key))
+        translated = key.replace('GPU wurde ', 'GPU reached ').replace(' heiß; Grenze über dem Schwellwert von ', '; above the threshold of ');
+      else if (/^\d+ von \d+ Shares verworfen \(Power-Cap nicht stabil\)$/.test(key))
+        translated = key.replace(' von ', ' of ').replace(' Shares verworfen (Power-Cap nicht stabil)', ' shares rejected (power cap unstable)');
+      else if (key.startsWith('Andere Miner auf ') && key.endsWith(' konnten nicht angehalten werden'))
+        translated = key.replace('Andere Miner auf ', 'Other miners on ').replace(' konnten nicht angehalten werden', ' could not be stopped');
+      else if (key.startsWith('SolarMiner-Proxy, Fee-Ziel oder SRBMiner für ') && key.endsWith(' nicht bereit'))
+        translated = key.replace('SolarMiner-Proxy, Fee-Ziel oder SRBMiner für ', 'SolarMiner proxy, fee target or SRBMiner for ').replace(' nicht bereit', ' is not ready');
+      else if (key.startsWith('SRBMiner-Start fehlgeschlagen: '))
+        translated = `Could not start SRBMiner: ${s(key.slice('SRBMiner-Start fehlgeschlagen: '.length))}`;
+      else if (key.startsWith('SRBMiner beendet (Code ')) translated = key.replace('SRBMiner beendet (Code ', 'SRBMiner exited (code ');
+      else if (key.startsWith('Bester stabiler Wert: ')) translated = key.replace('Bester stabiler Wert: ', 'Best stable value: ');
+      else if (key.startsWith('Abgebrochen; bisher bester Messwert: ')) translated = key.replace('Abgebrochen; bisher bester Messwert: ', 'Cancelled; best measurement so far: ');
+      else if (key.endsWith(' W stabil')) translated = key.replace(' W stabil', ' W stable');
+      else if (key.includes(' W instabil: ')) translated = key.replace(' W instabil: ', ' W unstable: ');
+      else if (key.includes(' · ')) translated = key.split(' · ').map(s).join(' · ');
+      else translated = text;
+    }
+    rememberTranslation(translated);
+    return translated;
   }
 
   // ------------------------------------------------------------------ preferences
