@@ -282,8 +282,11 @@
     });
     if (!response.ok) throw await readError(response);
     const result = await response.json().catch(() => null);
-    if (result !== true) throw new Error(s(result?.message || result?.detail) || 'the_agent_rejected_the_change');
-    return true;
+    // Mutations either acknowledge with `true` or return the updated resource.  Treating a
+    // successful object response as a rejection made settings such as the agent name appear
+    // unsaved even though the server had already persisted them.
+    if (result === false || result == null) throw new Error(s(result?.message || result?.detail) || 'the_agent_rejected_the_change');
+    return result;
   }
 
   // ------------------------------------------------------------------ derived models
