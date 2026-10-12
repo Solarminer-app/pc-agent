@@ -38,6 +38,7 @@ public class MinerCatalogService {
      */
     private volatile boolean xmrigInstalled;
     private volatile boolean srbInstalled;
+    private volatile boolean srbUpdateRequired;
 
     public MinerCatalogService(XmrDownloadService xmrig, SrbDownloadService srb,
                                XmrMinerService xmrMiner, PearlMinerService pearlMiner,
@@ -175,13 +176,17 @@ public class MinerCatalogService {
         boolean xmr = definition.id().equals("xmrig");
         // Snapshot flags only (audit R5): the filesystem probe lives in refreshInstallState().
         boolean installed = xmr ? xmrigInstalled : srbInstalled;
+        String downloadStatus = xmr ? xmrig.status() : srbUpdateRequired ? "UPDATE_REQUIRED" : srb.status();
+        // The UI owns the localized update explanation. Do not expose an untranslated
+        // backend detail string for this expected migration state.
+        String downloadDetail = xmr ? xmrig.detail() : srbUpdateRequired ? "" : srb.detail();
         return new MinerOption(definition.id(), definition.coin(),
                 java.util.Optional.ofNullable(de.verdox.solarminer.pcagent.coin.Coin.byIdOrNull(definition.coin()))
                         .map(de.verdox.solarminer.pcagent.coin.Coin::displayName).orElse(definition.coin()),
                 definition.name(), definition.device(), definition.algorithm(),
                 definition.developerFeePercent(), definition.developerFeeLabel(), definition.developerFeeSource(),
                 definition.advantages(), definition.disadvantages(), definition.projectUrl(),
-                definition.experimental(), installed, xmr ? xmrig.status() : srb.status(), xmr ? xmrig.detail() : srb.detail(),
+                definition.experimental(), installed, downloadStatus, downloadDetail,
                 definition.selectable(), definition.unavailableReason());
     }
 
@@ -194,6 +199,7 @@ public class MinerCatalogService {
         try {
             xmrigInstalled = xmrMiner.binaryAvailable();
             srbInstalled = pearlMiner.binaryAvailable();
+            srbUpdateRequired = !srbInstalled && pearlMiner.binaryPresent();
         } catch (RuntimeException ignored) { /* keep the previous observation */ }
     }
 

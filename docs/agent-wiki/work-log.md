@@ -1,5 +1,32 @@
 # PC-Agent work log
 
+## 2026-10-12 — Pearl-Worker-Start und sichtbare API-Fehler
+
+- Live-Diagnose des lokalen Worker-Starts ergab HTTP 400 vor dem SRBMiner-Prozessstart:
+  Pearl erzeugte die interne Konsolen-ID `pearl-NVIDIA:0`, während
+  `MinerConsoleService` und Worker-UI das gültige Format `pearl-NVIDIA-0`
+  verwenden. Das Öffnen der Worker-Konsole warf deshalb `Unknown miner`, nachdem
+  nur der Pearl-Sammellog zurückgesetzt worden war.
+- Pearl und die übrigen SRBMiner-Adapter erzeugen Worker-Konsolen-IDs jetzt über
+  dieselbe zentrale Factory. Der Worker-Controller liefert seine vorhandene
+  Fehlermeldung bei HTTP 400/409 außerdem explizit als JSON-`message`, damit das
+  vorhandene lokalisierte Fehlerbanner nicht nur den HTTP-Status anzeigen muss.
+- Keine neue Bedienkopie: Das Frontend verwendet weiterhin den geschlossenen
+  deutschen/englischen i18n-Katalog und dessen dynamische Fehlerübersetzungen.
+  Verifikation: fokussierte Controller-, Konsolen- und Pearl-ID-Regressionstests,
+  JavaScript-Syntax- und i18n-Prüfungen sowie `git diff --check`.
+
+## 2026-10-12 — Wallet-target sharing route regression coverage
+
+- Pinned the local consent route used by the Automation-page **Share wallet targets** switch: `POST /api/agent/local/power-control/wallet-target-sharing?enabled=true` resolves successfully and persists the explicit wallet-target-sharing consent. This prevents a missing controller mapping from regressing into a browser-visible 404.
+- No user-facing copy changed; the existing German and English catalog entries remain the closed UI contract. Verification: focused `AgentPowerControllerTest` and `AgentWriteAccessFilterTest` passed with JDK 21; `node --check src/main/resources/static/js/pages/automation.js`, `node scripts/check-i18n.cjs` (1,243 keys, nine pages, both locales), `node scripts/scan-i18n-literals.cjs` (0), and `git diff --check` passed.
+
+## 2026-10-12 — LAN wallet-target import
+
+- The Wallets page can now list discovered peer PC-Agents and load a selected peer's payout targets. A target is applied to an individual local form only on the operator's explicit action and still requires the existing local **Save wallet** confirmation; the import never writes configuration automatically.
+- Wallets remain private by default. The source Agent must explicitly enable **Wallet-Ziele mit anderen PC-Agents im selben Netzwerk teilen** in Node-Automatisierung. The new external `GET /api/agent/external/wallet-targets` route is read-only, separately filtered by that consent, and is not included in the periodic worker/earnings network snapshot.
+- Added German and English copy for the source consent, peer selection, import state and failures. Verification: `node --check` for Wallets and Automation, `node scripts/check-i18n.cjs` (1,239 keys, nine pages, both locales), `node scripts/scan-i18n-literals.cjs` (0), and focused `AgentWriteAccessFilterTest` passed with JDK 21. A two-host LAN/browser smoke test remains a rollout gate.
+
 ## 2026-10-12 — Live benchmark dashboard and freshness handling
 
 - The benchmark page consumes the dedicated `benchmarks` SSE channel (one-second producer)
@@ -1448,6 +1475,18 @@ Vorgehen / Andockpunkte für andere Agenten:
   grün (1219 Keys), `scan-i18n-literals.cjs` 0, `git diff --check` sauber.
 - BUG-002 (KNOWN_BUGS) dadurch bearbeitet — Status dort aktualisiert.
 - Status: unvercommitet (Owner-Freigabe steht aus).
+
+## 2026-10-12 — SRBMiner-Migrationshinweis und Worker-Update
+
+- Eine vorhandene, aber nicht mit der geprüften SRBMiner-Version markierte Binary wird im
+  Miner-Katalog nun als `UPDATE_REQUIRED` ausgewiesen. Damit bleibt der Startschutz aktiv,
+  unterscheidet den Migrationsfall aber von einer fehlenden Installation.
+- Der Software-Katalog und betroffene Worker zeigen eine ausdrücklich benannte,
+  lokalisierte Aktion zum Aktualisieren. Sie nutzt den vorhandenen checksum-geprüften
+  SRBMiner-Installer; die gespeicherte Pearl-Konfiguration bleibt unverändert.
+- Verifikation: `node scripts/check-i18n.cjs`, `node --check` für `software.js` und
+  `workers.js`, sowie gezielt `MinerCatalogServiceTest` und `SrbMinerVersionTest` mit
+  Java 21 / Gradle erfolgreich.
 
 ## 2026-10-11 — Wallet-Snapshot: Start-Übergang ohne Request-I/O
 

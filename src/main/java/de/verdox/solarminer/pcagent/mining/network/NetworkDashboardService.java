@@ -6,6 +6,7 @@ import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.mining.MiningService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentIdentityService;
 import de.verdox.solarminer.pcagent.mining.economics.MarketDataService;
+import de.verdox.solarminer.pcagent.controller.MiningController;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -138,6 +139,32 @@ public class NetworkDashboardService {
         }
     }
 
+    /**
+     * Fetches wallet targets only after an operator explicitly chooses a peer on the Wallets
+     * page. They are deliberately excluded from the recurring network-dashboard snapshot.
+     */
+    public PeerWalletTargets walletTargets(String agentId) {
+        AgentNetworkDiscoveryService.Peer peer = discovery.peers().stream()
+                .filter(candidate -> candidate.agentId().equals(agentId)).findFirst().orElse(null);
+        if (peer == null) return new PeerWalletTargets(false, "peer_wallet_targets_unavailable", List.of());
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create("http://" + peer.host() + ":" + peer.dashboardPort()
+                            + "/api/agent/external/wallet-targets"))
+                    .timeout(FETCH_TIMEOUT).GET().build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 403)
+                return new PeerWalletTargets(false, "wallet_targets_not_available_from_this_agent", List.of());
+            if (response.statusCode() != 200)
+                return new PeerWalletTargets(false, "peer_wallet_targets_unavailable", List.of());
+            List<MiningController.WalletTarget> targets = mapper.readerForListOf(MiningController.WalletTarget.class)
+                    .readValue(response.body());
+            return new PeerWalletTargets(true, null, List.copyOf(targets));
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            return new PeerWalletTargets(false, "peer_wallet_targets_unavailable", List.of());
+        }
+    }
+
     private record FetchResult(PeerSnapshot snapshot, boolean sharingDisabled) { }
 
     private static List<WorkerRow> workerRows(List<MinerStats.Worker> workers) {
@@ -180,6 +207,9 @@ public class NetworkDashboardService {
     public record EarningsRow(String coin, String ticker, double hashrateHps, double usdPerDay) { }
 
     public record Totals(int workerCount, double hashrateHps, long watts, double usdPerDay) { }
+
+    /** On-demand import response. A target is only a draft until the local operator saves it. */
+    public record PeerWalletTargets(boolean available, String error, List<MiningController.WalletTarget> targets) { }
 
     /** Deserialized peer payload; unknown fields stay tolerated across agent versions. */
     public record PeerSnapshot(List<WorkerRow> workers, List<EarningsRow> earnings, Totals totals) { }

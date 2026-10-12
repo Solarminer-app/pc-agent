@@ -51,6 +51,8 @@
     $('global-control').disabled = !settings || saving;
     $('network-sharing').checked = Boolean(settings?.networkSharingEnabled);
     $('network-sharing').disabled = !settings || saving;
+    $('wallet-target-sharing').checked = Boolean(settings?.walletTargetSharingEnabled);
+    $('wallet-target-sharing').disabled = !settings || saving;
     renderSummary(); renderWorkers();
   }
 
@@ -66,6 +68,19 @@
       await load();
     } catch (error) {
       notice(t('could_not_change_lan_visibility_error', {error: window.SolarMinerI18n.s(error.message)}), true);
+    } finally { saving = false; render(); }
+  }
+  async function updateWalletTargetSharing(input) {
+    if (!settings || saving) return;
+    const enabled = input.checked;
+    saving = true; render();
+    try {
+      const response = await fetch(`/api/agent/local/power-control/wallet-target-sharing?enabled=${enabled}`, {method: 'POST'});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      settings = await response.json();
+      notice(enabled ? 'wallet_target_sharing_enabled' : 'wallet_target_sharing_disabled');
+    } catch (error) {
+      notice(t('could_not_change_wallet_target_sharing_error', {error: window.SolarMinerI18n.s(error.message)}), true);
     } finally { saving = false; render(); }
   }
 
@@ -115,6 +130,7 @@
 
   $('global-control').addEventListener('change', event => updateGlobal(event.target));
   $('network-sharing').addEventListener('change', event => updateNetworkSharing(event.target));
+  $('wallet-target-sharing').addEventListener('change', event => updateWalletTargetSharing(event.target));
   $('refresh').addEventListener('click', load);
   load();
 })();

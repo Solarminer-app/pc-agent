@@ -1,5 +1,6 @@
 package de.verdox.solarminer.pcagent.miner;
 
+import de.verdox.solarminer.pcagent.coin.Coin;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -32,8 +33,8 @@ class MinerConsoleServiceTest {
     @Test
     void gpuCoinConsolesCanStartAndReadAggregateAndDeviceOutput() throws Exception {
         MinerConsoleService consoles = new MinerConsoleService(directory);
-        for (String coin : new String[]{"ravencoin", "ethereumclassic"}) {
-            for (String name : new String[]{coin, coin + "-NVIDIA-0"}) {
+        for (Coin coin : new Coin[]{Coin.PEARL, Coin.RAVENCOIN, Coin.ETHEREUMCLASSIC}) {
+            for (String name : new String[]{coin.id(), MinerConsoleService.gpuConsoleId(coin, "NVIDIA", 0)}) {
                 consoles.started(name);
                 consoles.append(name, "job received");
                 String output = new String(Base64.getDecoder().decode(consoles.read(name, 0).data()), StandardCharsets.UTF_8);

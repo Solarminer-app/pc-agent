@@ -6,10 +6,10 @@
     <meta name="theme-color" content="#0b1020">
     <title data-i18n="solarminer_wallets">SolarMiner · Wallets</title>
     <link rel="stylesheet" href="/css/agent.css">
-    <link rel="stylesheet" href="/css/workspace.css">
-    <link rel="stylesheet" href="/css/design.css">
-    <script src="/js/core/i18n-catalog.js?v=20261011-agent-dictionary-directions-v2" defer></script>
-    <script src="/js/core/i18n.js?v=20261011-agent-dictionary-directions-v2" defer></script>
+    <link rel="stylesheet" href="/css/workspace.css?v=20261012-wallet-lan-import-v1">
+    <link rel="stylesheet" href="/css/design.css?v=20261012-wallet-lan-import-v1">
+    <script src="/js/core/i18n-catalog.js?v=20261012-wallet-lan-import-v1" defer></script>
+    <script src="/js/core/i18n.js?v=20261012-wallet-lan-import-v1" defer></script>
     <script src="/js/core/live-data.js?v=20261011-agent-dictionary-directions-v2" defer></script>
     <script src="/js/core/components.js?v=20261011-agent-dictionary-directions-v2" defer></script>
     <script src="/js/core/pool-catalog.js?v=20261011-agent-dictionary-directions-v2" defer></script>
@@ -18,7 +18,7 @@
     <script src="/js/chrome/workspace.js?v=20261011-agent-dictionary-directions-v2" defer></script>
     <script src="/js/chrome/wallet-strip.js?v=20261011-agent-dictionary-directions-v2" defer></script>
     <script src="/js/chrome/telemetry-gate.js?v=20261011-agent-dictionary-directions-v2" defer></script>
-    <script src="/js/pages/wallets.js?v=20261011-agent-dictionary-directions-v2" defer></script>
+    <script src="/js/pages/wallets.js?v=20261012-wallet-lan-import-v1" defer></script>
 </head>
 <body class="wallets-page">
 <div class="shell">
@@ -32,6 +32,11 @@
             <p data-i18n="set_your_wallet_pool_destination_and_worker">Hinterlege pro Coin deine Wallet, dein Pool-Ziel und einen Worker-Namen.</p></div></div>
         <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
         <p class="notice-line" data-i18n="a_wallet_is_saved_together_with_its_pool_des">Eine Wallet wird zusammen mit dem Pool-Ziel gespeichert. Für GPUs werden dabei alle erkannten GPUs vorbereitet; welche davon tatsächlich minen, bestimmst du später unter Worker.</p>
+        <section class="panel wallet-import" aria-labelledby="wallet-import-title">
+            <div class="panel-head"><div><p class="kicker" data-i18n="lan_import">LAN-IMPORT</p><h2 id="wallet-import-title" data-i18n="copy_wallet_targets_from_another_agent">Wallet-Ziele von anderem Agenten übernehmen</h2></div></div>
+            <p class="muted" data-i18n="choose_a_discovered_agent_to_load_its_explicit">Wähle einen gefundenen PC-Agenten. Es werden nur Wallet-Ziele geladen, die dessen Besitzer ausdrücklich im LAN freigegeben hat. Übernommene Werte werden erst nach „Wallet speichern“ lokal gespeichert.</p>
+            <div id="wallet-import-peers" class="wallet-import-peers" aria-live="polite"></div>
+        </section>
         <div id="wallet-forms" class="wallet-forms" aria-live="polite"></div>
         <footer>SolarMiner PC-Agent</footer>
     </main>

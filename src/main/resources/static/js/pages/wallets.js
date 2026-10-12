@@ -3,7 +3,7 @@
   const $ = id => document.getElementById(id);
   const catalog = window.SolarMinerPoolCatalog;
   const t = window.SolarMinerI18n.t;
-  let overview = null, busy = false;
+  let overview = null, busy = false, importedTargets = new Map(), loadingPeer = null, networkPeers = [];
   // Phase 5c: GPU/CPU device kind comes from the backend coin catalog (closed Coin enum).
   const coinRow = id => (window.SolarMinerCoinCatalog || []).find(row => row.id === id) || null;
   const isGpuCoin = id => coinRow(id) ? coinRow(id).device !== 'CPU' : ['pearl', 'ravencoin', 'ethereumclassic', 'decred', 'quantus'].includes(id);
@@ -58,6 +58,17 @@
     const foot = element('div', 'wallet-card-actions');
     if (!proxyUrl(coin)) foot.append(element('small', 'notice-line warn', t('connect_the_solarminer_proxy_first')));
     const save = element('button', 'button primary', t('save_wallet')); save.type = 'submit'; save.disabled = !proxyUrl(coin);
+    const imported = importedTargets.get(coin.id);
+    if (imported) {
+      const apply = element('button', 'button subtle', t('use_imported_wallet_target')); apply.type = 'button';
+      apply.addEventListener('click', () => {
+        pool.value = imported.poolUrl || pool.value;
+        wallet.value = imported.wallet || '';
+        worker.value = imported.worker || worker.value;
+        notice(t('wallet_target_applied_save_to_confirm', {coin: coin.name}));
+      });
+      foot.append(apply);
+    }
     foot.append(save); form.append(foot);
     form.addEventListener('submit', event => saveWallet(event, coin, configuration));
     return form;
@@ -85,6 +96,35 @@
   function render() {
     const forms = $('wallet-forms'); forms.replaceChildren(...(overview.coins || []).map(card));
   }
+  function renderPeers(peers = []) {
+    const target = $('wallet-import-peers'); target.replaceChildren();
+    const available = peers.filter(peer => !peer.own);
+    if (!available.length) {
+      target.append(element('p', 'muted', t('no_other_pc_agents_found_on_the_lan')));
+      return;
+    }
+    for (const peer of available) {
+      const row = element('article', 'wallet-import-peer');
+      const details = element('div');
+      details.append(element('strong', '', peer.name || peer.host), element('small', 'muted', peer.host || t('agent_unavailable')));
+      const load = element('button', 'button subtle', loadingPeer === peer.agentId ? t('loading_wallet_targets') : t('load_wallet_targets'));
+      load.type = 'button'; load.disabled = Boolean(loadingPeer) || !peer.reachable;
+      load.addEventListener('click', () => loadPeerTargets(peer));
+      row.append(details, load); target.append(row);
+    }
+  }
+  async function loadPeerTargets(peer) {
+    loadingPeer = peer.agentId; renderPeers(networkPeers);
+    try {
+      const data = await window.SolarMinerUI.getJson(`/api/agent/local/network/agents/${encodeURIComponent(peer.agentId)}/wallet-targets`);
+      if (!data.available) throw new Error(data.error || t('wallet_targets_not_available_from_this_agent'));
+      importedTargets = new Map((data.targets || []).map(target => [target.coin, target]));
+      render();
+      notice((data.targets || []).length ? t('wallet_targets_loaded_choose_a_coin_to_apply', {agent: peer.name || peer.host}) : t('the_selected_agent_has_no_saved_wallet_targets'));
+    } catch (error) {
+      notice(t('could_not_load_wallet_targets_error', {error: window.SolarMinerI18n.s(error.message)}), true);
+    } finally { loadingPeer = null; renderPeers(networkPeers); }
+  }
   async function load() {
     if (!window.SolarMinerCoinCatalog) {
       try { window.SolarMinerCoinCatalog = await window.SolarMinerUI.cachedCoinCatalog(); }
@@ -98,7 +138,11 @@
       if (seeded) { overview = seeded; render(); }
     }
     try {
-      overview = await window.SolarMinerUI.getJson('/api/agent/local/overview'); render();
+      const [nextOverview, network] = await Promise.all([
+        window.SolarMinerUI.getJson('/api/agent/local/overview'),
+        window.SolarMinerUI.getJson('/api/agent/local/network/agents').catch(() => null)
+      ]);
+      overview = nextOverview; networkPeers = network?.agents || []; render(); renderPeers(networkPeers);
       $('connection').className = 'badge online'; $('connection').textContent = t('agent_connected');
     } catch (error) {
       if (!overview) {

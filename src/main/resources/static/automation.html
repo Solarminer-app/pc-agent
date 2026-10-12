@@ -8,8 +8,8 @@
     <link rel="stylesheet" href="/css/agent.css">
     <link rel="stylesheet" href="/css/workspace.css">
     <link rel="stylesheet" href="/css/design.css">
-    <script src="/js/core/i18n-catalog.js?v=20261011-agent-dictionary-directions-v2" defer></script>
-    <script src="/js/core/i18n.js?v=20261011-agent-dictionary-directions-v2" defer></script>
+    <script src="/js/core/i18n-catalog.js?v=20261012-wallet-lan-import-v1" defer></script>
+    <script src="/js/core/i18n.js?v=20261012-wallet-lan-import-v1" defer></script>
     <script src="/js/core/live-data.js?v=20261011-agent-dictionary-directions-v2" defer></script>
     <script src="/js/core/components.js?v=20261011-agent-dictionary-directions-v2" defer></script>
     <script src="/js/chrome/proxy-gate.js?v=20261011-agent-dictionary-directions-v2" defer></script>
@@ -17,7 +17,7 @@
     <script src="/js/chrome/workspace.js?v=20261011-agent-dictionary-directions-v2" defer></script>
     <script src="/js/chrome/wallet-strip.js?v=20261011-agent-dictionary-directions-v2" defer></script>
     <script src="/js/chrome/telemetry-gate.js?v=20261011-agent-dictionary-directions-v2" defer></script>
-    <script src="/js/pages/automation.js?v=20261011-agent-dictionary-directions-v2" defer></script>
+    <script src="/js/pages/automation.js?v=20261012-wallet-lan-import-v1" defer></script>
 </head>
 <body class="automation-page">
 <div class="shell">
@@ -41,6 +41,8 @@
             <div class="section-head"><div><p class="kicker" data-i18n="visibility_in_the_network">SICHTBARKEIT IM NETZWERK</p><h2 id="network-sharing-title" data-i18n="lan_visibility">LAN-Sichtbarkeit</h2></div>
                 <label class="automation-switch"><input id="network-sharing" type="checkbox"><span data-i18n="show_this_agent_to_other_pc_agents_in_th">Diesen Agenten anderen PC-Agents im selben Netzwerk anzeigen (Worker und Ertrag, schreibgeschützt)</span></label></div>
             <p class="muted" data-i18n="another_pc_agent_shares_only_read_only_wo">Ein anderer PC-Agent teilt hier nur Worker und Ertrag (schreibgeschützt). Steuerbar bleibt jeder Agent nur auf seinem eigenen PC.</p>
+            <label class="automation-switch"><input id="wallet-target-sharing" type="checkbox"><span data-i18n="share_wallet_targets_with_other_pc_agents">Wallet-Ziele mit anderen PC-Agents im selben Netzwerk teilen</span></label>
+            <p class="muted" data-i18n="wallet_targets_are_private_by_default_and_can_be">Wallet-Ziele sind standardmäßig privat. Bei Freigabe können andere gefundene PC-Agents die Ziele laden, aber nicht speichern oder ändern.</p>
         </section>
         <section class="panel" aria-labelledby="automation-workers-title">
             <div class="panel-head"><div><p class="kicker" data-i18n="worker_permissions">WORKER-FREIGABEN</p><h2 id="automation-workers-title" data-i18n="workers_available_to_the_node">Für die Node verfügbare Worker</h2></div><span id="worker-count" class="muted"></span></div>

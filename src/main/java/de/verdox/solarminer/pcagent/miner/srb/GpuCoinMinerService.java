@@ -236,7 +236,8 @@ public class GpuCoinMinerService extends AbstractSrbMinerEngine {
         String key = coin + ":" + vendor + ":" + index;
         if (manuallyPaused.contains(key)) return false;
         WorkerRunState run = runs.computeIfAbsent(key, ignored ->
-                new WorkerRunState(coin, gpu, coin + "-" + vendor + "-" + index, "Noch nicht gestartet"));
+                new WorkerRunState(coin, gpu,
+                        MinerConsoleService.gpuConsoleId(Coin.byIdOrNull(coin), vendor, index), "Noch nicht gestartet"));
         if (run.running()) return true;
         refreshDefaultPayout(coin);
         MinerConfig config = effectiveConfig(coin);

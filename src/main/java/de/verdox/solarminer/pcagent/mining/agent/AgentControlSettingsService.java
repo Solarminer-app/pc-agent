@@ -30,7 +30,8 @@ public class AgentControlSettingsService {
 
     public record Settings(boolean dynamicPowerScalingEnabled, boolean externalControlEnabled,
                            Map<String, Boolean> workerExternalControl, Map<String, String> workerCoins,
-                           Map<String, String> workerCoinPolicies, Boolean networkSharingEnabled) {
+                           Map<String, String> workerCoinPolicies, Boolean networkSharingEnabled,
+                           Boolean walletTargetSharingEnabled) {
         public Settings {
             workerExternalControl = workerExternalControl == null ? Map.of() : Map.copyOf(workerExternalControl);
             workerCoins = workerCoins == null ? null : Map.copyOf(workerCoins);
@@ -38,23 +39,34 @@ public class AgentControlSettingsService {
         }
 
         public Settings(boolean scaling, boolean external, Map<String, Boolean> workers) {
-            this(scaling, external, workers, null, Map.of(), null);
+            this(scaling, external, workers, null, Map.of(), null, null);
         }
 
         /** Kept for persisted pre-economic-plan settings and existing API callers. */
         public Settings(boolean scaling, boolean external, Map<String, Boolean> workers, Map<String, String> coins) {
-            this(scaling, external, workers, coins, Map.of(), null);
+            this(scaling, external, workers, coins, Map.of(), null, null);
         }
 
         /** Pre-network-sharing arity; a missing flag means "keep the persisted value". */
         public Settings(boolean scaling, boolean external, Map<String, Boolean> workers, Map<String, String> coins,
                         Map<String, String> policies) {
-            this(scaling, external, workers, coins, policies, null);
+            this(scaling, external, workers, coins, policies, null, null);
+        }
+
+        /** Pre-wallet-target-sharing arity; a missing flag keeps the persisted setting. */
+        public Settings(boolean scaling, boolean external, Map<String, Boolean> workers, Map<String, String> coins,
+                        Map<String, String> policies, Boolean networkSharing) {
+            this(scaling, external, workers, coins, policies, networkSharing, null);
         }
 
         /** LAN visibility is on by default; only an explicit false opts this agent out. */
         public boolean networkSharingActive() {
             return !Boolean.FALSE.equals(networkSharingEnabled);
+        }
+
+        /** Wallet targets are private until their owner explicitly shares them on the LAN. */
+        public boolean walletTargetSharingActive() {
+            return Boolean.TRUE.equals(walletTargetSharingEnabled);
         }
 
         public String coinFor(String workerId) {
@@ -101,7 +113,8 @@ public class AgentControlSettingsService {
         value = new Settings(value.dynamicPowerScalingEnabled(), value.externalControlEnabled(),
                 value.workerExternalControl(), value.workerCoins() == null ? settings.workerCoins() : Map.copyOf(value.workerCoins()),
                 value.workerCoinPolicies() == null ? settings.workerCoinPolicies() : Map.copyOf(value.workerCoinPolicies()),
-                value.networkSharingEnabled() == null ? settings.networkSharingEnabled() : value.networkSharingEnabled());
+                value.networkSharingEnabled() == null ? settings.networkSharingEnabled() : value.networkSharingEnabled(),
+                value.walletTargetSharingEnabled() == null ? settings.walletTargetSharingEnabled() : value.walletTargetSharingEnabled());
         if (!persist(value)) return false;
         settings = value;
         Runnable listener = feeTierListener;
@@ -151,7 +164,7 @@ public class AgentControlSettingsService {
         } catch (Exception ignored) {
             // A first installation participates in the read-only LAN dashboard by default.
             // Existing explicit opt-outs are retained by the normal JSON load path above.
-            return new Settings(true, false, Map.of(), Map.of(), Map.of(), true);
+            return new Settings(true, false, Map.of(), Map.of(), Map.of(), true, false);
         }
     }
 

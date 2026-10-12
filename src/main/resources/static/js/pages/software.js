@@ -17,6 +17,7 @@
       item.coins.push(option.coin); item.algorithms.push(option.algorithm); item.variants.push(option);
       item.installed ||= option.installed;
       if (option.downloadStatus === 'DOWNLOADING') item.downloadStatus = option.downloadStatus;
+      if (option.downloadStatus === 'UPDATE_REQUIRED') item.downloadStatus = option.downloadStatus;
       if (option.downloadDetail) item.downloadDetail = option.downloadDetail;
       grouped.set(option.id, item);
     }
@@ -36,11 +37,12 @@
     const grid = $('software-grid'); grid.replaceChildren();
     if (!list.length) { grid.append(el('p', 'table-empty', 'no_miner_software_matches_this_filter')); return; }
     for (const item of list) {
-      const card = el('article', `software-card${item.installed ? ' installed' : ''}`);
+      const needsUpdate = item.downloadStatus === 'UPDATE_REQUIRED';
+      const card = el('article', `software-card${item.installed ? ' installed' : ''}${needsUpdate ? ' update-required' : ''}`);
       const head = el('div', 'software-card__head');
       const identity = el('div'); identity.append(el('p', 'kicker', item.device), el('h3', '', item.name));
-      const status = el('span', `pill ${item.installed ? 'tone-ok' : item.selectable ? '' : 'tone-warn'}`,
-        item.downloadStatus === 'DOWNLOADING' ? 'installing_d0dbee' : item.installed ? 'installed_ff9a99' : item.selectable ? 'installable' : 'not_integrated');
+      const status = el('span', `pill ${item.installed ? 'tone-ok' : needsUpdate ? 'tone-warn' : item.selectable ? '' : 'tone-warn'}`,
+        item.downloadStatus === 'DOWNLOADING' ? 'installing_d0dbee' : needsUpdate ? 'update_required' : item.installed ? 'installed_ff9a99' : item.selectable ? 'installable' : 'not_integrated');
       head.append(identity, status); card.append(head);
       const supported = el('div', 'software-support');
       [...new Set(item.variants.map(entry => `${coinName(entry)} · ${entry.algorithm}`))]
@@ -52,7 +54,7 @@
       fact('platform', item.device);
       fact('project', item.projectUrl || '—');
       card.append(facts);
-      const copy = el('p', 'muted', item.installed ? 'the_software_is_ready_and_can_be_assigned_to' : 'installation_uses_the_verified_official_rele');
+      const copy = el('p', 'muted', item.installed ? 'the_software_is_ready_and_can_be_assigned_to' : needsUpdate ? 'update_srbminer_to_the_reviewed_version_your_mining' : 'installation_uses_the_verified_official_rele');
       if (item.downloadDetail || item.unavailableReason) copy.textContent = window.SolarMinerI18n.s(item.downloadDetail || item.unavailableReason);
       card.append(copy);
       const actions = el('div', 'software-actions');
@@ -63,9 +65,10 @@
         remove.addEventListener('click', () => mutate(`/api/agent/local/${item.coins[0]}/remove`, `${item.name} entfernen?`, 'software_removed'));
         actions.append(remove);
       } else if (item.selectable) {
-        const install = el('button', 'button primary', item.downloadStatus === 'DOWNLOADING' ? 'installation_in_progress' : 'install');
+        const install = el('button', 'button primary', item.downloadStatus === 'DOWNLOADING' ? 'installation_in_progress' : needsUpdate ? 'update_srbminer' : 'install');
         install.type = 'button'; install.disabled = busy || item.downloadStatus === 'DOWNLOADING';
-        install.addEventListener('click', () => mutate(`/api/agent/local/${item.coins[0]}/miners/${item.id}/download`, null, 'installation_started'));
+        install.addEventListener('click', () => mutate(`/api/agent/local/${item.coins[0]}/miners/${item.id}/download`, null,
+          needsUpdate ? 'srbminer_update_started' : 'installation_started'));
         actions.append(install);
       }
       card.append(actions); grid.append(card);

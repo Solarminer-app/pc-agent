@@ -75,6 +75,11 @@ public class MinerConsoleService {
     }
 
     /** Per-GPU console id of any GPU coin, e.g. "pearl-NVIDIA-0". */
+    public static String gpuConsoleId(Coin coin, String vendor, int index) {
+        return coin.id() + "-" + vendor + "-" + index;
+    }
+
+    /** Per-GPU console id of any GPU coin, e.g. "pearl-NVIDIA-0". */
     public static boolean isGpuConsoleId(String miner) {
         return miner != null && miner.matches(
                 "(" + String.join("|", Coin.gpuCoins().stream().map(Coin::id).toList()) + ")-(NVIDIA|AMD)-[0-9]{1,5}");

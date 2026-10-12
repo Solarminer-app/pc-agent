@@ -7,6 +7,8 @@ import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
 import de.verdox.solarminer.pcagent.mining.WorkerAssignmentService;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,6 +21,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The single worker resource (refactoring Phase 5d, owner decision O3): inventory,
@@ -47,6 +50,14 @@ public class WorkerController {
 
     /** Loading plan P3: worker writes change the workers channel, overview and settings. */
     private void reportChanged(String... names) { status.invalidate(names); }
+
+    /** Keep actionable worker failures in the JSON body consumed by the local dashboard. */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, String>> workerError(ResponseStatusException failure) {
+        String message = failure.getReason();
+        if (message == null || message.isBlank()) message = "Worker action failed";
+        return ResponseEntity.status(failure.getStatusCode()).body(Map.of("message", message));
+    }
 
     @GetMapping
     public List<WorkerAssignmentService.WorkerView> workers() { return workers.workers(); }

@@ -65,6 +65,17 @@ public class AgentWriteAccessFilter extends OncePerRequestFilter {
                 }
                 return;
             }
+            // Wallet targets are not part of the ordinary LAN dashboard. Their owner must
+            // explicitly opt in before another discovered PC-Agent may read them.
+            if ("GET".equalsIgnoreCase(request.getMethod())
+                    && path.equals(EXTERNAL_API + "/wallet-targets")) {
+                if (controls.get().walletTargetSharingActive()) {
+                    filterChain.doFilter(request, response);
+                } else {
+                    forbidden(response, "Wallet-Ziele wurden lokal nicht für das LAN freigegeben");
+                }
+                return;
+            }
             if (controls.get().externalControlEnabled()) {
                 filterChain.doFilter(request, response);
                 return;

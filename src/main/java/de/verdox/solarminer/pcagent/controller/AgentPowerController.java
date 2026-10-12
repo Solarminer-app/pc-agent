@@ -162,6 +162,18 @@ public class AgentPowerController {
         return controls.get();
     }
 
+    /** Separate consent because a payout address is more sensitive than worker telemetry. */
+    @PostMapping("/wallet-target-sharing")
+    public AgentControlSettingsService.Settings walletTargetSharing(@RequestParam boolean enabled) {
+        AgentControlSettingsService.Settings current = controls.get();
+        if (!controls.update(new AgentControlSettingsService.Settings(current.dynamicPowerScalingEnabled(),
+                current.externalControlEnabled(), current.workerExternalControl(), current.workerCoins(),
+                current.workerCoinPolicies(), current.networkSharingEnabled(), enabled)))
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Wallet-Freigabe im LAN konnte nicht gespeichert werden");
+        reportChanged("settings");
+        return controls.get();
+    }
+
     // Phase 5d (owner decision O3): the worker-scoped consent/assignment routes that used to
     // live under /workers/* here were merged into WorkerController when the dashboard moved
     // over. /workers/{id}/coin and /workers/{id}/coin-policy had no remaining consumer after

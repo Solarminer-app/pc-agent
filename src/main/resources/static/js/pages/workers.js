@@ -123,6 +123,13 @@
       const configure = ui.element('button', 'button subtle', worker.coin === 'none' ? 'set_up' : 'change'); configure.type = 'button'; configure.disabled = !catalogReady || pendingWorkers.has(worker.deviceId);
       configure.addEventListener('click', event => { event.stopPropagation(); openEditor(worker); }); wrap.append(configure);
       if (worker.coin !== 'none') {
+        const miner = miners.find(candidate => candidate.coin === worker.coin && candidate.id === worker.minerSoftwareId);
+        if (miner?.downloadStatus === 'UPDATE_REQUIRED') {
+          const update = ui.element('button', 'button primary', 'update_srbminer'); update.type = 'button';
+          update.disabled = pendingWorkers.has(worker.deviceId);
+          update.addEventListener('click', event => { event.stopPropagation(); updateMiner(worker, miner); }); wrap.append(update);
+          return wrap;
+        }
         const running = worker.status === 'MINING'; const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, running ? 'pause' : 'start');
         toggle.type = 'button'; toggle.disabled = pendingWorkers.has(worker.deviceId) || !worker.minerInstalled;
         toggle.addEventListener('click', event => { event.stopPropagation(); action(worker, running ? 'pause' : 'start'); }); wrap.append(toggle);
@@ -312,6 +319,17 @@
       pendingWorkers.delete(worker.deviceId);
       renderTable();
     }
+  }
+
+  async function updateMiner(worker, miner) {
+    if (pendingWorkers.has(worker.deviceId)) return;
+    pendingWorkers.add(worker.deviceId); renderTable();
+    try {
+      const response = await fetch(`/api/agent/local/${encodeURIComponent(worker.coin)}/miners/${encodeURIComponent(miner.id)}/download`, {method: 'POST'});
+      if (!response.ok || await response.json() !== true) throw new Error(`HTTP ${response.status}`);
+      notice('srbminer_update_started'); await load();
+    } catch (error) { notice(t('action_failed_error', {error: s(error.message)}), true, true); }
+    finally { pendingWorkers.delete(worker.deviceId); renderTable(); }
   }
 
   async function loadMinerCatalog() {

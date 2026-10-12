@@ -5,6 +5,7 @@ import de.verdox.solarminer.pcagent.mining.network.AgentNetworkDiscoveryService;
 import de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -38,5 +39,11 @@ public class NetworkDashboardController {
         List<NetworkDashboardService.AgentCard> cards = dashboard.cards();
         return new NetworkView(controls.get().networkSharingActive(),
                 Math.max(0, cards.size() - 1), cards);
+    }
+
+    /** Local-browser-only proxy for one explicitly selected LAN peer's shared wallet targets. */
+    @GetMapping("/agents/{agentId}/wallet-targets")
+    public NetworkDashboardService.PeerWalletTargets walletTargets(@PathVariable String agentId) {
+        return dashboard.walletTargets(agentId);
     }
 }

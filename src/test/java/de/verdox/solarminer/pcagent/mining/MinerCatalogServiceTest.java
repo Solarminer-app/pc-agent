@@ -55,4 +55,24 @@ class MinerCatalogServiceTest {
         assertFalse(restarted.options("ravencoin").stream().filter(value -> value.id().equals("teamredminer"))
                 .findFirst().orElseThrow().selectable());
     }
+
+    @Test
+    void exposesAnExplicitUpdateStateForAnOlderSrbMinerInstallation() {
+        XmrDownloadService xmrig = mock(XmrDownloadService.class);
+        SrbDownloadService srb = mock(SrbDownloadService.class);
+        XmrMinerService xmrMiner = mock(XmrMinerService.class);
+        PearlMinerService pearlMiner = mock(PearlMinerService.class);
+        when(pearlMiner.binaryPresent()).thenReturn(true);
+        when(pearlMiner.binaryAvailable()).thenReturn(false);
+        when(srb.status()).thenReturn("PENDING");
+
+        MinerCatalogService catalog = new MinerCatalogService(xmrig, srb, xmrMiner, pearlMiner,
+                directory.resolve("selections.properties").toString());
+        catalog.refreshInstallState();
+
+        MinerCatalogService.MinerOption pearl = catalog.selected("pearl");
+        assertFalse(pearl.installed());
+        assertEquals("UPDATE_REQUIRED", pearl.downloadStatus());
+        assertTrue(pearl.downloadDetail().isBlank());
+    }
 }

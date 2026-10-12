@@ -128,6 +128,27 @@ window.SolarMinerI18nCatalog = {
             de: "LAN-Sichtbarkeit konnte nicht geändert werden: {error}",
             en: "Could not change LAN visibility: {error}"
         },
+        "lan_import": {de: "LAN-IMPORT", en: "LAN IMPORT"},
+        "copy_wallet_targets_from_another_agent": {de: "Wallet-Ziele von anderem Agenten übernehmen", en: "Copy wallet targets from another agent"},
+        "choose_a_discovered_agent_to_load_its_explicit": {
+            de: "Wähle einen gefundenen PC-Agenten. Es werden nur Wallet-Ziele geladen, die dessen Besitzer ausdrücklich im LAN freigegeben hat. Übernommene Werte werden erst nach „Wallet speichern“ lokal gespeichert.",
+            en: "Choose a discovered PC Agent. Only wallet targets its owner explicitly shared on the LAN are loaded. Imported values are saved locally only after you select Save wallet."
+        },
+        "no_other_pc_agents_found_on_the_lan": {de: "Keine weiteren PC-Agents im lokalen Netzwerk gefunden.", en: "No other PC Agents found on the local network."},
+        "load_wallet_targets": {de: "Wallet-Ziele laden", en: "Load wallet targets"},
+        "loading_wallet_targets": {de: "Wallet-Ziele werden geladen …", en: "Loading wallet targets …"},
+        "use_imported_wallet_target": {de: "Übernommenes Ziel verwenden", en: "Use imported target"},
+        "wallet_target_applied_save_to_confirm": {de: "{coin}: Übernommenes Wallet-Ziel eingesetzt. Speichere es zur Bestätigung.", en: "{coin}: Imported wallet target applied. Save it to confirm."},
+        "wallet_targets_loaded_choose_a_coin_to_apply": {de: "Wallet-Ziele von {agent} geladen. Wähle bei einem Coin „Übernommenes Ziel verwenden“.", en: "Wallet targets from {agent} loaded. Choose Use imported target for a coin."},
+        "the_selected_agent_has_no_saved_wallet_targets": {de: "Der ausgewählte Agent hat keine gespeicherten Wallet-Ziele.", en: "The selected agent has no saved wallet targets."},
+        "wallet_targets_not_available_from_this_agent": {de: "Dieser Agent gibt seine Wallet-Ziele nicht frei.", en: "This agent does not share its wallet targets."},
+        "peer_wallet_targets_unavailable": {de: "Die Wallet-Ziele dieses Agenten sind nicht erreichbar.", en: "This agent's wallet targets are unavailable."},
+        "could_not_load_wallet_targets_error": {de: "Wallet-Ziele konnten nicht geladen werden: {error}", en: "Could not load wallet targets: {error}"},
+        "share_wallet_targets_with_other_pc_agents": {de: "Wallet-Ziele mit anderen PC-Agents im selben Netzwerk teilen", en: "Share wallet targets with other PC Agents on the same network"},
+        "wallet_targets_are_private_by_default_and_can_be": {de: "Wallet-Ziele sind standardmäßig privat. Bei Freigabe können andere gefundene PC-Agents die Ziele laden, aber nicht speichern oder ändern.", en: "Wallet targets are private by default. When shared, other discovered PC Agents can load them but cannot save or change them."},
+        "wallet_target_sharing_enabled": {de: "Wallet-Ziele sind jetzt im lokalen Netzwerk freigegeben.", en: "Wallet targets are now shared on the local network."},
+        "wallet_target_sharing_disabled": {de: "Wallet-Ziele sind nicht mehr im lokalen Netzwerk freigegeben.", en: "Wallet targets are no longer shared on the local network."},
+        "could_not_change_wallet_target_sharing_error": {de: "Wallet-Freigabe im LAN konnte nicht geändert werden: {error}", en: "Could not change LAN wallet sharing: {error}"},
         "lan_visibility": {de: "LAN-Sichtbarkeit", en: "LAN visibility"},
         "lan_visibility_enabled_searching_the_local_n": {
             de: "LAN-Sichtbarkeit aktiviert. Die Suche im lokalen Netzwerk läuft.",
@@ -1752,6 +1773,10 @@ window.SolarMinerI18nCatalog = {
         },
         "referrer_code_pct": {de: "Referrer {code}: {pct}", en: "Referrer {code}: {pct}"},
         "refresh": {de: "Aktualisieren", en: "Refresh"},
+        "update_required": {de: "Update erforderlich", en: "Update required"},
+        "update_srbminer": {de: "SRBMiner aktualisieren", en: "Update SRBMiner"},
+        "srbminer_update_started": {de: "SRBMiner-Update gestartet.", en: "SRBMiner update started."},
+        "update_srbminer_to_the_reviewed_version_your_mining": {de: "Aktualisiere SRBMiner auf die geprüfte Version. Deine Mining-Konfiguration bleibt erhalten.", en: "Update SRBMiner to the reviewed version. Your mining configuration is kept."},
         "refreshing": {de: "Aktualisiere …", en: "Refreshing …"},
         "rejected_shares_of_all_reported_shares": {
             de: "Abgelehnte Shares an allen gemeldeten Shares",

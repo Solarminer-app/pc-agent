@@ -1859,3 +1859,38 @@ th[aria-sort=descending] .table-sort::after {
         flex: 1
     }
 }
+
+.wallet-import {
+    margin: 0 0 20px
+}
+
+.wallet-import .panel-head {
+    margin-bottom: 8px
+}
+
+.wallet-import-peers {
+    display: grid;
+    gap: 9px;
+    margin-top: 16px
+}
+
+.wallet-import-peer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 13px 15px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #111a25
+}
+
+.wallet-import-peer strong,
+.wallet-import-peer small {
+    display: block
+}
+
+.wallet-import-peer small {
+    margin-top: 3px;
+    overflow-wrap: anywhere
+}

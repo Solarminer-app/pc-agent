@@ -67,6 +67,10 @@ public class ExternalAgentController {
     @GetMapping("/identity")
     public AgentPowerController.Identity identity() { return power.identity(); }
 
+    /** Read-only LAN import contract; the access filter requires explicit wallet sharing consent. */
+    @GetMapping("/wallet-targets")
+    public List<MiningController.WalletTarget> walletTargets() { return mining.walletTargets(); }
+
     @GetMapping("/status")
     public MinerStats status() { return mining.getMiningStats(); }
 

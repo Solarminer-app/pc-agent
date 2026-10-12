@@ -121,6 +121,25 @@ class AgentWriteAccessFilterTest {
         assertThat(pauseChain.getRequest()).isNull();
     }
 
+    @Test
+    void walletTargetsRequireTheirOwnExplicitLanSharingConsent() throws Exception {
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(
+                true, false, Map.of(), Map.of(), Map.of(), true, false));
+        MockHttpServletRequest hidden = request("GET", "/api/agent/external/wallet-targets");
+        MockHttpServletResponse hiddenResponse = new MockHttpServletResponse();
+        MockFilterChain hiddenChain = new MockFilterChain();
+        filter.doFilter(hidden, hiddenResponse, hiddenChain);
+        assertThat(hiddenResponse.getStatus()).isEqualTo(403);
+        assertThat(hiddenChain.getRequest()).isNull();
+
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(
+                true, false, Map.of(), Map.of(), Map.of(), true, true));
+        MockHttpServletRequest shared = request("GET", "/api/agent/external/wallet-targets");
+        MockFilterChain sharedChain = new MockFilterChain();
+        filter.doFilter(shared, new MockHttpServletResponse(), sharedChain);
+        assertThat(sharedChain.getRequest()).isSameAs(shared);
+    }
+
     private void disabled() {
         when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(true, false, Map.of(), Map.of()));
     }

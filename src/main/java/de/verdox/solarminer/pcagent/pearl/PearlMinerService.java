@@ -275,7 +275,7 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
     private synchronized boolean startGpu(LocalGpuPowerService.Gpu gpu) {
         String key = gpu.vendor() + ":" + gpu.index();
         WorkerRunState run = runs.computeIfAbsent(key, ignored ->
-                new WorkerRunState(Coin.PEARL.id(), gpu, "pearl-" + key, "Miner nicht gestartet"));
+                new WorkerRunState(Coin.PEARL.id(), gpu, workerConsoleId(gpu), "Miner nicht gestartet"));
         if (run.running()) return true;
         if (MinerProcessRegistry.gpuCoinUsesDevice(gpu.deviceId()))
             return fail(run, "This GPU is already mining RVN or ETC; pause that GPU worker first");
@@ -334,6 +334,10 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
         } catch (IOException e) {
             return fail(run, "SRBMiner on " + key + " could not be started: " + e.getMessage());
         }
+    }
+
+    static String workerConsoleId(LocalGpuPowerService.Gpu gpu) {
+        return MinerConsoleService.gpuConsoleId(Coin.PEARL, gpu.vendor(), gpu.index());
     }
 
     @Override
@@ -515,6 +519,13 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
      * executable is no longer sufficient evidence that every advertised GPU starts correctly.
      */
     public boolean binaryAvailable() { return compatibleBinary(executable); }
+
+    /**
+     * Whether an SRBMiner executable is present, even when it is not the reviewed release.
+     * The catalog uses this to offer an explicit, checksum-verified update instead of making
+     * an older installation indistinguishable from a missing one.
+     */
+    public boolean binaryPresent() { return Files.isRegularFile(executable); }
 
     static boolean compatibleBinary(Path executable) {
         if (!Files.isRegularFile(executable)) return false;
