@@ -56,98 +56,54 @@
     }
   }
 
-  function renderLiveWorkers(data) {
-    const grid = $('live-worker-grid');
-    const rows = ui.operatingRows(ui.workerRows(data, telemetry));
-    const poolTargets = Object.fromEntries(ui.poolRows(data).map(row => [row.coin, row.poolUrl]));
-    const coinHashrates = Object.fromEntries((data.coins || []).map(coin => [coin.id,
-      rows.filter(row => row.coin === coin.id).reduce((sum, row) => sum + row.hashrateHps, 0)]));
-    grid.replaceChildren(...rows.map(row => {
-      const card = ui.element('article', `live-worker-card ${row.status === 'ERROR' ? 'error' : ''}`);
-      const head = ui.element('div', 'live-worker-head');
-      const identity = ui.element('div');
-      identity.append(ui.element('strong', '', ui.shortWorkerName(row)), ui.element('span', '', `${row.coinName} · ${row.algorithm}`));
-      head.append(identity, ui.statusPill(row.status)); card.append(head);
+  function dashboardWorkers(data) {
+    const localRows = ui.operatingRows(ui.workerRows(data, telemetry)).map(row => {
       const forecast = (data.earnings || []).find(item => item.coin === row.coin && item.available);
-      const ratio = forecast && coinHashrates[row.coin] > 0 ? row.hashrateHps / coinHashrates[row.coin] : 0;
-      const usdPerDay = forecast ? forecast.usdPerDay * ratio : null;
-      const metrics = ui.element('div', 'live-worker-metrics');
-      for (const [label, value] of [
-        ['hashrate', ui.hashrate(row.hashrateHps)], ['power_4606f4', row.watts ? ui.power(row.watts) : '—'],
-        ['temperature', row.temperature.value != null ? ui.temperature(row.temperature.value) : '—'],
-        ['earnings', usdPerDay != null ? t('value_day', {value: preferences.moneyFromUsd(usdPerDay)}) : '—'],
-        ['earnings_per_kwh', ui.moneyPerKwh(ui.revenuePerKwh(usdPerDay, row.watts))]]) {
-        const item = ui.element('div'); item.append(ui.element('span', '', label), ui.element('strong', '', value)); metrics.append(item);
-      }
-      card.append(metrics);
-      const targetPool = poolTargets[row.coin] || row.pools?.[0];
-      const pool = ui.element('p', 'live-worker-pool', targetPool ? `${targetPool} · ${t('latency')} ${ui.latency(row.latency)}` : t('no_pool_reported'));
-      const session = energy?.activeSessions?.find(item => item.deviceId === row.deviceId);
-      if (session) pool.append(ui.element('span', '', ` · ${t('session')} ${ui.kilowattHours(Number(session.wattHours))}`));
-      const link = ui.element('a', '', 'open_worker'); link.href = '/workers.html'; card.append(pool, link); return card;
-    }));
-    if (!rows.length) grid.append(ui.element('div', 'notice-line warn', 'no_worker_is_running_configure_hardware_in_w'));
+      const usdPerDay = ui.workerUsdPerDay(row.hashrateHps, forecast);
+      return {...row, agent: agentName || t('this_pc_agent'), local: true, usdPerDay,
+        revenuePerKwh: ui.revenuePerKwh(usdPerDay, row.watts)};
+    });
+    const remoteRows = (networkAgents?.agents || []).filter(agent => !agent.own && agent.reachable)
+      .flatMap(agent => (agent.workers || []).filter(row => row.status === 'MINING' || row.status === 'ERROR').map(row => {
+        const forecast = (agent.earnings || []).find(item => item.coin === row.coin);
+        const usdPerDay = ui.workerUsdPerDay(Number(row.hashrateHps), forecast);
+        return {...row, agent: agent.name || t('pc_agent'), local: false, usdPerDay,
+          revenuePerKwh: ui.revenuePerKwh(usdPerDay, Number(row.watts))};
+      }));
+    return [...localRows, ...remoteRows];
   }
 
-  function renderNetworkAgents() {
-    const grid = $('network-agents-grid');
-    const note = $('network-agents-note');
-    if (!networkAgents) {
-      grid.replaceChildren(ui.element('div', 'skeleton'));
-      note.textContent = t('searching_the_local_network_for_pc_agents');
-      return;
-    }
-    const peers = (networkAgents.agents || []).filter(agent => !agent.own);
-    if (!peers.length) {
-      grid.replaceChildren();
-      note.textContent = t('no_other_pc_agents_found_searching_the_local');
-      return;
-    }
-    note.textContent = networkAgents.sharingEnabled
-      ? t('another_pc_agent_shares_only_read_only_wo')
-      : t('lan_visibility_off_peers_stay_listed_without');
-    grid.replaceChildren(...peers.map(agent => {
-      const card = ui.element('article', `network-agent-card ${agent.reachable ? '' : 'error'}`);
-      const head = ui.element('div', 'live-worker-head');
-      const identity = ui.element('div');
-      identity.append(ui.element('strong', '', agent.name || t('worker')),
-        ui.element('span', '', `${agent.host}:${agent.dashboardPort}`));
-      head.append(identity, (() => {
-        const pill = ui.statusPill(null, t(agent.reachable ? 'connected_e0e3b1' : 'unavailable_9da3a4'));
-        pill.classList.add(agent.reachable ? 'tone-ok' : 'tone-bad');
-        return pill;
-      })());
-      card.append(head);
-      if (agent.error) card.append(ui.element('p', 'network-agent-error', window.SolarMinerI18n.s(agent.error)));
-      const totals = agent.totals || {};
-      const metrics = ui.element('div', 'live-worker-metrics');
-      for (const [label, value] of [
-        ['worker', String(totals.workerCount || 0)],
-        ['hashrate', ui.hashrate(totals.hashrateHps || 0)],
-        ['power_4606f4', totals.watts ? ui.power(totals.watts) : '—'],
-        ['earnings', totals.usdPerDay ? t('value_day', {value: preferences.moneyFromUsd(totals.usdPerDay)}) : '—']]) {
-        const item = ui.element('div'); item.append(ui.element('span', '', label), ui.element('strong', '', value)); metrics.append(item);
-      }
-      card.append(metrics);
-      const rows = (agent.workers || []).slice(0, 6);
-      if (rows.length) {
-        const list = ui.element('div', 'network-agent-workers');
-        for (const row of rows) {
-          const line = ui.element('p', 'network-agent-worker');
-          line.append(ui.element('strong', '', row.name || t('worker')),
-            ui.element('span', '', ` · ${row.hardwareType || '—'} · ${row.algorithm || '—'} · ${ui.hashrate(row.hashrateHps || 0)}`));
-          list.append(line);
-        }
-        card.append(list);
-      }
-      if (agent.reachable) {
-        const link = ui.element('a', '', t('open_agent_dashboard'));
-        link.href = `http://${agent.host}:${agent.dashboardPort}/`;
-        link.target = '_blank'; link.rel = 'noopener';
-        card.append(link);
-      }
-      return card;
+  function renderDashboardWorkers(data) {
+    const root = $('network-worker-list');
+    const kpis = $('network-worker-kpis');
+    const note = $('network-workers-note');
+    const rows = dashboardWorkers(data);
+    const totalWatts = rows.reduce((sum, row) => sum + (Number(row.watts) || 0), 0);
+    const totalUsdPerDay = rows.reduce((sum, row) => sum + (Number(row.usdPerDay) || 0), 0);
+    const efficiencies = rows.map(row => row.revenuePerKwh).filter(Number.isFinite);
+    const averageRevenuePerKwh = efficiencies.length
+      ? efficiencies.reduce((sum, value) => sum + value, 0) / efficiencies.length : null;
+    kpis.replaceChildren(
+      ui.metric({label: 'active_workers', value: String(rows.length), detail: t('local_and_shared_workers')}),
+      ui.metric({label: 'total_power', value: ui.power(totalWatts), detail: t('sum_of_running_workers')}),
+      ui.metric({label: 'earnings', value: totalUsdPerDay > 0 ? t('value_day', {value: preferences.moneyFromUsd(totalUsdPerDay)}) : '—', detail: t('sum_of_running_workers')}),
+      ui.metric({label: 'average_earnings_per_kwh', value: ui.moneyPerKwh(averageRevenuePerKwh), detail: t('average_of_workers_with_data')}));
+    root.replaceChildren(ui.table({
+      columns: [
+        {label: 'worker', render: row => ui.cellLines(ui.shortWorkerName(row), `${row.hardwareType || '—'} · ${row.hardwareModel || row.algorithm || '—'}`)},
+        {label: 'pc_agent', render: row => ui.cellLines(row.agent, row.local ? t('this_pc') : t('read_only'))},
+        {label: 'status', render: row => ui.statusPill(row.status)},
+        {label: 'hashrate', align: 'right', render: row => ui.hashrate(Number(row.hashrateHps))},
+        {label: 'power_4606f4', align: 'right', render: row => ui.power(Number(row.watts))},
+        {label: 'earnings', align: 'right', render: row => row.usdPerDay != null ? t('value_day', {value: preferences.moneyFromUsd(row.usdPerDay)}) : '—'},
+        {label: 'earnings_per_kwh', align: 'right', render: row => ui.moneyPerKwh(row.revenuePerKwh)}
+      ], rows, empty: 'no_worker_is_running_configure_hardware_in_w'
     }));
+    const peerErrors = (networkAgents?.agents || []).filter(agent => !agent.own && agent.error);
+    if (!networkAgents) note.textContent = t('searching_the_local_network_for_pc_agents');
+    else if (peerErrors.length) note.textContent = t('some_pc_agents_are_not_sharing_live_data', {count: peerErrors.length});
+    else if (!(networkAgents.agents || []).some(agent => !agent.own)) note.textContent = t('no_other_pc_agents_found_searching_the_local');
+    else note.textContent = t('remote_workers_are_read_only');
   }
 
   function renderEnergy() {
@@ -193,9 +149,8 @@
     fresh = isFresh;
     renderStatusStrip(data);
     renderAlerts(agentUi);
-    renderLiveWorkers(data);
+    renderDashboardWorkers(data);
     renderEnergy();
-    renderNetworkAgents();
     // A cached tab snapshot is deliberately painted before the live read. Its short
     // overview TTL may already have elapsed during normal page navigation; that is a
     // loading transition, not an outage. Keep the previous dashboard visible while the
@@ -245,7 +200,7 @@
     {endpoint: '/api/agent/local/network/agents', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
     .subscribe((data, meta) => {
       networkAgents = meta.error ? null : data;
-      renderNetworkAgents();
+      if (overview) renderDashboardWorkers(overview);
     });
 
   // ------------------------------------------------------------------ agent identity
@@ -264,6 +219,7 @@
     try {
       agentName = (await ui.getJson('/api/agent/local/power-control/identity')).name || null;
       renderAgentName();
+      if (overview) renderDashboardWorkers(overview);
     } catch (_) { /* The placeholder keeps the product default visible until the agent answers. */ }
   }
   $('agent-name-form').addEventListener('submit', async event => {
@@ -276,6 +232,7 @@
       window.SolarMinerAgentIdentity?.apply(agentName);
       agentNameState = agentName ? 'saved_the_solarminer_node_shows_this_name'
         : 'name_removed_the_node_shows_solarminer_pc_ag';
+      if (overview) renderDashboardWorkers(overview);
     } catch (error) { agentNameState = error.message; agentNameError = true; }
     finally { agentNameBusy = false; renderAgentName(); }
   });

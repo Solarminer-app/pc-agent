@@ -1530,6 +1530,42 @@ th[aria-sort=descending] .table-sort::after {
     font-size: 12px
 }
 
+/* One operation list covers this PC and LAN peers. Remote rows are display-only. */
+.network-worker-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+    margin: 0 0 12px
+}
+
+.network-worker-kpis .metric {
+    min-height: 82px;
+    padding: 10px
+}
+
+.network-worker-kpis .metric-value {
+    margin-top: 9px;
+    font-size: 16px
+}
+
+.network-worker-kpis .metric-detail {
+    margin-top: 3px;
+    font-size: 9px;
+    line-height: 1.25
+}
+
+.network-worker-list .data-table {
+    min-width: 920px
+}
+
+.network-worker-list .status-mining {
+    color: #8ee4b4
+}
+
+.network-worker-list .status-error {
+    color: #efaa8b
+}
+
 .energy-kpis {
     display: grid;
     grid-template-columns:repeat(2, minmax(0, 1fr));
@@ -1845,6 +1881,10 @@ th[aria-sort=descending] .table-sort::after {
 
     .live-worker-grid, .software-grid, .network-agents-grid {
         grid-template-columns:1fr
+    }
+
+    .network-worker-kpis {
+        grid-template-columns:repeat(2, minmax(0, 1fr))
     }
 
     .energy-kpis {

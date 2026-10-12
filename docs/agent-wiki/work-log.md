@@ -1,5 +1,29 @@
 # PC-Agent work log
 
+## 2026-10-12 — Gemeinsame Worker-Liste im Dashboard
+
+- Das Dashboard führt die laufenden lokalen Worker und die schreibgeschützt über LAN
+  freigegebenen Worker anderer PC-Agents in einer Liste zusammen. Jede Zeile zeigt den
+  zugehörigen PC-Agent, Status, Hashrate, Leistung, Tagesertrag und Ertrag pro kWh.
+- Die Kopfkennzahlen summieren Workerzahl, Leistung und Tagesertrag; der Ertrag pro kWh ist
+  ausdrücklich der arithmetische Durchschnitt aller Worker mit vollständigem Ertrags- und
+  Leistungswert. Remote-Erträge werden wie die bisherigen lokalen Werte anteilig über die
+  Hashrate am je Agent veröffentlichten Coin-Forecast berechnet. Remote-Zeilen bleiben
+  ausschließlich lesbar.
+- Deutsche und englische Katalogeinträge ergänzen Überschrift, Kennzahlen, Hinweise und
+  Kennzeichnung der Remote-Daten. Verifikation: `node --check
+  src/main/resources/static/js/pages/overview.js`, `node scripts/check-i18n.cjs` (1.255
+  Schlüssel, neun Seiten, beide Locales), `node scripts/scan-i18n-literals.cjs` (0) und
+  `git diff --check` erfolgreich. Ein Browser-/LAN-Smoketest mit mindestens zwei Agents bleibt
+  ein Rollout-Schritt.
+- Die vier Kennzahlen sind verdichtet (82 px Mindesthöhe, kleinere Innenabstände und Schrift)
+  und bleiben auf schmalen Ansichten als 2×2-Raster sichtbar statt einzeln untereinander zu
+  stehen.
+- Die Dashboard-Hauptspalte darf auf Desktop bis zu 1.480 px nutzen. Bis 1.650 px
+  Fensterbreite steht die Worker-Liste allein in ihrer Zeile; dadurch erhält die sieben-spaltige
+  Tabelle die volle verfügbare Breite und vermeidet die horizontale Scrollleiste auf normalen
+  Desktopgrößen.
+
 ## 2026-10-12 — Pearl-Worker-Start und sichtbare API-Fehler
 
 - Live-Diagnose des lokalen Worker-Starts ergab HTTP 400 vor dem SRBMiner-Prozessstart:
@@ -15,6 +39,15 @@
   deutschen/englischen i18n-Katalog und dessen dynamische Fehlerübersetzungen.
   Verifikation: fokussierte Controller-, Konsolen- und Pearl-ID-Regressionstests,
   JavaScript-Syntax- und i18n-Prüfungen sowie `git diff --check`.
+- Windows-Live-Reproduktion auf `Main-Gaming-PC` (Windows 11, RTX 2080 Ti):
+  Der Start lieferte HTTP 400, setzte ausschließlich den Pearl-Sammellog auf
+  `2026-10-12T09:52:48.556596Z` zurück und ließ den gültigen Worker-Log
+  `pearl-NVIDIA-0` samt alter Run-ID unverändert. Damit ist der Absturz an der
+  ungültigen internen ID `pearl-NVIDIA:0` auch auf dem Zielsystem belegt. Der
+  dort laufende Build enthielt weder den ID-Fix noch den strukturierten
+  Controller-Fehlerbody. Das korrigierte `standaloneJar` wurde anschließend
+  erfolgreich gebaut; SHA-256:
+  `7b78f15c2a396c328acfb1dd26ef1dd356dc305e0c9ec8ba656cef99f9a55380`.
 
 ## 2026-10-12 — Wallet-target sharing route regression coverage
 

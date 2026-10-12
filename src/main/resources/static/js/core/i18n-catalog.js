@@ -124,6 +124,27 @@ window.SolarMinerI18nCatalog = {
             de: "Ein anderer PC-Agent teilt hier nur Worker und Ertrag (schreibgeschützt). Steuerbar bleibt jeder Agent nur auf seinem eigenen PC.",
             en: "Another PC agent shares only workers and earnings (read-only) here. Every agent stays controllable only on its own PC."
         },
+        "active_workers_on_this_and_shared_agents": {
+            de: "Aktive Worker auf diesem und freigegebenen Agents",
+            en: "Active workers on this and shared agents"
+        },
+        "average_earnings_per_kwh": {de: "Ø Ertrag pro kWh", en: "Avg. earnings per kWh"},
+        "average_of_workers_with_data": {de: "Durchschnitt der Worker mit Daten", en: "Average of workers with data"},
+        "local_and_shared_workers": {de: "lokale und freigegebene Worker", en: "local and shared workers"},
+        "network_mining": {de: "MINING IM NETZWERK", en: "NETWORK MINING"},
+        "pc_agent": {de: "PC-Agent", en: "PC agent"},
+        "read_only": {de: "schreibgeschützt", en: "read-only"},
+        "remote_workers_are_read_only": {
+            de: "Remote-Worker sind nur zur Ansicht verfügbar.",
+            en: "Remote workers are available for viewing only."
+        },
+        "some_pc_agents_are_not_sharing_live_data": {
+            de: "{count} PC-Agent(s) liefern derzeit keine Live-Daten.",
+            en: "{count} PC agent(s) are not currently providing live data."
+        },
+        "sum_of_running_workers": {de: "Summe der laufenden Worker", en: "Sum of running workers"},
+        "this_pc": {de: "dieser PC", en: "this PC"},
+        "this_pc_agent": {de: "Dieser PC-Agent", en: "This PC agent"},
         "could_not_change_lan_visibility_error": {
             de: "LAN-Sichtbarkeit konnte nicht geändert werden: {error}",
             en: "Could not change LAN visibility: {error}"
