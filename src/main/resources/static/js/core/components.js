@@ -90,10 +90,13 @@
   const coinTicker = id => id === 'none' ? t('unassigned') : coinById.get(id)?.ticker || id;
   const gpuCoinIds = coinCatalog.filter(coin => coin.device === 'GPU').map(coin => coin.id);
   /** Algorithm names as the miner reports them differ in case and spelling from the display names. */
-  const minerAlgorithms = {monero: 'RandomX', pearl: 'PearlHash', ravencoin: 'kawpow',
-    ethereumclassic: 'etchash', decred: 'blake3_decred', quantus: 'quantus'};
+  const minerAlgorithms = {monero: ['randomx'], pearl: ['pearlhash'], ravencoin: ['kawpow'],
+    ethereumclassic: ['etchash'], decred: ['blake3_decred', 'blake3'], quantus: ['quantus', 'qpow']};
   const matchesAlgorithm = (coin, worker) =>
-    (minerAlgorithms[coin.id] || coin.algorithm).toLowerCase() === String(worker.currentAlgorithm || '').toLowerCase();
+    (minerAlgorithms[coin.id] || [coin.algorithm]).map(value => String(value).toLowerCase())
+      .includes(String(worker.currentAlgorithm || '').toLowerCase());
+  const coinIdForAlgorithm = algorithm => coinCatalog.find(coin =>
+    matchesAlgorithm(coin, {currentAlgorithm: algorithm}))?.id || '';
 
   /** The overview keeps each coin's configuration in a different place; pages must not each re-derive it. */
   function configurationFor(overview, coinId) {
@@ -401,7 +404,7 @@
     statusLabels, statusPill, element, cellLines, metric, table,
     statusStrip, notice, clearNotice, setConnection, setUpdated, filterButtonGroup, debounce,
     getJson, postJson, readError, cachedCoinCatalog,
-    coinCatalog, coinName, coinTicker, gpuCoinIds, configurationFor, matchesAlgorithm,
+    coinCatalog, coinName, coinTicker, gpuCoinIds, configurationFor, matchesAlgorithm, coinIdForAlgorithm,
     temperatureOf, workerRows, poolRows, shortWorkerName, operatingRows, sensorKey
   };
 })();
