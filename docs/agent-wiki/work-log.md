@@ -1,5 +1,44 @@
 # PC-Agent work log
 
+## 2026-10-12 — Worker default follows the Node label
+
+- New, unsaved wallet routes no longer prefill the generic worker name `pc`. The Wallets page reads the existing local identity contract and derives the worker name from the operator-defined PC-Agent/Node label. If that label is absent or cannot produce a valid pool worker, the exact fallback is `Solarminer-PC-Agent`.
+- The derived name follows the existing XMRig/SRBMiner contract (`[A-Za-z0-9_-]`, maximum 32 characters): unsupported characters become hyphens and accented Latin characters are folded where possible. Saved worker names remain untouched.
+- The field explanation is available in German and English through the closed frontend catalog. No external Node API, miner route format or persisted configuration was changed.
+- Verification: `node --check` for `wallets.js`, both frontend i18n checks, `git diff --check`, and the complete JDK 21 `sh gradlew test --offline --no-daemon` suite passed.
+
+## 2026-10-12 — Windows-X beendet den vollständigen Agent-Prozessbaum
+
+- Der Stable- und Beta-PowerShell-Launcher startet die Agent-JVM jetzt in einem
+  Windows Job Object mit `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Der Handle bleibt
+  bis zum Ende des Agenten offen; beendet Windows den Launcher beim Schließen
+  des Konsolenfensters über X, beendet der Kernel dadurch Agent, verwalteten
+  Stratum-Proxy, Miner und weitere Kindprozesse gemeinsam. Schlägt die
+  Job-Zuordnung fehl, wird die gerade gestartete JVM beendet und der Start
+  zweisprachig als Fehler gemeldet, statt einen ungeschützten Prozessbaum laufen
+  zu lassen. Grundlage sind Microsofts dokumentierte
+  [Job-Object-Prozessbaum-Vererbung](https://learn.microsoft.com/windows/win32/procthread/job-objects)
+  und
+  [`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`](https://learn.microsoft.com/windows/win32/api/winnt/ns-winnt-jobobject_basic_limit_information).
+- Die bestehende Recovery beim nächsten Start bleibt als zweite Schranke
+  erhalten: Sie verlangt zuerst eine positive Proxy-Service-Identität und
+  begrenzt die Prozessauswahl danach auf JARs im verwalteten Release-Verzeichnis.
+  Ein fremder Portinhaber wird nicht beendet.
+- `WindowsLauncherLifecycleTest` fixiert für beide Launcher die Reihenfolge
+  Job anlegen → JVM starten → zuordnen → warten → Handle schließen und verbietet
+  die frühere direkte JVM-Ausführung. Release- und Beta-Workflow parsen nun auch
+  den jeweils ausgelieferten Launcher vor der Veröffentlichung.
+- Der Bug-Backlog wurde vollständig gegengeprüft: BUG-001 ist durch die bereits
+  implementierte atomare SolarMiner-Standard-Auszahlungsroute und vorhandene
+  Monero-/Pearl-/GPU-Coin-Regressionstests behoben; BUG-002 war bereits
+  abgeschlossen. BUG-003 bleibt bis zur PID-/Port-Verifikation auf einem echten
+  Windows-Host formal `[~]`.
+- Verifikation: fokussierte `WindowsLauncherLifecycleTest` und
+  `MiningControllerValidationTest` mit JDK 21 grün. Neue Launcher-Ausgaben sind
+  Deutsch/Englisch; die vorhandene UI nutzt weiterhin ausschließlich den
+  geschlossenen zweisprachigen Katalog. Ein echter Windows-X-, Tray-Exit- und
+  Neustart-Smoke-Test bleibt erforderlich.
+
 ## 2026-10-12 — PC-Agent-Name speichert mit korrekter Rückmeldung
 
 - Die gemeinsame `postJson`-Hilfsfunktion wertete bislang ausschließlich die JSON-Antwort

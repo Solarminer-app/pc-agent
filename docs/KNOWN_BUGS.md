@@ -26,13 +26,13 @@ remains. The assigned task always takes precedence.
 
 | Status | Priority | ID | Summary |
 | --- | --- | --- | --- |
-| [ ] | P1 | BUG-001 | Starting a miner without a configured wallet ends in an unexplained generic error state. |
+| [x] | P1 | BUG-001 | Starting a miner without a configured wallet ends in an unexplained generic error state. |
 | [x] | P2 | BUG-002 | The frontend lacks a deliberate cache and invalidation strategy for stable or rarely changing data. |
-| [ ] | P1 | BUG-003 | An orphaned Stratum-proxy process can retain its port after the PC-Agent exits, preventing the next startup. |
+| [~] | P1 | BUG-003 | An orphaned Stratum-proxy process can retain its port after the PC-Agent exits, preventing the next startup. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
-**Status:** Open (`[ ]`)
+**Status:** Fixed and verified (`[x]`, 2026-10-12)
 **Priority:** P1
 **Area:** Miner start flow, validation, and operator-facing diagnostics
 
@@ -50,18 +50,24 @@ both supported UI languages (German and English).
 
 ### Investigation
 
-- **Reproduction evidence:** Not yet recorded.
-- **Known cause:** Not yet investigated.
-- **Implementation direction:** Validate the required wallet before process
-  launch and expose a localized, actionable error through the existing UI/API
-  error path. Ensure the state shown by the UI remains consistent with the
-  rejected start.
+- **Current behaviour:** A personal wallet is optional by design. Saving an
+  empty wallet resolves and stores the coin's SolarMiner default payout as one
+  atomic pool/wallet/worker route. Starting therefore never hands an empty
+  wallet to XMRig or SRBMiner. If no validated default payout is available, the
+  save/start preparation is rejected with an actionable default-payout error.
+- **Localization:** The Wallet/Worker UI explains the default-payout behaviour
+  through the closed German/English catalog. Dynamic default-payout failures
+  are translated in both directions by `i18n.js`.
+- **Regression evidence:** `MiningControllerValidationTest` covers empty-wallet
+  default routes for Monero, Pearl and Ravencoin, missing-default rejection for
+  Pearl and Ethereum Classic, and preservation of explicitly configured
+  Monero/ETC wallets.
 
-### Verification required
+### Verification performed
 
-- Add or update a focused test for a miner start without a wallet.
-- Verify the German and English operator-facing message and resulting state.
-- Verify that a configured valid wallet still permits startup.
+- `MiningControllerValidationTest` passed on JDK 21 on 2026-10-12.
+- `scripts/check-i18n.cjs` and `scripts/scan-i18n-literals.cjs` passed on
+  2026-10-12; both supported locales remain complete.
 
 ## BUG-002 — Define frontend caching and invalidation
 
@@ -127,7 +133,7 @@ mutations invalidate or refresh the affected view.
 
 ## BUG-003 — Clean up or manage the Stratum-proxy lifecycle
 
-**Status:** Open (`[ ]`)
+**Status:** Implemented, Windows live verification pending (`[~]`, 2026-10-12)
 **Priority:** P1
 **Area:** Native launcher/process lifecycle and proxy startup
 
@@ -147,27 +153,49 @@ supported native platform.
 
 ### Investigation
 
-- **Reproduction evidence:** Reported for Windows; no command, log, or process
-  evidence is recorded yet. Linux behaviour is unconfirmed.
-- **Known cause:** Likely incomplete child-process cleanup when the parent is
-  terminated. This remains a hypothesis until traced.
-- **Implementation directions to evaluate:**
-  1. Detect and safely terminate only a stale proxy owned by this PC-Agent.
-  2. Run the proxy as a separately managed native companion with coordinated
-     start/stop scripts and clear ownership rules.
-  3. Use platform-appropriate process groups/job objects so a parent shutdown
-     also terminates its child.
-
-  Docker is different: container teardown removes the process namespace, so it
-  does not demonstrate safe lifecycle behaviour for native installations.
+- **Reproduction evidence:** Reported for the native Windows launcher when its
+  console is closed with X. A live PID/port capture is still required before
+  this item can be marked fully verified. Linux behaviour remains unconfirmed.
+- **Known cause:** Closing a Windows console can terminate the PowerShell
+  launcher and Agent JVM together without allowing the JVM's shutdown hook
+  enough time to terminate the separately launched proxy/miner children.
+- **Implemented remedy (2026-10-12):** Both stable and beta PowerShell
+  launchers create a Windows Job Object with
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, start the Agent via `Start-Process`,
+  assign it to the job before waiting, and keep the job handle for the entire
+  Agent lifetime. Windows therefore terminates the Agent and every descendant
+  (managed proxy and miners) when the launcher exits, including an X-close.
+  Assignment failure stops the just-created Agent and fails closed instead of
+  running an unguarded process tree. This follows Microsoft's documented
+  [Job Object process-tree inheritance](https://learn.microsoft.com/windows/win32/procthread/job-objects)
+  and
+  [`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`](https://learn.microsoft.com/windows/win32/api/winnt/ns-winnt-jobobject_basic_limit_information)
+  semantics.
+- **Recovery defence:** The existing startup cleanup remains deliberately
+  narrow: it first confirms the loopback service identity, then terminates only
+  Java proxy commands from the managed release directory. An unrelated port
+  owner or merely similar command line is not killed.
+- Docker remains separate: container teardown owns its process namespace and
+  does not validate native launcher behaviour.
 
 ### Verification required
 
-- Reproduce and capture the stale process/port-owner evidence on Windows; test
-  Linux independently if it is supported by the change.
-- Verify normal shutdown, interrupted termination recovery, and a consecutive
-  restart without manually freeing the port.
+- On Windows, start proxy and miner children, close the launcher with X, and
+  capture that their PIDs and listeners disappear; then restart without manual
+  port cleanup.
+- Verify normal tray exit and an interrupted prior-run recovery on Windows.
+- Test Linux independently if native interrupted-exit cleanup is claimed.
 - Verify that cleanup never terminates an unrelated process using the same
   executable or port.
 - Verify Docker behaviour separately if launcher/process-management code
   changes.
+
+### Verification performed
+
+- `WindowsLauncherLifecycleTest` pins the stable and beta launcher ordering:
+  create kill-on-close job, start Agent, assign Agent, wait, close job. It also
+  prevents regression to direct invocation outside the job.
+- Focused `WindowsLauncherLifecycleTest` and
+  `MiningControllerValidationTest` passed on JDK 21 on 2026-10-12.
+- Release and beta workflows now parse the shipped launcher PowerShell file in
+  addition to the installer before publishing assets.

@@ -114,7 +114,7 @@ jobs:
           cp docker-compose.pc-agent.amd.yml build/distributions/pc-agent.amd.compose.yml
           sh -n build/distributions/install-linux.sh
           sh -n build/distributions/install-docker.sh
-          pwsh -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile("standalone/install-windows.ps1", [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }'
+          pwsh -NoProfile -Command '$failed=$false; @("standalone/install-windows.ps1", "standalone/start-agent.ps1") | ForEach-Object { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($_, [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count) { $failed=$true; $errors | ForEach-Object { Write-Error $_ } } }; if ($failed) { exit 1 }'
           cd build/distributions
           sha256sum solarminer-pc-agent-standalone.jar > solarminer-pc-agent-standalone.jar.sha256
 

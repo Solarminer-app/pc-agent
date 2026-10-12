@@ -1590,7 +1590,10 @@ window.SolarMinerI18nCatalog = {
             en: "Optional: connect a SolarMiner Node for rules, PV surplus and automation."
         },
         "optional_linux": {de: "Optional · Linux", en: "Optional · Linux"},
-        "optional_name_for_this_pc": {de: "Optionaler Name für diesen PC", en: "Optional name for this PC"},
+        "defaults_to_the_node_name": {
+            de: "Standardmäßig der Node-Name; ohne Namen Solarminer-PC-Agent",
+            en: "Defaults to the Node name; without a name, Solarminer-PC-Agent"
+        },
         "optional_sharing": {de: "FREIWILLIGES TEILEN", en: "OPTIONAL SHARING"},
         "overview": {de: "Übersicht", en: "Overview"},
         "overview_cb2732": {de: "Übersicht", en: "Overview"},
@@ -3475,7 +3478,7 @@ window.SolarMinerI18nCatalog = {
         "Online": "Online",
         "Optional · Linux": "Optional · Linux",
         "Optional: SolarMiner Node verbinden für Regeln, PV-Überschuss und Automatisierung.": "Optional: connect a SolarMiner Node for rules, PV surplus and automation.",
-        "Optionaler Name für diesen PC": "Optional name for this PC",
+        "Standardmäßig der Node-Name; ohne Namen Solarminer-PC-Agent": "Defaults to the Node name; without a name, Solarminer-PC-Agent",
         "Ordne im Worker-Bereich mindestens ein Gerät zu, damit der Node automatisch regeln darf.": "Assign at least one device in Workers so the Node can control it automatically.",
         "Overview": "Overview",
         "PLATTFORMTIPPS": "PLATFORM TIPS",

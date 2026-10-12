@@ -7,6 +7,112 @@ $runtimeDir = Join-Path $installDir 'runtime'
 $jarPath = Join-Path $installDir 'solarminer-pc-agent-standalone.jar'
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
+# Keep the Agent and every process it starts in one Windows job. Closing the
+# launcher window does not reliably give JVM shutdown hooks enough time to
+# stop the proxy and miners. JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE lets the
+# kernel tear down the complete process tree when this PowerShell process
+# exits, including when the console is closed with X.
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+public static class SolarMinerProcessJob
+{
+    private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+    private const int JobObjectExtendedLimitInformation = 9;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+    {
+        public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+        public IO_COUNTERS IoInfo;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateJobObject(IntPtr securityAttributes, string name);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(IntPtr job, int infoClass,
+        IntPtr info, uint infoLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    public static IntPtr CreateKillOnClose()
+    {
+        IntPtr job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero)
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+
+        var limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        int length = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+        IntPtr info = Marshal.AllocHGlobal(length);
+        try
+        {
+            Marshal.StructureToPtr(limits, info, false);
+            if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, info, (uint)length))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            return job;
+        }
+        catch
+        {
+            CloseHandle(job);
+            throw;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(info);
+        }
+    }
+
+    public static void Assign(IntPtr job, IntPtr process)
+    {
+        if (!AssignProcessToJobObject(job, process))
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    public static void Close(IntPtr job)
+    {
+        if (job != IntPtr.Zero)
+            CloseHandle(job);
+    }
+}
+'@
+
 function Write-StartupSection([string]$title) {
     Write-Host ''
     Write-Host "[$title]"
@@ -155,11 +261,28 @@ if (-not (Test-Path -LiteralPath $javaExe)) {
     if (-not (Test-Path -LiteralPath $javaExe)) { throw 'Java runtime installation did not produce bin\java.exe.' }
 }
 
-Write-Host 'Starting SolarMiner PC-Agent. Open http://127.0.0.1:8084/ in your browser.'
+Write-Host 'SolarMiner PC-Agent wird gestartet / is starting. Open http://127.0.0.1:8084/ in your browser.'
 Push-Location $installDir
+$jobHandle = [IntPtr]::Zero
+$agentProcess = $null
 try {
-    & $javaExe -jar $jarPath '--solarminer.agent.standalone=true' '--server.address=0.0.0.0'
-    if ($LASTEXITCODE -ne 0) { throw "PC-Agent exited with code $LASTEXITCODE." }
+    try {
+        $jobHandle = [SolarMinerProcessJob]::CreateKillOnClose()
+        $agentProcess = Start-Process -FilePath $javaExe -ArgumentList @(
+            '-jar', ('"' + $jarPath + '"'),
+            '--solarminer.agent.standalone=true',
+            '--server.address=0.0.0.0'
+        ) -NoNewWindow -PassThru
+        [SolarMinerProcessJob]::Assign($jobHandle, $agentProcess.Handle)
+    } catch {
+        if ($agentProcess -and -not $agentProcess.HasExited) { $agentProcess.Kill() }
+        throw "Windows-Prozessschutz konnte nicht aktiviert werden / Windows process guard could not be enabled: $($_.Exception.Message)"
+    }
+    $agentProcess.WaitForExit()
+    $agentExitCode = $agentProcess.ExitCode
+    if ($agentExitCode -ne 0) { throw "PC-Agent wurde mit Code beendet / exited with code $agentExitCode." }
 } finally {
+    [SolarMinerProcessJob]::Close($jobHandle)
+    if ($agentProcess) { $agentProcess.Dispose() }
     Pop-Location
 }
