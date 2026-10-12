@@ -1,6 +1,7 @@
 // Shows a blocking gate only while the downloaded Stratum proxy is not ready. The agent ships no
 // proxy build, so every start first resolves and downloads the published release JAR.
-// State arrives over SSE and is checked directly while this blocking gate is visible.
+// The common ready case is one REST read. SSE starts only while preparation/download is actually
+// active, because progress and the transition to ready are the only live updates this gate needs.
 (() => {
   const t = window.SolarMinerI18n.t;
 
@@ -42,7 +43,7 @@
   gate.append(card);
   document.body.append(gate);
 
-  let retrying = false, closed = false, unsubscribe = null, logOffset = 0, logTimer = null, statusTimer = null;
+  let retrying = false, closed = false, unsubscribe = null, logOffset = 0, logTimer = null;
 
   function close() {
     if (closed) return;
@@ -50,7 +51,6 @@
     gate.remove();
     unsubscribe?.();
     if (logTimer) window.clearInterval(logTimer);
-    if (statusTimer) window.clearInterval(statusTimer);
   }
 
   function appendLog(data) {
@@ -91,9 +91,11 @@
     retry.hidden = state !== 'failed' || retrying;
   }
 
-  unsubscribe = window.SolarMinerLive.channel('proxy-gate',
-    {endpoint: '/api/agent/local/proxy/gate', maxAgeMs: 10000})
-    .subscribe((gateState, meta) => {
+  function subscribeToProgress() {
+    if (closed || unsubscribe) return;
+    unsubscribe = window.SolarMinerLive.channel('proxy-gate',
+      {endpoint: '/api/agent/local/proxy/gate', maxAgeMs: 10000, persist: false})
+      .subscribe((gateState, meta) => {
       if (closed) return;
       if (gateState?.ready) { close(); return; }
       if ((!gateState || !gateState.state) && meta.error) {
@@ -103,16 +105,27 @@
       }
       if (gateState?.state) show(gateState.state, gateState.percent, gateState.version, gateState.detail);
     });
+    window.SolarMinerLive.start();
+    refreshLog();
+    logTimer = window.setInterval(refreshLog, 750);
+  }
 
-  // Re-read after a quiet or disconnected SSE stream. Without starting the shared watchdog here,
-  // an old "starting" snapshot could keep this blocking overlay open after the proxy is ready.
-  window.SolarMinerLive.start();
-  window.SolarMinerLive.refresh('proxy-gate');
-  statusTimer = window.setInterval(() => {
-    if (!document.hidden) window.SolarMinerLive.refresh('proxy-gate');
-  }, 2000);
-  refreshLog();
-  logTimer = window.setInterval(refreshLog, 750);
+  async function inspect() {
+    try {
+      const response = await fetch('/api/agent/local/proxy/gate',
+        {cache: 'no-store', signal: AbortSignal.timeout(8000)});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const gateState = await response.json();
+      if (gateState?.ready) { close(); return; }
+      if (gateState?.state) show(gateState.state, gateState.percent, gateState.version, gateState.detail);
+      subscribeToProgress();
+    } catch (_) {
+      // Other page data owns the normal connection badge. Only block the application when the
+      // proxy endpoint explicitly reports that preparation is required.
+    }
+  }
+
+  inspect();
 
   retry.addEventListener('click', async () => {
     if (retrying) return;
@@ -128,6 +141,7 @@
       retry.disabled = false;
       retry.textContent = t('try_again');
     }
-    window.SolarMinerLive.refresh('proxy-gate');
+    if (unsubscribe) window.SolarMinerLive.refresh('proxy-gate');
+    else inspect();
   });
 })();

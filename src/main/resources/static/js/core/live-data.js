@@ -1,6 +1,6 @@
-// One Server-Sent-Events connection per page. Push is the primary path; a REST fetch happens
-// only for the first paint, after a local mutation, and as a watchdog when a channel stops
-// reporting. Every channel carries its own age so a page can never keep showing dead numbers.
+// Shared REST/SSE data loader. REST is the default for snapshots and configuration; SSE is
+// reserved for data that genuinely changes while the operator watches it. Every channel carries
+// its own age so a page can never keep showing dead numbers.
 // Loading plan P7: every accepted value is mirrored into sessionStorage, so switching pages
 // rehydrates instantly from the last snapshot instead of waiting for a cold REST/SSE round-trip.
 // The snapshot is delivered through the normal age rule: an old value renders immediately but
@@ -53,6 +53,7 @@
       this.source = null;
       this.loading = null;
       this.failed = null;
+      this.initialRequested = false;
       // P7: rehydrate from the last snapshot of a previous page in this tab BEFORE any
       // subscribe() runs, so the first handler call already paints real data. The value
       // enters through the normal age rule: older than maxAgeMs means meta.stale:true and
@@ -153,7 +154,13 @@
     pendingRestPaint = setTimeout(() => {
       pendingRestPaint = null;
       for (const target of channels.values()) {
-        if (target.transport === 'rest' && target.initial && target.subscribers.size && !target.receivedAt) target.refresh();
+        // A session snapshot is useful for an instant paint, but it is not proof that the agent
+        // is reachable now. Revalidate every REST channel once on page entry instead of waiting
+        // for the two-second watchdog/poll interval (which kept the badge on "Connecting").
+        if (target.transport !== 'rest' || !target.initial || !target.subscribers.size
+            || target.initialRequested) continue;
+        target.initialRequested = true;
+        target.refresh();
       }
     }, 0);
   }

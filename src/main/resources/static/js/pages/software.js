@@ -86,8 +86,8 @@
     finally { busy = false; render(); }
   }
 
-  // Phase 5c: miner-options (installed-file checks, server tick 5 s) arrive over the
-  // shared SSE stream; the watchdog re-reads only after a silent push.
+  // Installed miner metadata is a REST snapshot. Downloads/removals refresh it explicitly;
+  // the slow poll is only a safety net for changes made outside this page.
   function applyMinerOptions(options) {
     packages = group(options || []); render();
     $('connection').className = 'badge online'; $('connection').textContent = t('agent_connected');

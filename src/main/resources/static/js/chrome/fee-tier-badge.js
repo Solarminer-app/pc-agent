@@ -1,6 +1,6 @@
 // Header status: green lamp for "SolarMiner Node attached / steering" vs "running without a
 // Node", plus the effective dev-fee tier. Percentages are NEVER hardcoded here — they come
-// live from the "fee-tier" SSE channel (agent -> proxy -> fee-backend), so a referral code
+// from the cached fee-tier REST snapshot (agent -> proxy -> fee-backend), so a referral code
 // that changes or lowers the total, or a tier that scales the split, shows up as-is.
 // Hover/focus reveals the exact split (SolarMiner share, referrer share, total).
 (() => {

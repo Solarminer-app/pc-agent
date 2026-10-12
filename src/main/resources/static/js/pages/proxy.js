@@ -51,7 +51,7 @@ async function refresh() {
   finally { refreshing = false; }
 }
 // Phase 5d: the 12 s overview poll is gone — the page rides the shared "overview" SSE
-// channel (same payload shape) and the live-data watchdog re-reads over REST only when
+// REST snapshot (same payload shape) and the live-data watchdog re-reads only when
 // the push went silent.
 window.SolarMinerLive.channel('overview', {endpoint: '/api/agent/local/overview', maxAgeMs: 15000, transport: 'rest', pollMs: 15000})
   .subscribe((data, meta) => {

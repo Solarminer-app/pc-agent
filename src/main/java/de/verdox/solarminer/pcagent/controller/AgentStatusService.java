@@ -17,10 +17,9 @@ import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 /**
  * Aggregated local read model (refactoring Phase 5b, owner decision O3 of 2026-10-11).
  * Every dashboard section exists exactly once here with its historical collection cadence;
- * the SSE channels and the new {@code GET /api/agent/local/status} aggregate read the same
- * cached sections, so one section is computed at most once per tick regardless of how many
- * pages or channels consume it. Section payloads are the exact objects the individual
- * channels already emit — the aggregate only wraps them with {@code generatedAt} and
+ * the targeted live SSE channels and {@code GET /api/agent/local/status} aggregate read the
+ * same cached sections where applicable, so one section is computed at most once per tick.
+ * The aggregate wraps section payloads with {@code generatedAt} and
  * {@code stale}. This is local UI state only; it introduces no Node, pool, fee or
  * cross-repository wire contract.
  */
@@ -56,8 +55,9 @@ public class AgentStatusService {
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
     /**
      * Dirty flags (REST/SSE loading plan P2): mutating endpoints report the sections their
-     * write affected via {@link #invalidate(String...)}; the SSE publisher then re-evaluates
-     * those sections on the next sweep regardless of TTL. The TTLs stay as the safety net
+     * write affected via {@link #invalidate(String...)}. A live SSE publisher re-evaluates
+     * its section on the next sweep; a REST read re-evaluates its dirty section directly.
+     * The TTLs stay as the safety net
      * for changes nobody reports (proxy heartbeat, Node pushes, download progress, sensors).
      * Keyed by section name AND by non-section channel name (workers, power-control, ...) —
      * the publisher wakes those channels without a section cache of their own.

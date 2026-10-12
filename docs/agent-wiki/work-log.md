@@ -1,5 +1,19 @@
 # PC-Agent work log
 
+## 2026-10-12 — PC-Agent-Name speichert mit korrekter Rückmeldung
+
+- Die gemeinsame `postJson`-Hilfsfunktion wertete bislang ausschließlich die JSON-Antwort
+  `true` als Erfolg. Der Identity-Endpunkt liefert dagegen absichtlich das gespeicherte
+  Identity-Objekt zurück. Dadurch zeigte die Oberfläche nach einem erfolgreichen Speichern
+  fälschlich „Der Agent hat die Änderung abgelehnt.“ an.
+- Die Hilfsfunktion akzeptiert jetzt sowohl die bestehende boolesche Erfolgsantwort als auch
+  ein zurückgegebenes Ressourcenobjekt und gibt dieses an die aufrufende Seite weiter; nur
+  `false` oder eine fehlende JSON-Antwort bleiben ein Fehler. Die vorhandenen deutschen und
+  englischen i18n-Einträge bleiben unverändert und decken echte Validierungsfehler weiterhin ab.
+- Verifikation: `node --check src/main/resources/static/js/core/components.js`,
+  `node scripts/check-i18n.cjs`, `node scripts/scan-i18n-literals.cjs` und
+  `git diff --check` erfolgreich.
+
 ## 2026-10-12 — Gemeinsame Worker-Liste im Dashboard
 
 - Das Dashboard führt die laufenden lokalen Worker und die schreibgeschützt über LAN
@@ -1508,6 +1522,33 @@ Vorgehen / Andockpunkte für andere Agenten:
   grün (1219 Keys), `scan-i18n-literals.cjs` 0, `git diff --check` sauber.
 - BUG-002 (KNOWN_BUGS) dadurch bearbeitet — Status dort aktualisiert.
 - Status: unvercommitet (Owner-Freigabe steht aus).
+
+## 2026-10-12 — Ladeplan P8: REST-first, SSE nur für Live-Zustände
+
+- Auftrag: Das Dashboard blieb beim Einstieg lange auf „Verbinde …“; SSE soll
+  nur dort bestehen bleiben, wo laufende Änderungen sichtbar sein müssen.
+- Ursache: Der Frontend-Loader behandelte SSE weiterhin als allgemeinen
+  Primärpfad. Zudem malte er zwar einen `sessionStorage`-Snapshot sofort, ließ
+  bei REST-Kanälen danach aber die initiale Revalidierung aus. Ein alter
+  Dashboard-Snapshot wartete dadurch bis zum 2-s-Watchdog, bevor der Agent
+  überhaupt angefragt wurde.
+- Umsetzung: `live-data.js` ist REST-first. Jeder REST-Kanal wird pro
+  Seiteneinstieg genau einmal sofort revalidiert, auch nach einem Cache-Paint.
+  Der Server publiziert nur noch sechs echte Live-Kanäle: `telemetry`,
+  `workers`, `benchmarks`, `efficiency`, `benchmark-upload`, `proxy-gate`.
+  Übersicht, Konfiguration, Energie, Fee-Tier, Wallets, Hardware,
+  Miner-Katalog, Node-Bewertung, UI-Ableitungen und LAN-Agenten bleiben REST.
+  Der globale Proxy-Gate liest den üblichen `ready`-Fall einmal über REST und
+  öffnet seine SSE-Verbindung erst, wenn Vorbereitung/Download läuft; dann
+  bleiben Fortschritt und Ready-Übergang live. Cache-Buster aller betroffenen
+  HTML-Seiten wurden angehoben.
+- Vertrag/i18n: `/external/**`, REST-Pfade und Payloads unverändert. Keine neuen
+  sichtbaren Texte; deutsche und englische Kataloge bleiben geschlossen.
+- Verifikation: `AgentEventControllerTest` pinnt exakt die sechs Kanäle;
+  `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --offline`
+  erfolgreich. `node --check` für alle geänderten JS-Dateien und
+  `git diff --check` sauber. Weitere i18n-/Standalone-Evidence wird nach dem
+  abschließenden Lauf ergänzt.
 
 ## 2026-10-12 — SRBMiner-Migrationshinweis und Worker-Update
 

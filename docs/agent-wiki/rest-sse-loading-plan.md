@@ -123,6 +123,19 @@ fällt für saubere Sektionen bis zum TTL weg).
       persist:false, snapshot()-API); Boot-Probe JAR Port 18085:
       Aggregat + SSE-Events ok, `node --check` je Datei, 164/164 Tests,
       check-i18n grün. Evidence im Worklog.
+- [x] **P8 — SSE auf echte Live-Daten begrenzen + REST sofort revalidieren:**
+      Der Server bietet nur noch `telemetry`, `workers`, `benchmarks`,
+      `efficiency`, `benchmark-upload` und `proxy-gate` als SSE-Kanäle an.
+      Übersicht, Settings, Energie, Fee-Tier, Wallets, Hardware,
+      Miner-Katalog, Node-Bewertung, UI-Ableitungen und LAN-Agenten sind
+      REST-Snapshots. `proxy-gate` liest den Normalfall einmal per REST und
+      öffnet SSE erst, wenn Vorbereitung/Download wirklich läuft.
+      REST-Kanäle revalidieren beim Seiteneinstieg nun auch dann sofort, wenn
+      bereits ein Session-Snapshot gerendert wurde; zuvor wartete ein alter
+      Snapshot bis zum 2-s-Watchdog und hielt die Anzeige auf „Verbinde …“.
+      ERLEDIGT 2026-10-12: `AgentEventControllerTest` pinnt die sechs
+      Live-Kanäle; kompletter Gradle-Testlauf und Frontend-Prüfungen siehe
+      Worklog.
 
 ## Harte Regeln (gelten weiter)
 
@@ -135,4 +148,5 @@ fällt für saubere Sektionen bis zum TTL weg).
   gradlew test standaloneJar --offline` (Referenz 159/159, 40 Klassen, Zähler aus
   `build/test-results/test/*.xml`), `node --check` je JS-Datei, `git diff --check`.
 - NEVER `git add -A`; Commits nur auf ausdrückliche Owner-Freigabe.
-- Kein Seiten-Timer-Polling einführen; Watchdog bleibt das einzige REST-Fallback.
+- Kein schnelles Seiten-Timer-Polling einführen; REST-Snapshots nutzen nur ihre
+  langsamen Sicherheitsintervalle, explizite Aktualisierung und Mutationsergebnisse.

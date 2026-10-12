@@ -1,5 +1,5 @@
-// Global balance strip. Reads the batched "wallets" SSE channel (targets + balances + prices in
-// one snapshot) instead of pulling the full overview plus two extra endpoints on a 60 s timer.
+// Global balance strip. Reads one batched REST snapshot (targets + balances + prices) instead of
+// pulling the full overview plus two extra endpoints.
 // Every string goes through t(); stale data clears the numbers instead of keeping old ones.
 (() => {
   const strip = document.getElementById('wallet-strip');

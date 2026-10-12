@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -22,16 +23,16 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 /**
- * Pushes local agent state to the browser as Server-Sent Events so the UI never needs to poll.
- * Each named channel re-serializes its snapshot on its own tick and emits only when the
+ * Pushes genuinely live local state to the browser as Server-Sent Events. Stable snapshots and
+ * operator-owned configuration use REST; each remaining named channel re-serializes its snapshot
+ * on its own tick and emits only when the
  * serialized value changed; a page subscribes to exactly the channels it renders via
  * {@code GET /api/agent/local/events?channels=overview,telemetry}. The initial connect
  * delivers every subscribed channel once, which also heals gaps after a reconnect.
  *
- * <p>Tick intervals are deliberate: cheap in-memory state (overview, settings, benchmarks)
- * is checked every second, while channels that touch drivers, files or the network
- * (power-control, miner-options, energy, node-assessment) are checked slower. Telemetry
- * snapshots are collected at most once per second inside the sensor service. This is
+ * <p>Tick intervals are deliberate: active measurements and worker state are checked every
+ * second or two. Telemetry snapshots are collected at most once per second inside the sensor
+ * service. Proxy-gate push exists only while a browser is watching live preparation progress. This is
  * local-agent UI state only; it introduces no Node, pool, fee or cross-repository wire
  * contract.</p>
  */
@@ -65,51 +66,31 @@ public class AgentEventController {
      */
     private final ExecutorService initialSnapshotExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public AgentEventController(MiningController mining, TelemetryController telemetry,
-                                WorkerController workers, AgentPowerController power,
+    public AgentEventController(WorkerController workers,
                                 BenchmarkController benchmarks,
-                                NodeAssessmentController assessment,
-                                de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService networkDashboard,
                                 AgentStatusService status, EfficiencySweepController sweeps,
                                 ObjectMapper mapper) {
         this.status = status;
         this.mapper = mapper;
-        // REST/SSE loading plan P1 (2026-10-11): the dead "coin-catalog" and "status"
-        // aggregate channels were deleted after a consumer grep over static/js confirmed
-        // no page subscribes to them (workers.js/wallets.js read the REST
-        // /status/coin-catalog; the aggregate stays REST-only as GET /local/status).
-        // Phase 5b: the aggregated sections are collected once per tick inside
-        // AgentStatusService and shared between the individual channels — the section-backed
-        // producers below are cache reads, not re-computations.
-        // overview already covers proxy, coin and worker stats and is the primary dashboard channel.
-        add("overview", () -> status.payload("overview"), 1_000);
-        add("fee-tier", () -> status.payload("fee-tier"), 5_000);
+        // SSE inventory (2026-10-12): keep only values whose changes matter while the page is
+        // open. Overview/configuration/catalog/wallet/fee/network snapshots are REST reads.
         add("benchmarks", benchmarks::status, 1_000);
         // Phase 5c: the efficiency sweep rides the same SSE stream as the benchmark session,
         // replacing the benchmark page's 1 s REST polling of /efficiency.
         add("efficiency", sweeps::status, 1_000);
-        add("settings", () -> status.payload("settings"), 1_000);
         add("telemetry", () -> status.payload("telemetry"), 1_000);
         add("proxy-gate", () -> status.payload("proxy-gate"), 1_000);
         add("workers", workers::workers, 2_000);
         add("benchmark-upload", benchmarks::uploadStatus, 2_000);
-        // power-control reads driver limits; keep driver traffic at the previous poll rate.
-        add("power-control", power::status, 5_000);
-        // miner-options checks installed files on disk.
-        add("miner-options", mining::minerOptions, 5_000);
-        add("energy", () -> status.payload("energy"), 5_000);
-        add("node-assessment", () -> status.payload("node-assessment"), 5_000);
-        // The wallet strip's three light reads, batched so it never pulls the full overview.
-        add("wallets", () -> status.payload("wallets"), 15_000);
-        // LAN peer agents: one aggregate read per tick; peer fetches are cached inside the service.
-        add("network-agents", networkDashboard::cards, 5_000);
-        // Derived alert/summary rows (Phase 5c): the overview page renders these directly
-        // instead of re-computing alert rules from raw fields in JS.
-        add("ui", status::uiState, 1_000);
     }
 
     private void add(String name, Supplier<Object> producer, long intervalMs) {
         channels.add(new Channel(name, producer, intervalMs));
+    }
+
+    Set<String> channelNames() {
+        return channels.stream().map(channel -> channel.name)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     @GetMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -124,7 +105,7 @@ public class AgentEventController {
         emitter.onError(ignored -> unsubscribe(emitter));
         // Return immediately so EventSource.onopen is independent of producer latency. The
         // first payloads retain their existing per-channel shape and failure handling.
-        // Do not queue lightweight settings/telemetry behind a cold overview collection. Each
+        // Do not queue lightweight telemetry behind another live producer. Each
         // channel has an independent cached producer, and SSE message order is intentionally
         // not a UI dependency; clients apply every channel independently.
         for (Channel channel : selected.values()) {
@@ -145,11 +126,6 @@ public class AgentEventController {
                 String key = name.trim();
                 for (Channel channel : channels) if (channel.name.equals(key)) selected.put(key, channel);
             }
-        }
-        if (selected.isEmpty()) {
-            // Backwards-compatible default: pages that predate the channels parameter only
-            // ever listened for "overview".
-            for (Channel channel : channels) if (channel.name.equals("overview")) selected.put(channel.name, channel);
         }
         return selected;
     }

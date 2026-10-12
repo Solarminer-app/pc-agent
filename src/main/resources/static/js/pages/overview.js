@@ -1,6 +1,5 @@
 // Dashboard: readiness first, then measurement, then money. One aggregate, pushed over SSE.
-// No polling loop: overview/settings/node-assessment/telemetry/energy channels push, and the
-// live-data watchdog re-reads a channel only when its push went silent. A channel that fails
+// Stable dashboard snapshots use REST; only telemetry remains live over SSE. A channel that fails
 // drops its derived state instead of keeping dead numbers on screen.
 (() => {
   const ui = window.SolarMinerUI;

@@ -344,9 +344,8 @@
     }
   }
 
-  // Phase 5c: the worker inventory and the energy journal arrive over the shared SSE
-  // stream (channels "workers" and "energy"); the watchdog re-reads only when a push
-  // went silent. The miner catalog stays a plain fetch — it only matters for assignment.
+  // Worker run state stays live over SSE. The energy journal and miner catalog are REST
+  // snapshots; they change slowly or after an explicit action.
   function load() {
     window.SolarMinerLive.refresh('workers');
     window.SolarMinerLive.refresh('energy');
