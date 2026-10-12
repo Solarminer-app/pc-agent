@@ -30,6 +30,8 @@ dependencies {
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // REST controller architecture audit (2026-10-11): layer rules for the HTTP adapters.
+    testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")
     testCompileOnly("org.projectlombok:lombok")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testAnnotationProcessor("org.projectlombok:lombok")

@@ -1,6 +1,6 @@
 package de.verdox.solarminer.pcagent.miner;
 
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 
 import java.io.IOException;
 import java.util.List;
@@ -35,10 +35,47 @@ public interface GpuCoinMiner extends CoinMiner {
     /** Rebuild the exact pause/run state a measurement run captured beforehand. */
     boolean restoreWorkerState(Set<String> pausedBefore, Set<String> runningBefore);
 
+    /**
+     * Pause/run state of this coin's workers, captured before a measurement run takes
+     * ownership. Unified capture/restore for every GPU adapter (Phase 3): orchestration
+     * (benchmark, efficiency sweep) no longer needs per-coin or per-adapter special cases.
+     * {@code manuallyPausedKeys} are {@code vendor:index} keys, {@code runningDeviceIds}
+     * are the hardware device ids of the running managed processes.
+     */
+    record WorkerPauseSnapshot(Set<String> manuallyPausedKeys, Set<String> runningDeviceIds) { }
+
+    default WorkerPauseSnapshot captureState() {
+        return new WorkerPauseSnapshot(manuallyPausedGpuKeys(), runningGpuDeviceIds());
+    }
+
+    default boolean restoreState(WorkerPauseSnapshot snapshot) {
+        return restoreWorkerState(snapshot.manuallyPausedKeys(), snapshot.runningDeviceIds());
+    }
+
+    /**
+     * Rule-mapped failure diagnosis for one GPU worker, read from the miner's own log output
+     * (kernel/driver/pool failure categories). Adapters without log classification return null;
+     * orchestration (efficiency sweep, dashboards) only ever sees the category and detail text.
+     */
+    default de.verdox.solarminer.pcagent.miner.diagnostics.MinerLogDiagnostics.Diagnosis diagnosis(String vendor, int index) {
+        return null;
+    }
+
     /** Ephemeral fee-backend config used only by the efficiency sweep; never persisted. */
     void setSweepOverride(MinerConfig config);
 
     void clearSweepOverride();
+
+    /**
+     * Ephemeral device selection used by a manual benchmark.  Unlike a sweep override this
+     * deliberately takes precedence over an existing operator configuration, but it is never
+     * persisted and is cleared before the pre-benchmark worker state is restored.
+     */
+    default void setBenchmarkOverride(MinerConfig config) {
+        throw new UnsupportedOperationException("Benchmark device overrides are not supported by this miner");
+    }
+
+    default void clearBenchmarkOverride() { }
 
     /** The operator configuration, or null when the coin has none. */
     MinerConfig configuration();

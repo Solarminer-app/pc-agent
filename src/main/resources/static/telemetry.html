@@ -4,45 +4,45 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#0b1020">
-    <title>SolarMiner · Telemetrie</title>
+    <title data-i18n="solarminer_sensors">SolarMiner · Telemetrie</title>
     <link rel="stylesheet" href="/css/agent.css">
     <link rel="stylesheet" href="/css/workspace.css">
-    <script src="/js/core/i18n-catalog.js" defer></script>
-    <script src="/js/core/i18n.js" defer></script>
-    <script src="/js/core/live-data.js" defer></script>
-    <script src="/js/core/components.js" defer></script>
-    <script src="/js/chrome/proxy-gate.js" defer></script>
-    <script src="/js/chrome/fee-tier-badge.js" defer></script>
-    <script src="/js/chrome/workspace.js" defer></script>
-    <script src="/js/chrome/telemetry-gate.js" defer></script>
-    <script src="/js/pages/telemetry.js" defer></script>
+    <script src="/js/core/i18n-catalog.js?v=20261011-agent-dictionary-directions-v2" defer></script>
+    <script src="/js/core/i18n.js?v=20261011-agent-dictionary-directions-v2" defer></script>
+    <script src="/js/core/live-data.js?v=20261012-rest-first-v1" defer></script>
+    <script src="/js/core/components.js?v=20261011-agent-dictionary-directions-v2" defer></script>
+    <script src="/js/chrome/proxy-gate.js?v=20261012-rest-first-v1" defer></script>
+    <script src="/js/chrome/fee-tier-badge.js?v=20261011-agent-dictionary-directions-v2" defer></script>
+    <script src="/js/chrome/workspace.js?v=20261011-agent-dictionary-directions-v2" defer></script>
+    <script src="/js/chrome/telemetry-gate.js?v=20261011-agent-dictionary-directions-v2" defer></script>
+    <script src="/js/pages/telemetry.js?v=20261011-agent-dictionary-directions-v2" defer></script>
 </head>
 <body class="telemetry-page">
 <div class="shell">
     <header class="topbar"><a class="brand" href="/">☼ <span>SolarMiner <small>PC-Agent</small></span></a>
-        <nav class="nav"><a href="/">Overview</a><a href="/mining.html">Mining</a><a
-                href="/benchmarks.html">Benchmarks</a><a href="/hardware.html">Hardware</a><a class="selected"
-                                                                                              href="/telemetry.html">Telemetrie</a><a
-                href="/proxy.html">Proxy</a></nav>
-        <div class="top-actions"><span id="connection" class="badge">Verbinde …</span>
-            <button id="refresh" type="button" class="button subtle">Aktualisieren</button>
+        <nav class="nav"><a href="/" data-i18n="overview">Übersicht</a><a href="/mining.html" data-i18n="mining">Mining</a><a
+                href="/benchmarks.html" data-i18n="benchmarks">Benchmarks</a><a href="/hardware.html" data-i18n="hardware">Hardware</a><a class="selected"
+                                                                                              href="/telemetry.html" data-i18n="telemetry">Telemetrie</a><a
+                href="/proxy.html" data-i18n="proxy">Proxy</a></nav>
+        <div class="top-actions"><span id="connection" class="badge" data-i18n="connecting">Verbinde …</span>
+            <button id="refresh" type="button" class="button subtle" data-i18n="refresh">Aktualisieren</button>
         </div>
     </header>
-    <section id="wallet-strip" class="wallet-strip" aria-label="Wallet-Kontostände"></section>
+    <section id="wallet-strip" class="wallet-strip" aria-label="Wallet-Kontostände" data-i18n-aria-label="wallet_balances"></section>
     <main>
         <div class="page-title telemetry-title">
-            <div><p class="kicker">SYSTEM</p><h1>Sensoren & Messwerte</h1>
-                <p id="updated">Warte auf Daten</p></div>
-            <span id="sensor-status" class="tag">Sensoren werden geladen</span></div>
-        <p class="sensor-guide">Diese Werte beschreiben deinen PC. Leistungsaufnahme und Temperaturen sind von Mining-Hashrate und Node-Leistungsziel getrennt. „—“ bedeutet: kein verfügbarer Messwert.</p>
+            <div><p class="kicker" data-i18n="system">SYSTEM</p><h1 data-i18n="sensors_readings">Sensoren & Messwerte</h1>
+                <p id="updated" data-i18n="waiting_for_data">Warte auf Daten</p></div>
+            <span id="sensor-status" class="tag" data-i18n="loading_sensors">Sensoren werden geladen</span></div>
+        <p class="sensor-guide" data-i18n="these_readings_describe_your_pc_power_use_an">Diese Werte beschreiben deinen PC. Leistungsaufnahme und Temperaturen sind von Mining-Hashrate und Node-Leistungsziel getrennt. „—“ bedeutet: kein verfügbarer Messwert.</p>
         <section class="telemetry-overview">
-            <article class="telemetry-tile power"><span>LEISTUNG</span><strong id="total-power">—</strong><small
+            <article class="telemetry-tile power"><span data-i18n="power">LEISTUNG</span><strong id="total-power">—</strong><small
                     id="power-quality">—</small></article>
             <article class="telemetry-tile temperature"><span>CPU</span><strong id="cpu-temperature">—</strong><small
                     id="cpu-name">—</small></article>
             <article class="telemetry-tile gpu"><span>GPU</span><strong id="gpu-count">—</strong><small
                     id="gpu-summary">—</small></article>
-            <article class="telemetry-tile sensors"><span>SENSOREN</span><strong id="sensor-count">—</strong><small
+            <article class="telemetry-tile sensors"><span data-i18n="sensors">SENSOREN</span><strong id="sensor-count">—</strong><small
                     id="sensor-summary">—</small></article>
         </section>
         <section class="telemetry-devices">
@@ -50,22 +50,22 @@
             <div id="device-list" class="device-grid"></div>
         </section>
         <details class="telemetry-details">
-            <summary>Sensor-Details <span id="detail-count"></span></summary>
-            <div class="sensor-toolbar"><input id="sensor-search" type="search" placeholder="Sensor, Einheit oder Quelle suchen" aria-label="Sensoren durchsuchen"><label><input id="sensor-available" type="checkbox">Nur verfügbare Messwerte</label></div>
+            <summary><span data-i18n="sensor_details">Sensor-Details </span><span id="detail-count"></span></summary>
+            <div class="sensor-toolbar"><input id="sensor-search" type="search" placeholder="Sensor, Einheit oder Quelle suchen" data-i18n-placeholder="search_sensor_unit_or_source" aria-label="Sensoren durchsuchen" data-i18n-aria-label="search_sensors"><label><input id="sensor-available" type="checkbox"><span data-i18n="available_readings_only">Nur verfügbare Messwerte</span></label></div>
             <div id="sensor-sources" class="sources"></div>
             <div id="telemetry-list" class="telemetry-list"></div>
-            <a href="/api/agent/local/telemetry" target="_blank" rel="noopener">JSON ↗</a></details>
+            <a href="/api/agent/local/telemetry" target="_blank" rel="noopener" data-i18n="json">JSON ↗</a></details>
         <footer>SolarMiner PC-Agent</footer>
     </main>
 </div>
 <div id="lhm-gate" class="gate sensor-alert" role="region" aria-labelledby="gate-title" hidden>
-    <section class="gate-card"><p class="kicker">WINDOWS SENSORZUGRIFF</p>
-        <h2 id="gate-title">LibreHardwareMonitor starten</h2>
-        <p id="gate-copy">Windows benötigt eine Administratorfreigabe, damit der Hardware-Monitor seine Sensoren starten
+    <section class="gate-card"><p class="kicker" data-i18n="windows_sensor_access">WINDOWS SENSORZUGRIFF</p>
+        <h2 id="gate-title" data-i18n="start_librehardwaremonitor">LibreHardwareMonitor starten</h2>
+        <p id="gate-copy" data-i18n="windows_needs_administrator_approval_to_let">Windows benötigt eine Administratorfreigabe, damit der Hardware-Monitor seine Sensoren starten
             kann.</p>
         <p id="gate-detail" class="muted"></p>
-        <button id="gate-retry" class="button primary" type="button">LibreHardwareMonitor neu starten</button>
-        <p class="muted">Bestätige die Windows-UAC-Abfrage. Ohne Freigabe fehlen die Windows-Sensoren. Einige Mining-Steuerungsaktionen benötigen diesen Sensorzugriff.</p>
+        <button id="gate-retry" class="button primary" type="button" data-i18n="restart_librehardwaremonitor">LibreHardwareMonitor neu starten</button>
+        <p class="muted" data-i18n="approve_the_windows_uac_prompt_without_appro_3f5bb1">Bestätige die Windows-UAC-Abfrage. Ohne Freigabe fehlen die Windows-Sensoren. Einige Mining-Steuerungsaktionen benötigen diesen Sensorzugriff.</p>
     </section>
 </div>
 </body>

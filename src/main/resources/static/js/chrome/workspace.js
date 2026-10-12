@@ -8,9 +8,9 @@
     return el;
   };
   const groups = [
-    ['BETRIEB', [['/', 'Dashboard', 'home'], ['/mining.html', 'Miner-Software', 'mining'], ['/wallets.html', 'Wallets', 'wallet'], ['/workers.html', 'Worker', 'worker'], ['/automation.html', 'Node-Automatisierung', 'automation']]],
-    ['OPTIMIERUNG', [['/hardware.html', 'Leistungsgrenzen', 'hardware'], ['/benchmarks.html', 'Benchmarks', 'benchmarks']]],
-    ['SYSTEM', [['/telemetry.html', 'Sensoren', 'telemetry'], ['/proxy.html', 'Verbindung', 'proxy']]]
+    ['operation', [['/', 'dashboard', 'home'], ['/mining.html', 'miner_software', 'mining'], ['/wallets.html', 'wallets', 'wallet'], ['/workers.html', 'worker', 'worker'], ['/automation.html', 'node_automation', 'automation']]],
+    ['optimization', [['/hardware.html', 'power_limits', 'hardware'], ['/benchmarks.html', 'benchmarks', 'benchmarks']]],
+    ['system', [['/telemetry.html', 'sensors_7d5114', 'telemetry'], ['/proxy.html', 'connection_5fbdf2', 'proxy']]]
   ];
   const paths = {
     home: 'M3 10 12 3l9 7v10H3Z M9 20v-7h6v7',
@@ -24,20 +24,20 @@
     proxy: 'M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4'
   };
   const sidebar = make('aside', 'app-sidebar'); sidebar.id = 'app-navigation';
-  const closeMenu = make('button', 'app-menu-close', '×'); closeMenu.type = 'button'; closeMenu.setAttribute('aria-label', t('Navigation schließen')); sidebar.append(closeMenu);
+  const closeMenu = make('button', 'app-menu-close', '×'); closeMenu.type = 'button'; closeMenu.setAttribute('aria-label', t('close_navigation')); sidebar.append(closeMenu);
   sidebar.append(header.querySelector('.brand'));
-  const subtitle = make('p', 'app-instance', 'Dein lokaler Mining-Agent'); sidebar.append(subtitle);
+  const subtitle = make('p', 'app-instance', 'your_local_mining_agent'); sidebar.append(subtitle);
   // The operator label is what the SolarMiner Node lists this machine under, so it belongs in the
   // persistent navigation rather than only in the dashboard form.
-  const applyIdentity = name => { subtitle.textContent = name || t('Dein lokaler Mining-Agent'); };
+  const applyIdentity = name => { subtitle.textContent = name || t('your_local_mining_agent'); };
   window.SolarMinerAgentIdentity = { apply: applyIdentity };
   fetch('/api/agent/local/power-control/identity', {cache: 'no-store'})
     .then(response => response.ok ? response.json() : null)
     .then(identity => { if (identity?.name) applyIdentity(identity.name); })
     .catch(() => { /* The default label stays until the agent answers. */ });
-  const nav = make('nav', 'app-nav'); nav.setAttribute('aria-label', t('Hauptnavigation'));
+  const nav = make('nav', 'app-nav'); nav.setAttribute('aria-label', t('main_navigation'));
   const pathname = location.pathname === '/index.html' ? '/' : location.pathname;
-  let currentLabel = 'Dashboard', currentGroup = 'BETRIEB';
+  let currentLabel = 'dashboard', currentGroup = 'operation';
   for (const [group, links] of groups) {
     const section = make('div', 'app-nav-group'); section.append(make('p', 'app-nav-label', group));
     for (const [href, title, icon] of links) {
@@ -51,16 +51,16 @@
     nav.append(section);
   }
   sidebar.append(nav);
-  const foot = make('div', 'app-sidebar-foot'); foot.append(make('span', 'app-local-dot'), make('span', '', 'Auf diesem PC · lokal im Netzwerk')); sidebar.append(foot);
+  const foot = make('div', 'app-sidebar-foot'); foot.append(make('span', 'app-local-dot'), make('span', '', 'on_this_pc_local_network')); sidebar.append(foot);
   shell.before(sidebar);
   header.querySelector('.nav')?.remove();
-  const menu = make('button', 'app-menu', '☰'); menu.type = 'button'; menu.setAttribute('aria-label', t('Navigation öffnen'));
+  const menu = make('button', 'app-menu', '☰'); menu.type = 'button'; menu.setAttribute('aria-label', t('open_navigation'));
   menu.setAttribute('aria-controls', sidebar.id); menu.setAttribute('aria-expanded', 'false');
   const crumb = make('div', 'app-breadcrumb'); crumb.append(make('span', '', currentGroup), make('strong', '', currentLabel));
   header.prepend(menu, crumb);
   const main = document.querySelector('main'); main.id ||= 'main-content';
-  const skip = make('a', 'skip-link', 'Zum Inhalt springen'); skip.href = '#main-content'; document.body.prepend(skip);
-  const backdrop = make('button', 'app-backdrop'); backdrop.type = 'button'; backdrop.setAttribute('aria-label', t('Navigation schließen')); backdrop.hidden = true; sidebar.after(backdrop);
+  const skip = make('a', 'skip-link', 'skip_to_content'); skip.href = '#main-content'; document.body.prepend(skip);
+  const backdrop = make('button', 'app-backdrop'); backdrop.type = 'button'; backdrop.setAttribute('aria-label', t('close_navigation')); backdrop.hidden = true; sidebar.after(backdrop);
   const mobile = matchMedia('(max-width: 900px)');
   const setOpen = open => {
     sidebar.classList.toggle('open', open); backdrop.hidden = !open;
@@ -84,7 +84,7 @@
     }
   });
   mobile.addEventListener('change', () => { sidebar.inert = mobile.matches && !sidebar.classList.contains('open'); if (!mobile.matches) { shell.inert = false; backdrop.hidden = true; sidebar.classList.remove('open'); menu.setAttribute('aria-expanded', 'false'); document.body.classList.remove('navigation-open'); } });
-  const connectionNotice = make('p', 'app-connection-notice', 'Verbindung zum Agent unterbrochen. Angezeigte Werte können veraltet sein.');
+  const connectionNotice = make('p', 'app-connection-notice', 'connection_to_the_agent_interrupted_displaye');
   connectionNotice.id = 'app-connection-notice'; connectionNotice.setAttribute('role', 'status'); connectionNotice.hidden = true;
   header.after(connectionNotice);
   const connection = document.getElementById('connection');

@@ -1,6 +1,7 @@
 // Shows a blocking gate only while the downloaded Stratum proxy is not ready. The agent ships no
 // proxy build, so every start first resolves and downloads the published release JAR.
-// State arrives over SSE and is checked directly while this blocking gate is visible.
+// The common ready case is one REST read. SSE starts only while preparation/download is actually
+// active, because progress and the transition to ready are the only live updates this gate needs.
 (() => {
   const t = window.SolarMinerI18n.t;
 
@@ -14,11 +15,11 @@
   card.className = 'gate-card';
   const kicker = document.createElement('p');
   kicker.className = 'kicker';
-  kicker.textContent = t('MINING-PROXY');
+  kicker.textContent = t('mining_proxy');
   const title = document.createElement('h2');
   const copy = document.createElement('p');
-  title.textContent = t('Mining-Proxy wird vorbereitet');
-  copy.textContent = t('Der PC-Agent sucht die neueste Proxy-Version auf GitHub.');
+  title.textContent = t('preparing_the_mining_proxy');
+  copy.textContent = t('the_pc_agent_is_looking_for_the_newest_proxy');
   const bar = document.createElement('div');
   bar.className = 'gate-progress';
   bar.setAttribute('hidden', '');
@@ -28,7 +29,7 @@
   detail.className = 'muted';
   const logLabel = document.createElement('p');
   logLabel.className = 'proxy-gate-log-label';
-  logLabel.textContent = t('Proxy-Log');
+  logLabel.textContent = t('proxy_log');
   const log = document.createElement('pre');
   log.className = 'proxy-gate-log';
   log.hidden = true;
@@ -36,13 +37,13 @@
   const retry = document.createElement('button');
   retry.type = 'button';
   retry.className = 'button primary';
-  retry.textContent = t('Erneut versuchen');
+  retry.textContent = t('try_again');
   retry.setAttribute('hidden', '');
   card.append(kicker, title, copy, bar, detail, logLabel, log, retry);
   gate.append(card);
   document.body.append(gate);
 
-  let retrying = false, closed = false, unsubscribe = null, logOffset = 0, logTimer = null, statusTimer = null;
+  let retrying = false, closed = false, unsubscribe = null, logOffset = 0, logTimer = null;
 
   function close() {
     if (closed) return;
@@ -50,7 +51,6 @@
     gate.remove();
     unsubscribe?.();
     if (logTimer) window.clearInterval(logTimer);
-    if (statusTimer) window.clearInterval(statusTimer);
   }
 
   function appendLog(data) {
@@ -63,7 +63,7 @@
   async function refreshLog() {
     if (closed) return;
     try {
-      const response = await fetch('/api/agent/local/proxy-gate/log?offset=' + encodeURIComponent(logOffset),
+      const response = await fetch('/api/agent/local/proxy/gate/log?offset=' + encodeURIComponent(logOffset),
         {cache: 'no-store'});
       if (!response.ok) return;
       const chunk = await response.json();
@@ -78,56 +78,70 @@
   function show(state, percent, version, message) {
     gate.hidden = false;
     const downloading = state === 'downloading';
-    title.textContent = t(state === 'failed' ? 'Mining-Proxy nicht bereit' : 'Mining-Proxy wird vorbereitet');
-    copy.textContent = t(state === 'checking' ? 'Der PC-Agent sucht die neueste Proxy-Version auf GitHub.'
-      : downloading ? 'Der SolarMiner-Stratum-Proxy wird heruntergeladen.'
-        : state === 'starting' ? 'Der lokale Mining-Proxy wird gestartet.'
-          : state === 'running' ? 'Der lokale Mining-Proxy wird gestartet.'
-            : 'Der SolarMiner-Stratum-Proxy konnte nicht geladen oder gestartet werden.');
+    title.textContent = t(state === 'failed' ? 'mining_proxy_not_ready' : 'preparing_the_mining_proxy');
+    copy.textContent = t(state === 'checking' ? 'the_pc_agent_is_looking_for_the_newest_proxy'
+      : downloading ? 'the_solarminer_stratum_proxy_is_downloading'
+        : state === 'starting' ? 'the_local_mining_proxy_is_starting'
+          : state === 'running' ? 'the_local_mining_proxy_is_starting'
+            : 'the_solarminer_stratum_proxy_could_not_be_do');
     bar.hidden = !downloading;
     if (downloading) barFill.style.width = Math.max(2, Math.min(100, percent)) + '%';
-    detail.textContent = (version ? t('Version {version}', {version}) + ' · ' : '')
-      + (window.SolarMinerI18n.s(message) || t('Ohne Proxy kann dieser PC nicht minen.'));
+    detail.textContent = (version ? t('version_version', {version}) + ' · ' : '')
+      + (window.SolarMinerI18n.s(message) || t('this_pc_cannot_mine_without_a_proxy'));
     retry.hidden = state !== 'failed' || retrying;
   }
 
-  unsubscribe = window.SolarMinerLive.channel('proxy-gate',
-    {endpoint: '/api/agent/local/proxy-gate', maxAgeMs: 10000})
-    .subscribe((gateState, meta) => {
+  function subscribeToProgress() {
+    if (closed || unsubscribe) return;
+    unsubscribe = window.SolarMinerLive.channel('proxy-gate',
+      {endpoint: '/api/agent/local/proxy/gate', maxAgeMs: 10000, persist: false})
+      .subscribe((gateState, meta) => {
       if (closed) return;
       if (gateState?.ready) { close(); return; }
       if ((!gateState || !gateState.state) && meta.error) {
         // No snapshot ever arrived and the transport is failing: the agent itself is unreachable.
-        show('failed', 0, '', t('Der PC-Agent ist nicht erreichbar.'));
+        show('failed', 0, '', t('the_pc_agent_is_unreachable'));
         return;
       }
       if (gateState?.state) show(gateState.state, gateState.percent, gateState.version, gateState.detail);
     });
+    window.SolarMinerLive.start();
+    refreshLog();
+    logTimer = window.setInterval(refreshLog, 750);
+  }
 
-  // Re-read after a quiet or disconnected SSE stream. Without starting the shared watchdog here,
-  // an old "starting" snapshot could keep this blocking overlay open after the proxy is ready.
-  window.SolarMinerLive.start();
-  window.SolarMinerLive.refresh('proxy-gate');
-  statusTimer = window.setInterval(() => {
-    if (!document.hidden) window.SolarMinerLive.refresh('proxy-gate');
-  }, 2000);
-  refreshLog();
-  logTimer = window.setInterval(refreshLog, 750);
+  async function inspect() {
+    try {
+      const response = await fetch('/api/agent/local/proxy/gate',
+        {cache: 'no-store', signal: AbortSignal.timeout(8000)});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const gateState = await response.json();
+      if (gateState?.ready) { close(); return; }
+      if (gateState?.state) show(gateState.state, gateState.percent, gateState.version, gateState.detail);
+      subscribeToProgress();
+    } catch (_) {
+      // Other page data owns the normal connection badge. Only block the application when the
+      // proxy endpoint explicitly reports that preparation is required.
+    }
+  }
+
+  inspect();
 
   retry.addEventListener('click', async () => {
     if (retrying) return;
     retrying = true;
     retry.disabled = true;
-    retry.textContent = t('Erneuter Versuch läuft …');
+    retry.textContent = t('retrying');
     try {
-      await window.SolarMinerUI.postJson('/api/agent/local/proxy-gate/retry');
+      await window.SolarMinerUI.postJson('/api/agent/local/proxy/gate/retry');
     } catch (error) {
-      detail.textContent = t('Erneuter Versuch fehlgeschlagen: {error}', {error: window.SolarMinerI18n.s(error.message)});
+      detail.textContent = t('retry_failed_error', {error: window.SolarMinerI18n.s(error.message)});
     } finally {
       retrying = false;
       retry.disabled = false;
-      retry.textContent = t('Erneut versuchen');
+      retry.textContent = t('try_again');
     }
-    window.SolarMinerLive.refresh('proxy-gate');
+    if (unsubscribe) window.SolarMinerLive.refresh('proxy-gate');
+    else inspect();
   });
 })();

@@ -1,6 +1,6 @@
 package de.verdox.solarminer.pcagent.controller;
 
-import de.verdox.solarminer.pcagent.mining.MinerConsoleService;
+import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 

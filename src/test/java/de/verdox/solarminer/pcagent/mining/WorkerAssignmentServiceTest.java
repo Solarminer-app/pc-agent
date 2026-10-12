@@ -1,8 +1,10 @@
 package de.verdox.solarminer.pcagent.mining;
 
 import de.verdox.solarminer.pcagent.dto.MinerStats;
-import de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService;
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
+import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
+import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import org.junit.jupiter.api.Test;
 
@@ -20,6 +22,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.any;
 import de.verdox.solarminer.pcagent.miner.MinerConfig;
+import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
 
 class WorkerAssignmentServiceTest {
     @Test
@@ -34,7 +37,7 @@ class WorkerAssignmentServiceTest {
         GpuCoinMinerService coins = mock(GpuCoinMinerService.class);
         when(coins.resumeGpu("ravencoin", "NVIDIA", 0)).thenReturn(true);
         PayoutDefaultsService payouts = mock(PayoutDefaultsService.class);
-        when(payouts.resolve("ravencoin")).thenReturn(java.util.Optional.of(
+        when(payouts.resolveCached("ravencoin")).thenReturn(java.util.Optional.of(
                 new PayoutDefaultsService.DefaultPayout("ravencoin", "house", "stratum+tcp://pool.example:3333", "wallet.worker", "x")));
         ProxyConfigurationService proxy = mock(ProxyConfigurationService.class);
         when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN)).thenReturn("stratum+tcp://127.0.0.1:3336");
@@ -55,7 +58,7 @@ class WorkerAssignmentServiceTest {
         PearlMinerService pearl = mock(PearlMinerService.class);
         when(pearl.binaryAvailable()).thenReturn(true);
         PayoutDefaultsService payouts = mock(PayoutDefaultsService.class);
-        when(payouts.resolve("pearl")).thenReturn(java.util.Optional.of(new PayoutDefaultsService.DefaultPayout(
+        when(payouts.resolveCached("pearl")).thenReturn(java.util.Optional.of(new PayoutDefaultsService.DefaultPayout(
                 "pearl", "house", "stratum+tcp://pool.example:3333", "prl1abcdefghijklmnopqrstuvwxyz234567.worker", "x")));
         ProxyConfigurationService proxy = mock(ProxyConfigurationService.class);
         when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.PEARL)).thenReturn("stratum+tcp://127.0.0.1:3335");
@@ -71,7 +74,7 @@ class WorkerAssignmentServiceTest {
         var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test GPU", 100, 250,
                 100, 250, 200, 150.0, "measured", true, null);
         LocalGpuPowerService power = mock(LocalGpuPowerService.class);
-        when(power.discover()).thenReturn(List.of(gpu));
+        when(power.snapshot()).thenReturn(List.of(gpu));
         AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
         MiningService mining = mock(MiningService.class);
         GpuCoinMinerService gpuCoins = mock(GpuCoinMinerService.class);
@@ -111,12 +114,13 @@ class WorkerAssignmentServiceTest {
             return true;
         });
         MinerCatalogService.MinerOption xmrig = new MinerCatalogService.MinerOption("xmrig", "monero", "XMRig",
-                "CPU", "RandomX", 1.0, List.of(), List.of(), "https://xmrig.com", false,
+                "CPU", "RandomX", 1.0, "XMRig Entwickler-Spende", "https://xmrig.com", List.of(), List.of(),
+                "https://xmrig.com", false,
                 true, "READY", "", true, null);
         when(catalog.options("monero")).thenReturn(List.of(xmrig));
         when(catalog.select("monero", "xmrig")).thenReturn(true);
         when(catalog.selected("monero")).thenReturn(xmrig);
-        when(power.discover()).thenReturn(List.of());
+        when(power.snapshot()).thenReturn(List.of());
         when(mining.getStats(anyList())).thenReturn(MinerStats.DEFAULT);
         WorkerAssignmentService service = new WorkerAssignmentService(controls, mining, power, catalog,
                 newFactory(power), mock(PayoutDefaultsService.class),

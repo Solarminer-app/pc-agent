@@ -2,7 +2,7 @@ package de.verdox.solarminer.pcagent.miner;
 
 import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 
 import java.util.List;
 

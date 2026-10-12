@@ -1,6 +1,6 @@
 package de.verdox.solarminer.pcagent.mining;
 
-import de.verdox.solarminer.pcagent.pearl.SrbDownloadService;
+import de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
 import de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService;
@@ -31,6 +31,8 @@ class MinerCatalogServiceTest {
         Path file = directory.resolve("selections.properties");
 
         MinerCatalogService catalog = new MinerCatalogService(xmrig, srb, xmrMiner, pearlMiner, file.toString());
+        // REST audit R5: installation state is a snapshot; probe it once like the scheduler does.
+        catalog.refreshInstallState();
 
         MinerCatalogService.MinerOption option = catalog.selected("monero");
         assertEquals("xmrig", option.id());
@@ -47,9 +49,30 @@ class MinerCatalogServiceTest {
         assertTrue(catalog.download("monero", "xmrig"));
 
         MinerCatalogService restarted = new MinerCatalogService(xmrig, srb, xmrMiner, pearlMiner, file.toString());
+        restarted.refreshInstallState();
         assertEquals("xmrig", restarted.selected("monero").id());
         assertEquals(1, restarted.options("monero").size());
         assertFalse(restarted.options("ravencoin").stream().filter(value -> value.id().equals("teamredminer"))
                 .findFirst().orElseThrow().selectable());
+    }
+
+    @Test
+    void exposesAnExplicitUpdateStateForAnOlderSrbMinerInstallation() {
+        XmrDownloadService xmrig = mock(XmrDownloadService.class);
+        SrbDownloadService srb = mock(SrbDownloadService.class);
+        XmrMinerService xmrMiner = mock(XmrMinerService.class);
+        PearlMinerService pearlMiner = mock(PearlMinerService.class);
+        when(pearlMiner.binaryPresent()).thenReturn(true);
+        when(pearlMiner.binaryAvailable()).thenReturn(false);
+        when(srb.status()).thenReturn("PENDING");
+
+        MinerCatalogService catalog = new MinerCatalogService(xmrig, srb, xmrMiner, pearlMiner,
+                directory.resolve("selections.properties").toString());
+        catalog.refreshInstallState();
+
+        MinerCatalogService.MinerOption pearl = catalog.selected("pearl");
+        assertFalse(pearl.installed());
+        assertEquals("UPDATE_REQUIRED", pearl.downloadStatus());
+        assertTrue(pearl.downloadDetail().isBlank());
     }
 }

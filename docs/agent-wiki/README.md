@@ -25,7 +25,11 @@ Start with [pc-agent.md](pc-agent.md) — the ownership map for the source tree.
 | Page | Use |
 | --- | --- |
 | [pc-agent.md](pc-agent.md) | Source ownership map (paths moved: `pc-agent/src/...` → `src/...`) |
+| [refactoring-adapter-layers.md](refactoring-adapter-layers.md) | Adapter-layer refactoring program: phases 0–5 checklist (authoritative progress), hard wire/seam rules |
+| [rest-sse-loading-plan.md](rest-sse-loading-plan.md) | Loading-strategy plan (P1–P6): static data via REST once, config via REST+POST response, live via event-driven SSE with `invalidate(section)` dirty flags |
+| [docker-lan-discovery.md](docker-lan-discovery.md) | Host-network ports and UDP broadcast limits for LAN discovery |
 | [frontend-i18n.md](frontend-i18n.md) | German/English catalog contract and verification |
+| [../KNOWN_BUGS.md](../KNOWN_BUGS.md) | Prioritized PC-Agent defect backlog; agents check it after scoping their assigned work when capacity permits |
 | [Economic dispatch (C10)](economic-dispatch.md) | Node capability/short-lived-plan boundary and cold-start policy |
 | [MINER-INTEGRATION-GUIDE.md](../../MINER-INTEGRATION-GUIDE.md) | Adding a miner to an existing coin |
 | [pc-agent-miner-candidates.md](pc-agent-miner-candidates.md) | Miner candidate backlog |

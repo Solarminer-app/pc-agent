@@ -1,7 +1,7 @@
 package de.verdox.solarminer.pcagent.controller;
 
-import de.verdox.solarminer.pcagent.mining.AgentControlSettingsService;
-import de.verdox.solarminer.pcagent.mining.FeeTierService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
+import de.verdox.solarminer.pcagent.mining.fee.FeeTierService;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -90,6 +90,54 @@ class AgentWriteAccessFilterTest {
         filter.doFilter(request, response, chain);
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
+    void networkSnapshotReadFollowsTheLanSharingSettingNotTheNodeGate() throws Exception {
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(
+                true, false, Map.of(), Map.of(), Map.of(), false));
+        MockHttpServletRequest hidden = request("GET", "/api/agent/external/network-snapshot");
+        MockHttpServletResponse hiddenResponse = new MockHttpServletResponse();
+        MockFilterChain hiddenChain = new MockFilterChain();
+        filter.doFilter(hidden, hiddenResponse, hiddenChain);
+        assertThat(hiddenResponse.getStatus()).isEqualTo(403);
+        assertThat(hiddenChain.getRequest()).isNull();
+
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(
+                true, false, Map.of(), Map.of(), Map.of(), true));
+        MockHttpServletRequest shared = request("GET", "/api/agent/external/network-snapshot");
+        MockHttpServletResponse sharedResponse = new MockHttpServletResponse();
+        MockFilterChain sharedChain = new MockFilterChain();
+        filter.doFilter(shared, sharedResponse, sharedChain);
+        assertThat(sharedResponse.getStatus()).isEqualTo(200);
+        assertThat(sharedChain.getRequest()).isSameAs(shared);
+
+        // Sharing consent must never open the control side of the external namespace.
+        MockHttpServletRequest pause = request("POST", "/api/agent/external/pause");
+        MockHttpServletResponse pauseResponse = new MockHttpServletResponse();
+        MockFilterChain pauseChain = new MockFilterChain();
+        filter.doFilter(pause, pauseResponse, pauseChain);
+        assertThat(pauseResponse.getStatus()).isEqualTo(403);
+        assertThat(pauseChain.getRequest()).isNull();
+    }
+
+    @Test
+    void walletTargetsRequireTheirOwnExplicitLanSharingConsent() throws Exception {
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(
+                true, false, Map.of(), Map.of(), Map.of(), true, false));
+        MockHttpServletRequest hidden = request("GET", "/api/agent/external/wallet-targets");
+        MockHttpServletResponse hiddenResponse = new MockHttpServletResponse();
+        MockFilterChain hiddenChain = new MockFilterChain();
+        filter.doFilter(hidden, hiddenResponse, hiddenChain);
+        assertThat(hiddenResponse.getStatus()).isEqualTo(403);
+        assertThat(hiddenChain.getRequest()).isNull();
+
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(
+                true, false, Map.of(), Map.of(), Map.of(), true, true));
+        MockHttpServletRequest shared = request("GET", "/api/agent/external/wallet-targets");
+        MockFilterChain sharedChain = new MockFilterChain();
+        filter.doFilter(shared, new MockHttpServletResponse(), sharedChain);
+        assertThat(sharedChain.getRequest()).isSameAs(shared);
     }
 
     private void disabled() {

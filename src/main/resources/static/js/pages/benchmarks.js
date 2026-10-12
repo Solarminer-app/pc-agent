@@ -5,12 +5,10 @@ const make = (tag, cls, value) => {
     if (value != null) e.textContent = value;
     return e;
 };
-let timer;
 let actionBusy = false;
 const t = window.SolarMinerI18n.t;
 const s = window.SolarMinerI18n.s;
 let lastResults = '';
-let polling = false;
 let lastRenderRunning = null;
 let lastUploadStatus = '';
 let sharePromptShown = false;
@@ -38,101 +36,117 @@ async function comparison(row) {
     return response.json();
 }
 
+function renderChart(results, running) {
+    const root = $('benchmark-chart');
+    root.replaceChildren(); root.hidden = !results?.length;
+    if (!results?.length) return;
+    const head = make('div', 'benchmark-chart-head');
+    head.append(make('strong', '', t('current_median_hashrate')), make('span', '', running ? t('benchmark_running') : t('results')));
+    const bars = make('div', 'benchmark-bar-list');
+    const maximum = Math.max(...results.map(row => Number(row.hashrateHs) || 0), 1);
+    for (const row of results) {
+        const line = make('div', 'benchmark-bar-row');
+        const label = make('span', 'benchmark-bar-label', `${row.hardwareModel} · ${row.algorithm}`);
+        const track = make('div', 'benchmark-bar-track');
+        track.setAttribute('role', 'progressbar'); track.setAttribute('aria-label', `${label.textContent}: ${fmtRate(row.hashrateHs)}`);
+        track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', String(maximum)); track.setAttribute('aria-valuenow', String(row.hashrateHs || 0));
+        const fill = make('i', 'benchmark-bar-fill');
+        fill.style.width = `${Math.max(0, Math.min(100, (Number(row.hashrateHs) || 0) / maximum * 100))}%`;
+        track.append(fill); line.append(label, track, make('span', 'benchmark-bar-value', fmtRate(row.hashrateHs))); bars.append(line);
+    }
+    root.append(head, bars);
+}
+
+let resultRenderVersion = 0;
 async function renderResults(results, running = false, phase = '') {
+    const version = ++resultRenderVersion;
     const root = $('results');
     root.replaceChildren();
+    renderChart(results, running);
     if (!results?.length) {
         root.append(make('p', 'empty', running
-            ? t('{phase} · Warte auf die ersten gültigen Hashrate-Messpunkte …', {phase: s(phase || 'Benchmark läuft')})
-            : !phase || phase === 'Idle' ? t('Noch keine Messung. Wähle oben einen Messlauf.') : t('Keine gültigen Mining-Messwerte erfasst. Prüfe, ob Miner laufen und Hashrate liefern.')));
+            ? t('phase_waiting_for_the_first_valid_hashrate_s', {phase: s(phase || 'benchmark_running')})
+            : !phase || phase === 'Idle' ? t('no_measurement_yet_choose_a_mode_above') : t('no_valid_mining_readings_recorded_check_that')));
         return;
     }
-    for (const row of results) {
+    const comparisons = running ? [] : results.map(comparison);
+    for (const [index, row] of results.entries()) {
         const card = make('article', 'worker-card');
         const info = make('div', '');
-        info.append(make('strong', '', `${row.hardwareModel} · ${row.algorithm}`), make('p', 'muted', t('{hardware} · {count} Messpunkte', {hardware: row.hardwareType, count: row.observations})));
-        info.append(make('p', '', `${t('Hashrate')}: ${fmtRate(row.hashrateHs)} · ${t('Leistung')}: ${row.powerWatts > 0 ? new Intl.NumberFormat(window.SolarMinerI18n.locale, {maximumFractionDigits: 0}).format(row.powerWatts) + ' W' : t('nicht verfügbar')} · ${t('Effizienz')}: ${window.SolarMinerMeasurements.efficiency(row.hashrateHs, row.powerWatts)}`));
-        const peer = running ? null : await comparison(row);
-        if (peer) {
-            const delta = peer.medianHashrateHs > 0 ? (row.hashrateHs / peer.medianHashrateHs - 1) * 100 : null;
-            info.append(make('p', 'muted', `${t('Vergleich')} (${peer.sampleCount} ${t('Geräte')}): ${t('Median')} ${fmtRate(peer.medianHashrateHs)}${peer.medianPowerWatts ? ` · ${Math.round(peer.medianPowerWatts)} W` : ''}${delta == null ? '' : ` · ${new Intl.NumberFormat(window.SolarMinerI18n.locale, {maximumFractionDigits: 1}).format(Math.abs(delta))} % ${t(delta >= 0 ? 'über' : 'unter')} ${t('dem Median')}`}`));
-        } else info.append(make('p', 'muted', running
-            ? t('Messwerte werden laufend aktualisiert; der Vergleich erscheint nach Abschluss.')
-            : t('Noch kein veröffentlichter Vergleich für diese Hardware und diesen Algorithmus.')));
+        info.append(make('strong', '', `${row.hardwareModel} · ${row.algorithm}`), make('p', 'muted', t('hardware_count_samples', {hardware: row.hardwareType, count: row.observations})));
+        info.append(make('p', '', `${t('hashrate')}: ${fmtRate(row.hashrateHs)} · ${t('power_4606f4')}: ${row.powerWatts > 0 ? new Intl.NumberFormat(window.SolarMinerI18n.locale, {maximumFractionDigits: 0}).format(row.powerWatts) + ' W' : t('unavailable_6d094b')} · ${t('efficiency')}: ${window.SolarMinerMeasurements.efficiency(row.hashrateHs, row.powerWatts)}`));
         card.append(info);
         root.append(card);
+        const peer = running ? null : await comparisons[index];
+        if (version !== resultRenderVersion || !card.isConnected) return;
+        if (peer) {
+            const delta = peer.medianHashrateHs > 0 ? (row.hashrateHs / peer.medianHashrateHs - 1) * 100 : null;
+            info.append(make('p', 'muted', `${t('comparison')} (${peer.sampleCount} ${t('devices_4425de')}): ${t('median')} ${fmtRate(peer.medianHashrateHs)}${peer.medianPowerWatts ? ` · ${Math.round(peer.medianPowerWatts)} W` : ''}${delta == null ? '' : ` · ${new Intl.NumberFormat(window.SolarMinerI18n.locale, {maximumFractionDigits: 1}).format(Math.abs(delta))} % ${t(delta >= 0 ? 'above' : 'below')} ${t('the_median')}`}`));
+        } else info.append(make('p', 'muted', running
+            ? t('readings_update_continuously_comparison_appe')
+            : t('no_published_comparison_for_this_hardware_an')));
     }
 }
 
-async function poll() {
-    if (polling) return;
-    polling = true;
-    try {
-        const response = await fetch('/api/agent/local/benchmarks', {cache: 'no-store'});
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const state = await response.json();
-        if ($('notice').dataset.kind === 'connection') $('notice').hidden = true;
-        $('connection').className = 'badge online';
-        $('connection').textContent = t('Agent verbunden');
-        $('run-state').textContent = !state.phase || state.phase === 'Idle' ? t('Bereit') : s(state.phase);
-        $('cancel').hidden = !state.running;
-        $('progress-wrap').hidden = !state.running;
-        $('run-live').disabled = $('run-installed').disabled = state.running || actionBusy;
-        if (state.running) {
-            $('upload-status').hidden = true;
-            $('retry-upload').hidden = true;
-        }
-        if (state.running) {
-            $('phase').textContent = t('{phase} · Schritt {step}/{total}', {phase: s(state.phase), step: state.phaseIndex, total: state.phaseCount});
-            const count = state.phase.match(/·\s*(\d+)\/(\d+)\s*Messpunkte/);
-            if (count) {
-                $('progress').max = Number(count[2]);
-                $('progress').value = Number(count[1]);
-            } else {
-                $('progress').removeAttribute('value');
-            }
-        }
-        const signature = JSON.stringify(state.results || []);
-        if (signature !== lastResults || state.running !== lastRenderRunning || (state.running && !state.results?.length)) {
-            lastResults = signature;
-            lastRenderRunning = state.running;
-            await renderResults(state.results, state.running, state.phase);
-        } else if (!state.running && state.phase !== 'Idle' && !state.results?.length) {
-            $('results').replaceChildren(make('p', 'empty', s(state.phase)));
-            lastResults = signature;
-        }
-        if (!state.running) await pollUploadStatus();
-    } catch (e) {
-        $('connection').className = 'badge offline';
-        $('connection').textContent = t('Agent nicht erreichbar');
-        $('run-live').disabled = $('run-installed').disabled = true;
-        notice('Benchmark-Status konnte nicht geladen werden. Vorhandene Ergebnisse bleiben sichtbar.', true, 'connection');
-    } finally {
-        polling = false;
+function applyBenchmarkState(state, meta = {}) {
+    if ($('notice').dataset.kind === 'connection') $('notice').hidden = true;
+    $('connection').className = `badge ${meta.stale ? 'offline' : 'online'}`;
+    $('connection').textContent = meta.stale ? t('connecting') : t('agent_connected');
+    $('benchmark-updated').textContent = meta.at
+        ? t('benchmark_updated_at', {time: new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {hour: '2-digit', minute: '2-digit', second: '2-digit'}).format(meta.at)})
+        : '';
+    $('run-state').textContent = !state.phase || state.phase === 'Idle' ? t('ready') : s(state.phase);
+    $('cancel').hidden = !state.running;
+    $('progress-wrap').hidden = !state.running;
+    $('run-live').disabled = $('run-installed').disabled = state.running || actionBusy;
+    if (state.running) {
+        $('upload-status').hidden = true;
+        $('retry-upload').hidden = true;
     }
+    if (state.running) {
+        $('phase').textContent = t('phase_step_step_total', {phase: s(state.phase), step: state.phaseIndex, total: state.phaseCount});
+        const count = state.phase.match(/·\s*(\d+)\/(\d+)\s*Messpunkte/);
+        if (count) {
+            $('progress').max = Number(count[2]);
+            $('progress').value = Number(count[1]);
+        } else {
+            $('progress').removeAttribute('value');
+        }
+    }
+    const signature = JSON.stringify(state.results || []);
+    if (signature !== lastResults || state.running !== lastRenderRunning || (state.running && !state.results?.length)) {
+        lastResults = signature;
+        lastRenderRunning = state.running;
+        renderResults(state.results, state.running, state.phase);
+    } else if (!state.running && state.phase !== 'Idle' && !state.results?.length) {
+        $('results').replaceChildren(make('p', 'empty', s(state.phase)));
+        lastResults = signature;
+    }
+    if (!state.running) window.SolarMinerLive.refresh('benchmark-upload');
 }
 
-async function pollUploadStatus() {
-    try {
-        const response = await fetch('/api/agent/local/benchmarks/sharing/upload-status', {cache: 'no-store'});
-        if (!response.ok) return;
-        const statuses = await response.json();
-        const signature = JSON.stringify(statuses);
-        if (signature === lastUploadStatus) return;
-        lastUploadStatus = signature;
-        const manual = statuses.manual;
-        const periodic = statuses.periodic;
-        showUploadStatus('upload-status', manual, 'Benchmark-Upload');
-        showUploadStatus('periodic-upload-status', periodic, 'Regelmäßiger Upload');
-        $('retry-upload').hidden = manual.status !== 'FAILED';
-        // The agent only reports NOT_SHARED with samples when a finished manual run kept its
-        // measurements unsent; offer them once per run if the operator has sharing disabled.
-        if (manual.status === 'NOT_SHARED' && manual.sampleCount > 0 && sharingKnown && !$('sharing').checked && !sharePromptShown) {
-            sharePromptShown = true;
-            $('share-prompt').showModal();
-        }
-    } catch (e) {
-        // The benchmark result remains visible even if the local status request fails.
+function connectionLost() {
+    $('connection').className = 'badge offline';
+    $('connection').textContent = t('agent_unavailable');
+    $('run-live').disabled = $('run-installed').disabled = true;
+    notice('could_not_load_benchmark_status_existing_res', true, 'connection');
+}
+
+function applyUploadStatus(statuses) {
+    if (!statuses) return;
+    const signature = JSON.stringify(statuses);
+    if (signature === lastUploadStatus) return;
+    lastUploadStatus = signature;
+    const manual = statuses.manual;
+    const periodic = statuses.periodic;
+    showUploadStatus('upload-status', manual, 'benchmark_upload');
+    showUploadStatus('periodic-upload-status', periodic, 'periodic_upload');
+    $('retry-upload').hidden = manual.status !== 'FAILED';
+    // The agent only reports NOT_SHARED with samples when a finished manual run kept its
+    // measurements unsent; offer them once per run if the operator has sharing disabled.
+    if (manual.status === 'NOT_SHARED' && manual.sampleCount > 0 && sharingKnown && !$('sharing').checked && !sharePromptShown) {
+        sharePromptShown = true;
+        $('share-prompt').showModal();
     }
 }
 
@@ -141,20 +155,69 @@ function showUploadStatus(id, status, label) {
     element.hidden = !status || status.status === 'IDLE';
     if (element.hidden) return;
     element.className = `notice${status.status === 'FAILED' ? ' error' : ''}`;
-    element.textContent = `${t(label)}: ${s(status.message)}${status.sampleCount ? ` ${t('({count} Messwerte)', {count: status.sampleCount})}` : ''}`;
+    element.textContent = `${t(label)}: ${s(status.message)}${status.sampleCount ? ` ${t('count_samples', {count: status.sampleCount})}` : ''}`;
 }
 
 async function start(mode) {
     if (actionBusy) return; actionBusy = true;
     $('run-live').disabled = $('run-installed').disabled = true;
     try {
-        const response = await fetch('/api/agent/local/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode})});
-        if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.detail || body?.message || t('Benchmark konnte nicht gestartet werden.')); }
-        notice('Messlauf gestartet. Du kannst ihn jederzeit abbrechen.');
-        $('results').replaceChildren(make('p', 'empty', t('Messlauf gestartet …')));
+        const response = await fetch('/api/agent/local/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, coins: selectedCoins()})});
+        if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.detail || body?.message || t('could_not_start_the_benchmark')); }
+        notice('measurement_started_you_can_cancel_it_at_any');
+        $('results').replaceChildren(make('p', 'empty', t('benchmark_started')));
     } catch (error) { notice(window.SolarMinerI18n.s(error.message), true); }
-    finally { actionBusy = false; await poll(); }
+    finally { actionBusy = false; window.SolarMinerLive.refresh('benchmarks'); }
 }
+
+// The coin selection applies to both measurement runs (benchmark and power-limit sweep).
+// Uninstalled coins stay disabled; a stored selection survives reloads so an operator can
+// permanently exclude coins their cards cannot run (e.g. PearlHash on Pascal).
+const coinSelectionKey = 'solarminer.pc-agent.benchmark-coins';
+let catalogCoins = [];
+
+function storedCoinSelection() {
+    try {
+        const value = JSON.parse(localStorage.getItem(coinSelectionKey));
+        return Array.isArray(value) ? value : null;
+    } catch (_) { return null; }
+}
+
+function selectedCoins() {
+    const checked = [...document.querySelectorAll('#coin-options input:checked')].map(input => input.value);
+    // All coins checked means "no restriction" — the agent keeps its full-run semantics.
+    return checked.length === catalogCoins.length ? [] : checked;
+}
+
+function renderCoinOptions(catalog) {
+    catalogCoins = catalog.filter(entry => entry.binaryAvailable);
+    const root = $('coin-options');
+    root.replaceChildren();
+    if (!catalog.length) return;
+    const stored = storedCoinSelection();
+    for (const entry of catalog) {
+        const label = make('label', 'benchmark-coin-option');
+        const input = make('input', '');
+        input.type = 'checkbox'; input.value = entry.id;
+        input.disabled = !entry.binaryAvailable;
+        input.checked = entry.binaryAvailable && (stored ? stored.includes(entry.id) : true);
+        input.addEventListener('change', () => {
+            try { localStorage.setItem(coinSelectionKey, JSON.stringify(selectedCoins())); } catch (_) { }
+        });
+        const text = make('span', '');
+        text.append(make('strong', '', `${entry.name} · ${entry.device}`));
+        text.append(make('small', 'muted', t(entry.binaryAvailable ? 'installed_lowercase' : 'not_installed')));
+        label.append(input, text);
+        root.append(label);
+    }
+}
+
+fetch('/api/agent/local/miner-catalog', {cache: 'no-store'}).then(async response => {
+    if (!response.ok) throw new Error('catalog_unavailable');
+    renderCoinOptions(await response.json());
+}).catch(() => {
+    $('coin-selection').hidden = true;
+});
 
 $('run-live').addEventListener('click', () => start('LIVE'));
 $('run-installed').addEventListener('click', () => start('INSTALLED'));
@@ -165,9 +228,9 @@ $('retry-upload').addEventListener('click', async () => {
         const response = await fetch('/api/agent/local/benchmarks/sharing/retry-manual', {method: 'POST'});
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         lastUploadStatus = '';
-        await pollUploadStatus();
+        window.SolarMinerLive.refresh('benchmark-upload');
     } catch (e) {
-        notice('Der Upload konnte nicht erneut gestartet werden.', true);
+        notice('could_not_retry_the_upload', true);
     } finally {
         button.disabled = false;
     }
@@ -183,70 +246,70 @@ $('share-prompt').addEventListener('submit', async (event) => {
         const response = await fetch('/api/agent/local/benchmarks/sharing/upload-manual', {method: 'POST'});
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const status = await response.json();
-        if (status.status === 'SENT') notice(t('Die Ergebnisse wurden einmalig anonym hochgeladen. Die Einstellung für regelmäßige Benchmarks bleibt unverändert.'));
-        else if (status.status === 'FAILED') notice(t('Der anonyme Upload ist fehlgeschlagen. Du kannst ihn über „Upload erneut versuchen“ wiederholen.'), true);
+        if (status.status === 'SENT') notice(t('the_results_were_uploaded_once_anonymously_t'));
+        else if (status.status === 'FAILED') notice(t('the_anonymous_upload_failed_you_can_retry_it'), true);
+        // REST audit R8: the upload now runs in the background; the prompt reports the accepted
+        // command and the benchmark-upload strip shows SENT/FAILED as soon as it lands.
+        else if (status.status === 'UPLOADING') notice(t('uploading_benchmark_data'));
         $('share-prompt').close();
         lastUploadStatus = '';
-        await pollUploadStatus();
+        window.SolarMinerLive.refresh('benchmark-upload');
     } catch (e) {
-        notice('Der anonyme Upload konnte nicht gestartet werden.', true);
+        notice('the_anonymous_upload_could_not_be_started', true);
         button.disabled = false;
     }
 });
 $('cancel').addEventListener('click', async () => {
     if (actionBusy) return; actionBusy = true; $('cancel').disabled = true;
-    try { const response = await fetch('/api/agent/local/benchmarks/cancel', {method:'POST'}); if (!response.ok) throw new Error('Messlauf konnte nicht abgebrochen werden.'); notice('Abbruch angefordert. Der vorherige Mining-Zustand wird wiederhergestellt.'); }
+    try { const response = await fetch('/api/agent/local/benchmarks/cancel', {method:'POST'}); if (!response.ok) throw new Error('could_not_cancel_the_measurement'); notice('cancellation_requested_the_previous_mining_s'); }
     catch (error) { notice(s(error.message), true); }
-    finally {actionBusy=false;$('cancel').disabled=false;await poll();}
+    finally {actionBusy=false;$('cancel').disabled=false;window.SolarMinerLive.refresh('benchmarks');}
 });
-$('refresh').addEventListener('click', poll);
-function sharingSummary() { $('sharing-summary').textContent = t($('sharing').checked ? 'EINGESCHALTET' : 'AUSGESCHALTET'); }
+$('refresh').addEventListener('click', () => {
+    window.SolarMinerLive.refresh('benchmarks');
+    window.SolarMinerLive.refresh('efficiency');
+    window.SolarMinerLive.refresh('benchmark-upload');
+});
+function sharingSummary() { $('sharing-summary').textContent = t($('sharing').checked ? 'enabled_cfd095' : 'disabled_139955'); }
 $('sharing').addEventListener('change', async () => {
     const input = $('sharing'); input.disabled = true;
     try {
         const response = await fetch('/api/agent/local/benchmarks/sharing', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:input.checked})});
-        if (!response.ok) throw new Error('Die Freigabe konnte nicht gespeichert werden.');
-        $('sharing-note').textContent = t(input.checked ? 'Freigabe gespeichert. Aktive Miner werden regelmäßig übertragen.' : 'Freigabe deaktiviert. Der Widerruf wird beim nächsten Versandintervall übermittelt.');
+        if (!response.ok) throw new Error('could_not_save_permission');
+        $('sharing-note').textContent = t(input.checked ? 'permission_saved_active_miners_will_be_repor' : 'sharing_disabled_withdrawal_will_be_sent_at');
     } catch (error) {input.checked=!input.checked;notice(s(error.message),true);}
     finally {input.disabled=false;sharingSummary();}
 });
 $('sharing').disabled = true;
 fetch('/api/agent/local/benchmarks/sharing').then(async response => {
-    if (!response.ok) throw new Error('Sharing unavailable');
-    const value = await response.json(); if (typeof value !== 'boolean') throw new Error('Invalid consent');
+    if (!response.ok) throw new Error('sharing_unavailable');
+    const value = await response.json(); if (typeof value !== 'boolean') throw new Error('invalid_consent');
     $('sharing').checked = value; $('sharing').disabled = false; sharingKnown = true; sharingSummary();
 }).catch(() => {
-    $('sharing-summary').textContent = t('Nicht verfügbar');
-    $('sharing-note').textContent = t('Die Freigabe konnte nicht gelesen werden. Aktualisiere die Seite, bevor du sie änderst.');
+    $('sharing-summary').textContent = t('unavailable_2a5d2c');
+    $('sharing-note').textContent = t('could_not_read_sharing_permissions_refresh_t');
 });
 
-async function pollSweep() {
-    try {
-        const response = await fetch('/api/agent/local/efficiency', {cache: 'no-store'});
-        if (!response.ok) return;
-        const state = await response.json();
-        $('sweep-state').textContent = state.running ? t('Läuft') : (!state.phase || state.phase === 'Idle' ? t('Bereit') : s(state.phase));
+function applySweepState(state) {
+        $('sweep-state').textContent = state.running ? t('running') : (!state.phase || state.phase === 'Idle' ? t('ready') : s(state.phase));
         $('sweep-cancel').hidden = !state.running;
         $('sweep-progress-wrap').hidden = !state.running;
         const resumable = !state.running && (state.runs || []).length > 0
             && (state.runs || []).some(run => run.status !== 'COMPLETE');
         $('resume-sweep').hidden = !resumable;
         $('resume-sweep').disabled = state.running || actionBusy;
-        $('run-sweep').textContent = t(resumable ? 'Komplett neu starten' : 'Power-Limit-Test starten');
+        $('run-sweep').textContent = t(resumable ? 'restart_from_scratch' : 'start_power_limit_test');
         $('run-sweep').disabled = state.running || actionBusy;
         if (state.running) {
-            $('sweep-phase').textContent = t('{done}/{total} Geräte abgeschlossen · {phase}',
+            $('sweep-phase').textContent = t('done_total_devices_complete_phase',
                 {done: state.phaseIndex, total: state.phaseCount, phase: s(state.phase)});
             $('sweep-progress').max = Math.max(1, state.phaseCount);
             $('sweep-progress').value = state.phaseIndex;
             $('sweep-remaining').textContent = state.secondsRemaining == null
-                ? t('ETA wird berechnet …') : t('Ungefähre Restzeit: {time}', {time: formatDuration(state.secondsRemaining)});
+                ? t('calculating_eta') : t('approximate_time_remaining_time', {time: formatDuration(state.secondsRemaining)});
         }
         renderSweepRuns(state.runs || []);
-        await renderProfiles();
-    } catch (e) {
-        // The benchmark page stays usable when the sweep status request fails.
-    }
+        renderProfiles();
 }
 
 let lastProfileSignature = null;
@@ -274,21 +337,21 @@ function renderSweepRuns(runs) {
     root.hidden = !runs.length;
     root.replaceChildren();
     if (!runs.length) return;
-    const statusLabel = {QUEUED: 'Geplant', RUNNING: 'Läuft', COMPLETE: 'Fertig', FAILED: 'Fehlgeschlagen', SKIPPED: 'Übersprungen', CANCELLED: 'Abgebrochen'};
+    const statusLabel = {QUEUED: 'planned', RUNNING: 'running', COMPLETE: 'complete', FAILED: 'failed', SKIPPED: 'skipped', CANCELLED: 'cancelled'};
     const isTerminal = status => status === 'COMPLETE' || status === 'FAILED' || status === 'SKIPPED' || status === 'CANCELLED';
     // Only live runs get a full card; queued and finished runs collapse into compact
     // disclosure rows so a long plan never buries the run that is actually measuring.
     for (const run of runs.filter(r => r.status === 'RUNNING')) root.append(liveRunCard(run, statusLabel));
     const waiting = runs.filter(r => r.status === 'QUEUED');
     const finished = runs.filter(r => isTerminal(r.status));
-    if (waiting.length) root.append(runGroup(t('Wartende Läufe ({count})', {count: waiting.length}), waiting, statusLabel, false));
-    if (finished.length) root.append(runGroup(t('Abgeschlossene Läufe ({count})', {count: finished.length}), finished, statusLabel, true));
+    if (waiting.length) root.append(runGroup(t('waiting_runs_count', {count: waiting.length}), waiting, statusLabel, false));
+    if (finished.length) root.append(runGroup(t('completed_runs_count', {count: finished.length}), finished, statusLabel, true));
 }
 
 function runIdentity(run) {
     const wave = run.mode === 'FULL' && Number.isInteger(run.referenceBatch)
-        ? ` · ${t('Startgruppe {number}', {number: run.referenceBatch + 1})}` : '';
-    return `${run.coin} · ${t(run.mode === 'FULL' ? 'Referenzkurve' : 'Parallele Gerätevalidierung')}${wave}`;
+        ? ` · ${t('start_group_number', {number: run.referenceBatch + 1})}` : '';
+    return `${run.coin} · ${t(run.mode === 'FULL' ? 'reference_curve' : 'parallel_device_validation')}${wave}`;
 }
 
 function runPlanLine(run) {
@@ -306,7 +369,7 @@ function liveRunCard(run, statusLabel) {
     const info = make('div', '');
     info.append(make('strong', '', `${run.model} · ${run.algorithm}`), make('p', 'muted', runIdentity(run)));
     if (run.detail) info.append(make('p', '', s(run.detail)));
-    info.append(make('p', 'muted', t('{watts} W · {samples}/{required} Messpunkte',
+    info.append(make('p', 'muted', t('watts_w_samples_required_samples',
         {watts: run.limitWatts ?? '—', samples: run.samples, required: run.samplesRequired})));
     const steps = runPlanLine(run);
     if (steps) info.append(make('p', 'muted', steps));
@@ -360,17 +423,17 @@ async function renderProfiles() {
         const root = $('sweep-results');
         root.replaceChildren();
         if (!profiles.length) {
-            root.append(make('p', 'empty', t('Noch kein Effizienz-Profil. Starte einen Test, um stabile Power-Limits zu ermitteln.')));
+            root.append(make('p', 'empty', t('no_efficiency_profile_yet_start_a_test_to_fi')));
             return;
         }
         for (const profile of profiles) {
             const card = make('article', 'worker-card');
             const info = make('div', '');
             info.append(make('strong', '', `${profile.model} · ${profile.algorithm}`),
-                make('p', 'muted', t('{coin} · getestet {date}', {coin: profile.coin, date: new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(profile.testedAt))})));
+                make('p', 'muted', t('coin_tested_date', {coin: profile.coin, date: new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(profile.testedAt))})));
             if (profile.bestStableWatts != null) {
-                info.append(make('p', '', t('Bester stabiler Wert: {watts} W · {hashrate} · {power} W · {efficiency}', {watts: profile.bestStableWatts, hashrate: fmtRate(profile.bestHashrateHs), power: Math.round(profile.bestPowerWatts), efficiency: window.SolarMinerMeasurements.efficiency(profile.bestHashrateHs, profile.bestPowerWatts)})));
-            } else info.append(make('p', '', t('Kein stabiler Power-Limit-Wert gefunden.')));
+                info.append(make('p', '', t('best_stable_value_watts_w_hashrate_power_w_e', {watts: profile.bestStableWatts, hashrate: fmtRate(profile.bestHashrateHs), power: Math.round(profile.bestPowerWatts), efficiency: window.SolarMinerMeasurements.efficiency(profile.bestHashrateHs, profile.bestPowerWatts)})));
+            } else info.append(make('p', '', t('no_stable_power_limit_found')));
             const steps = (profile.steps || []).map(step =>
                 `${step.limitWatts} W ${step.stable ? '✓' : '✗'}${step.medianHashrateHs ? ` (${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W)` : ''}${step.note ? ` — ${s(step.note)}` : ''}`).join(' · ');
             if (steps) info.append(make('p', 'muted', steps));
@@ -387,24 +450,34 @@ async function startSweep(mode = 'restart') {
     $('run-sweep').disabled = true;
     $('resume-sweep').disabled = true;
     try {
-        const response = await fetch(`/api/agent/local/efficiency?mode=${encodeURIComponent(mode)}`, {method: 'POST'});
-        if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || 'Der Effizienz-Sweep konnte nicht gestartet werden.'); }
+        const response = await fetch(`/api/agent/local/efficiency?mode=${encodeURIComponent(mode)}`,
+            {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({coins: selectedCoins()})});
+        if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || 'could_not_start_the_efficiency_sweep'); }
         notice(mode === 'resume'
-            ? 'Effizienz-Sweep wird mit den bereits abgeschlossenen Ergebnissen fortgesetzt.'
-            : 'Effizienz-Sweep neu gestartet. Leistungsgrenzen werden schrittweise gesenkt und nach dem Lauf wiederhergestellt.');
+            ? 'efficiency_sweep_resumed_with_completed_resu'
+            : 'efficiency_sweep_restarted_power_limits_are');
     } catch (error) { notice(s(error.message), true); }
-    finally { actionBusy = false; await pollSweep(); }
+    finally { actionBusy = false; window.SolarMinerLive.refresh('efficiency'); }
 }
 
 $('run-sweep').addEventListener('click', () => startSweep('restart'));
 $('resume-sweep').addEventListener('click', () => startSweep('resume'));
 $('sweep-cancel').addEventListener('click', async () => {
     if (actionBusy) return; actionBusy = true; $('sweep-cancel').disabled = true;
-    try { const response = await fetch('/api/agent/local/efficiency/cancel', {method: 'POST'}); if (!response.ok) throw new Error('Der Sweep konnte nicht abgebrochen werden.'); notice('Abbruch angefordert. Leistungsgrenzen und Miner-Zustand werden wiederhergestellt.'); }
+    try { const response = await fetch('/api/agent/local/efficiency/cancel', {method: 'POST'}); if (!response.ok) throw new Error('could_not_cancel_the_sweep'); notice('cancellation_requested_power_limits_and_mine'); }
     catch (error) { notice(s(error.message), true); }
-    finally { actionBusy = false; $('sweep-cancel').disabled = false; await pollSweep(); }
+    finally { actionBusy = false; $('sweep-cancel').disabled = false; window.SolarMinerLive.refresh('efficiency'); }
 });
 
-poll();
-pollSweep();
-timer = setInterval(() => {if (!document.hidden) { poll(); pollSweep(); }}, 1000);
+// Phase 5c: measurement state arrives over the shared SSE stream instead of a 1 s
+// three-fetch polling loop (benchmarks + efficiency + upload-status). The live-data
+// watchdog re-reads a channel over REST only when its push went silent.
+// P7: the benchmarks/efficiency channels carry live run-state (a stale "running" card is
+// worse than a blank moment), so they opt out of snapshot persistence.
+window.SolarMinerLive.channel('benchmarks', {endpoint: '/api/agent/local/benchmarks', maxAgeMs: 4000, persist: false})
+    .subscribe((state, meta) => state ? applyBenchmarkState(state, meta) : (meta.error ? connectionLost() : null));
+window.SolarMinerLive.channel('efficiency', {endpoint: '/api/agent/local/efficiency', maxAgeMs: 4000, persist: false})
+    .subscribe(state => { if (state) applySweepState(state); });
+window.SolarMinerLive.channel('benchmark-upload', {endpoint: '/api/agent/local/benchmarks/sharing/upload-status', maxAgeMs: 8000})
+    .subscribe(applyUploadStatus);
+window.SolarMinerLive.start();

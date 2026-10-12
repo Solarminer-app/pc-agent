@@ -1,8 +1,8 @@
 package de.verdox.solarminer.pcagent.miner;
 
 import de.verdox.solarminer.pcagent.coin.Coin;
-import de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService;
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
 import org.springframework.stereotype.Component;
@@ -70,6 +70,16 @@ public class MinerFactory {
     public List<GpuCoinMiner> gpuMiners() {
         return Coin.gpuCoins().stream().map(this::gpuMiner).toList();
     }
+
+    /**
+     * The shared SRBMiner installation gate (Phase 3 reference-binary predicate): one
+     * versioned binary serves Pearl and every SRB GPU coin, so orchestration asks the
+     * seam instead of naming Pearl.
+     */
+    public boolean srbBinaryAvailable() { return pearl.binaryAvailable(); }
+
+    /** True when an SRBMiner process started outside the agent occupies the shared binary. */
+    public boolean srbExternalMinerRunning() { return pearl.hasExternalMinerProcess(); }
 
     public boolean supports(String coinId) { return miner(coinId).isPresent(); }
 

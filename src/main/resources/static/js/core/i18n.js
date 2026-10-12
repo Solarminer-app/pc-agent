@@ -1,20 +1,25 @@
 // The translation schema of the PC-Agent frontend. It is HARD-WIRED and closed:
 //
-//   t(text, params) — for every string the frontend authors (German source text).
-//     Exact lookup in window.SolarMinerI18nCatalog.frontend (js/core/i18n-catalog.js).
-//     No regex, no guessing: an unknown key logs a console warning and the audit script
-//     (.codex-qa/i18n-audit.cjs) fails. Interpolated values use {placeholder} tokens:
-//     t('Aktualisiert {time}', {time: …}) — never t(`Aktualisiert ${…}`).
+//   t(key, params) — for every string the frontend authors. Keys reference
+//     window.SolarMinerI18nCatalog.frontend (js/core/i18n-catalog.js), where each entry
+//     carries BOTH locales: {de: "German source", en: "English"}. No regex, no guessing:
+//     an unknown key logs a console warning and the audit script (scripts/check-i18n.cjs)
+//     fails. Interpolated values use {placeholder} tokens:
+//     t('updated_time', {time: …}) — never t(`…${…}`).
 //
-//   s(text) — ONLY for strings produced by the Java agent (English source: miner errors,
+//   s(text) — for strings produced by the Java agent (English source: miner errors,
 //     connectionDetail, downloadDetail, managedDetail, regulationError, unavailableReason,
-//     benchmark phases). They cannot be rewritten in the browser, so they translate through
-//     the closed agent catalog plus a few documented prefix rules. In English they pass
-//     through untouched.
+//     benchmark phases; German source: a few status messages). They arrive as runtime text
+//     and cannot carry keys, so they resolve through the closed
+//     agentEnglishToGerman/agentGermanToEnglish
+//     dictionaries plus a few documented prefix rules. Keys thrown inside Error(t(…))
+//     messages resolve through the frontend dictionary.
 //
-// Static HTML stays German in the source and is translated exactly once at
-// DOMContentLoaded. There is deliberately NO MutationObserver: every dynamic string must
-// already pass through t() or s() when it is built, which keeps the obligation enforceable.
+// Static HTML keeps German text as the no-JS fallback and references keys through
+// data-i18n (text content) and data-i18n-title / data-i18n-placeholder /
+// data-i18n-aria-label (attributes), applied once at DOMContentLoaded. There is deliberately
+// NO raw-text fallback or MutationObserver: every dynamic string must already pass through
+// t() or s() when it is built, which keeps the obligation enforceable.
 // See docs/agent-wiki/frontend-i18n.md for the full rule set.
 (() => {
   const preferenceKey = 'solarminer.pc-agent.language';
@@ -22,47 +27,37 @@
   const saved = (() => { try { return localStorage.getItem(preferenceKey); } catch (_) { return null; } })();
   const locale = supported.includes(saved) ? saved : 'en';
 
-  const catalog = window.SolarMinerI18nCatalog || {frontend: {}, agent: {}};
+  const catalog = window.SolarMinerI18nCatalog || {
+    frontend: {}, agentEnglishToGerman: {}, agentGermanToEnglish: {}
+  };
   const missingKeys = new Set();
-  const translatedStrings = new Set();
 
   const normalize = value => value.replace(/\s+/g, ' ').trim();
-  const rememberTranslation = value => {
-    if (translatedStrings.size >= 1024) translatedStrings.clear();
-    translatedStrings.add(normalize(value));
-  };
-
-  function t(text, params) {
-    if (typeof text !== 'string') return text;
-    const key = normalize(text);
-    if (locale === 'en' && translatedStrings.has(key)) return text;
-    let out = key;
-    if (locale === 'en') {
-      const hit = catalog.frontend[key];
-      if (hit === undefined) {
-        // Hard-wired schema: an untranslated frontend string is a defect, never a silent pass.
-        if (!missingKeys.has(key)) {
-          missingKeys.add(key);
-          console.warn(`[i18n] missing frontend translation: ${key}`);
-        }
-      } else out = hit;
+  function t(key, params) {
+    if (typeof key !== 'string') return key;
+    const k = normalize(key);
+    const entry = catalog.frontend[k];
+    let out = entry ? (entry[locale] ?? entry.de) : k;
+    if (!entry && !missingKeys.has(k)) {
+      missingKeys.add(k);
+      console.warn(`[i18n] missing frontend translation key: ${k}`);
     }
     if (params) out = out.replace(/\{(\w+)\}/g, (_, name) => params[name] ?? '');
-    if (locale === 'en' && catalog.frontend[key] !== undefined) rememberTranslation(out);
     return out;
   }
 
   /**
-   * Agent-authored text. The agent authors English (LibreHardwareMonitor, miner errors) and,
-   * for a few status messages, German (benchmark upload status). Both directions stay inside
-   * the closed catalogs: English goes through the agent catalog, German through the frontend
-   * catalog. Unknown text passes through untouched.
+   * Agent-authored text (runtime, text-keyed) and keys thrown inside Error(t(…)) messages.
+   * English agent text resolves through agentEnglishToGerman for German; German
+   * agent text through agentGermanToEnglish for English. Unknown text passes through.
    */
   function s(text) {
     if (typeof text !== 'string') return text;
     const key = normalize(text);
+    const entry = catalog.frontend[key];
+    if (entry) return entry[locale] ?? entry.de;
     if (locale === 'de') {
-      const hit = catalog.agent[key];
+      const hit = catalog.agentEnglishToGerman[key];
       if (hit) return hit;
       const sourceStatus = key.match(/^(available|starting|stopped|failed|api-disabled|api-unavailable|not-started): (.+)$/);
       if (sourceStatus) return `${s(sourceStatus[1])}: ${s(sourceStatus[2])}`;
@@ -96,14 +91,15 @@
       if (key.startsWith('GitHub release API returned HTTP ')) return `GitHub-Release-API meldet HTTP ${key.slice('GitHub release API returned HTTP '.length)}`;
       if (key.startsWith('SRBMiner download returned HTTP ')) return `SRBMiner-Download meldet HTTP ${key.slice('SRBMiner download returned HTTP '.length)}`;
       if (key.startsWith('Unsafe SRBMiner archive entry: ')) return `Unsicherer Eintrag im SRBMiner-Archiv: ${key.slice('Unsafe SRBMiner archive entry: '.length)}`;
+      if (key.startsWith('Unsafe XMRig archive entry: ')) return `Unsicherer Eintrag im XMRig-Archiv: ${key.slice('Unsafe XMRig archive entry: '.length)}`;
       const skippedCoin = key.match(/^([a-z]+) \((.+)\)$/);
       if (skippedCoin) return `${skippedCoin[1]} (${s(skippedCoin[2])})`;
       if (key.includes(' · ')) return key.split(' · ').map(s).join(' · ');
       if (key.includes('; skipped: ')) { const [result, skipped] = key.split('; skipped: '); return `${s(result)}; übersprungen: ${s(skipped)}`; }
       return text;
     }
-    // English locale: German agent status messages translate through the frontend catalog.
-    let translated = catalog.frontend[key];
+    // English locale: German agent status messages translate through agentGermanToEnglish.
+    let translated = catalog.agentGermanToEnglish[key];
     if (translated === undefined) {
       if (key.startsWith('Fehler: ')) translated = `Error: ${s(key.slice(8))}`;
       else if (key.startsWith('SRBMiner konnte nicht vollständig entfernt werden: '))
@@ -148,7 +144,6 @@
       else if (key.includes(' · ')) translated = key.split(' · ').map(s).join(' · ');
       else translated = text;
     }
-    rememberTranslation(translated);
     return translated;
   }
 
@@ -198,7 +193,7 @@
       try {
         let snapshot;
         try {
-          const response = await fetch('/api/agent/local/fiat-rates', {cache: 'no-store'});
+          const response = await fetch('/api/agent/local/economics/rates', {cache: 'no-store'});
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           snapshot = await response.json();
         } catch (_) {
@@ -224,35 +219,33 @@
 
   window.SolarMinerI18n = {
     locale: localeTag(), language: locale, t, s,
-    /** Audit hook: keys that reached t() without a catalog entry during this page life. */
+    /** Audit hook: keys that reached t() without a dictionary entry during this page life. */
     missingKeys: () => [...missingKeys]
   };
   document.documentElement.lang = locale;
 
   // ------------------------------------------------------------------ static markup, once
 
-  function translateTextNode(node) {
-    if (node.parentElement?.closest('pre,script,style,[data-no-i18n]')) return;
-    const original = node.nodeValue;
-    const trimmed = normalize(original);
-    if (!trimmed) return;
-    const translated = t(trimmed);
-    if (translated !== trimmed)
-      node.nodeValue = `${original.match(/^\s*/)[0]}${translated}${original.match(/\s*$/)[0]}`;
-  }
+  const translateAttribute = element => {
+    for (const attribute of ['title', 'placeholder', 'aria-label']) {
+      const key = element.getAttribute(`data-i18n-${attribute}`);
+      if (key) element.setAttribute(attribute, t(key));
+    }
+  };
   function translateStaticMarkup() {
-    document.title = t(document.title);
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
-    nodes.forEach(translateTextNode);
-    for (const element of document.querySelectorAll('[title], [placeholder], [aria-label]'))
-      for (const attribute of ['title', 'placeholder', 'aria-label'])
-        if (element.hasAttribute(attribute)) element.setAttribute(attribute, t(element.getAttribute(attribute)));
+    const title = document.querySelector('title[data-i18n]');
+    if (title) document.title = t(title.getAttribute('data-i18n'));
+    for (const element of document.querySelectorAll('[data-i18n]')) {
+      if (element.matches('title')) continue;
+      element.textContent = t(element.getAttribute('data-i18n'));
+    }
+    for (const element of document.querySelectorAll('[data-i18n-title], [data-i18n-placeholder], [data-i18n-aria-label]'))
+      translateAttribute(element);
   }
   document.addEventListener('DOMContentLoaded', () => {
     translateStaticMarkup();
     const switcher = document.createElement('select');
-    switcher.className = 'button subtle language-switcher'; switcher.setAttribute('aria-label', t('Sprache wählen'));
+    switcher.className = 'button subtle language-switcher'; switcher.setAttribute('aria-label', t('choose_language'));
     switcher.innerHTML = '<option value="de">Deutsch</option><option value="en">English</option>'; switcher.value = locale;
     switcher.addEventListener('change', () => { try { localStorage.setItem(preferenceKey, switcher.value); } catch (_) {} location.reload(); });
     document.querySelector('.top-actions')?.prepend(switcher);

@@ -87,7 +87,7 @@
   ];
   const coinById = new Map(coinCatalog.map(coin => [coin.id, coin]));
   const coinName = id => coinById.get(id)?.name || id;
-  const coinTicker = id => id === 'none' ? t('Frei') : coinById.get(id)?.ticker || id;
+  const coinTicker = id => id === 'none' ? t('unassigned') : coinById.get(id)?.ticker || id;
   const gpuCoinIds = coinCatalog.filter(coin => coin.device === 'GPU').map(coin => coin.id);
   /** Algorithm names as the miner reports them differ in case and spelling from the display names. */
   const minerAlgorithms = {monero: 'RandomX', pearl: 'PearlHash', ravencoin: 'kawpow',
@@ -104,10 +104,10 @@
 
   // ------------------------------------------------------------------ status language
 
-  const statusLabels = {MINING: 'Mining aktiv', PAUSED: 'Pausiert', STOPPED: 'Gestoppt', ERROR: 'Fehler'};
+  const statusLabels = {MINING: 'mining_active', PAUSED: 'paused', STOPPED: 'stopped', ERROR: 'error'};
   function statusPill(status, override) {
     const pill = element('span', `pill status-${String(status || 'unknown').toLowerCase()}`);
-    pill.append(element('i', 'pill-dot'), element('span', '', t(override || statusLabels[status] || 'Unbekannt')));
+    pill.append(element('i', 'pill-dot'), element('span', '', t(override || statusLabels[status] || 'unknown')));
     return pill;
   }
 
@@ -162,7 +162,7 @@
     const body = document.createElement('tbody');
     if (!rows.length) {
       const row = document.createElement('tr'), cell = document.createElement('td');
-      cell.colSpan = columns.length; cell.className = 'table-empty'; cell.textContent = t(empty || 'Keine Einträge.');
+      cell.colSpan = columns.length; cell.className = 'table-empty'; cell.textContent = t(empty || 'no_entries');
       row.append(cell); body.append(row);
     }
     for (const [index, row] of rows.entries()) {
@@ -196,7 +196,7 @@
       const pill = statusPill(null, value);
       if (tone) pill.classList.add(tone);
       item.append(pill);
-      if (href) { const link = element('a', '', 'Öffnen'); link.href = href; item.append(link); }
+      if (href) { const link = element('a', '', 'open'); link.href = href; item.append(link); }
       strip.append(item);
     }
   }
@@ -219,11 +219,11 @@
     const badge = $('connection');
     if (!badge) return;
     badge.className = `badge${state === 'online' ? ' online' : state === 'offline' ? ' offline' : ''}`;
-    badge.textContent = t(state === 'online' ? 'Agent verbunden' : state === 'offline' ? 'Agent nicht erreichbar' : 'Verbinde …');
+    badge.textContent = t(state === 'online' ? 'agent_connected' : state === 'offline' ? 'agent_unavailable' : 'connecting');
   }
   function setUpdated(at) {
     const node = $('updated');
-    if (node) node.textContent = t('Aktualisiert {time}', {time: new Date(at ?? Date.now()).toLocaleTimeString(i18n().locale)});
+    if (node) node.textContent = t('updated_time', {time: new Date(at ?? Date.now()).toLocaleTimeString(i18n().locale)});
   }
 
   /** Filter button groups (`[data-*]` chips) appear on several pages with identical wiring. */
@@ -256,6 +256,24 @@
     if (!response.ok) throw await readError(response);
     return response.json();
   }
+  // P7: the coin catalog is a closed enum that only changes on agent restart; cache it per
+  // tab so page switches never pay for the fetch again (server TTL is 1 h, same net here).
+  const COIN_CATALOG_KEY = 'solarminer.coin-catalog.v1', COIN_CATALOG_MAX_AGE_MS = 3_600_000;
+  async function cachedCoinCatalog() {
+    if (window.SolarMinerCoinCatalog) return window.SolarMinerCoinCatalog;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(COIN_CATALOG_KEY) || 'null');
+      const age = Date.now() - (saved?.savedAt || 0);
+      if (age >= 0 && age < COIN_CATALOG_MAX_AGE_MS && Array.isArray(saved.catalog) && saved.catalog.length) {
+        window.SolarMinerCoinCatalog = saved.catalog;
+        return saved.catalog;
+      }
+    } catch (_) { /* fall through to a fresh read */ }
+    const catalog = await getJson('/api/agent/local/status/coin-catalog');
+    window.SolarMinerCoinCatalog = catalog;
+    try { sessionStorage.setItem(COIN_CATALOG_KEY, JSON.stringify({savedAt: Date.now(), catalog})); } catch (_) {}
+    return catalog;
+  }
   async function postJson(url, body, {confirmation = null} = {}) {
     if (confirmation && !confirm(t(confirmation))) return null;
     const response = await fetch(url, {
@@ -264,8 +282,11 @@
     });
     if (!response.ok) throw await readError(response);
     const result = await response.json().catch(() => null);
-    if (result !== true) throw new Error(s(result?.message || result?.detail) || 'Der Agent hat die Änderung abgelehnt.');
-    return true;
+    // Mutations either acknowledge with `true` or return the updated resource.  Treating a
+    // successful object response as a rejection made settings such as the agent name appear
+    // unsaved even though the server had already persisted them.
+    if (result === false || result == null) throw new Error(s(result?.message || result?.detail) || 'the_agent_rejected_the_change');
+    return result;
   }
 
   // ------------------------------------------------------------------ derived models
@@ -279,7 +300,7 @@
    * model-name match, then the single-AMD-sensor case. Missing stays missing.
    */
   function temperatureOf(source, telemetry, gpus) {
-    if (Number(source.temperatureCelsius) > 0) return {value: Number(source.temperatureCelsius), source: 'Miner'};
+    if (Number(source.temperatureCelsius) > 0) return {value: Number(source.temperatureCelsius), source: 'miners_448600'};
     const metrics = telemetry?.metrics || {};
     const card = source.deviceId ? (gpus || telemetry?.gpus || []).find(entry => entry.deviceId === source.deviceId) : null;
     const vendor = String(source.vendor || card?.vendor || '').toLowerCase();
@@ -301,7 +322,7 @@
       }
     }
     const usable = candidates.find(metric => metric?.available && Number.isFinite(metric.value) && metric.value > 0);
-    if (usable) return {value: Number(usable.value), source: 'Host-Sensor'};
+    if (usable) return {value: Number(usable.value), source: 'host_sensor'};
     return {value: null, source: null};
   }
 
@@ -317,7 +338,7 @@
       const pool = worker.pool || {};
       return {
         id: worker.deviceId || worker.workerDisplayName,
-        name: worker.workerDisplayName || 'Worker',
+        name: worker.workerDisplayName || 'worker',
         coin: coin?.id || '', coinName: coin?.name || '—', ticker: coin?.ticker || '',
         algorithm: worker.currentAlgorithm || '—',
         hardwareType: worker.hardwareType || '—', hardwareModel: worker.hardwareModel || '',
@@ -379,7 +400,7 @@
     kilowattHours, duration, tariff, money, workerUsdPerDay, revenuePerKwh, moneyPerKwh,
     statusLabels, statusPill, element, cellLines, metric, table,
     statusStrip, notice, clearNotice, setConnection, setUpdated, filterButtonGroup, debounce,
-    getJson, postJson, readError,
+    getJson, postJson, readError, cachedCoinCatalog,
     coinCatalog, coinName, coinTicker, gpuCoinIds, configurationFor, matchesAlgorithm,
     temperatureOf, workerRows, poolRows, shortWorkerName, operatingRows, sensorKey
   };

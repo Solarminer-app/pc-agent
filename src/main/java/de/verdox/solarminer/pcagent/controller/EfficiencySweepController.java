@@ -1,7 +1,7 @@
 package de.verdox.solarminer.pcagent.controller;
 
-import de.verdox.solarminer.pcagent.mining.EfficiencySweepService;
-import de.verdox.solarminer.pcagent.mining.GpuEfficiencyStore;
+import de.verdox.solarminer.pcagent.mining.measurement.EfficiencySweepService;
+import de.verdox.solarminer.pcagent.mining.measurement.GpuEfficiencyStore;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,9 +13,11 @@ import java.util.Map;
 @RequestMapping("/api/agent/local/efficiency")
 public class EfficiencySweepController {
     private final EfficiencySweepService sweep;
+    private final AgentStatusService status;
 
-    public EfficiencySweepController(EfficiencySweepService sweep) {
+    public EfficiencySweepController(EfficiencySweepService sweep, AgentStatusService status) {
         this.sweep = sweep;
+        this.status = status;
     }
 
     @GetMapping
@@ -24,13 +26,21 @@ public class EfficiencySweepController {
     }
 
     @PostMapping
-    public EfficiencySweepService.Session start(@RequestParam(defaultValue = "restart") String mode) {
-        return switch (mode) {
-            case "restart" -> sweep.start();
-            case "resume" -> sweep.resume();
+    public EfficiencySweepService.Session start(@RequestParam(defaultValue = "restart") String mode,
+                                                @RequestBody(required = false) StartRequest request) {
+        List<String> coins = request == null ? null : request.coins();
+        EfficiencySweepService.Session session = switch (mode) {
+            case "restart" -> sweep.start(coins);
+            case "resume" -> sweep.resume(coins);
             default -> throw new IllegalArgumentException("Unbekannter Sweep-Startmodus");
         };
+        // The sweep pauses/restores miners and rewrites power limits: wake its own channel
+        // plus the miner/power views it disturbs (loading plan P3).
+        if (status != null) status.invalidate("efficiency", "benchmarks", "overview", "power-control", "workers");
+        return session;
     }
+
+    public record StartRequest(List<String> coins) { }
 
     @ExceptionHandler({IllegalStateException.class, IllegalArgumentException.class})
     public ResponseEntity<Map<String, String>> startRejected(RuntimeException exception) {
@@ -41,7 +51,9 @@ public class EfficiencySweepController {
 
     @PostMapping("/cancel")
     public EfficiencySweepService.Session cancel() {
-        return sweep.cancel();
+        EfficiencySweepService.Session session = sweep.cancel();
+        if (status != null) status.invalidate("efficiency", "benchmarks", "overview", "power-control", "workers");
+        return session;
     }
 
     @GetMapping("/profiles")

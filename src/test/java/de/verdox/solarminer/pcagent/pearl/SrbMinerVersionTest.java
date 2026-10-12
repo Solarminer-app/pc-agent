@@ -1,5 +1,6 @@
 package de.verdox.solarminer.pcagent.pearl;
 
+import de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

@@ -2,7 +2,7 @@ package de.verdox.solarminer.pcagent.controller;
 
 import de.verdox.solarminer.pcagent.coin.SweepMode;
 import de.verdox.solarminer.pcagent.coin.SweepRunState;
-import de.verdox.solarminer.pcagent.mining.EfficiencySweepService;
+import de.verdox.solarminer.pcagent.mining.measurement.EfficiencySweepService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -27,7 +27,7 @@ class EfficiencySweepControllerTest {
                 0, "TITAN RTX · PearlHash · 170 W");
         when(sweep.status()).thenReturn(new EfficiencySweepService.Session(true, "170 W", Instant.now(),
                 0, 2, List.of(), List.of(run), 240L));
-        MockMvc api = standaloneSetup(new EfficiencySweepController(sweep)).build();
+        MockMvc api = standaloneSetup(new EfficiencySweepController(sweep, null)).build();
 
         api.perform(get("/api/agent/local/efficiency"))
                 .andExpect(status().isOk())
@@ -40,9 +40,9 @@ class EfficiencySweepControllerTest {
     @Test
     void rejectedStartReturnsTheActionableReasonToTheDashboard() throws Exception {
         EfficiencySweepService sweep = mock(EfficiencySweepService.class);
-        when(sweep.start()).thenThrow(new IllegalStateException(
+        when(sweep.start(null)).thenThrow(new IllegalStateException(
                 "Keine GPU-Leistungsgrenze ist schreibbar: Insufficient Permissions"));
-        MockMvc api = standaloneSetup(new EfficiencySweepController(sweep)).build();
+        MockMvc api = standaloneSetup(new EfficiencySweepController(sweep, null)).build();
 
         api.perform(post("/api/agent/local/efficiency"))
                 .andExpect(status().isConflict())
@@ -53,13 +53,33 @@ class EfficiencySweepControllerTest {
     @Test
     void resumeModeUsesTheSavedSweepCheckpoint() throws Exception {
         EfficiencySweepService sweep = mock(EfficiencySweepService.class);
-        when(sweep.resume()).thenReturn(new EfficiencySweepService.Session(false, "Idle", null,
+        when(sweep.resume(null)).thenReturn(new EfficiencySweepService.Session(false, "Idle", null,
                 0, 0, List.of(), List.of(), 0L));
-        MockMvc api = standaloneSetup(new EfficiencySweepController(sweep)).build();
+        MockMvc api = standaloneSetup(new EfficiencySweepController(sweep, null)).build();
 
         api.perform(post("/api/agent/local/efficiency").queryParam("mode", "resume"))
                 .andExpect(status().isOk());
 
-        verify(sweep).resume();
+        verify(sweep).resume(null);
+    }
+
+    @Test
+    void coinSelectionIsPassedThroughToTheSweepAndUnknownCoinsAreRejected() throws Exception {
+        EfficiencySweepService sweep = mock(EfficiencySweepService.class);
+        when(sweep.start(List.of("pearl"))).thenReturn(new EfficiencySweepService.Session(true, "Vorbereitung",
+                Instant.now(), 0, 1, List.of(), List.of(), 0L));
+        when(sweep.start(List.of("notacoin"))).thenThrow(new IllegalArgumentException("Unknown benchmark coin: notacoin"));
+        MockMvc api = standaloneSetup(new EfficiencySweepController(sweep, null)).build();
+
+        api.perform(post("/api/agent/local/efficiency")
+                        .contentType("application/json")
+                        .content("{\"coins\":[\"pearl\"]}"))
+                .andExpect(status().isOk());
+        verify(sweep).start(List.of("pearl"));
+
+        api.perform(post("/api/agent/local/efficiency")
+                        .contentType("application/json")
+                        .content("{\"coins\":[\"notacoin\"]}"))
+                .andExpect(status().isConflict());
     }
 }

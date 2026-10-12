@@ -7,6 +7,15 @@ map) and inspect Git status before changing code. Preserve existing work. For
 Java work, use focused IntelliJ IDEA MCP navigation when that server is
 available; otherwise use repository and shell tools. Keep queries focused.
 
+After completing the required reading and scoping the assigned task, also read
+[`docs/KNOWN_BUGS.md`](docs/KNOWN_BUGS.md). If the task leaves sufficient
+context/token capacity and a listed bug is clearly in scope, investigate or
+fix the highest-priority relevant open bug. This is deliberately secondary to
+the user's request: do not expand a task, disturb unrelated work, or claim a
+bug fixed without the documented verification. Keep the bug record current
+when you investigate it, including when the result is only a diagnosis or a
+reproduction note.
+
 This repository owns the PC-Agent: local CPU/GPU mining (XMRig, SRBMiner-MULTI),
 miner installation and supervision, hardware sensors, Stratum-proxy child
 process management, and the local operator UI under

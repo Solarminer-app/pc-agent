@@ -1,5 +1,262 @@
 # PC-Agent work log
 
+## 2026-10-12 — PC-Agent-Name speichert mit korrekter Rückmeldung
+
+- Die gemeinsame `postJson`-Hilfsfunktion wertete bislang ausschließlich die JSON-Antwort
+  `true` als Erfolg. Der Identity-Endpunkt liefert dagegen absichtlich das gespeicherte
+  Identity-Objekt zurück. Dadurch zeigte die Oberfläche nach einem erfolgreichen Speichern
+  fälschlich „Der Agent hat die Änderung abgelehnt.“ an.
+- Die Hilfsfunktion akzeptiert jetzt sowohl die bestehende boolesche Erfolgsantwort als auch
+  ein zurückgegebenes Ressourcenobjekt und gibt dieses an die aufrufende Seite weiter; nur
+  `false` oder eine fehlende JSON-Antwort bleiben ein Fehler. Die vorhandenen deutschen und
+  englischen i18n-Einträge bleiben unverändert und decken echte Validierungsfehler weiterhin ab.
+- Verifikation: `node --check src/main/resources/static/js/core/components.js`,
+  `node scripts/check-i18n.cjs`, `node scripts/scan-i18n-literals.cjs` und
+  `git diff --check` erfolgreich.
+
+## 2026-10-12 — Gemeinsame Worker-Liste im Dashboard
+
+- Das Dashboard führt die laufenden lokalen Worker und die schreibgeschützt über LAN
+  freigegebenen Worker anderer PC-Agents in einer Liste zusammen. Jede Zeile zeigt den
+  zugehörigen PC-Agent, Status, Hashrate, Leistung, Tagesertrag und Ertrag pro kWh.
+- Die Kopfkennzahlen summieren Workerzahl, Leistung und Tagesertrag; der Ertrag pro kWh ist
+  ausdrücklich der arithmetische Durchschnitt aller Worker mit vollständigem Ertrags- und
+  Leistungswert. Remote-Erträge werden wie die bisherigen lokalen Werte anteilig über die
+  Hashrate am je Agent veröffentlichten Coin-Forecast berechnet. Remote-Zeilen bleiben
+  ausschließlich lesbar.
+- Deutsche und englische Katalogeinträge ergänzen Überschrift, Kennzahlen, Hinweise und
+  Kennzeichnung der Remote-Daten. Verifikation: `node --check
+  src/main/resources/static/js/pages/overview.js`, `node scripts/check-i18n.cjs` (1.255
+  Schlüssel, neun Seiten, beide Locales), `node scripts/scan-i18n-literals.cjs` (0) und
+  `git diff --check` erfolgreich. Ein Browser-/LAN-Smoketest mit mindestens zwei Agents bleibt
+  ein Rollout-Schritt.
+- Die vier Kennzahlen sind verdichtet (82 px Mindesthöhe, kleinere Innenabstände und Schrift)
+  und bleiben auf schmalen Ansichten als 2×2-Raster sichtbar statt einzeln untereinander zu
+  stehen.
+- Die Dashboard-Hauptspalte darf auf Desktop bis zu 1.480 px nutzen. Bis 1.650 px
+  Fensterbreite steht die Worker-Liste allein in ihrer Zeile; dadurch erhält die sieben-spaltige
+  Tabelle die volle verfügbare Breite und vermeidet die horizontale Scrollleiste auf normalen
+  Desktopgrößen.
+
+## 2026-10-12 — Pearl-Worker-Start und sichtbare API-Fehler
+
+- Live-Diagnose des lokalen Worker-Starts ergab HTTP 400 vor dem SRBMiner-Prozessstart:
+  Pearl erzeugte die interne Konsolen-ID `pearl-NVIDIA:0`, während
+  `MinerConsoleService` und Worker-UI das gültige Format `pearl-NVIDIA-0`
+  verwenden. Das Öffnen der Worker-Konsole warf deshalb `Unknown miner`, nachdem
+  nur der Pearl-Sammellog zurückgesetzt worden war.
+- Pearl und die übrigen SRBMiner-Adapter erzeugen Worker-Konsolen-IDs jetzt über
+  dieselbe zentrale Factory. Der Worker-Controller liefert seine vorhandene
+  Fehlermeldung bei HTTP 400/409 außerdem explizit als JSON-`message`, damit das
+  vorhandene lokalisierte Fehlerbanner nicht nur den HTTP-Status anzeigen muss.
+- Keine neue Bedienkopie: Das Frontend verwendet weiterhin den geschlossenen
+  deutschen/englischen i18n-Katalog und dessen dynamische Fehlerübersetzungen.
+  Verifikation: fokussierte Controller-, Konsolen- und Pearl-ID-Regressionstests,
+  JavaScript-Syntax- und i18n-Prüfungen sowie `git diff --check`.
+- Windows-Live-Reproduktion auf `Main-Gaming-PC` (Windows 11, RTX 2080 Ti):
+  Der Start lieferte HTTP 400, setzte ausschließlich den Pearl-Sammellog auf
+  `2026-10-12T09:52:48.556596Z` zurück und ließ den gültigen Worker-Log
+  `pearl-NVIDIA-0` samt alter Run-ID unverändert. Damit ist der Absturz an der
+  ungültigen internen ID `pearl-NVIDIA:0` auch auf dem Zielsystem belegt. Der
+  dort laufende Build enthielt weder den ID-Fix noch den strukturierten
+  Controller-Fehlerbody. Das korrigierte `standaloneJar` wurde anschließend
+  erfolgreich gebaut; SHA-256:
+  `7b78f15c2a396c328acfb1dd26ef1dd356dc305e0c9ec8ba656cef99f9a55380`.
+
+## 2026-10-12 — Wallet-target sharing route regression coverage
+
+- Pinned the local consent route used by the Automation-page **Share wallet targets** switch: `POST /api/agent/local/power-control/wallet-target-sharing?enabled=true` resolves successfully and persists the explicit wallet-target-sharing consent. This prevents a missing controller mapping from regressing into a browser-visible 404.
+- No user-facing copy changed; the existing German and English catalog entries remain the closed UI contract. Verification: focused `AgentPowerControllerTest` and `AgentWriteAccessFilterTest` passed with JDK 21; `node --check src/main/resources/static/js/pages/automation.js`, `node scripts/check-i18n.cjs` (1,243 keys, nine pages, both locales), `node scripts/scan-i18n-literals.cjs` (0), and `git diff --check` passed.
+
+## 2026-10-12 — LAN wallet-target import
+
+- The Wallets page can now list discovered peer PC-Agents and load a selected peer's payout targets. A target is applied to an individual local form only on the operator's explicit action and still requires the existing local **Save wallet** confirmation; the import never writes configuration automatically.
+- Wallets remain private by default. The source Agent must explicitly enable **Wallet-Ziele mit anderen PC-Agents im selben Netzwerk teilen** in Node-Automatisierung. The new external `GET /api/agent/external/wallet-targets` route is read-only, separately filtered by that consent, and is not included in the periodic worker/earnings network snapshot.
+- Added German and English copy for the source consent, peer selection, import state and failures. Verification: `node --check` for Wallets and Automation, `node scripts/check-i18n.cjs` (1,239 keys, nine pages, both locales), `node scripts/scan-i18n-literals.cjs` (0), and focused `AgentWriteAccessFilterTest` passed with JDK 21. A two-host LAN/browser smoke test remains a rollout gate.
+
+## 2026-10-12 — Live benchmark dashboard and freshness handling
+
+- The benchmark page consumes the dedicated `benchmarks` SSE channel (one-second producer)
+  and keeps its existing four-second REST watchdog. It now displays the local receipt time of
+  the newest status and changes the connection state to reconnecting when that value becomes
+  stale; an operator can therefore distinguish a completed measurement from an old screen.
+- Fixed the manual refresh control: it now refreshes benchmark, efficiency and upload channels
+  through the shared live-data client instead of calling an undefined `poll` function.
+- Results paint immediately, followed by comparison requests started in parallel. A render
+  generation and connected-card check prevent an old comparison response from mutating a newer
+  benchmark view. The result area adds an accessible, responsive hashrate bar chart and retains
+  the current per-worker hashrate, watts, efficiency and sample count cards.
+- Added German and English strings for the freshness timestamp and live median-hashrate chart;
+  no external text remains untranslated. Verification: `node --check
+  src/main/resources/static/js/pages/benchmarks.js`, `node scripts/check-i18n.cjs` (1,221 keys,
+  nine pages, both locales), and `git diff --check` passed. A browser-level visual/live SSE
+  smoke test remains a rollout gate on a machine running the Agent.
+
+## 2026-10-12 — Dashboard-Ladezeit: Read-only-Befund
+
+- Der laufende lokale Agent beantwortete `GET /api/agent/local/overview` mit
+  1,949 s, während `GET /api/agent/local/telemetry` aus seinem Ein-Sekunden-
+  Snapshot-Cache in 1,942 ms antwortete. Die Messung nutzte die reguläre
+  Same-Origin-Prüfung; es wurde keine Anwendungs- oder Konfigurationsdatei
+  verändert.
+- Der aktuelle Overview-Pfad verwendet zwar den Hintergrund-GPU-Snapshot und
+  parallelisiert Proxy-, Payout- und Fee-Lookups, blockiert die HTTP-Antwort
+  aber anschließend mit `join()`. Payout-Defaults und Fee-Übersicht lesen dabei
+  die Proxy-Fee-Ziele synchron (je Aufruf bis zu drei Sekunden); die
+  Fee-Übersicht besitzt keinen Snapshot-Cache. Das ist auf diesem Host die
+  belegte Erklärung für die etwa zwei Sekunden lange Overview-Antwort, nicht
+  die bereits kontinuierlich gehaltenen Worker- oder Energieinformationen.
+- Weitere weiterhin request-gebundene I/O: der erste Telemetrie-Snapshot
+  durchsucht Linux `hwmon`/DRM und ruft `nvidia-smi` mit bis zu drei Sekunden
+  Wartezeit auf; die Energieübersicht liest und parst unter einem synchronen
+  Monitor alle Journaldateien bei jeder Cache-Neuberechnung. Wallet-Balances
+  sind dagegen bereits ein asynchron erneuerter 60-s-Snapshot und gehören nicht
+  mehr in den kritischen First-Paint-Pfad.
+- Umsetzung: `MiningController` baut den vollständigen Overview-Snapshot beim
+  Application-Ready-Event und danach im Hintergrund auf; `GET /overview` sowie
+  der SSE-Overview-Kanal liefern ausschließlich den letzten vollständigen
+  Snapshot. Ein Fehler behält den letzten Stand statt den HTTP-Request zu
+  blockieren. Die gleichartige Entkopplung gilt für die Hardwaretelemetrie
+  (Hintergrund-Refresh, leerer Start-Snapshot), die Energieübersicht (Journal-
+  Dateien nur bei Sample/Änderung einlesen) und Fiatkurse (Currency-Service nur
+  im Hintergrund). Die bestehenden Mutation-Invalidierungen sorgen weiterhin
+  für einen sofortigen SSE-Abgleich. Eine explizite UI-Stale-Anzeige und
+  Dauer-/Fehlermetriken pro Produzent sind sinnvolle nächste Beobachtungsarbeit.
+- Verifikation nach Umsetzung: fokussierte `EnergyJournalServiceTest`,
+  `MarketDataServiceTest` und `MarketDataServiceFiatTest` mit JDK 21 grün;
+  `node scripts/check-i18n.cjs`, `node scripts/scan-i18n-literals.cjs` und
+  `git diff --check` grün. Ein erneuter Laufzeitvergleich benötigt einen
+  Neustart des lokalen Agenten, damit er die geänderten Klassen lädt.
+
+## 2026-10-12 — Model-aware parallel GPU benchmarks
+
+- Installed GPU benchmarks now run in model-aware waves. Cards of the same vendor/model
+  receive different remaining coins in a wave, because one completed sample per
+  `(model, coin)` is sufficient; the next wave reuses a card only for another coin.
+  Different GPU models are independently scheduled into those waves, so they do not wait
+  for one another.
+- The selected devices are supplied through a benchmark-only in-memory miner configuration.
+  It takes precedence only while the wave runs, is cleared before state restoration, and
+  never writes the operator's pool, wallet, device assignment or saved miner configuration.
+  CPU measurement remains on its existing sequential lifecycle.
+- No new UI text was introduced. The running-state label continues to use the existing
+  German/English `Measuring active miners` catalog entry; console/process messages use the
+  existing measurement-stop wording.
+- Verification: focused `BenchmarkSessionServiceTest` passed with JDK 21, including the
+  planner regression for two identical cards plus a different model; `node
+  scripts/check-i18n.cjs`, `node --check src/main/resources/static/js/pages/benchmarks.js`,
+  and `git diff --check` passed. Live multi-GPU/pool validation remains a rollout gate.
+
+## 2026-10-11 — Frontend responsiveness assessment (no product-code change)
+
+- The operator UI is still a multi-page application: each navbar transition rebuilds the
+  document and executes the common classic-script stack again (including the 283 KB
+  uncompressed i18n catalog). Browser caching can avoid a repeat transfer after a warm
+  load, but cannot avoid parse, initialization, DOM construction, or a new SSE connection.
+- The present REST/SSE migration removes the former interval polls for many pages, but
+  the first-paint aggregate has an overfetch regression: `live-data.js` requests the
+  unparameterized `/api/agent/local/status` whenever any aggregate-backed channel is
+  subscribed. `AgentStatusService.aggregate()` eagerly evaluates every section, so a
+  telemetry/proxy page may also evaluate the heavy overview (GPU discovery, miner stats,
+  forecasts, payout defaults, fee data) and wallet balance snapshot. Section caching
+  helps only after the first collection and does not bound a cold or invalidated request.
+- `proxy.js` retains a direct full `/overview` refresh in addition to its SSE/watchdog
+  route; `wallets.js` uses the same full overview and has not joined the live-data route.
+  These are concrete remaining sources of avoidable work and inconsistent navigation
+  latency.
+- Recommended next decision: complete the existing section-oriented REST/SSE design with
+  a requested-sections initial endpoint (or individual initial reads), then measure
+  browser navigation and server timings on target hardware. A Next.js migration is not
+  justified by this evidence: it would retain the local Spring API/driver latency and add
+  a Node runtime or a second build/deployment surface. If component navigation is desired
+  after the loading work, consider a static React/Vite SPA served by Spring rather than
+  SSR-oriented Next.js.
+- Evidence: `static/js/core/live-data.js:101-130`,
+  `controller/AgentStatusService.java:181-202`, `controller/MiningController.java:549-584`,
+  `static/js/pages/proxy.js:47-61`, `static/js/pages/wallets.js:88-101`. Syntax-only check
+  of all static JavaScript files passed; no live target performance trace was available.
+
+## 2026-10-11 — Explicit runtime-agent i18n dictionary directions
+
+- Renamed the runtime, text-keyed dictionaries from ambiguous `agent` and
+  `agentGerman` to `agentEnglishToGerman` and `agentGermanToEnglish`. This is
+  a nomenclature-only change: English Agent messages still render in German
+  under the German locale, and German Agent messages still render in English
+  under the English locale.
+- Updated the renderer, both i18n verification scripts and the i18n contract.
+  The catalog checks now reject either legacy ambiguous dictionary name. The
+  static pages receive a matching cache-version update so a browser cannot mix
+  a renamed catalog with stale renderer code. The verification also corrected
+  the Fee-tier badge's legacy literal `t('Dev-Fee')` call to the existing
+  `dev_fee` frontend key. A final distinct cache token was issued after the
+  complete rename, because an open Chrome profile had retained an intermediate
+  catalog/renderer combination even after a hard refresh; a fresh profile
+  confirmed the completed resources render translations.
+
+## 2026-10-11 — Host networking is the only supported Docker Compose mode
+
+- The owner decision is implemented: `docker-compose.pc-agent.yml`, the
+  release `pc-agent.compose.yml` asset and `install-docker.sh` now use Linux
+  host networking only. The bootstrap no longer offers `--network bridge`.
+  NVIDIA and AMD overlays continue to compose with the host-network base file.
+- `docker-compose.pc-agent.standalone.yml` remains only as a same-behaviour
+  legacy filename alias. New stable and beta releases no longer publish a
+  bridge-mode Compose asset. The Docker README and wiki explicitly reject
+  bridge deployments for the PC-Agent.
+- This removes the Docker bridge namespace from the UDP discovery path; it does
+  not make broadcast routable. Agents still need one Layer-2 broadcast domain,
+  and routed subnets require a future relay or configured-peer design.
+- Verification: `sh -n standalone/install-docker.sh`; `docker compose config
+  --quiet` for the base file and its NVIDIA/AMD overlays; `git diff --check`.
+
+## 2026-10-11 — Docker Compose port and LAN-discovery review
+
+- Reviewed all PC-Agent Compose profiles, the Dockerfile and the peer/proxy
+  discovery implementation. The normal bridge profile publishes the required
+  Agent TCP endpoint (`8084`) plus the external-proxy heartbeat (`8092/udp`)
+  and peer-agent discovery (`8093/udp`). GPU overlays preserve those mappings;
+  the host-network compatibility profile needs no mappings.
+- Found a deployment boundary: publishing UDP 8093 does not make the
+  peer-agent broadcast emitted inside a Docker bridge namespace reach the
+  physical LAN. Therefore peer auto-discovery must not be claimed for the
+  ordinary Compose bridge profile across physical LAN subnets. Proxy broadcast
+  discovery has the same limitation. Host networking on a Linux host, or a
+  future explicit relay/configured-peer design, is required for reliable
+  physical-LAN discovery. Host networking also cannot cross a routed IP subnet:
+  UDP broadcast is limited to one Layer-2 broadcast domain. Direct
+  configuration remains available for an external
+  proxy; the peer dashboard has no configured-peer fallback today.
+- Added [Docker networking and LAN discovery](docker-lan-discovery.md) with
+  the port ownership, network-mode constraints and verification/rollout gates.
+  The Docker bootstrap and its stable/beta release assets now default to a
+  host-network Compose profile (`--network host`); bridge mode is an explicit
+  `--network bridge` compatibility selection. NVIDIA and AMD overlays remain
+  usable with both profiles. The existing `pc-agent.compose.yml` release asset
+  remains a bridge-mode alias so older bootstrap scripts do not encounter a
+  missing asset. The Docker guide and ownership wiki now state the same
+  constraint.
+  Documentation only; no user-visible UI/API text changed.
+- Verification: `docker compose config --quiet` passed for the base, Intel,
+  AMD, NVIDIA and host-network profiles; `git diff --check` passed. No
+  two-host physical-LAN or host-firewall run was available, so this is not an
+  end-to-end deployment certification.
+
+## 2026-10-11 — Known-bug backlog and agent handoff
+
+- Added `docs/KNOWN_BUGS.md` as the structured, repository-local PC-Agent
+  defect backlog. It defines status/priority semantics, a triage order, and
+  required evidence, diagnosis, remedy, and verification fields.
+- Recorded the initial items: missing-wallet start diagnostics (BUG-001), a
+  frontend cache/invalidation policy gap (BUG-002), and native Stratum-proxy
+  lifecycle recovery (BUG-003). Existing statements that were not yet backed
+  by a reproduction are explicitly labelled as unverified or hypotheses.
+- `AGENTS.md` now directs agents to inspect this backlog after scoping their
+  assigned work and to tackle an applicable item only when sufficient context
+  capacity remains; the user task and existing work keep priority.
+- Documentation-only change; no UI/API strings or executable behavior changed,
+  so no locale runtime check was required. Verification: Markdown links and
+  modified files inspected; `git diff --check` passed.
+
 ## 2026-10-10 — Clean-code refactoring: closed coin/state enums and the miner adapter seam
 
 - `coin/Coin` is now the single coin identity (id, ticker, algorithm plus aliases, device kind, experimental flag, `miningCoins()`, `gpuCoins()`, `sharedSrbCoins()`, `assignableTo(cpuWorker)`, `byAlgorithm()`, `byIdOrNull()`); a new coin is one enum entry plus an adapter. Closed state enums `DownloadState`, `SweepRunState` (+`terminal()`), `SweepMode`, `ProxyMode`, `FeeRollMode`, `BenchmarkMode`, `WorkerCoinPolicy`, `WorkerIds` and `mining/ProxyLifecycle` replaced magic strings across controllers and services without changing any wire name. Iron rule: every enum wire name is a REST contract; getters return `.wireName()`.
@@ -521,11 +778,72 @@ Vorgehen / Andockpunkte für andere Agenten:
   GpuCoinMinerService (543), LocalGpuPowerService (534), XmrMinerService (481),
   ManagedProxyService (461).
 - Frontend-Hotspots: `src/main/resources/static/js/` (Polling-Last pro Refresh).
-- Ergebnisse der Analyse-Stränge und der konsolidierte Refactor-Plan werden
-  HIER nachgeliefert (Eintrag ergänzen, nicht ersetzen).
+- **Analyse abgeschlossen (2026-10-10):** Der konsolidierte Refactor-Plan mit
+  Phasen 0–5, Zielarchitektur (`MinerEngineAdapter`, `MinerBinaryInstaller`,
+  `ProxyFeeClient`, `AtomicFileStore`, `WalletRule`, Aggregat-`/status`) und
+  allen file:line-Belegen liegt in
+  `docs/agent-wiki/refactoring-adapter-layers.md` (neu, unverändert gültige
+  Closed-Seam- und Wire-Format-Regeln sind dort mitgedacht). Noch KEIN Code
+  verändert; nächste Phase wäre Phase 0 (reine Leaf-Extraktionen,
+  verhaltensneutral). Offene Owner-Entscheidungen stehen am Ende des Plans.
 - Wire-Format-Gesetz bleibt: Enum-Wire-Namen sind REST-Verträge für statisches UI
   UND Solar-Miner-Node; jede Konsolidierung braucht pinning-Tests bevor Endpoints
   bewegt werden (Vorbild: `ProxyOverviewWireFormatTest`).
+
+### Teilfortschritt Phase 0 (2026-10-10, verhaltensneutral, unvercommitet)
+
+- Neue Paket `pcagent/support/` mit drei Leaf-Helfern aus dem Plan:
+  `AtomicFileStore` (temp→ATOMIC_MOVE→Fallback→Cleanup, fail-soft),
+  `ProcessTermination` (destroy→Shared-Deadline→destroyForcibly inkl.
+  Descendants), `LogTailer` (bounded FileChannel-Chunk-Read).
+- Umgestellt: `ReferralConfigurationService.set` (Persistenzblock),
+  `MinerProcessRegistry.stop` + `ManagedProxyService.terminateOrphanedProxyProcesses`
+  + `ManagedProxyService.stopProcess` (Terminationsblöcke),
+  `MinerConsoleService.read` + `ManagedProxyService.readLog` (Log-Chunk-Blöcke).
+  Semantik 1:1 beibehalten (Graces 3 s/5 s wie vorher).
+- Verifikation (Gradle-Distribution auf diesem Host nicht cached/network-blocked,
+  daher direkter javac/JUnit-Launcher gegen Gradle-Classpath aus dem Cache):
+  HEAD-Baum + diese Änderungen kompilieren vollständig (`-parameters`),
+  JUnit-Konsolenlauf über `mining`+`controller`+`pearl`: **127/127 Tests grün**.
+- Hinweis an den Parallel-Agenten: die untracked WIP-Dateien
+  `AgentNetworkDiscoveryService.java`, `NetworkDashboardService.java`,
+  `NetworkDashboardController.java` kompilieren derzeit NICHT
+  (`Settings.networkSharingEnabled()` fehlt; `Enumeration`-Import fehlt in
+  Zeile 213). Der Gesamt-Worktree-Build ist dadurch rot — nicht durch die
+  Phase-0-Änderungen. Bitte in deren Session beheben.
+- Übrige Phase-0-Ziele (11 weitere Persistenzblöcke: NodeAssessment,
+  AgentIdentity, AgentControlSettings, MiningPerformanceProfileStore,
+  GpuEfficiencyStore, BenchmarkSharing, PayoutDefaults, ProxyConfiguration ×3,
+  MiningService, MinerCatalog, EnergyJournal) sind mechanisch nach demselben
+  Muster umstellbar — nächster Andockpunkt.
+
+### Phase 0 abgeschlossen (2026-10-10, Fortsetzung derselben Sitzung)
+
+- Alle 12 Persistenz-Blöcke auf `AtomicFileStore.writeText`/`writeJson`
+  umgestellt (Liste + Semantik-Details in
+  `refactoring-adapter-layers.md` Phase-0-Checkliste); `writeJson` neu im Helfer.
+- Verifikation: Compile HEAD+alle 15 eigenen Dateien + `support/`
+  (`javac -parameters`, Gradle-Classpath aus Cache) OK; JUnit-Console
+  `mining`+`controller`+`pearl`: **127/127 grün**. Unvercommitet.
+- Nächster Andockpunkt: **Phase 1** (`support/ProxyFeeClient` + `FeeTarget`,
+  `ProxyPorts`, Dev-Fee-Vereinheitlichung, Service-Merges) gemäß
+  `refactoring-adapter-layers.md`.
+
+### Phase 1 teilweise (2026-10-10, Fortsetzung)
+
+- `support/ProxyFeeClient` + `FeeTarget` eingeführt; die 4 Kopien des
+  `/api/v1/fees/{coin}/targets`-Parsings (`FeeTransparencyService` ×2,
+  `PayoutDefaultsService`, `ProxyConfigurationService.feeReady`) und der
+  `POST /fees/tier`-Client (`FeeTierService`) laufen jetzt durch den einen
+  Client; `validPool`/`validPoolAddress` auf eine Stelle konsolidiert.
+  Fail-closed-Semantik (leere Liste ⇒ nicht fee-ready) beibehalten;
+  Konstruktor-Signaturen unverändert (Client wird intern erzeugt).
+- Verifikation: Compile HEAD+17 Dateien + `support/`; JUnit-Console
+  mining/controller/pearl **127/127 grün**. Unvercommitet.
+- Phase 1 offen: `ProxyPorts`-Vereinheitlichung (3 Port-Quellen), Dev-Fee
+  Doppelwahrheit (`FeeTransparencyService`-Switch vs. `MinerCatalogService`),
+  Merges `ProxyStartupService`/`StandaloneFeeGuard`. Details in der
+  Phasen-Checkliste von `refactoring-adapter-layers.md`.
 
 ## 2026-10-10 — NVIDIA-SRBMiner-Version und Worker-Konsolenpopup
 
@@ -560,3 +878,960 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Benchmark-, Sweep-, Hardware-, Telemetrie-, Proxy-, Wallet-, Software- und Worker-Meldungen aus der Agent-API werden an den sichtbaren Stellen über `s()` lokalisiert. Bekannte deutsche und englische Agent-Status sowie variable Diagnosepräfixe sind im geschlossenen Katalog bzw. in `i18n.js` abgedeckt. Bereits übersetzte dynamische Meldungen werden beim Weiterreichen durch gemeinsame UI-Helfer nicht erneut als fehlende Übersetzung gemeldet.
 - `scripts/check-i18n.cjs` prüft alle neun statischen Seiten, literale `t()`-Schlüssel, Platzhalter sowie die Umwandlung in beide Sprachrichtungen; Vertrag und Ausnahmen stehen in `docs/agent-wiki/frontend-i18n.md`. Externe Miner-Rohausgabe, Diagnoseausgabe fremder Tools sowie technische Hardware-/Pool-/Wallet-Kennungen bleiben unverändert.
 - Verifikation: `node scripts/check-i18n.cjs`, `node --check` für alle Frontend-JavaScript-Dateien und `git diff --check` erfolgreich. Ein visueller Browserlauf mit Agent-API war auf diesem Host nicht verfügbar.
+
+## 2026-10-10 — Key-basiertes Übersetzungswörterbuch (Frontend-Migration)
+
+- Der Frontend-Katalog `js/core/i18n-catalog.js` wurde von deutschen Quelltexten als Schlüsseln auf ein geschlossenes key-basiertes Wörterbuch umgestellt: 1212 Einträge der Form `snake_case_key: {de: …, en: …}`. `t('key', {param})` löst nach Locale auf; unbekannte Keys warnen im Console und lassen `scripts/check-i18n.cjs` fehlschlagen.
+- Alle 9 HTML-Seiten referenzieren Keys über `data-i18n` (Textinhalt) sowie `data-i18n-title`/`-placeholder`/`-aria-label`; der deutsche Text bleibt als No-JS-Fallback im Markup. Alle 456 dynamischen deutschen String-Literale in `js/pages`, `js/chrome` und `js/core` wurden auf Keys umgestellt (456 Ersetzungen, vollautomatisch, nachher `node --check`-geprüft).
+- Agent-seitige Laufzeittexte können keine Keys tragen; sie bleiben text-keyed in den beiden Agent-Wörterbüchern (`agent`: EN→DE, `agentGerman`: DE→EN). `s()` löst zusätzlich Frontend-Keys auf, damit `Error(t('key'))`-Meldungen über `s(error.message)` übersetzbar bleiben. Die Präfixregeln für zusammengesetzte Agent-Diagnosen sind unverändert.
+- Fehlerbehebungen beim Durchgang: Pool-Ortsnamen/Anbieternamen in `pool-catalog.js`/`wallets.js` liefen unübersetzt durch (`t(entry.name)` ergänzt); `coinTicker('none')` in `workers.js` konsolierte den rohen Wert statt „Frei"; Nav-Link „Overview" hatte einen identischen de/en-Eintrag (auf „Übersicht" korrigiert); ein hartkodierter deutscher Fallbacktext in `workers.js` erhielt einen Key.
+- Verifikation: `node scripts/check-i18n.cjs` (Wörterbuchform, alle `data-i18n`-Referenzen, alle literalen `t()`/`s()`-Keys, Interpolation, beide Sprachrichtungen, Selector-Speichern/Reload), `node scripts/simulate-i18n-render.cjs` (beide Locales aller 9 Seiten, keine falsch-sprachigen Textknoten), `node scripts/scan-i18n-literals.cjs` (0 unkeyed deutsche Literale) und `node --check` für alle Frontend-JS-Dateien erfolgreich. Ein visueller Browserlauf mit Agent-API war auf diesem Host nicht verfügbar (Chromium startet hier nicht).
+
+### Handover an Folgesitzung (2026-10-10)
+
+- Auftrag an anderen Agenten: Phase 1 (Rest) fortsetzen. Diese Sitzung committet
+  nichts — alle Phase-0/Phase-1-Änderungen liegen als unversionierte
+  Arbeitsstands-Änderungen im Worktree (`git status` zeigt sie unter `M` plus
+  das neue Paket `src/main/java/de/verdox/solarminer/pcagent/support/`).
+  Nicht erneut implementieren, sondern auf dem Worktree aufsetzen.
+- Achtung: Die WIP-Dateien des Network-Dashboard-Agenten
+  (`AgentNetworkDiscoveryService`, `NetworkDashboardService`,
+  `NetworkDashboardController`) kompilieren weiterhin nicht; Verifikation daher
+  wie im Verifikationsabschnitt von `refactoring-adapter-layers.md` beschrieben
+  gegen HEAD+eigene Dateien, nicht gegen den nackten Worktree.
+
+## 2026-10-10 — Coin-Auswahl für Messläufe und Miner-Log-Diagnose
+
+- Betreiberbefund: Eine GTX 1080 (Pascal/SM61) startet PearlHash nicht; SRBMiner meldet
+  `Could not set up ctx -> algorithm`. Das ist ein Upstream-Fehler des Miners (Kernel kann für
+  diese Architektur nicht erzeugt werden), kein Adapter-Aufruffehler: Der Agent übergibt korrekt
+  `--algorithm pearlhash` plus PCI-verifizierte `--gpu-id`; SRBMiner 3.7.3 wählt den Kernel selbst.
+- **Coin-Auswahl auf der Benchmark-Seite:** Die Benchmark-Maske zeigt jetzt eine Checkbox pro
+  Mining-Coin (Quelle: `/api/agent/local/miner-catalog`; nicht installierte Coins sind gesperrt).
+  Die Auswahl gilt für beide Messläufe: Benchmark (`POST /api/agent/local/benchmarks` mit
+  optionalem `coins`-Feld im `StartRequest`) und Power-Limit-Sweep
+  (`POST /api/agent/local/efficiency` mit optionalem JSON-Body `{coins:[...]}`). Die Auswahl wird
+  im Browser unter `solarminer.pc-agent.benchmark-coins` persistiert; alle angehakt = uneingeschränkt
+  (leere Liste). Unbekannte Coin-IDs lehnt `BenchmarkSessionService.validateCoinSelection` mit 400
+  ab. `WorkerAssignmentService.prepareBenchmarkDefaults(Set)` und
+  `EfficiencySweepService.targets(discovered, Set)` respektieren die Auswahl; im LIVE-Modus werden
+  die Worker direkt über ihre Algorithmus-Zuordnung gefiltert.
+- **Abstrahierte Miner-Log-Diagnose:** Neu `miner/diagnostics/MinerLogDiagnostics` — regelbasierte
+  Klassifikation roher Minerausgabe nach Miner-Familie (`srbminer`, `xmrig`) in Kategorien
+  `GPU_ALGORITHM_UNSUPPORTED`, `GPU_DRIVER_FAILURE`, `POOL_CONNECTION`, `BINARY_BLOCKED`.
+  `PearlMinerService` und `GpuCoinMinerService` klassifizieren beim Log-Drain (redaktiert) und
+  merken die erste Diagnose pro Run; `fail()` hängt den Detailtext an die Fehlermeldung und die
+  Worker-Konsole. Der Seam-Zugang läuft über `GpuCoinMiner.diagnosis(vendor, index)` (default null),
+  delegiert von `SrbGpuCoinView` bzw. `PearlMinerService`. Der Effizienz-Sweep ersetzt
+  "Miner-Prozess ausgefallen" durch die Log-Diagnose, wenn eine vorliegt. Ein neuer Miner hängt sich
+  an dieselbe Stelle an: eigene Regeln in `MinerLogDiagnostics` plus `classify(family, line)` im
+  Output-Drain — Orchestrierung sieht nur Kategorie und Detailtext.
+- Diagnose-Detailtexte sind agent-autoriertes Englisch und im Agent-Wörterbuch
+  (`i18n-catalog.js`, EN→DE) geschlossen übersetzt; die neuen UI-Texte der Coin-Auswahl haben
+  Frontend-Keys (`choose_the_coins_for_measurement_runs_this`, `coins_for_measurement_runs`,
+  `installed_lowercase`).
+- Verifikation: `sh gradlew test --offline` (140 Tests, inkl. neuer
+  `MinerLogDiagnosticsTest`, Auswahl-Test in `BenchmarkSessionServiceTest` und
+  `EfficiencySweepControllerTest` für Coin-Durchreichung/Ablehnung), `node scripts/check-i18n.cjs`,
+  `node --check` für `benchmarks.js`/`i18n-catalog.js`, `git diff --check` erfolgreich. Ein realer
+  Start auf der GTX 1080 (Diagnose-Text im Dashboard) und ein Sweep mit Auswahl auf echter GPU
+  wurden auf diesem Host nicht ausgeführt.
+
+## 2026-10-10 — LAN-Peer-Dashboard: PC-Agents finden sich im Netzwerk
+
+- Neues Feature: Das Dashboard zeigt unter „GEMEINSAMES NETZWERK" alle PC-Agents im selben
+  Netzwerk samt deren Workern und Erträgen. Discovery spiegelt das Proxy-Muster
+  (`ProxyDiscoveryServer`): `AgentNetworkDiscoveryService` sendet alle 2 s einen Heartbeat
+  (`SOLARMINER_AGENT_DISCOVER_V1`, UDP 8093, `SO_REUSEADDR`) und alle ~30 s eine Query auf
+  denselben Port; eine Receive-Schleife unterscheidet Query (antwortet immer, Identität ist
+  nie consent-pflichtig) und Heartbeat (füttert die Peer-Tabelle, TTL 20 s). Ein Agent schließt
+  sich selbst per eigener `agentId` (UUID pro Start) aus.
+- Datenweg: `NetworkDashboardService.cards()` aggregiert eigene Stats + jeden Peer über
+  `GET /api/agent/external/network-snapshot` (nur MINING/ERROR-Worker, Coin-Earnings, Totals;
+  keine Wallets/Config). Abrufe laufen parallel (Virtual Threads), 1,5 s Timeout, 4 s Cache;
+  403 = „LAN-Sichtbarkeit deaktiviert" (Karte bleibt sichtbar), Timeout = „nicht erreichbar".
+  SSE-Kanal `network-agents` (5 s) + `GET /api/agent/local/network/agents` als REST-Fallback.
+- Consent: neues Feld `networkSharingEnabled` (Boolean, default aus) in
+  `AgentControlSettingsService.Settings` (Persistenz wie bisher; alte Dateien → null → aus).
+  Der Filter (`AgentWriteAccessFilter`) gate `GET /api/agent/external/network-snapshot` an
+  diesen Consent, NICHT am Node-Gate; POSTs bleiben überall gesperrt. UI-Schalter
+  „LAN-Sichtbarkeit" auf `automation.html`, Umschalten via `POST /api/agent/local/power-control/network-sharing`.
+- Discovery ist bewusst NICHT consent-pflichtig: abgewählte Maschinen bleiben als Peers sichtbar
+  (Name/IP/Dashboard-Link), nur Worker/Ertrag fehlen. Docker: UDP 8093 in `Dockerfile` EXPOSE
+  und `docker-compose.pc-agent.yml` ports ergänzt.
+- Verifikation: `sh gradlew test` 140 Tests grün (neu: `AgentNetworkDiscoveryServiceTest` 3,
+  `AgentWriteAccessFilterTest` Consent-Test), `node scripts/check-i18n.cjs` (1215 Keys),
+  `node --check` für `overview.js`/`automation.js`. Live-Boot mit zwei Instanzen
+  (:18084 Sharing an, :18085 Sharing aus): beide sehen sich gegenseitig (peerCount 1),
+  Instanz A zeigt B mit `reachable:true, error:"LAN visibility is disabled on this agent"`,
+  direkter Snapshot-GET auf B liefert 403, auf A 200. Docker-Zwei-Host-Broadcast nicht getestet.
+
+## 2026-10-11 — Frontend-i18n: ausschließlich Schlüssel für Browsertexte
+
+- `SolarMinerI18n.t()` akzeptiert nur noch Einträge aus dem geschlossenen
+  `frontend`-Katalog. Der frühere Rohtext-/Textknoten-Fallback wurde entfernt, sodass
+  ein versehentlich in Browsercode eingebauter Text in beiden Sprachvarianten als
+  fehlender Schlüssel auffällt. Agent-, Miner- und sonstige Laufzeittexte bleiben über
+  `s()` im getrennten Agent-Katalog behandelt.
+- Die verbliebene Dashboard-Meldung „Alles im erwarteten Bereich“ hat nun den Schlüssel
+  `everything_is_within_expected_limits` mit deutschen und englischen Werten. Interne
+  Katalog-, Freigabe- und Live-Ereignisfehler verwenden ebenfalls übersetzbare Schlüssel.
+- Der Literal-Scanner erkennt jetzt auch Displaytext ohne deutsche Sonderzeichen; die
+  einzigen expliziten Ausnahmen sind technische Daten (Eigennamen/Algorithmusnamen,
+  CSS-Selektoren/-Klassen und SVG-Pfade).
+- Verifikation: `node scripts/scan-i18n-literals.cjs` (0),
+  `node scripts/check-i18n.cjs` (1.219 Schlüssel, neun Seiten, beide Locales),
+  `node scripts/simulate-i18n-render.cjs` sowie `git diff --check` erfolgreich.
+- Alle neun HTML-Seiten laden Katalog, i18n-Laufzeit und Seitenmodule mit derselben
+  `v=20261011-i18n-keys`-Versionskennung. Das verhindert einen gemischten Browser-Cache
+  (neue Schlüssel im HTML bei altem Katalog), der sonst sichtbare Schlüsselnamen erzeugt.
+  `check-i18n.cjs` erzwingt diese Versionskennung für Katalog und Laufzeit.
+
+## 2026-10-10 — PC-Agent-Refactoring Phase 1 (Rest): ProxyPorts, Fee-Einzelwahrheit, Service-Merges
+
+- Fortsetzung des Auftrags „START: Mining/Controller-Abstraktion" (Sitzung 2).
+  Auf dem bestehenden unversionierten Arbeitsstand (Phase 0 + ProxyFeeClient)
+  aufgesetzt, nichts neu implementiert.
+- **`ProxyPorts` als einzige Coin→Port-Wahrheit:** Neu `mining/ProxyPorts`
+  (Record + @Component, eine @Value-Quelle, EnumMap). Vorher drei Quellen:
+  `ProxyConfigurationService` (@Value je Coin + EnumMap), `ManagedProxyService`
+  (8 @Value-Felder + 7 harte `--proxy.coins.<coin>.port=`-Zeilen),
+  `ProxyDiscoveryService` (api/monero als @Value). Alle drei konsumieren jetzt
+  `ProxyPorts`; die Proxy-Startbefehle erzeugen die Coin-Ports generisch über
+  `Coin.miningCoins()` (neuer Coin = ein Coin-Eintrag + eine Property).
+  Bequemlichkeits-Methoden `moneroUrl()`…`quantusUrl()` gelöscht; alle Nutzer
+  umgestellt: `MiningController` (2), `XmrMinerService` (3),
+  `MiningControllerValidationTest` (nutzt `coinUrl(Coin.MONERO)`).
+  Wire-Format unverändert: AnyGetter-Flachfelder kommen aus
+  `ProxyOverview.coinRoutes` (`ProxyOverviewWireFormatTest` grün),
+  `ProxyCandidate`-Feldnamen unverändert.
+- **Dev-Fee-Doppelwahrheit aufgelöst:** Der Coin-Switch in
+  `FeeTransparencyService.forCoin` (hartkodierte Prozentzahlen) ist gelöscht.
+  `MinerCatalogService.MinerOption` trägt zusätzlich `developerFeeLabel` und
+  `developerFeeSource` (additive Record-Felder neben `developerFeePercent`) und
+  ist damit die einzige Quelle für Zahl, Label und Quelle; DECRED bleibt
+  `known=false` (Prozentzahl unverifiziert). FeeTransparency liest den
+  ausgewählten Katalogeintrag (`selected(coin)`).
+  Bewusste Verhaltensschärfe: Die MINER-Gebühr folgt jetzt dem ausgewählten
+  Miner statt einer harten Coin-Zuordnung — identische Werte, solange
+  xmrig/srbminer-multi ausgewählt ist (teamredminer ist nicht integrierbar).
+  Neue deutsche Agent-Texte (TeamRedMiner/BLAKE3/QPoW-Labels,
+  „Miner-Katalogeintrag fehlt") sind im `agentGerman`-Katalog DE→EN übersetzt.
+- **Service-Merges:** `ProxyStartupService` gelöscht — sein @EventListener
+  (`configureInitialProxy`) ist jetzt eine Methode von
+  `ProxyConfigurationService`. `StandaloneFeeGuard` gelöscht — die Guard-Logik
+  läuft als `FeeTierService.enforceFeeRoute()` (@Scheduled fixedDelay 10 s wie
+  vorher). MinerFactory wird dort über `ObjectProvider` lazy geholt, sonst
+  entsteht ein Bean-Zyklus (FeeTierService→MinerFactory→XmrMinerService→
+  PayoutDefaultsService→FeeTierService).
+- **Nicht durchgeführt:** Optionaler Merge FiatRateService+EarningsForecastService
+  → MarketDataService (Checkliste offen gelassen).
+- Verifikation: Der Network-Dashboard-WIP kompiliert inzwischen; daher direkt
+  gegen den Worktree: `sh gradlew test --offline` — 140/140 Tests grün
+  (36 Testklassen, inkl. ProxyConfigurationServiceTest, ManagedProxyHealthTest,
+  FeeTransparencyServiceTest, FeeTierServiceTest, MiningControllerValidationTest,
+  ProxyOverviewWireFormatTest). `node scripts/check-i18n.cjs` grün (1219 Keys),
+  `git diff --check` sauber.
+- Status: unvercommitet (Owner-Commit-Freigabe steht aus); Checkliste in
+  `refactoring-adapter-layers.md` auf `[x]` gestellt.
+
+## 2026-10-10 — PC-Agent-Refactoring Phase 1 Optional: MarketDataService
+
+- Optionalen Phase-1-Punkt nachgezogen (Sitzung 3): `FiatRateService` und
+  `EarningsForecastService` zu einem `mining/MarketDataService` verschmolzen —
+  gleicher Upstream (currency.solarminer.app), gleiches TTL-Cache-/Stale-Muster
+  jetzt an einer Stelle: exchange-rates (1 h TTL, 5-min-Retry bei Fehler),
+  mining-networks (10 min, Virtual-Thread-Refresh), coin-prices (10 min,
+  2-h-Abschaltfenster). Verhalten 1:1 übernommen, keine Wire-Änderung:
+  `Forecast`/`Snapshot`-Feldnamen feldgleich, REST-Routen
+  (`/local/fiat-rates`, `/local/earnings`, `/external/earnings`) unverändert.
+- Konsumenten umgestellt: `FiatRateController`, `MiningController`,
+  `ExternalAgentController`, `NetworkDashboardService`. Alte Services gelöscht;
+  Tests umbenannt (`MarketDataServiceTest`, `MarketDataServiceFiatTest`),
+  Fixture-Konstruktor (coin-prices aus mining-networks-URL abgeleitet) erhalten.
+- Doku: `docs/agent-wiki/pc-agent.md` (Seam-Abschnitt) und
+  `refactoring-adapter-layers.md` (Checkliste + Zielarchitektur-Kontext) aktualisiert.
+- Verifikation: `sh gradlew test --offline` 140/140 Tests grün (36 Klassen),
+  `git diff --check` sauber. Unvercommitet (Owner-Freigabe ausstehend).
+
+## 2026-10-11 — PC-Agent-Refactoring Phase 2: MinerBinaryInstaller, RouteValidator/WalletRule, gemeinsame Proxy-Route-/Share-Pfade
+
+- Fortsetzung des Auftrags „START: Mining/Controller-Abstraktion" (Sitzung 4).
+  Auf dem bestehenden unversionierten Arbeitsstand (Phasen 0–1 inkl.
+  MarketDataService) aufgesetzt, nichts neu implementiert.
+- **`miner/engine/MinerBinaryInstaller` (neu):** gemeinsamer Zustandsblock
+  (`DownloadState`/`detail`/`progress` — Wire-Felder `downloadStatus`,
+  `downloadDetail`, `downloadProgress` unverändert), `retry()` mit
+  `WindowsAntivirusBlock`-Klassifikation, `remove()` mit Downloading-Sperre,
+  `downloadAndVerify()` (DigestInputStream + Größenkappung + exakter
+  Größen-/SHA-256-Vergleich), `extractArchive()`/`copyEntry()` mit der
+  SRB-Traversal/Symlink-Wall (die sicherere Implementierung gewinnt — jetzt
+  auch für XMRig), `installBinary()` (Temp + setExecutable + atomarer Move
+  mit Fallback) inkl. Leer-Binary-Wall. Hooks: `binaryAvailable()`,
+  `install()` (Release-Query + Install-Layout), `removeInstalled()`,
+  `installerName()`, `downloadThreadName()`.
+  Umgestellt: `XmrDownloadService` (152→~100 Z.; Staging-Extraktion statt
+  Einzelbinary-Suche — Verhalten gleich, Wall jetzt strenger) und
+  `SrbDownloadService` (313→~180 Z.; Version/Manifest via `AtomicFileStore`).
+  Bewusste Nebeneffekte: XMRig nutzt jetzt 1-GiB-Entpackkappung +
+  Link-Wall (Sicherheit, kein normaler Releasefall); SRB-Version/Manifest
+  schreiben bei AtomicMove-Fallback nicht mehr ohne REPLACE_EXISTING
+  (identischer Zielinhalt-Fall).
+- **`miner/engine/RouteValidator` + `WalletRule` (neu):** identische
+  Pool-/Proxy-/Worker-Regex je einmal; Wallet-Strategie pro Coin
+  (PEARL prl1, RAVENCOIN base58+Checksum, ETHEREUMCLASSIC 0x, DECRED
+  base58+Checksum, QUANTUS qz) über `WalletRule.forCoin(Coin)` — die
+  Coin-Verzweigung liegt jetzt adapter-seitig in der Closed-Seam-Tabelle,
+  nicht mehr in der Engine-Validierung. `PearlMinerService.validate` und
+  `GpuCoinMinerService.validate` leiten durch; die RVN/DCR-Base58-Helfer
+  wanderten nach `WalletRule.RouteValidation` (Tests umgestellt).
+  Fehlermeldungen wortgleich beibehalten (Wire-/UI-Texte, i18n-Katalog
+  unverändert). winzigste Verhaltensschärfe: Pearl-Pool-Portfehler nutzt
+  jetzt dieselbe Pool-Meldung wie die Regex-Verletzung (die alte
+  „Pearl pool port must be 1-65535"-Meldung stand in keinem Katalog und
+  war nie übersetzbar); identische Port-Regex macht den Fall ohnehin
+  praktisch unerreichbar.
+- **`updateProxyRoute`-Near-Copies** (Pearl ≡ GpuCoin) auf
+  `RouteValidator.withProxyRoute()`; **`updateShares`** (Pearl ≡ GpuCoin,
+  wortgleich) als `MinerShareTelemetry.applySrbShares(pool, ShareSink)` —
+  `GpuRun`/`Run` implementieren `ShareSink` (Phase-3-Vorbereitung:
+  `WorkerRunState` kann den Sink übernehmen).
+- **`writeConfig`-Kopien → `AtomicFileStore`:** `PearlMinerService.writeConfig`,
+  `GpuCoinMinerService.writeConfig` (werfen weiter `IOException`; neue
+  EN-Meldungen im `agent`-Katalog DE-übersetzt) und
+  `LocalGpuPowerService.save` (fail-soft wie vorher).
+- Neue Pinning-/Verhaltenstests `miner/engine/RouteValidatorTest`
+  (Regex-Grenzfälle, withProxyRoute-Feldtreue, Wallet-Regel-Tabelle).
+- Verifikation: `sh gradlew test --offline` **144/144 Tests grün**
+  (4 Testklassen mehr als Referenz 140: Network-Dashboard-WIP anderer
+  Agenten + RouteValidatorTest), `node scripts/check-i18n.cjs` grün,
+  `node scripts/scan-i18n-literals.cjs` 0, `git diff --check` sauber.
+- Status: unvercommitet (Owner-Commit-Freigabe steht aus); Checkliste in
+  `refactoring-adapter-layers.md` auf `[x]` gestellt. Phase 3
+  (AbstractMinerEngine) wartet auf Owner-Entscheide O1/O2.
+
+## 2026-10-11 — PC-Agent-Refactoring Phase 3 (Kern): AbstractMinerEngine + O1/O2-Drifts (Owner-freigegeben)
+
+- Auftrag „START: Mining/Controller-Abstraktion" (Sitzung 5). Owner-Entscheide
+  dieses Tages: **O1 JA** (SRB-Crash-Restart), **O2a JA** (Pearl-Watchdog-Grace),
+  **O2b JA** (Payout-Refresh für GPU-Coins). Im Wiki-Dokument unter „Offene
+  Owner-Entscheidungen" als erledigt vermerkt. Auf Phase-2-Arbeitsstand
+  aufgesetzt (Phase 2 dieser Sitzungsreihe, siehe voriger Eintrag).
+- **VERHALTENSÄNDERND (bewusst, freigegeben):**
+  - O1: `PearlMinerService` und `GpuCoinMinerService` erhalten je ein
+    `@Scheduled(fixedDelay=30_000) restartAfterUnexpectedExit()` analog XMRig:
+    max 3 Versuche pro Worker (`AbstractMinerEngine.MAX_CRASH_RESTARTS`),
+    übersprungen solange `LocalRunLock.busy()` (Benchmark/Sweep besitzen die
+    Hardware), Budget-Auffüllung bei Operator-Start/Stop/Resume. Konsolenzeile
+    „SRBMiner watchdog restart n/3 (…)".
+  - O2a: Pearl-Monitor läuft jetzt über die gemeinsame `monitorLoop` mit
+    `SrbMonitorPolicy.pearl()`: Usable-Pool-Job-Regel (Hashrate rettet stale
+    Jobs — behebt KAWPOW-Falschalarme), `reportedHashrate`-Fallback
+    gpu.total→1m→1min, 20-s-Hashrate-Grace. Pearl behält: 90-s-Startup,
+    120-s-Stall auf frischen Jobs, Job-basierte Pool-Health, EN-Detailtexte,
+    HTTP-Fehler als eigener Detailzustand, keinen Hashrate-Abort.
+    Nebenfolge: `poolHealthy`/`pool_connected`-Wire-Feld für Pearl kann jetzt
+    auch bei stalem `last_job_received` mit aktiver Hashrate true sein.
+  - O2b: `refreshDefaultPayout(coin)` neu in `GpuCoinMinerService` (Start-Pfad
+    aller GPU-Coins). Wirkt nur bei Fee-Backend-Standardziel
+    (`usesDefault`), validiert die neue Route, schreibt atomar und loggt
+    „Payout updated to the current SolarMiner default target" (bestehender
+    i18n-Katalogeintrag). Operator-Eigenwallets bleiben unberührt.
+- **Mechanik zentralisiert (`miner/engine/`):** `WorkerRunState` ersetzt
+  `PearlMinerService.GpuRun` + `GpuCoinMinerService.Run` (ein Feldsatz,
+  typisiertes `relay`-Slot, `restartAttempts`); `AbstractMinerEngine` trägt
+  `startOutputDrain` (Redactor-Hook; Pearl weiter mit Roh-Konsolenzeilen,
+  GpuCoins redigiert — historisches Verhalten pro Engine erhalten),
+  `monitorLoop` (Policy-Record `SrbMonitorPolicy` hält alle historischen
+  Zahlen/Texte je Engine fest), `stopProcess` (5 s/5 s, Pearl-Dual-Console
+  per Flag), `unexpectedExit`, Hasrate-Helfer. Engine-intern belassen wie
+  geplant: `buildCommand`, GPU-Id-/PCI-Mapping, Login-Encoding,
+  Status-Aggregation, Pause-Buchführung, Relay nur GpuCoin.
+- **Messdienste generisch:** `GpuCoinMiner.captureState()/restoreState()`
+  (`WorkerPauseSnapshot` auf bestehenden `runningGpuDeviceIds`/
+  `manuallyPausedGpuKeys`) — `BenchmarkSessionService` snapshottet/restored
+  jetzt alle GPU-Adapter in einem Loop (kein Pearl-Zweig, kein separates
+  `runningGpuCoins()`-Handling), `EfficiencySweepService` nutzt denselben
+  Snapshot für Pearl; Referenz-Binary-/External-Gates laufen über
+  `MinerFactory.srbBinaryAvailable()`/`srbExternalMinerRunning()`.
+- **Nebenbefund gefixt:** `SrbGpuCoinView.runningGpuDeviceIds()` lieferte
+  `vendor:index` statt Device-Ids (Interface-Vertrag verletzt;
+  `restoreWorkerState` konnte laufende Worker nie wiederstarten). Liefert
+  jetzt echte Device-Ids — damit ist der Sweep-/Benchmark-Restore-Pfad für
+  GPU-Coins erstmals tatsächlich funktionsfähig.
+- **Nicht erledigt (Phase-3-Rest):** XMR als dritter Engine-Adapter inkl.
+  Watchdog-Hook, `MeasurementRunGuard`/`SampleCollector` (A5),
+  Live-Rollout-Gate an echter Hardware. O1/O2 sind gebaut und unit-getestet,
+  aber NICHT an echter Miner-Hardware abgenommen.
+- Verifikation: `sh gradlew test --offline` **149/149 Tests grün** (38 Klassen;
+  neu `MinerEngineDriftTest` mit O1-Budget/-Messlauf-Sperre, O2b-Refresh +
+  Operator-Schutz, Policy-Zahlen-Pinning), `node scripts/check-i18n.cjs` grün
+  (keine neuen UI-Texte nötig; Watchdog-/Payout-Zeilen nutzen bestehende
+  Katalogeinträge bzw. das `[SolarMiner]`-Präfix), `scan-i18n-literals.cjs` 0,
+  `git diff --check` sauber.
+- Status: unvercommitet (Owner-Commit-Freigabe steht aus); Checkliste auf ◐
+  (Kern `[x]`, XMR-Adapter + A5 + Live-Gate offen).
+
+## 2026-10-11 — PC-Agent-Refactoring Phase 3 (A5): MeasurementRunGuard + SampleCollector
+
+- Auftrag „START: Mining/Controller-Abstraktion" (Sitzung 6). Auf dem
+  Phase-3-Kern-Arbeitsstand aufgesetzt (Sitzung 5); nichts neu implementiert.
+- **`mining/MeasurementRunGuard` (neu, paket-privat):** die identische
+  Session-Mechanik beider Messläufe je einmal — Single-Thread-Run-Executor
+  (Thread-Namen `pc-agent-benchmark`/`pc-agent-efficiency-sweep` unverändert),
+  Cancel-Flag (`resetCancel`/`requestCancel`/`cancelRequested`),
+  `LocalRunLock`-Buchführung (`begin`/`end`/`lockBusy`) und
+  `close()`/`awaitTermination` für den @PreDestroy-Pfad. Beide Dienste halten
+  die Lock-Disziplin wie vorher: `end()` in jedem terminalen Pfad inkl.
+  Early-Return-Skip (Benchmark-Außenminer-Pfad) und Submit-Fehlerpfad (Sweep).
+  `BenchmarkSessionService.withExternalControl` gateftet jetzt über
+  `guard.lockBusy()` — gleiche Semantik wie vorher `lock.busy()`.
+- **`mining/SampleCollector` (neu, paket-privat):** der wörtlich duplizierte
+  Median (Benchmark `summarize`/`aggregateWorkers`/`persistPerformanceProfiles`
+  + Sweep `measureStep`) und die Valid-Hashrate-Regel (endlicher Wert > 0) —
+  je einmal. Die Sammel-Loops selbst bleiben dienst-spezifisch (Benchmark
+  sammelt Worker pro Phase, Sweep Rate/Watt-Paare pro Power-Schritt); nur die
+  Arithmetik und die Gültigkeitsregel sind gemeinsam. Median sortiert eine Kopie
+  (Eingabe wird nicht mehr mutiert — verhaltensneutral, da alle Aufrufer die
+  Quelle ohnehin verwerfen).
+- **Keine Wire-/UI-Texte geändert:** alle Meldungen blieben wortgleich;
+  verhaltensneutral (Phase-3-Regel gilt nur für die O1/O2-Drifts).
+- **Nebeneffekt Sweep-`close()`:** die Interrupt-Behandlung wandert in
+  `MeasurementRunGuard.awaitTermination` (setzt das Interrupt-Flag und meldet
+  Nicht-Terminierung wie vorher); die Fehler-Session wird identisch gesetzt.
+- Neue Tests `MeasurementRunGuardTest`: Median (leer/gerade/ungerade,
+  Nicht-Mutation), Valid-Hashrate-Grenzfälle (NaN/0/negativ),
+  gegenseitige Guard-Blockade über eine gemeinsame `LocalRunLock`
+  (Benchmark↔Sweep-Semantik) und Cancel-Beobachtung + Reset über eine echte
+  Lauf-Loop.
+- Verifikation: `sh gradlew test --offline` **153/153 Tests grün** (39 Klassen;
+  +4 gegenüber Referenz 149 aus Sitzung 5), `node scripts/check-i18n.cjs` grün
+  (1219 Keys), `scan-i18n-literals.cjs` 0, `git diff --check` sauber.
+- Status: unvercommitet (Owner-Commit-Freigabe steht aus); A5-Checklistenpunkt
+  in `refactoring-adapter-layers.md` auf `[x]`. Phase-3-Rest: XMR als dritter
+  Engine-Adapter (inkl. Watchdog-Hook) + Live-Hardware-Gate.
+
+## 2026-10-11 — PC-Agent-Refactoring Phase 3 (Rest): geteilte Engine-Basis + XmrMinerService als dritter Adapter
+
+- Auftrag „START: Mining/Controller-Abstraktion" (Sitzung 7). Auf dem
+  A5-Arbeitsstand (Sitzung 6) aufgesetzt. Die beiden offenen Code-Punkte der
+  Phase-3-Checkliste abgeschlossen; verhaltensneutral für XMR (Phase-Regel:
+  nur O1/O2 durften Verhalten ändern — keine neuen Drifts).
+- **Engine-Basis zweistufig (`miner/engine/`):** `AbstractMinerEngine` trägt
+  jetzt ausschließlich Miner-Unabhängiges — `console()/mapper()/logger()`
+  (jetzt abstract), `restartBudgetLeft(attempts)` als gemeinsames O1-Budget
+  (`MAX_CRASH_RESTARTS = 3`) und `drainProcessOutput(process, threadName,
+  onLine, onError)` als einzige Prozess-Read-Schleife (virtual thread).
+  Die SRB-Familien-Mechanik (`monitorLoop`, `stopProcess`, `unexpectedExit`,
+  `reportedHashrate`/`displayedHashrate`, `startOutputDrain`, `fail`,
+  `apiClient`, `HASHRATE_GRACE`, aggregate/drain-Tag-Hooks) wanderte wortgleich
+  in das neue `AbstractSrbMinerEngine extends AbstractMinerEngine`.
+  `PearlMinerService`/`GpuCoinMinerService` extenden die SRB-Stufe;
+  `GpuCoinMinerServiceTest` zeigt jetzt auf `AbstractSrbMinerEngine`
+  (Hasrate-Helfer).
+- **`XmrMinerService extends AbstractMinerEngine`:** Output-Drain nutzt die
+  gemeinsame Schleife statt des eigenen Cached-Pool-Tasks — Thread-Typ
+  (virtual statt pooled) und onExit-Warten (`join(1000)` statt
+  `future.get(1 s)`) sind beobachtungsneutral; die Konsole „Could not read
+  miner output: …“ bleibt wortgleich. Der Watchdog prüft
+  `restartBudgetLeft(crashRestartAttempts)` und schreibt „… n/3“ jetzt aus
+  `MAX_CRASH_RESTARTS` (identischer Text). Bewusst NICHT migriert wie geplant:
+  XMRig-JSON-Config, Thread-/TDP-Heuristik, HugePages, API-Polling
+  (`fetchHashrateFromApi`/`handleApiError`) — Analyse C verbietet das.
+- **XMR-Verhalten unverändert:** Start-/Stop-/Pause-Pfade, Statusmaschine,
+  Wire-Felder und Scheduling (30 s) blieben; nur die zwei Mechaniken wurden
+  auf die gemeinsame Basis gehoben.
+- Neuer Test in `MinerEngineDriftTest`: `restartBudgetLeft`-Grenzen (0/2/3)
+  plus echter Drain-Durchlauf (Prozess „echo first; echo second“ → beide
+  Linien in der Callback-Liste, kein Fehler-Callback).
+- Verifikation: `sh gradlew test standaloneJar --offline` **154/154 Tests
+  grün** (39 Klassen; +1 ggü. 153 aus Sitzung 6), standaloneJar gebaut,
+  `check-i18n.cjs` grün (1219 Keys), `scan-i18n-literals.cjs` 0,
+  `git diff --check` sauber.
+- Status: unvercommitet (Owner-Commit-Freigabe steht aus); Checkliste Phase 3
+  auf „✔ Code erledigt“ gestellt. Offen bleibt ausschließlich das
+  Live-Rollout-Gate: Miner-Start/Stop/XMRig-Restart an echter Hardware
+  abnehmen — Build + Unit-Tests sind dafür kein Nachweis.
+
+## 2026-10-11 — PC-Agent-Refactoring Phase 4: PearlChainBalanceProvider (Wallet-Balance-Adapter)
+
+- Auftrag „START: Mining/Controller-Abstraktion" (Sitzung 8). Owner-Entscheide
+  dieses Nachmittags im Wiki dokumentiert: **O3 = `status`-Kanal als neuer
+  Standard, alte SSE-Kanäle und lokale Alt-Routen beim UI-Umstieg löschen,
+  `/external/**` bleibt eingefroren; Commits weiterhin ausstehend.**
+- **`mining/PearlChainBalanceProvider` (neu):** der PEARL-On-Chain-Sonderfall
+  (`WalletBalanceService` 56–59/78–85) verlässt die Closed-Seam-Umgehung —
+  Explorer-HTTP (pearlchain.live, 3 s Connect/5 s Request wie vorher) und
+  `parsePearlBalance` (Grains→PRL, Integral-/Vorzeichen-Wall) wandern
+  wortgleich in den Adapter; `id()="pearl-chain"`.
+- **`PoolBalanceProvider` (Seam erweitert, additiv):** `supportsOnChain(coin)`
+  + `onChainBalance(coin, wallet)` als default-Methoden (false bzw.
+  UnsupportedOperation); `balance` ebenfalls default, damit reine
+  Chain-Provider die Pool-Methode nicht implementieren müssen.
+  `KryptexPoolBalanceProvider` bleibt unverändert.
+- **`WalletBalanceService` vollständig generic:** pro Ziel werden je ein
+  Pool-Provider (`supports(poolUrl, coin)`) und ein Chain-Provider
+  (`supportsOnChain(coin)`) gesucht; Statuswerte (`UNSUPPORTED_POOL`,
+  `UNAVAILABLE`, `AVAILABLE`, `NOT_SUPPORTED`) und Cache-Disziplin
+  (1 min / 15 s bei Fehler) unverändert. Der `mapper`/`HttpClient`-Besitz und
+  der Coin-Import sind aus dem Service verschwunden — Konstruktur
+  `(List<PoolBalanceProvider>)`; keine Test-Fixtures nutzten die alte Signatur.
+  Parser-Seams `parsePoolBalance`/`parsePearlBalance` bleiben als Delegaten
+  (Test-Kompatibilität).
+- Nebenbefund: Chain-Cache-Key enthält jetzt die Coin-ID
+  (`chain:pearl-chain:<coin>:<wallet>` statt `chain:pearl:<wallet>`) —
+  reiner Cache-Interner Schlüssel, kein Wire-Feld.
+- Verifikation: `sh gradlew test --offline` **154/154 Tests grün** (39 Klassen,
+  wie Referenz Sitzung 7; kein Test umgeschrieben nötig), `git diff --check`
+  sauber. Neue Adapter-eigene Tests auf Wunsch des Owners auf „am Ende“
+  vertagt.
+- Status: unvercommitet (Owner: Commits noch nicht). Phase 5 kann beginnen
+  (Pinning-Tests zuerst).
+
+## 2026-10-11 — PC-Agent-Refactoring Phase 5a: Wire-Format-Pinning-Tests
+
+- Auftrag „START: Mining/Controller-Abstraktion" (Sitzung 8, Fortsetzung).
+  Owner-Entscheid O3 vorher im Dokument vermerkt (status-Kanal als Standard,
+  Alt-Kanäle/-Routen beim UI-Umstieg löschen, /external/** eingefroren).
+- Neu `controller/AgentWireFormatPinningTest` (5 Tests): exakte JSON-Feldmengen
+  für `MinerStats` inkl. `Worker`/`PoolTelemetry`/`MinerIdentity`, die vier
+  `MinerStatus`-Drahtnamen, `DownloadState.wireName()`-Tabelle,
+  `PowerStatus`/`GpuStatus`/`Identity` (Node-Power-Control-Vertrag) und
+  `AgentOverview` mit `moneroConfiguration`/`pearlConfiguration`-Sektionen
+  (`/external/overview`-Vertrag). AnyGetter-Flachfelder bleiben durch
+  `ProxyOverviewWireFormatTest` abgedeckt.
+- Nebenbefund aus dem ersten Lauf: `MinerStats` serialisiert zusätzlich
+  `singleAlgorithmMined` (Getter des Records) — im Repo ungenutzt, vom Node
+  lenient parst; jetzt als De-facto-Wire-Feld gepinnt inkl. Kommentar, damit
+  eine Entfernung bewusst entschieden werden muss.
+- Verifikation: `sh gradlew test --offline` **159/159 Tests grün** (40 Klassen;
+  +5 Pinning-Tests), `git diff --check` sauber.
+- Status: unvercommitet. Weiter mit Phase 5b (Aggregat `GET /api/agent/status`
+  + SSE-Kanal `status`).
+
+## 2026-10-11 — PC-Agent-Refactoring Phase 5b+5c: Aggregat-Read-Model, SSE-Ausbau, Polling-Senkung, Frontend-Performance-Fix
+
+- Auftrag „START: Mining/Controller-Abstraktion" (Sitzung 8, Fortsetzung).
+  Owner-Auftrag: gesamten Rest abarbeiten. Owner-Fehlerbericht mitbehandlelt:
+  Frontend lädt träge + Tomcat-„Encountered a non-recycled request"-Sturm.
+- **Ursache Performance (diagnostiziert + behoben):**
+  1. `spring.task.scheduling.pool.size` war Default 1 — `publishChanges()`
+    wertet alle Kanäle sequentiell auf diesem einen Scheduler-Thread aus; ein
+    langsamer overview-Tick (GPU-Discovery + Forecasts + Fee/Currency-HTTP)
+    blockierte alle anderen Kanäle und Watchdog-Restarts. → Poolgröße 4 in
+    `application.properties`.
+  2. `live-data.js` tat pro Kanal-Registrierung `close(); open();` — eine
+    Seite mit 5 Kanälen baute pro Laden 5 EventSources auf und warf sie weg;
+    abgebrochene asynchrone Servlet-Requests erzeugen genau das gemeldete
+    CoyoteAdapter-Rauschen. → Registrierungen coaleszieren jetzt in einen
+    einzigen Reconnect pro Task (`rescheduleOpen`).
+  3. overview-Kanal recomputierte 1×/s → auf 2 s gedrosselt (Checklisten-Punkt
+    „overview-Kanal-Neuberechnung drosseln").
+- **Phase 5b — `controller/AgentStatusService` (neu):** aggregiertes
+  Read-Model; Sektionen overview/settings/telemetry/proxy-gate/fee-tier/
+  energy/node-assessment/wallets/coin-catalog mit historischem Takt,
+  generatedAt/stale je Sektion; Ausfall einer Sektion degradiert zu
+  stale=true (2 s Fehler-Cache), Einzelkanäle lesen denselben Cache
+  (`payload(name)`) — jede Sektion rechnet pro Tick höchstens einmal.
+  NEU `AgentStatusController`: `GET /api/agent/local/status`,
+  `/status/ui`, `/status/coin-catalog`. NEUE SSE-Kanäle `status`, `ui`,
+  `efficiency`, `coin-catalog` (additiv; alte Kanäle bleiben bis 5d).
+- **Phase 5c — Frontend:** `overview.js` rendert Backend-alerts (`ui`-Kanal)
+  statt eigener JS-Regeln; `workers.js` + `wallets.js` löschen ihre
+  hartkodierten Coin-/Algorithmus-Maps zugunsten `/status/coin-catalog`
+  (abgeleitet aus Closed Enum `Coin`). Polling entfernt: benchmarks.js
+  (1-s-Timer, 3 Fetches → Kanäle benchmarks/efficiency/benchmark-upload),
+  telemetry.js (3 s → telemetry), hardware.js (5 s → power-control),
+  mining/software.js (5 s → miner-options), workers.js (5 s → workers/
+  energy). Alle Seiten nutzen damit die eine SSE-Verbindung + Watchdog.
+  Mutationen refreshen gezielt die betroffene Sektion statt refreshAll.
+- Wire-Disziplin: `/external/**` nicht angefasst; Pinning-Tests (5a) grün;
+  neue Endpunkte sind additiv und nur lokal (Write-Access-Filter greift).
+- Verifikation: `sh gradlew test standaloneJar --offline` **159/159 Tests
+  grün** (40 Klassen), Standalone-JAR gebaut; alle geänderten JS-Dateien
+  `node --check` sauber; `check-i18n.cjs` grün (1219 Keys),
+  `scan-i18n-literals.cjs` 0, `git diff --check` sauber.
+- Status: unvercommitet. Offen: 5d (Controller-Merges + Löschen alter
+  lokale Routen/Kanäle), Live-Hardware-Gate.
+  HINWEIS fürs Live-Testing: Die Performance-Fixes wirken erst im nächsten
+  Boot; SSE-Verbindungs-Churn sollte danach aus den Logs verschwunden sein.
+
+## 2026-10-11 — PC-Agent-Refactoring Phase 5d + Owner-Aufträge Docker/Paketordnung (Sitzung 9)
+
+- Auftrag „START: Mining/Controller-Abstraktion" (Sitzung 9). Auf dem
+  5a/5b/5c-Stand (Sitzung 8) aufgesetzt. Phase-5d-Checkliste vollständig
+  abgearbeitet; zusätzlich Owner-Aufträge Docker-Verifikation und
+  Paket-Finalpass. Owner-Commit-Freigabe steht weiterhin aus — alles
+  unvercommitet.
+- **Worker-Ressource gemergt:** `WorkerController` (`/api/agent/local/workers`)
+  trägt jetzt Inventar + Zuweisung + Start/Pause + die aus
+  `AgentPowerController` übernommene Route `/{workerId}/external-control`
+  (Console-Echo wortgleich). Automation-Seite auf
+  `/workers/{id}/external-control` umgestellt. Die Alt-Routen
+  `power-control/workers/{id}/coin` und `/coin-policy` hatten nach dem
+  5c-Umstieg auf `/workers/{id}/assignment` keinen Consumer (grep über JS,
+  Node-Repo, Tests) und wurden gemäß O3 gelöscht — kein Forwarding.
+  `/external/**` nicht angefasst.
+- **Economics:** `EnergyController` + `FiatRateController` gelöscht, ein
+  `EconomicsController` (`GET /local/economics`, `POST /local/economics/settings`,
+  `GET /local/economics/rates`) mit feldgleichen Payloads. UI umgestellt:
+  `energy`-Kanäle (overview.js, workers.js) → `/local/economics`,
+  i18n-Fiat-Read → `/local/economics/rates`.
+- **Proxy-Ressource:** `ProxyGateController` gelöscht; Gate-Endpunkte leben
+  als `GET /local/proxy/gate`, `GET /local/proxy/gate/log`,
+  `POST /local/proxy/gate/retry` im `MiningController` (derselbe
+  `ProxyConfigurationService`). `proxy-gate.js` (Kanal-REST-Fallback, Log,
+  Retry) umgezogen; `ProxyGateControllerTest` auf die neue Route gezogen
+  (Payload-Form unverändert, Wire-Disziplin gewahrt).
+- **MiningOptimizationController → Adapter-Capability:** neues Interface
+  `miner/RandomXCapability` (Status-Record feldgleich zum alten
+  `/optimizations/randomx`), implementiert von `XmrMinerService`
+  (`WindowsHugePagesService`-Abhängigkeit dorthin verlagert). Generischer
+  `MinerOptimizationController` (`/local/miners/{coin}/optimizations[/{setting}]`)
+  löst die Capability ausschließlich über `MinerFactory` — keine
+  Coin-Verzweigung im Controller; Prozess-Restart bleibt beim
+  Orchestrierer (`restartRequiredAfterToggle`). Nebenbefund: die alte Route
+  hatte KEINEN UI-Consumer im Repo (weder HEAD noch Worktree riefen sie;
+  i18n-Keys vorhanden, aber keine aufrufende Seite) — Funktion ist bewusst
+  erhalten geblieben, jetzt coin-agnostisch angebunden.
+- **UI-Bereinigung (5d-Rest):** Proxy-Seite von 12-s-Poll des vollen
+  `/overview` auf den geteilten `overview`-SSE-Kanal umgestellt (Payload
+  identisch). Damit existiert im UI kein Seiten-Timer-Polling mehr und kein
+  `refreshAll()`-Aufruf außer dem bewussten Übersichts-„Aktualisieren“-Button.
+- **Paket-Finalpass (Owner-Auftrag):** `MeasurementRunGuard` +
+  `SampleCollector` + Test nach `mining/measurement/` verschoben
+  (Mess-Mechanik getrennt von den Mess-DIENSTEN; Sichtbarkeit package→public,
+  Wire-/Thread-Namen unverändert). `AgentStatusService` bleibt bewusst im
+  `controller`-Package (drahtformesenes UI-Read-Model, das die
+  Controller-Produzenten zusammenführt — ein eigenes Read-Model-Package wäre
+  heute eine Ein-Klassen-Hülle; bei wachsender Sektionszahl nachziehbar).
+  `PearlChainBalanceProvider` bleibt in `mining/` (PoolBalanceProvider-Seam
+  und Coordinator wohnen dort). Keine Wire-Klassen umbenannt.
+- **Docker/LAN-Findung (Owner-Auftrag):** `Dockerfile` EXPOSE prüft:
+  `8084 8092/udp 8093/udp` (der 8093-Zusatz ist bereits im Worktree
+  enthalten; 8090/3334/3335 im Standalone-Overlay sind dokumentierte
+  Loopback-only-Restbestände des gebündelten Proxys, kein LAN-Vertrag —
+  siehe `docs/agent-wiki/docker-lan-discovery.md`). Compose nutzt
+  `network_mode: host` (korrekte Wahl: UDP-Broadcast über Bridge geht
+  nicht). Verifikation real statt Build: zwei Agent-Instanzen
+  (Standalone-JAR, verschiedene Ports) parallel auf diesem Host gestartet —
+  beide sahen einander binnen ~60 s über UDP 8093
+  (`GET /local/network/agents` lieferte je den anderen Peer mit
+  `reachable:true`, inkl. einem echten Dritt-Agenten auf 192.168.178.126:8084
+  im LAN). Zwei echte Container/Hosts waren auf dieser Maschine nicht
+  möglich (Docker-Socket ohne Berechtigung, `unshare -n` verboten) — die
+  Instanz-Findung ist damit auf Prozess-Ebene bewiesen, die
+  Container-Bridge-Grenze bleibt dokumentierte Einschränkung.
+  Live-Boot bestätigte nebenbei: neue Routen grün
+  (`/local/economics` 200, `/local/proxy/gate` 200,
+  `/local/miners/monero/optimizations` 200,
+  `POST /local/workers/cpu/external-control` 200), alle gelöschten Alt-Routen
+  404, `/external/identity` offen, restliches `/external/**` hinter dem Gate.
+- Verifikation: `JAVA_HOME=…graalvm-ce-21.0.2 sh gradlew test standaloneJar
+  --offline` **159/159 Tests grün** (40 Klassen, Zähler aus
+  `build/test-results/test/*.xml`), alle geänderten JS-Dateien `node --check`
+  sauber, `check-i18n.cjs` grün (1219 Keys), `scan-i18n-literals.cjs` 0,
+  `git diff --check` sauber.
+- Status: unvercommitet (Owner-Commit-Freigabe steht aus). Refactoring
+  Phase 5 damit vollständig; das einzige offene Gate des Programms bleibt
+  die Live-Hardware-Abnahme der Phase 3 (Miner-Start/Stop/Crash-Restart O1
+  + Pearl-Watchdog O2a an echter HW) — in dieser Sitzung erneut nicht
+  möglich, kein Miner-Rechner verfügbar; bewusst NICHT abgehakt.
+
+## 2026-10-11 — REST/SSE-Ladeplan P1–P6 (Sitzung 10, Auftrag „START: Mining/Controller-Abstraktion")
+
+- Arbeitsdokument: `docs/agent-wiki/rest-sse-loading-plan.md`. Auf dem
+  5d-Stand (Sitzung 9) aufgesetzt; alle Checklistenpunkte P1–P6 abgearbeitet.
+  Owner-Commit-Freigabe steht weiterhin aus — alles unvercommitet.
+- **P1 — tote Kanäle gelöscht (O3, Consumer-Grep vorher):** `coin-catalog`
+  und `status`-Aggregat aus `AgentEventController` entfernt. Grep über
+  `static/js`: beide wurden von keiner Seite abonniert (coins-Katalog liest
+  REST `/status/coin-catalog` in workers.js:342/wallets.js:90; das Aggregat
+  existierte nur als REST). Boot-Nachweis: SSE-Subscribe auf
+  `channels=coin-catalog` bzw. `channels=status` liefert 0 Events auf einem
+  offenen Stream. Sektionen bleiben im Service (REST `/local/status`).
+- **P2 — Dirty-Flag-Infrastruktur:** `AgentStatusService.invalidate(String...)`
+  (thread-sicher, Set) + `isDirty/clearDirty`; `payload()` und `aggregate()`
+  ignorieren den Cache für gemeldete Sektionen; `publishChanges()` wertet
+  dirty-Kanäle vorrangig aus (Wake pro Sweep genau einmal, Clear erst nach
+  dem Snapshot — sonst schluckt der Cache den Wake). TTLs bleiben Netz für
+  externe Änderungen (Proxy-Heartbeat, Node-Push, Downloads, Sensoren).
+  Nicht-Sektions-Kanäle (workers, power-control, miner-options, benchmarks,
+  efficiency, benchmark-upload, network-agents) werden über denselben
+  Kanalnamen geweckt. NEU `AgentStatusServiceTest` (5 Tests): Cache bei
+  sauberer Sektion, invalidate → sofortige Neubewertung, Isolation pro
+  Sektion, Kanal-Wakes, Aggregat + Fehler-Zähler.
+- **P3 — Mutationen verdrahten:** `invalidate(...)` in allen schreibenden
+  `/local/**`-Endpunkten: `power-control/{settings,target,gpus/../limits,
+  network-sharing,identity}` + Node-Pfade `externalTarget/Pause/Resume`
+  (bewusst: Node-Steuerung soll die lokale UI sofort nachziehen),
+  `workers/{id}/{assignment,start,pause,external-control}`,
+  `economics/settings`, `telemetry/restart`, `proxy*` (host/mode/roll-mode/
+  gate-retry), `miners/{coin}/**` (download/remove/select/gpu-pause/resume/
+  power-target), `{coin}/configuration` (CPU/Pearl/GPU), `referral`,
+  `setPoolConfiguration`, `coin`, `pause/resume`,
+  `miners/{coin}/optimizations`, `node-assessment` (POST),
+  `benchmarks*`, `efficiency*`. `MiningController`/`AgentPowerController`/
+  `EconomicsController`/`TelemetryController`/`NodeAssessmentController`
+  erhalten `AgentStatusService` lazy-injiziert (`@Lazy` — die Controller
+  sind selbst Sektions-Produzenten); `MiningController` bekam einen
+  test-kompatiblen 20-Arg-Konstruktor (null-Status toleriert) plus
+  `@Autowired` am produktiven Konstruktor (Boot-Nachweis fand die
+  Zwei-Konstruktor-Ambiguität: „No default constructor found").
+- **P4 — UI übernimmt POST-Antworten:** `hardware.js` GPU-Limits: die POST-
+  Antwort (GpuStatus) wird direkt aufs Kartenmodell gemappt; Settings-Toggle
+  übernimmt das gesparte Settings-Objekt; beide ersetzen das alte
+  `await refresh()` durch gezielten `SolarMinerLive.refresh(...)`-Rest
+  (Watchdog-Regel bleibt). Die übrigen Seiten (workers/wallets/automation/
+  benchmarks) riefen bereits gezielte Section-Refreshes — die werden durch
+  P3 seltener wirksam nötig; kein `refreshDirty()` eingeführt (Plan).
+- **P5 — First Paint über das Aggregat:** `live-data.js` `onopen` ruft
+  `firstPaint()`: EIN `GET /local/status` pro Seite verteilt die Sektionen
+  an alle noch leeren Sektions-Kanäle; Kanäle ohne Aggregat-Sektion
+  (workers, power-control, benchmarks, …) behalten ihren Einzel-Fallback,
+  und Seiten ohne Sektions-Kanal holen das Aggregat erst gar nicht.
+  Spätere Reconnects heilen wie bisher über die Connect-Snapshots.
+  Boot-Nachweis: `/local/status` liefert alle 10 Sektionen inkl. `ui`,
+  `stale:false`, `generatedAt` je Sektion.
+- **P6 — Takt/TTLs:** Sweep `solarminer.agent.events.interval-ms=500`
+  (application.properties, begründet). Sektions-TTLs: settings 1 s→30 s und
+  energy 5 s→30 s (nur noch Netz; Mutationen melden jetzt), overview bleibt
+  2 s, proxy-gate 1 s (Download-Fortschritt extern), übrige unverändert.
+  NEU Diagnose-Endpunkt `GET /local/status/stats` (TTL + Bewertungszähler
+  pro Sektion; nicht UI-vertraglich).
+- **Boot-Messung (P2/P6-Evidence, Standalone-JAR, Port 18084, headless):**
+  SSE abonniert (settings,energy,node-assessment), Mutationen per POST:
+  `POST /local/economics/settings` → energy-Push nach **208 ms**;
+  `POST /local/power-control/settings` → settings-Push nach **193 ms**
+  (beide < 1 s; power-control-Kanal sendet nicht, weil sich sein Payload
+  inhaltlich nicht änderte — Emit nur bei Wertänderung, Verhalten unverändert).
+  60 s Idle bei 500-ms-Sweep: overview +0 Bewertungen (vorher: 30/min bei
+  2-s-Tick wäre unverändert; Zähler vergleicht pro Minute), settings +2,
+  energy +2 (30-s-Netz), node-assessment +12 (5-s-Netz), telemetry/
+  proxy-gate/fee-tier/wallets +0 weil unbelauscht — unabo = keine Arbeit.
+  Vor P2 hätte derselbe Idle jede abonnierte Sektion jeden Tick neu
+  berechnet. Vorher/Nachher identische Counter-Basis: `/status/stats`.
+- Wire-Disziplin: `/external/**` unverändert; Pinning-Tests grün;
+  Sektionsnamen unverändert (nur TTLs); abonnierte Kanalnamen/Payloads
+  unverändert gelöscht nur die zwei Consumer-losen Kanäle.
+- Verifikation: `JAVA_HOME=…graalvm-ce-21.0.2 sh gradlew test standaloneJar
+  --offline` **164/164 Tests grün** (41 Klassen, Zähler aus
+  `build/test-results/test/*.xml`; +5 neue AgentStatusServiceTest),
+  Standalone-JAR gebaut und real gestartet; geänderte JS-Dateien
+  (`live-data.js`, `hardware.js`) `node --check` sauber; `check-i18n.cjs`
+  grün (1219 Keys), `scan-i18n-literals.cjs` 0, `git diff --check` sauber.
+- BUG-002 (KNOWN_BUGS) dadurch bearbeitet — Status dort aktualisiert.
+- Status: unvercommitet (Owner-Freigabe steht aus).
+
+## 2026-10-12 — Ladeplan P8: REST-first, SSE nur für Live-Zustände
+
+- Auftrag: Das Dashboard blieb beim Einstieg lange auf „Verbinde …“; SSE soll
+  nur dort bestehen bleiben, wo laufende Änderungen sichtbar sein müssen.
+- Ursache: Der Frontend-Loader behandelte SSE weiterhin als allgemeinen
+  Primärpfad. Zudem malte er zwar einen `sessionStorage`-Snapshot sofort, ließ
+  bei REST-Kanälen danach aber die initiale Revalidierung aus. Ein alter
+  Dashboard-Snapshot wartete dadurch bis zum 2-s-Watchdog, bevor der Agent
+  überhaupt angefragt wurde.
+- Umsetzung: `live-data.js` ist REST-first. Jeder REST-Kanal wird pro
+  Seiteneinstieg genau einmal sofort revalidiert, auch nach einem Cache-Paint.
+  Der Server publiziert nur noch sechs echte Live-Kanäle: `telemetry`,
+  `workers`, `benchmarks`, `efficiency`, `benchmark-upload`, `proxy-gate`.
+  Übersicht, Konfiguration, Energie, Fee-Tier, Wallets, Hardware,
+  Miner-Katalog, Node-Bewertung, UI-Ableitungen und LAN-Agenten bleiben REST.
+  Der globale Proxy-Gate liest den üblichen `ready`-Fall einmal über REST und
+  öffnet seine SSE-Verbindung erst, wenn Vorbereitung/Download läuft; dann
+  bleiben Fortschritt und Ready-Übergang live. Cache-Buster aller betroffenen
+  HTML-Seiten wurden angehoben.
+- Während der Verifikation reproduziert und behoben: Der sofortige Cache-Paint
+  konnte `dashboardWorkers()` ausführen, bevor das weiter unten deklarierte
+  `let agentName` initialisiert war (`ReferenceError`, kompletter Render-Pfad
+  abgebrochen). Der gesamte Identity-Zustand wird jetzt vor der ersten
+  Channel-Registrierung initialisiert; `overview.js` erhielt ebenfalls einen
+  neuen Cache-Buster.
+- Vertrag/i18n: `/external/**`, REST-Pfade und Payloads unverändert. Keine neuen
+  sichtbaren Texte; deutsche und englische Kataloge bleiben geschlossen.
+- Verifikation: `AgentEventControllerTest` pinnt exakt die sechs Kanäle;
+  `check-dashboard-startup.cjs` rendert den synchron gelieferten Cache-Snapshot
+  ohne Initialisierungsfehler; ein separater Loader-Harness belegt Cache-Paint +
+  genau eine sofortige REST-Revalidierung + keine EventSource für REST-Kanäle.
+  `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test standaloneJar
+  --offline` erfolgreich (181 Tests / 47 Klassen). `node --check` für alle
+  geänderten JS-Dateien, `check-i18n.cjs` (1255 Keys, DE/EN),
+  `scan-i18n-literals.cjs` (0), `simulate-i18n-render.cjs` (alle 9 Seiten in
+  beiden Sprachen) und `git diff --check` sauber.
+
+## 2026-10-12 — SRBMiner-Migrationshinweis und Worker-Update
+
+- Eine vorhandene, aber nicht mit der geprüften SRBMiner-Version markierte Binary wird im
+  Miner-Katalog nun als `UPDATE_REQUIRED` ausgewiesen. Damit bleibt der Startschutz aktiv,
+  unterscheidet den Migrationsfall aber von einer fehlenden Installation.
+- Der Software-Katalog und betroffene Worker zeigen eine ausdrücklich benannte,
+  lokalisierte Aktion zum Aktualisieren. Sie nutzt den vorhandenen checksum-geprüften
+  SRBMiner-Installer; die gespeicherte Pearl-Konfiguration bleibt unverändert.
+- Verifikation: `node scripts/check-i18n.cjs`, `node --check` für `software.js` und
+  `workers.js`, sowie gezielt `MinerCatalogServiceTest` und `SrbMinerVersionTest` mit
+  Java 21 / Gradle erfolgreich.
+
+## 2026-10-11 — Wallet-Snapshot: Start-Übergang ohne Request-I/O
+
+- Befund: Nach der Umstellung von Wallet-Daten auf einen reinen Read-Model-Cache konnte
+  der erste Browser-Abruf direkt nach einem Agent-Neustart noch den absichtlich leeren
+  Start-Snapshot sehen. Der Hintergrund-Refresh füllte ihn anschließend, aber der
+  Wallet-Strip fragte wegen seines 90-Sekunden-Intervalls nicht zeitnah erneut ab.
+- `wallet-strip.js` liest deshalb bei einem leeren, fehlerfreien Snapshot den lokalen
+  REST-Cache bis zu fünfmal im Ein-Sekunden-Abstand erneut. Sobald Wallets vorliegen,
+  werden ausstehende Wiederholungen beendet. Die Endpoint-Aufrufe bleiben cache-only:
+  kein Pool-, Chain- oder sonstiges Upstream-I/O wird dadurch auf dem Request-Pfad
+  ausgelöst.
+- Verifikation: `node --check src/main/resources/static/js/chrome/wallet-strip.js`,
+  `node scripts/check-i18n.cjs` (1219 Schlüssel, beide Locales),
+  `node scripts/scan-i18n-literals.cjs` (0) und `git diff --check` erfolgreich.
+
+## 2026-10-12 — Ladepfad P8: seitenbezogene, parallele Status-Aggregation
+
+- Befund: `GET /api/agent/local/status` sammelte bislang immer alle Sektionen seriell. Beim
+  Kaltstart konnten dadurch unabhängige, langsame Datenquellen (Wallet-/Marktdaten,
+  Proxy- und Fee-Lookups) den ersten Dashboard-Paint ausbremsen, obwohl die aktuelle Seite
+  diese Daten nicht benötigte.
+- `AgentStatusController` akzeptiert nun optional `sections=a,b`; ohne Parameter bleibt der
+  vollständige bisherige Response kompatibel. `AgentStatusService` ignoriert unbekannte Namen
+  sicher, liefert nur die angeforderten Sektionen und führt unabhängige Cache-Misses auf
+  virtuellen Threads parallel aus. Die Reihenfolge im Wire-Response bleibt stabil; `ui` wird
+  erst nach seinen Abhängigkeiten berechnet und verwendet damit deren frische Caches.
+- `live-data.js` übergibt beim gebündelten First Paint genau die von der Seite registrierten
+  Aggregatkanäle. Dadurch blockieren nicht abonnierte Sektionen den sichtbaren Inhalt nicht.
+  Es wurden keine UI-Texte, Übersetzungen oder Node-/externen Verträge verändert.
+- Verifikation: zusätzlicher Unit-Test pinnt, dass ein selektives Aggregat keine Wallet-Abfrage
+  auslöst; `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --offline --no-daemon`,
+  `node --check src/main/resources/static/js/core/live-data.js` und `git diff --check` grün.
+
+## 2026-10-12 — LAN-Anzeige standardmäßig aktiv
+
+- Neue PC-Agent-Installationen aktivieren die reine Leseansicht im lokalen Netzwerk jetzt
+  standardmäßig. Ein explizit gespeichertes `networkSharingEnabled:false` bleibt unverändert
+  wirksam und kann weiterhin in der Automation-Seite gesetzt werden.
+- Verifikation: Unit-Test deckt sowohl den Default als auch den persistenten Opt-out ab.
+
+## 2026-10-12 — Dashboard: parallele Proxy- und Auszahlungslayouts
+
+- Befund: Beim kalten oder nicht erreichbaren Proxy führte die Dashboard-Übersicht REST-Aufrufe
+  zu Fee-Targets und Standard-Auszahlungen pro Coin nacheinander aus. Jeder Aufruf hat bis zu
+  drei Sekunden Timeout; dadurch konnte die Antwort über mehrere Coin-Timeouts hinweg blockieren
+  und der Browser zeigte unnötig lange den Abgleich des letzten bekannten Stands.
+- `ProxyConfigurationService` schützt Aktualisierungen nun je Coin statt mit einem globalen
+  Monitor. `MiningController.proxy()` und `payoutDefaults()` starten die voneinander unabhängigen
+  Coin-Reads gleichzeitig auf virtuellen Threads und behalten die stabile Response-Reihenfolge.
+  Dadurch ist die Obergrenze ein einzelnes Timeout statt der Summe aller Coin-Timeouts.
+- Verifikation: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --offline --no-daemon`,
+  JavaScript-Syntax, beide i18n-Checks und `git diff --check` grün.
+
+## 2026-10-12 — Dashboard-Stale: konkurrierende Erstabrufe entfernt
+
+- Tatsächliche Ursache für den lang sichtbaren Hinweis „Letzter bekannter Stand …“: Das
+  Proxy-Gate startet den gemeinsamen Watchdog sofort. Dessen erster Zwei-Sekunden-Tick löste
+  für jede noch leere Sektion, insbesondere `overview`, einen Einzel-REST-Abruf aus, obwohl
+  der gebündelte `/status`-First-Paint noch lief. Beide kalten Abrufe konkurrierten um dieselben
+  GPU-, Proxy- und Cache-Produzenten; ein verlorener Abruf endete nach acht Sekunden und setzte
+  die Stale-Meldung.
+- `live-data.js` unterdrückt diese Einzel-Reads für Aggregat-Sektionen, solange der gebündelte
+  First-Paint aktiv ist. Der Fallback bleibt nach dessen Abschluss unverändert. Außerdem sendet
+  der SSE-Endpunkt die Initial-Snapshots je Kanal parallel, so dass Einstellungen, Telemetrie
+  und Node-Status nicht mehr hinter einer langsamen Overview-Produktion warten.
+- Verifikation: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --offline --no-daemon`,
+  JavaScript-Syntax, beide i18n-Checks und `git diff --check` grün.
+
+## 2026-10-12 — REST-first, SSE nur für echte Live-Zustände
+
+- Owner-Entscheidung: SSE ist nicht der Standardtransport für jede Seiteninformation. Der
+  Client unterstützt nun pro Kanal `transport: 'rest'` mit einem expliziten, bedarfsgerechten
+  `pollMs`. Der direkte erste REST-Read wird pro Tick gebündelt gestartet; bei versteckter
+  Seite findet kein Polling statt und beim Zurückkehren wird einmal aktualisiert.
+- Dashboard und statische/selten wechselnde Seitenbereiche verwenden REST: Overview,
+  Einstellungen, Node-Assessment, Energie, Netzwerk-Agents, Fee-Badge, Wallet-Streifen,
+  Leistungsgrenzen, Miner-Optionen und Proxy-Übersicht. SSE bleibt für Telemetrie,
+  Proxy-Download/Gate, Worker-Laufzustände sowie Benchmark-/Sweep-Fortschritt aktiv.
+- Der teure abgeleitete Alert-Read wird erst nach dem ersten sichtbaren Overview-REST-Render
+  gestartet. Damit konkurriert seine Overview-Abhängigkeit nicht mehr mit dem First Paint.
+- Verifikation: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --offline --no-daemon`,
+  Syntaxcheck der geänderten JavaScript-Dateien, beide i18n-Checks und `git diff --check` grün.
+
+## 2026-10-12 — Overview-GET: Setup-Nebenwirkung entfernt
+
+- Messung gegen den laufenden lokalen Agenten mit Browser-Origin: Settings, Node-Assessment,
+  Energie, Fee-Tier und Wallet-Snapshot lagen unter 10 ms, Telemetrie unter 200 ms und
+  Netzwerk-Agents bei etwa 1,2 s; `GET /overview` blieb bei etwa 2,1 s.
+- Befund im Read-Pfad: `MiningController.overview()` führte synchron
+  `XmrMinerService.ensureDefaultConfiguration()` aus. Diese Operation darf eine
+  Fee-Backend-Abfrage durchführen und XMRig-Dateien schreiben; sie gehört nicht in einen
+  lesenden Dashboard-Request. Sie bleibt im Miner-Start-/Readiness-Pfad erhalten, ist aber
+  aus `GET /overview` entfernt.
+- Verifikation: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --offline --no-daemon`,
+  beide i18n-Checks und `git diff --check` grün.
+
+## 2026-10-12 — Read-Model-Regel: keine I/O in GPU-, LAN- und Wallet-REST-Reads
+
+- Architekturregel des Owners: Ein lokaler REST-GET serialisiert ausschließlich den letzten
+  abgeschlossenen Read-Model-Snapshot. Treiber-, Prozess-, Datei- und Netzwerkarbeit läuft
+  im Hintergrund oder auf expliziten Befehlswegen.
+- `LocalGpuPowerService` stellt `snapshot()` bereit, wärmt die Treibererkennung nach dem
+  Application-Start und aktualisiert sie periodisch im Hintergrund. Overview und die
+  read-only Worker-Liste verwenden diesen Snapshot; Start-/Benchmark-/Power-Befehle behalten
+  bewusst die direkte Hardware-Erkennung.
+- `NetworkDashboardService` cached die komplette Kartenliste und aktualisiert eigene
+  Worker-/Forecast-Erfassung sowie Peer-HTTP im Hintergrund. Der lokale Netzwerk-GET und die
+  externe Peer-Snapshot-Antwort führen keine I/O mehr aus. `MiningController` cached auch
+  Wallet-Ziele, Pool-/Chain-Balances und Marktpreise im Hintergrund; Wallet-REST-Reads geben
+  nur diesen konsistenten Snapshot zurück.
+- Verifikation: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --offline --no-daemon`,
+  beide i18n-Checks und `git diff --check` grün (166 Tests).
+
+## 2026-10-12 — Gebündelter First Paint für sofortige Agent-Verbindung
+
+- Ursache der langsamen Seitenstarts: Nach dem Öffnen von SSE startete `firstPaint()` den
+  Aggregat-Read asynchron, anschließend löste derselbe `onopen`-Handler aber sofort für jeden
+  noch leeren Kanal einen eigenen REST-Read aus. Langsame Sensor-, Wallet- oder Proxy-Sektionen
+  erzeugten so einen parallelen Kaltstart-Burst und hielten den Header auf „Verbinde …“.
+- `live-data.js` bündelt Kanalregistrierungen nun für einen Event-Loop und führt genau einen
+  First-Paint-Read aus. Einzel-REST bleibt nur der gezielte Fallback für Sektionen, die das
+  Aggregat nicht enthält. Ein erfolgreich geöffnetes lokales SSE setzt den Header sofort auf
+  verbunden; fachliche Datenfehler können ihn weiterhin wie bisher auf offline setzen.
+- Verifikation: `node --check src/main/resources/static/js/core/live-data.js`,
+  `node scripts/check-i18n.cjs` (1219 Schlüssel, beide Locales) und `git diff --check` erfolgreich.
+
+## 2026-10-12 — SSE-Handshake vom ersten Daten-Snapshot entkoppelt
+
+- `AgentEventController.subscribe()` berechnete vor der Rückgabe des `SseEmitter` jeden
+  angeforderten Kanal synchron. Dadurch wartete der EventSource-Handshake auf den langsamsten
+  Wallet-, Proxy- oder Sensor-Producer und jede Seite blieb unnötig lange im Verbindungszustand.
+- Der Emitter registriert die Kanäle nun sofort und liefert die unveränderten initialen
+  Kanal-Snapshots auf virtuellen Threads nach. Der Handshake ist damit nicht mehr an
+  Producer-Latenz gekoppelt; der Frontend-First-Paint bleibt ein einzelner, gebündelter Read.
+- Verifikation: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --offline --no-daemon`
+  erfolgreich; `node --check src/main/resources/static/js/core/live-data.js`,
+  `node scripts/check-i18n.cjs` und `git diff --check` erfolgreich.
+
+## 2026-10-12 — Dashboard-Snapshot nicht als sofortiger Ausfall markieren
+
+- Ein beim Seitenwechsel rehydrierter Overview-Snapshot ist nach dem kurzen 6-s-Freshnessfenster
+  oft formal stale, obwohl der gebündelte Live-Read bereits läuft. Das Dashboard stellte ihn
+  deshalb kurz als Agent-Ausfall dar, bevor der aktuelle Wert eintraf.
+- `overview.js` behandelt ausschließlich einen fehlerfreien stale `snapshot` als
+  Abgleich-Übergang: vorhandene Daten bleiben sichtbar und der Header zeigt Verbindung wird
+  aufgebaut. Ein REST-/SSE-Fehler oder fehlende Daten nutzt weiter den bestehenden Offline- und
+  Stale-Pfad.
+- Verifikation: `node --check src/main/resources/static/js/pages/overview.js`,
+  `node scripts/check-i18n.cjs`, `node scripts/scan-i18n-literals.cjs` und
+  `git diff --check` erfolgreich.
+
+## 2026-10-11, Sitzung „Package-Zyklen 1“ — Package-Struktur: Zyklus-Auflösung und Cluster-Bildung
+- Auftrag: Package-Struktur gegen Software-Engineering-Standards prüfen und Korrekturen umsetzen.
+- Befund (Import-Graph, programmatisch extrahiert): 10 Package-Zyklen; `mining/` war ein
+  God-Package (38 Klassen); `miner/engine/` schaute nach oben in `mining/` (MinerConsoleService,
+  MinerShareTelemetry, WindowsAntivirusBlock); `lowlevel.sensor` und `xmr` hingen an
+  `pearl/LocalGpuPowerService` (Wiki hatte das bereits als Verschiebe-Kandidat markiert).
+- Umgesetzt (nur `package`-Deklarationen + Imports + `git mv`; keine Klassen-/Wire-Namen geändert):
+  - `mining/MinerConsoleService|MinerShareTelemetry|MinerStopContext|MinerProcessRegistry` → `miner/`
+    (Prozess-/Konsolen-Plumbing, das alle Miner-Adapter teilen).
+  - `mining/WindowsAntivirusBlock` → `miner/engine/` (einziger Nutzer ist `MinerBinaryInstaller`;
+    package-private Test-Overload bleibt erreichbar, Test mitgezogen).
+  - `pearl/LocalGpuPowerService` → `lowlevel/` (Wiki-Vorschlag umgesetzt; bricht die Zyklen
+    `lowlevel.sensor↔pearl`, `xmr↔pearl`, `miner.engine↔pearl`, `miner↔pearl`-Ast).
+  - Proxy-Cluster `mining/ManagedProxyService|ProxyConfigurationService|ProxyDiscoveryService|
+    ProxyReleaseService|ProxyPorts|ProxyLifecycle|GpuStratumRelay` + `support/ProxyFeeClient`
+    → `mining/proxy/`; zugehörige Tests (`ProxyConfigurationServiceTest`, `GpuStratumRelayTest`,
+    `ManagedProxyHealthTest`) mitgezogen.
+  - `mining/LocalRunLock` → `mining/measurement/` (Guard und Lock gehören zusammen; macht
+    `mining/measurement` bis auf eine Ausnahme zum Leaf).
+- Bewusst NICHT verschoben: `PayoutDefaultsService` (Versuch erzeugt `miner↔mining`-Zyklus über
+  FeeTierService/ReferralConfigurationService — revertiert), `dto/`-Umzug (Wire-Pinning-Risiko,
+  kein Nutzen), `AgentStatusService` aus `controller/` (läuft gerade in Phase-5-Arbeit mit).
+- Verbleibende Zyklen sind Adapter-Register-Zyklen (Factory→Adapter, Adapter→Orchestrierung)
+  und dokumentierte Fachschleifen (mining↔pearl/xmr über PayoutDefaults/ProxyConfiguration);
+  Auflösung erfordert Interface-Extraktion, nicht nur Paketsuchen — als Follow-up notiert.
+- Verifikation: `JAVA_HOME=…graalvm-ce-21.0.2 sh gradlew test standaloneJar --offline`
+  **164/164 Tests grün** (41 Klassen, Zähler aus `build/test-results/test/*.xml`), identisch
+  zum Stand vor dem Eingriff; Import-Graph neu gezählt: 10 → 8 Zyklen, davon 2 komplett
+  beseitigt (`lowlevel.sensor↔pearl`, `miner.engine↔mining`) und `support` wieder zyklusfrei;
+  `git diff --check` sauber. Keine REST-/Wire-Namen berührt (Pinning-Tests grün).
+- Status: unvercommitet (Owner-Freigabe steht aus).
+
+## 2026-10-11 — Ladeplan P7: Snapshot-Cache gegen Seitenwechsel-Trägheit (Sitzung 11)
+
+- Auftrag (Owner): Wallets/Worker/Dashboard laden nach dem Refactoring weiterhin
+  spürbar; beim Seitenwechsel wird alles kalt nachgeladen — Caching fehlt.
+  Framework-Wechsel (Next.js/React) ausdrücklich geprüft und VERWORFEN: die
+  Latenz steckt im Daten-Layer (Kaltstart pro Seite + Server-TTL), nicht im
+  Rendering; ein zweiter Node-Prozess wäre für das Ein-JAR-Deployment ein
+  Rückschritt. Stattdessen P7 im bestehenden Vanilla/SSE-Design.
+- `live-data.js`: jedes `emit()` schreibt `{receivedAt, value}` nach
+  `sessionStorage` (`solarminer.channel.v1.<name>`; 30-min-Netz,
+  128-KB-Deckel, Quota-Fehler sind rein optinal). Der Channel-Konstruktor
+  rehydriert VOR dem ersten `subscribe()` (source `snapshot`), damit der
+  erste Handler sofort malt. Bestehende Alter-Regel unverändert: älter als
+  `maxAgeMs` ⇒ `meta.stale:true`, Watchdog (2 s) ersetzt; jünger ⇒ gilt als
+  frisch, SSE/Push überschreibt bei Änderung. `persist:false` für
+  Run-State-Kanäle (benchmarks, efficiency in `benchmarks.js` gesetzt).
+  NEU `SolarMinerLive.snapshot(name)` — Lesezugriff ohne Kanal-Registrierung.
+  NEBENBEFUND: der dokumentierte P5-`firstPaint()`-Aufruf in `onopen` fehlte
+  im Code (work-log P5 behauptete ihn) — wieder eingebaut.
+- `components.js`: `cachedCoinCatalog()` — der closed-Enum-Katalog
+  (`/status/coin-catalog`, Server-TTL 1 h) wird pro Tab gecacht;
+  `workers.js`/`wallets.js` nutzen ihn statt Frischfetch pro Seitenaufruf.
+- `wallets.js` (bewusst kanalloser manueller Pfad): seedet beim Load aus dem
+  `overview`-Snapshot des Tabs und rendert sofort; der REST-`/overview`-Read
+  bleibt Source of Truth und re-rendert. Fehlerpfad zeigt die Offline-Meldung
+  nur noch, wenn gar kein Seed vorhanden ist (sonst weiter aus dem Snapshot
+  arbeiten lassen).
+- Verifikation: Node-Harness (Stub sessionStorage/EventSource) 8/8 —
+  Snapshot geschrieben, Rehydrierung vor subscribe, sofortige Lieferung mit
+  stale:false (frisch) / stale:true (alt), >30 min verworfen, persist:false
+  schreibt nie, snapshot()-API. `node --check` je geänderter Datei sauber;
+  `check-i18n.cjs` grün (1219 Keys, keine neuen UI-Texte),
+  `scan-i18n-literals.cjs` 0; `sh gradlew test --offline` 164/164 (41
+  Klassen, Zähler aus `build/test-results/test/*.xml`); Standalone-JAR neu
+  gebaut und auf Port 18085 gebootet: Aggregat liefert alle 10 Sektionen,
+  SSE-Kanäle senden Events (5 Events in 6 s), danach beendet.
+  `git diff --check` sauber. Wire-Disziplin: keine REST-Pfade/Payloads
+  geändert, nur Client-Caching; `/external/**` unberührt.
+- Status: unvercommitet (Owner-Freigabe steht aus).
+
+## 2026-10-11 (Sitzung 11): REST-Controller Architektur-Audit + Refactoring (I/O aus Request-Pfaden)
+- Auftrag: Vollständiges Audit aller HTTP-Endpunkte gegen das Prinzip „REST-Controller lesen nur
+  In-Memory-Snapshots / übergeben Commands; keine direkte oder indirekte I/O in der transitiven
+  Request-Kette“. Bericht: `docs/architecture/pc-agent-rest-controller-audit.md` (Inventar 15
+  Controller / 106 Endpunkte, Klassifizierung, Zielarchitektur, Plan R1–R11, Re-Audit J).
+- UMGESETZT (alle Planpunkte):
+  - R1 NEU `mining/proxy/ProxyHealthService`: Proxy-Reachability + Fee-Ready je Coin als
+    `AtomicReference<Snapshot>`, @Scheduled 2 s Single-Flight auf Virtual Thread;
+    `GET /proxy`, `/overview`, `/external/capabilities` lesen nur noch den Store. Live-Checks
+    bleiben in `ProxyConfigurationService` für Miner-Start-Gates (`miningReady` = kein REST-Pfad).
+  - R2 `FeeTransparencyService`: volatile `overviewSnapshot`/`devFeeSummarySnapshot` +
+    @Scheduled-Collector (5 s) + Warm; `GET /fees`, `/fee-tier` snapshot-basiert.
+  - R3 `PayoutDefaultsService`: `resolveCached()` (rein) + @Scheduled-Prewarm (15 s) + Warm;
+    REST `view()` und alle Command-Pfade (Controller, WorkerAssignment) cache-only.
+  - R4 `MarketDataService`: `prices()`/`forecasts()` rein lesend; Erfassung nur noch @Scheduled
+    (`refreshPricesIfNeeded`, `refreshNetworksIfNeeded`) + `warmCaches()`. Kein Request triggert
+    mehr eine Erfassung.
+  - R5 `MinerCatalogService`: Installations-Flags volatile; Probe bei Startup/@Scheduled 10 s/
+    nach download+remove; Katalog-Reads dateifrei.
+  - R6 REST-Reads `LocalGpuPowerService.snapshot()` statt `discover()`: AgentPower-Status,
+    Worker-Validierung, Capabilities, MiningService-Stats, selectedGpus(true).
+  - R7 `XmrConfigService.readUserPoolFromConfig()` MTime-Cache (Invalidation an allen 5
+    Schreibpfaden); `XmrMinerService.readCPUTemperature()` 1-s-Cache; `randomXStatus()` 5-s-Cache.
+  - R8 Benchmark-Sharing `retry-manual`/`upload-manual`: Auftragsannahme (`UPLOADING`,
+    Single-Flight), Upload auf Virtual Thread; UI-Zweig in `benchmarks.js` (bestehender
+    i18n-Key `uploading_benchmark_data`).
+- NEUE TESTS: `architecture/RestControllerArchitectureTest` (ArchUnit 1.3.0 neu in
+  build.gradle.kts: keine java.net.http/ProcessBuilder/CompletableFuture/InetAddress in
+  Controllern außer dokumentierter Allowlist) und
+  `controller/RestReadModelNonBlockingTest` (Nachweis: proxy-Endpunkt ruft nie isReachable/
+  feeReady; forecasts/prices/payout lösen bei leerem Cache keinen Upstream-Call aus;
+  Health-Snapshot atomar). Angepasst: NodeMiningProfileTest, WorkerAssignmentServiceTest,
+  MiningControllerValidationTest, MinerCatalogServiceTest, MarketDataServiceTest.
+- Verifikation: `JAVA_HOME=~/.jdks/graalvm-ce-21.0.2 sh gradlew test --no-daemon` BUILD
+  SUCCESSFUL, 175 Tests / 43 Klassen, 0 Fehler (Zähler aus build/test-results/test/*.xml);
+  `sh gradlew standaloneJar` erfolgreich; `check-i18n.cjs` grün (1221 Keys, beide Locale).
+- API: keine Drahtformate geändert. Verhaltensänderungen dokumentiert im Bericht (§J):
+  Upload-Endpunkte liefern zuerst UPLOADING; Lese-Endpunkte zeigen nach Mutation bis zu einem
+  Kollektor-Tick den alten Stand.
+- Status: unvercommitet (Owner-Freigabe steht aus).

@@ -1,6 +1,6 @@
 package de.verdox.solarminer.pcagent.controller;
 
-import de.verdox.solarminer.pcagent.mining.ManagedProxyService;
+import de.verdox.solarminer.pcagent.mining.proxy.ManagedProxyService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;

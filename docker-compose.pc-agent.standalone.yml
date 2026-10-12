@@ -1,11 +1,10 @@
 services:
   pc-agent:
-    image: verdox/solar-miner-pc-agent:latest
+    image: ${PC_AGENT_IMAGE:-verdox/solar-miner-pc-agent:latest}
     container_name: solarminer-pc-agent
     restart: unless-stopped
-    # Compatibility profile for existing host-network deployments. The image is
-    # identical to the normal Compose profile; select local or external proxy
-    # persistently in the Mining UI after startup.
+    # Legacy filename compatibility alias for docker-compose.pc-agent.yml.
+    # Host networking is the only supported Compose network mode.
     network_mode: host
     init: true
     cap_add:
@@ -16,3 +15,4 @@ services:
       - ./data:/data
     environment:
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0
+      SERVER_ADDRESS: 0.0.0.0

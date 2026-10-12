@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import de.verdox.solarminer.pcagent.dto.Pools;
-import de.verdox.solarminer.pcagent.mining.ProxyConfigurationService;
+import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
 import de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService;
 import org.springframework.stereotype.Service;
 import oshi.SystemInfo;
@@ -69,6 +69,7 @@ public class XmrConfigService {
         poolsNode.add(poolNode);
 
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(configFile, rootNode);
+        invalidateUserPoolCache();
         LOGGER.info("Successfully generated proxy-only XMRig config.json");
     }
 
@@ -80,6 +81,7 @@ public class XmrConfigService {
         ObjectNode cpu = cpuNode instanceof ObjectNode object ? object : root.putObject("cpu");
         cpu.put("huge-pages", enabled);
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(configPath.toFile(), root);
+        invalidateUserPoolCache();
     }
 
     public void setRandomXOneGbPages(Path configPath, boolean enabled) throws IOException {
@@ -89,6 +91,7 @@ public class XmrConfigService {
         ObjectNode randomX = randomXNode instanceof ObjectNode object ? object : root.putObject("randomx");
         randomX.put("1gb-pages", enabled);
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(configPath.toFile(), root);
+        invalidateUserPoolCache();
     }
 
     public boolean hugePagesEnabled(Path configPath) {
@@ -120,6 +123,7 @@ public class XmrConfigService {
         firstPool.put("url", poolUrl);
         firstPool.put("user", login);
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(configFile, rootObject);
+        invalidateUserPoolCache();
         LOGGER.info("Updated the XMRig proxy payout route");
         return true;
     }
@@ -193,6 +197,7 @@ public class XmrConfigService {
             }
 
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(configFile, rootNode);
+            invalidateUserPoolCache();
             LOGGER.info("Updated XMRig config.json with max threads: " + maxThreads);
 
         } catch (IOException e) {
@@ -207,6 +212,15 @@ public class XmrConfigService {
         return Math.min(100, Math.max(1, percentage));
     }
 
+    /**
+     * Parsed pool route of the XMRig config, cached until the config file changes
+     * (REST audit R7). Every stats poll used to re-read and re-parse config.json on the
+     * caller's thread; the cache is invalidated by every write path in this service and by
+     * file modification time, so a value never goes stale after an agent-side change.
+     */
+    private volatile Pools cachedUserPool;
+    private volatile long cachedUserPoolStamp = Long.MIN_VALUE;
+
     public Pools readUserPoolFromConfig() {
         File configFile = XmrDownloadService.CONFIG_PATH.toFile();
 
@@ -215,6 +229,10 @@ public class XmrConfigService {
             // Monero setup. This method is also called during every overview poll.
             return new Pools("Unknown", "Unknown", "Unknown");
         }
+
+        long stamp = configFile.lastModified();
+        Pools cached = cachedUserPool;
+        if (cached != null && stamp == cachedUserPoolStamp) return cached;
 
         try {
             JsonNode rootNode = objectMapper.readTree(configFile);
@@ -227,13 +245,22 @@ public class XmrConfigService {
                 String user = firstPool.path("user").asText("Unknown");
                 String pass = firstPool.path("pass").asText("Unknown");
 
-                return new Pools(url, user, pass);
+                Pools parsed = new Pools(url, user, pass);
+                cachedUserPool = parsed;
+                cachedUserPoolStamp = stamp;
+                return parsed;
             }
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Failed to read pools from config.json: " + e.getMessage(), e);
         }
 
         return new Pools("Unknown", "Unknown", "Unknown");
+    }
+
+    /** Drops the parsed-route cache; called by every write path that rewrites config.json. */
+    private void invalidateUserPoolCache() {
+        cachedUserPool = null;
+        cachedUserPoolStamp = Long.MIN_VALUE;
     }
 
     private String generateDeterministicWorkerId() {

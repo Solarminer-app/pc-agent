@@ -2,8 +2,8 @@ package de.verdox.solarminer.pcagent.controller;
 
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.lowlevel.sensor.HardwareTelemetryService;
-import de.verdox.solarminer.pcagent.mining.NodeAssessmentService;
-import de.verdox.solarminer.pcagent.mining.EconomicPlanningService;
+import de.verdox.solarminer.pcagent.mining.agent.NodeAssessmentService;
+import de.verdox.solarminer.pcagent.mining.economics.EconomicPlanningService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
@@ -30,26 +30,46 @@ public class ExternalAgentController {
     private final TelemetryController telemetry;
     private final NodeAssessmentController assessment;
     private final EconomicPlanningService economicPlanning;
+    private final de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService networkDashboard;
 
     @Autowired
     public ExternalAgentController(MiningController mining, AgentPowerController power,
                                    TelemetryController telemetry, NodeAssessmentController assessment,
-                                   EconomicPlanningService economicPlanning) {
+                                   EconomicPlanningService economicPlanning,
+                                   de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService networkDashboard) {
         this.mining = mining;
         this.power = power;
         this.telemetry = telemetry;
         this.assessment = assessment;
         this.economicPlanning = economicPlanning;
+        this.networkDashboard = networkDashboard;
     }
 
     /** Compatibility constructor for focused controller tests from the pre-C10 contract. */
     ExternalAgentController(MiningController mining, AgentPowerController power,
                             TelemetryController telemetry, NodeAssessmentController assessment) {
-        this(mining, power, telemetry, assessment, null);
+        this(mining, power, telemetry, assessment, null, null);
+    }
+
+    /**
+     * Read-only LAN visibility snapshot for the peer dashboard on other PC-Agents: worker
+     * rows and per-coin earnings for this machine only. The filter gates it behind the
+     * explicit network-sharing consent; wallets, config and control routes never appear.
+     */
+    @GetMapping("/network-snapshot")
+    public de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService.PeerSnapshot networkSnapshot() {
+        return networkDashboard == null
+                ? new de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService.PeerSnapshot(List.of(), List.of(),
+                        new de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService.Totals(0, 0, 0, 0))
+                : networkDashboard.ownSnapshot();
     }
 
     @GetMapping("/identity")
     public AgentPowerController.Identity identity() { return power.identity(); }
+
+    /** Read-only LAN import contract; the access filter requires explicit wallet sharing consent. */
+    @GetMapping("/wallet-targets")
+    public List<MiningController.WalletTarget> walletTargets() { return mining.walletTargets(); }
 
     @GetMapping("/status")
     public MinerStats status() { return mining.getMiningStats(); }
@@ -67,7 +87,7 @@ public class ExternalAgentController {
     public MiningController.ProxyOverview proxy() { return mining.proxy(); }
 
     @GetMapping("/earnings")
-    public List<de.verdox.solarminer.pcagent.mining.EarningsForecastService.Forecast> earnings() {
+    public List<de.verdox.solarminer.pcagent.mining.economics.MarketDataService.Forecast> earnings() {
         return mining.earnings();
     }
 
