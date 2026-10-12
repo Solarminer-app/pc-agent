@@ -148,8 +148,9 @@ public class AgentPowerController {
     }
 
     /**
-     * Explicit LAN-visibility consent for the peer dashboard. Sharing only publishes read-only
-     * worker/earnings rows to other PC-Agents in the same network; it never opens control.
+     * Explicit LAN-visibility consent for the peer dashboard. By itself this only publishes
+     * worker/earnings rows and aggregate energy; peer start/pause additionally requires the
+     * existing global and per-worker remote-control permissions.
      */
     @PostMapping("/network-sharing")
     public AgentControlSettingsService.Settings networkSharing(@RequestParam boolean enabled) {

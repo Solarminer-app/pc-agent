@@ -20,10 +20,10 @@ import java.io.IOException;
 import java.util.List;
 import de.verdox.solarminer.pcagent.miner.MinerConfig;
 
-/** Exclusive SolarMiner-Node contract. The global external-control gate protects this namespace. */
+/** SolarMiner-Node contract plus explicitly gated LAN peer snapshot/control exceptions. */
 @RestController
 @RequestMapping("/api/agent/external")
-@Tag(name = "PC mining agent - SolarMiner Node", description = "Exclusive externally gated Node contract")
+@Tag(name = "PC mining agent - external LAN", description = "Gated SolarMiner Node and peer-agent contract")
 public class ExternalAgentController {
     private final MiningController mining;
     private final AgentPowerController power;
@@ -53,15 +53,27 @@ public class ExternalAgentController {
 
     /**
      * Read-only LAN visibility snapshot for the peer dashboard on other PC-Agents: worker
-     * rows and per-coin earnings for this machine only. The filter gates it behind the
-     * explicit network-sharing consent; wallets, config and control routes never appear.
+     * rows, per-coin earnings and aggregate energy totals for this machine only. The filter
+     * gates it behind the explicit network-sharing consent; session history, wallets and config
+     * never appear. Worker start/pause uses separate POST routes and additional control gates.
      */
     @GetMapping("/network-snapshot")
     public de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService.PeerSnapshot networkSnapshot() {
         return networkDashboard == null
                 ? new de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService.PeerSnapshot(List.of(), List.of(),
-                        new de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService.Totals(0, 0, 0, 0))
+                        new de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService.Totals(0, 0, 0, 0), null, false)
                 : networkDashboard.ownSnapshot();
+    }
+
+    /** Immediate peer-dashboard action; the sharing and remote-control gates are enforced by the filter. */
+    @PostMapping("/network-workers/{deviceId}/start")
+    public boolean startNetworkWorker(@org.springframework.web.bind.annotation.PathVariable String deviceId) {
+        return networkDashboard != null && networkDashboard.controlOwnWorker(deviceId, true);
+    }
+
+    @PostMapping("/network-workers/{deviceId}/pause")
+    public boolean pauseNetworkWorker(@org.springframework.web.bind.annotation.PathVariable String deviceId) {
+        return networkDashboard != null && networkDashboard.controlOwnWorker(deviceId, false);
     }
 
     @GetMapping("/identity")

@@ -3,11 +3,15 @@ package de.verdox.solarminer.pcagent.mining.network;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.coin.Coin;
+import de.verdox.solarminer.pcagent.controller.AgentStatusService;
 import de.verdox.solarminer.pcagent.controller.MiningController;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.mining.MiningService;
+import de.verdox.solarminer.pcagent.mining.WorkerAssignmentService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentIdentityService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.mining.economics.MarketDataService;
+import de.verdox.solarminer.pcagent.mining.energy.EnergyJournalService;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -40,6 +44,10 @@ public class NetworkDashboardService {
     private final AgentNetworkDiscoveryService discovery;
     private final MiningService ownMining;
     private final MarketDataService ownEarnings;
+    private final EnergyJournalService ownEnergy;
+    private final WorkerAssignmentService ownWorkers;
+    private final AgentControlSettingsService ownControls;
+    private final AgentStatusService status;
     private final AgentIdentityService ownIdentity;
     private final ObjectMapper mapper;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(1200)).build();
@@ -48,12 +56,19 @@ public class NetworkDashboardService {
     private volatile List<AgentCard> snapshot = List.of();
 
     public NetworkDashboardService(AgentNetworkDiscoveryService discovery, MiningService ownMining,
-                                   MarketDataService ownEarnings, AgentIdentityService ownIdentity,
+                                   MarketDataService ownEarnings, EnergyJournalService ownEnergy,
+                                   WorkerAssignmentService ownWorkers, AgentControlSettingsService ownControls,
+                                   AgentIdentityService ownIdentity,
+                                   @org.springframework.context.annotation.Lazy AgentStatusService status,
                                    ObjectMapper mapper,
                                    @org.springframework.beans.factory.annotation.Value("${server.port:8084}") int ownDashboardPort) {
         this.discovery = discovery;
         this.ownMining = ownMining;
         this.ownEarnings = ownEarnings;
+        this.ownEnergy = ownEnergy;
+        this.ownWorkers = ownWorkers;
+        this.ownControls = ownControls;
+        this.status = status;
         this.ownIdentity = ownIdentity;
         this.ownDashboardPort = ownDashboardPort;
         this.mapper = mapper.copy().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -96,8 +111,9 @@ public class NetworkDashboardService {
         List<MinerStats.Worker> workers = ownMining.getWorkerStats();
         List<MarketDataService.Forecast> forecasts = ownEarnings.forecasts(workers);
         return new AgentCard(discovery.agentId(), ownIdentity.displayName(), null, ownDashboardPort,
-                true, true, null, workerRows(workers), earningsRows(forecasts), totals(workers, forecasts),
-                Instant.now());
+                true, true, null, assignedWorkerRows(ownWorkers.workers()), earningsRows(forecasts),
+                totals(workers, forecasts), sharedEnergy(ownEnergy.overview()),
+                ownControls.get().externalControlEnabled(), Instant.now());
     }
 
     private AgentCard peerCard(AgentNetworkDiscoveryService.Peer peer) {
@@ -109,16 +125,17 @@ public class NetworkDashboardService {
         if (result.snapshot() != null) {
             card = new AgentCard(peer.agentId(), peer.name(), peer.host(), peer.dashboardPort(),
                     true, false, null, result.snapshot().workers(), result.snapshot().earnings(),
-                    result.snapshot().totals(), now);
+                    result.snapshot().totals(), result.snapshot().energy(),
+                    Boolean.TRUE.equals(result.snapshot().controlEnabled()), now);
         } else if (result.sharingDisabled()) {
-            // The machine is there; its operator keeps worker and earnings data private.
+            // The machine is there; its operator keeps worker, earnings and energy data private.
             card = new AgentCard(peer.agentId(), peer.name(), peer.host(), peer.dashboardPort(),
                     true, false, "LAN visibility is disabled on this agent", List.of(), List.of(),
-                    new Totals(0, 0, 0, 0), now);
+                    new Totals(0, 0, 0, 0), null, false, now);
         } else {
             card = new AgentCard(peer.agentId(), peer.name(), peer.host(), peer.dashboardPort(),
                     false, false, "Peer is not reachable", List.of(), List.of(),
-                    new Totals(0, 0, 0, 0), now);
+                    new Totals(0, 0, 0, 0), null, false, now);
         }
         cache.put(peer.agentId(), new CachedSnapshot(card, now.plus(CACHE_TTL)));
         return card;
@@ -176,8 +193,21 @@ public class NetworkDashboardService {
                         worker.hardwareType(), worker.hardwareModel(),
                         worker.terahashPerSecond() * 1e12,
                         worker.approximatedPowerUsageWatts(), worker.miningStatus().name(),
-                        Coin.byAlgorithm(worker.currentAlgorithm()).map(Coin::id).orElse(null)))
+                        Coin.byAlgorithm(worker.currentAlgorithm()).map(Coin::id).orElse(null),
+                        worker.deviceId(), true, true, true))
                 .toList();
+    }
+
+    static List<WorkerRow> assignedWorkerRows(List<WorkerAssignmentService.WorkerView> workers) {
+        return workers.stream().filter(worker -> !Coin.NONE.id().equals(worker.coin()))
+                .map(worker -> {
+                    MinerStats.Worker telemetry = worker.telemetry();
+                    return new WorkerRow(worker.hardwareModel(), worker.algorithm(), worker.hardwareType(),
+                            worker.hardwareModel(), telemetry == null ? 0 : telemetry.terahashPerSecond() * 1e12,
+                            telemetry == null ? 0 : telemetry.approximatedPowerUsageWatts(),
+                            worker.status().name(), worker.coin(), worker.deviceId(),
+                            worker.configured(), worker.minerInstalled(), worker.externalControlEnabled());
+                }).toList();
     }
 
     static List<EarningsRow> earningsRows(List<MarketDataService.Forecast> forecasts) {
@@ -197,14 +227,26 @@ public class NetworkDashboardService {
         return new Totals(workers.size(), hashrate, watts, usdPerDay);
     }
 
+    static SharedEnergy sharedEnergy(EnergyJournalService.Overview overview) {
+        double activeWattHours = overview.activeSessions().stream()
+                .mapToDouble(EnergyJournalService.Session::wattHours).sum();
+        long activeRuntimeSeconds = overview.activeSessions().stream()
+                .mapToLong(EnergyJournalService.Session::runtimeSeconds).max().orElse(0);
+        return new SharedEnergy(overview.settings(), overview.today(), overview.last7Days(),
+                overview.last30Days(), activeWattHours, activeRuntimeSeconds,
+                overview.activeSessions().size());
+    }
+
     /** The wire shape a peer publishes; also what the dashboard renders per machine. */
     public record AgentCard(String agentId, String name, String host, int dashboardPort,
                             boolean reachable, boolean own, String error,
                             List<WorkerRow> workers, List<EarningsRow> earnings, Totals totals,
-                            Instant collectedAt) { }
+                            SharedEnergy energy, boolean controlEnabled, Instant collectedAt) { }
 
     public record WorkerRow(String name, String algorithm, String hardwareType, String hardwareModel,
-                            double hashrateHps, long watts, String status, String coin) { }
+                            double hashrateHps, long watts, String status, String coin,
+                            String deviceId, Boolean configured, Boolean minerInstalled,
+                            Boolean controlAllowed) { }
 
     /** Nullable for backward-compatible deserialization of snapshots from older LAN peers. */
     public record EarningsRow(String coin, String ticker, double hashrateHps, double usdPerDay,
@@ -212,18 +254,64 @@ public class NetworkDashboardService {
 
     public record Totals(int workerCount, double hashrateHps, long watts, double usdPerDay) { }
 
+    /** Aggregate-only energy data shared under the existing explicit LAN-visibility consent. */
+    public record SharedEnergy(EnergyJournalService.Settings settings,
+                               EnergyJournalService.Aggregate today,
+                               EnergyJournalService.Aggregate last7Days,
+                               EnergyJournalService.Aggregate last30Days,
+                               double activeWattHours, long activeRuntimeSeconds,
+                               int activeSessionCount) { }
+
     /** On-demand import response. A target is only a draft until the local operator saves it. */
     public record PeerWalletTargets(boolean available, String error, List<MiningController.WalletTarget> targets) { }
 
     /** Deserialized peer payload; unknown fields stay tolerated across agent versions. */
-    public record PeerSnapshot(List<WorkerRow> workers, List<EarningsRow> earnings, Totals totals) { }
+    public record PeerSnapshot(List<WorkerRow> workers, List<EarningsRow> earnings, Totals totals,
+                               SharedEnergy energy, Boolean controlEnabled) { }
 
     /** What this agent publishes on {@code GET /api/agent/external/network-snapshot}. */
     public PeerSnapshot ownSnapshot() {
         AgentCard own = snapshot.stream().filter(AgentCard::own).findFirst().orElse(null);
-        return own == null ? new PeerSnapshot(List.of(), List.of(), new Totals(0, 0, 0, 0))
-                : new PeerSnapshot(own.workers(), own.earnings(), own.totals());
+        return own == null ? new PeerSnapshot(List.of(), List.of(), new Totals(0, 0, 0, 0),
+                sharedEnergy(ownEnergy.overview()), ownControls.get().externalControlEnabled())
+                : new PeerSnapshot(own.workers(), own.earnings(), own.totals(), own.energy(),
+                own.controlEnabled());
     }
+
+    public WorkerControlResult controlPeer(String agentId, String deviceId, boolean enabled) {
+        AgentNetworkDiscoveryService.Peer peer = discovery.peers().stream()
+                .filter(candidate -> candidate.agentId().equals(agentId)).findFirst().orElse(null);
+        if (peer == null) return new WorkerControlResult(false, "peer_worker_unavailable");
+        try {
+            String action = enabled ? "start" : "pause";
+            String encodedDevice = java.net.URLEncoder.encode(deviceId, java.nio.charset.StandardCharsets.UTF_8)
+                    .replace("+", "%20");
+            HttpRequest request = HttpRequest.newBuilder(URI.create("http://" + peer.host() + ":"
+                            + peer.dashboardPort() + "/api/agent/external/network-workers/"
+                            + encodedDevice + "/" + action))
+                    .timeout(FETCH_TIMEOUT).POST(HttpRequest.BodyPublishers.noBody()).build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 403)
+                return new WorkerControlResult(false, "peer_worker_control_disabled");
+            if (response.statusCode() != 200 || !Boolean.parseBoolean(response.body()))
+                return new WorkerControlResult(false, "peer_worker_action_failed");
+            cache.remove(agentId);
+            Thread.startVirtualThread(this::refreshSnapshot);
+            return new WorkerControlResult(true, null);
+        } catch (Exception failure) {
+            if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+            return new WorkerControlResult(false, "peer_worker_unavailable");
+        }
+    }
+
+    public boolean controlOwnWorker(String deviceId, boolean enabled) {
+        if (!ownControls.workerEnabled(deviceId)) return false;
+        boolean applied = enabled ? ownWorkers.start(deviceId) : ownWorkers.pause(deviceId);
+        if (applied) status.invalidate("workers", "overview", "power-control", "energy");
+        return applied;
+    }
+
+    public record WorkerControlResult(boolean applied, String error) { }
 
     private record CachedSnapshot(AgentCard card, Instant expiresAt) { }
 }

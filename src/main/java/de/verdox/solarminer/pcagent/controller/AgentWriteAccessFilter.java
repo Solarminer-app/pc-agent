@@ -65,6 +65,18 @@ public class AgentWriteAccessFilter extends OncePerRequestFilter {
                 }
                 return;
             }
+            // Peer worker actions reuse both existing owner decisions: LAN visibility and
+            // external control. There is no per-click confirmation or additional consent.
+            if ("POST".equalsIgnoreCase(request.getMethod())
+                    && path.matches(java.util.regex.Pattern.quote(EXTERNAL_API)
+                    + "/network-workers/[^/]+/(start|pause)")) {
+                if (controls.get().networkSharingActive() && controls.get().externalControlEnabled()) {
+                    filterChain.doFilter(request, response);
+                } else {
+                    forbidden(response, "LAN-Worker-Steuerung wurde lokal deaktiviert");
+                }
+                return;
+            }
             // Wallet targets are not part of the ordinary LAN dashboard. Their owner must
             // explicitly opt in before another discovered PC-Agent may read them.
             if ("GET".equalsIgnoreCase(request.getMethod())

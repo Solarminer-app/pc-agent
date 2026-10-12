@@ -8,6 +8,8 @@
   const preferences = window.SolarMinerPreferences;
   let overview, telemetry, settings, assessment, energy, agentUi = null, energyError = null, uiRequested = false;
   let networkAgents = null;
+  const pendingNetworkWorkers = new Set();
+  let networkActionMessage = '', networkActionError = false;
   let savedAt = null, fresh = true;
   // A persisted overview snapshot may invoke the subscription synchronously. Every value read
   // by that render path must therefore be initialized before any channel is registered.
@@ -66,14 +68,15 @@
         revenuePerKwh: ui.revenuePerKwh(usdPerDay, row.watts)};
     });
     const remoteRows = (networkAgents?.agents || []).filter(agent => !agent.own && agent.reachable)
-      .flatMap(agent => (agent.workers || []).filter(row => row.status === 'MINING' || row.status === 'ERROR').map(row => {
+      .flatMap(agent => (agent.workers || []).map(row => {
         // Current peers publish coin/available explicitly. For older peers, infer the coin from
         // the closed algorithm catalog and treat their already-filtered earnings rows as available.
         const coin = row.coin || ui.coinIdForAlgorithm(row.algorithm);
         const rawForecast = (agent.earnings || []).find(item => item.coin === coin);
         const forecast = rawForecast ? {...rawForecast, available: rawForecast.available !== false} : null;
         const usdPerDay = ui.workerUsdPerDay(Number(row.hashrateHps), forecast);
-        return {...row, coin, agent: agent.name || t('pc_agent'), local: false, usdPerDay,
+        return {...row, coin, agent: agent.name || t('pc_agent'), agentId: agent.agentId,
+          local: false, controlEnabled: Boolean(agent.controlEnabled), usdPerDay,
           revenuePerKwh: ui.revenuePerKwh(usdPerDay, Number(row.watts))};
       }));
     return [...localRows, ...remoteRows];
@@ -84,32 +87,77 @@
     const kpis = $('network-worker-kpis');
     const note = $('network-workers-note');
     const rows = dashboardWorkers(data);
-    const totalWatts = rows.reduce((sum, row) => sum + (Number(row.watts) || 0), 0);
-    const totalUsdPerDay = rows.reduce((sum, row) => sum + (Number(row.usdPerDay) || 0), 0);
-    const efficiencies = rows.map(row => row.revenuePerKwh).filter(Number.isFinite);
+    const activeRows = rows.filter(row => row.status === 'MINING' || row.status === 'ERROR');
+    const totalWatts = activeRows.reduce((sum, row) => sum + (Number(row.watts) || 0), 0);
+    const totalUsdPerDay = activeRows.reduce((sum, row) => sum + (Number(row.usdPerDay) || 0), 0);
+    const efficiencies = activeRows.map(row => row.revenuePerKwh).filter(Number.isFinite);
     const averageRevenuePerKwh = efficiencies.length
       ? efficiencies.reduce((sum, value) => sum + value, 0) / efficiencies.length : null;
     kpis.replaceChildren(
-      ui.metric({label: 'active_workers', value: String(rows.length), detail: t('local_and_shared_workers')}),
+      ui.metric({label: 'active_workers', value: String(activeRows.length), detail: t('local_and_shared_workers')}),
       ui.metric({label: 'total_power', value: ui.power(totalWatts), detail: t('sum_of_running_workers')}),
       ui.metric({label: 'earnings', value: totalUsdPerDay > 0 ? t('value_day', {value: preferences.moneyFromUsd(totalUsdPerDay)}) : '—', detail: t('sum_of_running_workers')}),
       ui.metric({label: 'average_earnings_per_kwh', value: ui.moneyPerKwh(averageRevenuePerKwh), detail: t('average_of_workers_with_data')}));
     root.replaceChildren(ui.table({
       columns: [
         {label: 'worker', render: row => ui.cellLines(ui.shortWorkerName(row), `${row.hardwareType || '—'} · ${row.hardwareModel || row.algorithm || '—'}`)},
-        {label: 'pc_agent', render: row => ui.cellLines(row.agent, row.local ? t('this_pc') : t('read_only'))},
+        {label: 'pc_agent', render: row => ui.cellLines(row.agent, row.local ? t('this_pc')
+          : t(row.controlEnabled ? 'lan_control' : 'view_only'))},
         {label: 'status', render: row => ui.statusPill(row.status)},
         {label: 'hashrate', align: 'right', render: row => ui.hashrate(Number(row.hashrateHps))},
         {label: 'power_4606f4', align: 'right', render: row => ui.power(Number(row.watts))},
         {label: 'earnings', align: 'right', render: row => row.usdPerDay != null ? t('value_day', {value: preferences.moneyFromUsd(row.usdPerDay)}) : '—'},
-        {label: 'earnings_per_kwh', align: 'right', render: row => ui.moneyPerKwh(row.revenuePerKwh)}
-      ], rows, empty: 'no_worker_is_running_configure_hardware_in_w'
+        {label: 'earnings_per_kwh', align: 'right', render: row => ui.moneyPerKwh(row.revenuePerKwh)},
+        {label: 'action', align: 'right', render: row => {
+          if (row.local) return null;
+          const active = row.status === 'MINING' || row.status === 'ERROR';
+          const key = `${row.agentId}:${row.deviceId}`;
+          const button = ui.element('button', `button ${active ? 'subtle' : 'primary'}`, active ? 'pause' : 'start');
+          button.type = 'button';
+          button.disabled = !row.controlEnabled || row.controlAllowed !== true || !row.deviceId || pendingNetworkWorkers.has(key)
+            || !active && (row.configured === false || row.minerInstalled === false);
+          button.title = !row.controlEnabled ? t('peer_worker_control_disabled') : '';
+          button.addEventListener('click', event => {
+            event.stopPropagation();
+            void controlNetworkWorker(row, !active);
+          });
+          return button;
+        }}
+      ], rows, empty: 'no_local_or_shared_workers_available'
     }));
     const peerErrors = (networkAgents?.agents || []).filter(agent => !agent.own && agent.error);
-    if (!networkAgents) note.textContent = t('searching_the_local_network_for_pc_agents');
+    note.classList.toggle('error', networkActionError);
+    if (networkActionMessage) note.textContent = networkActionMessage;
+    else if (!networkAgents) note.textContent = t('searching_the_local_network_for_pc_agents');
     else if (peerErrors.length) note.textContent = t('some_pc_agents_are_not_sharing_live_data', {count: peerErrors.length});
     else if (!(networkAgents.agents || []).some(agent => !agent.own)) note.textContent = t('no_other_pc_agents_found_searching_the_local');
     else note.textContent = t('remote_workers_are_read_only');
+  }
+
+  async function controlNetworkWorker(row, enabled) {
+    const key = `${row.agentId}:${row.deviceId}`;
+    if (pendingNetworkWorkers.has(key)) return;
+    pendingNetworkWorkers.add(key);
+    networkActionMessage = t(enabled ? 'starting_remote_worker' : 'pausing_remote_worker', {worker: row.name});
+    networkActionError = false;
+    if (overview) renderDashboardWorkers(overview);
+    try {
+      const response = await fetch(`/api/agent/local/network/agents/${encodeURIComponent(row.agentId)}/workers/${encodeURIComponent(row.deviceId)}?enabled=${enabled}`, {method: 'POST'});
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.applied) throw new Error(result?.error || 'peer_worker_action_failed');
+      networkActionMessage = t(enabled ? 'remote_worker_started' : 'remote_worker_paused', {worker: row.name});
+      await window.SolarMinerLive.refresh('network-agents');
+    } catch (error) {
+      networkActionMessage = t('remote_worker_action_failed_error', {error: t(error.message)});
+      networkActionError = true;
+    } finally {
+      pendingNetworkWorkers.delete(key);
+      if (overview) renderDashboardWorkers(overview);
+      window.setTimeout(() => {
+        networkActionMessage = ''; networkActionError = false;
+        if (overview) renderDashboardWorkers(overview);
+      }, 5000);
+    }
   }
 
   function renderEnergy() {
@@ -121,19 +169,44 @@
       $('energy-note').textContent = energyError ? `${t('energy_api')} ${t(energyError)}` : '';
       return;
     }
-    const activeWh = (energy.activeSessions || []).reduce((sum, session) => sum + Number(session.wattHours || 0), 0);
-    const activeSeconds = (energy.activeSessions || []).reduce((sum, session) => Math.max(sum, Number(session.runtimeSeconds || 0)), 0);
-    const money = value => preferences.money(value, energy.settings.currency);
+    const peerEnergy = (networkAgents?.agents || [])
+      .filter(agent => !agent.own && agent.reachable && agent.energy)
+      .map(agent => agent.energy);
+    const sources = [{settings: energy.settings, today: energy.today, last7Days: energy.last7Days}, ...peerEnergy];
+    const aggregate = period => {
+      const values = sources.map(source => source[period]).filter(Boolean);
+      const costs = sources.map(source => source[period]
+        ? preferences.convert(source[period].cost, source.settings?.currency) : null);
+      const runtimeSeconds = values.reduce((sum, value) => sum + Number(value.runtimeSeconds || 0), 0);
+      const measuredSeconds = values.reduce((sum, value) => sum + Number(value.measuredSeconds || 0), 0);
+      return {
+        kilowattHours: values.reduce((sum, value) => sum + Number(value.kilowattHours || 0), 0),
+        cost: costs.every(Number.isFinite) ? costs.reduce((sum, value) => sum + value, 0) : null,
+        measurementCoverage: runtimeSeconds > 0 ? Math.min(1, measuredSeconds / runtimeSeconds) : 0
+      };
+    };
+    const today = aggregate('today');
+    const last7Days = aggregate('last7Days');
+    const activeWh = (energy.activeSessions || []).reduce((sum, session) => sum + Number(session.wattHours || 0), 0)
+      + peerEnergy.reduce((sum, value) => sum + Number(value.activeWattHours || 0), 0);
+    const activeSeconds = Math.max(
+      (energy.activeSessions || []).reduce((maximum, session) => Math.max(maximum, Number(session.runtimeSeconds || 0)), 0),
+      ...peerEnergy.map(value => Number(value.activeRuntimeSeconds || 0)), 0);
+    const activeCount = energy.activeSessions.length
+      + peerEnergy.reduce((sum, value) => sum + Number(value.activeSessionCount || 0), 0);
+    const money = value => value == null ? '—' : preferences.money(value, preferences.currency);
     const tariff = preferences.convert(energy.settings.pricePerKwh, energy.settings.currency);
     const tariffCurrency = tariff == null ? energy.settings.currency : preferences.currency;
     root.replaceChildren(
-      ui.metric({label: 'running_sessions', value: ui.kilowattHours(activeWh), detail: t('count_workers_duration', {count: energy.activeSessions.length, duration: ui.duration(activeSeconds)}), tone: energy.activeSessions.length ? 'ok' : ''}),
-      ui.metric({label: 'today_1ab330', value: ui.kilowattHours(Number(energy.today.kilowattHours) * 1000), detail: `${money(energy.today.cost)} ${t('electricity_cost')}`}),
-      ui.metric({label: '7_days', value: ui.kilowattHours(Number(energy.last7Days.kilowattHours) * 1000, 2), detail: `${money(energy.last7Days.cost)} ${t('electricity_cost')}`}),
-      ui.metric({label: 'measurement_coverage', value: `${Math.round(energy.today.measurementCoverage * 100)} %`, detail: t('missing_sensor_intervals_are_not_estimated')})
+      ui.metric({label: 'running_sessions', value: ui.kilowattHours(activeWh), detail: t('count_workers_duration', {count: activeCount, duration: ui.duration(activeSeconds)}), tone: activeCount ? 'ok' : ''}),
+      ui.metric({label: 'today_1ab330', value: ui.kilowattHours(today.kilowattHours * 1000), detail: `${money(today.cost)} ${t('electricity_cost')}`}),
+      ui.metric({label: '7_days', value: ui.kilowattHours(last7Days.kilowattHours * 1000, 2), detail: `${money(last7Days.cost)} ${t('electricity_cost')}`}),
+      ui.metric({label: 'measurement_coverage', value: `${Math.round(today.measurementCoverage * 100)} %`, detail: t('missing_sensor_intervals_are_not_estimated')})
     );
-    $('energy-note').textContent = t('component_consumption_from_available_cpu_pac',
-      {tariff: Number(tariff == null ? energy.settings.pricePerKwh : tariff).toLocaleString(preferences.locale, {maximumFractionDigits: 4}), currency: tariffCurrency});
+    $('energy-note').textContent = peerEnergy.length
+      ? t('network_energy_uses_each_agents_tariff', {count: peerEnergy.length})
+      : t('component_consumption_from_available_cpu_pac',
+        {tariff: Number(tariff == null ? energy.settings.pricePerKwh : tariff).toLocaleString(preferences.locale, {maximumFractionDigits: 4}), currency: tariffCurrency});
   }
 
   async function editEnergySettings() {
@@ -206,7 +279,7 @@
     {endpoint: '/api/agent/local/network/agents', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
     .subscribe((data, meta) => {
       networkAgents = meta.error ? null : data;
-      if (overview) renderDashboardWorkers(overview);
+      if (overview) { renderDashboardWorkers(overview); renderEnergy(); }
     });
 
   // ------------------------------------------------------------------ agent identity

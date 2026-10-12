@@ -12,7 +12,7 @@ these host ports directly, and the trusted-LAN firewall must allow them:
 
 | Port | Protocol | Purpose | Required from LAN |
 | --- | --- | --- | --- |
-| 8084 | TCP | Agent UI, Node identity/control contract and peer snapshot read | Yes |
+| 8084 | TCP | Agent UI, Node identity/control contract, peer snapshot and gated worker start/pause | Yes |
 | 8092 | UDP | Receive an external Stratum-proxy heartbeat | Yes, for proxy auto-discovery |
 | 8093 | UDP | PC-Agent peer-dashboard heartbeat and query/reply protocol | Yes, for peer auto-discovery |
 

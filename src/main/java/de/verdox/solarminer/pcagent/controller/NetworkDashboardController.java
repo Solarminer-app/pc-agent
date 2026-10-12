@@ -8,12 +8,15 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
 /**
  * Local dashboard contract for the LAN peer view: this agent plus every discovered peer agent
- * with its worker rows and earnings. Reads only — control stays on each machine's own dashboard.
+ * with its worker rows, earnings and aggregate energy totals. Start/pause actions are proxied
+ * only when the target agent's existing LAN-sharing and external-control gates allow them.
  */
 @RestController
 @RequestMapping("/api/agent/local/network")
@@ -45,5 +48,13 @@ public class NetworkDashboardController {
     @GetMapping("/agents/{agentId}/wallet-targets")
     public NetworkDashboardService.PeerWalletTargets walletTargets(@PathVariable String agentId) {
         return dashboard.walletTargets(agentId);
+    }
+
+    /** Immediate LAN worker action. The UI deliberately asks for no second confirmation. */
+    @PostMapping("/agents/{agentId}/workers/{deviceId}")
+    public NetworkDashboardService.WorkerControlResult controlWorker(@PathVariable String agentId,
+                                                                      @PathVariable String deviceId,
+                                                                      @RequestParam boolean enabled) {
+        return dashboard.controlPeer(agentId, deviceId, enabled);
     }
 }
