@@ -2,11 +2,12 @@ package de.verdox.solarminer.pcagent.mining.network;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import de.verdox.solarminer.pcagent.coin.Coin;
+import de.verdox.solarminer.pcagent.controller.MiningController;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.mining.MiningService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentIdentityService;
 import de.verdox.solarminer.pcagent.mining.economics.MarketDataService;
-import de.verdox.solarminer.pcagent.controller.MiningController;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -167,22 +168,23 @@ public class NetworkDashboardService {
 
     private record FetchResult(PeerSnapshot snapshot, boolean sharingDisabled) { }
 
-    private static List<WorkerRow> workerRows(List<MinerStats.Worker> workers) {
+    static List<WorkerRow> workerRows(List<MinerStats.Worker> workers) {
         return workers.stream()
                 .filter(worker -> worker.miningStatus() == MinerStats.MinerStatus.MINING
                         || worker.miningStatus() == MinerStats.MinerStatus.ERROR)
                 .map(worker -> new WorkerRow(worker.workerDisplayName(), worker.currentAlgorithm(),
                         worker.hardwareType(), worker.hardwareModel(),
                         worker.terahashPerSecond() * 1e12,
-                        worker.approximatedPowerUsageWatts(), worker.miningStatus().name()))
+                        worker.approximatedPowerUsageWatts(), worker.miningStatus().name(),
+                        Coin.byAlgorithm(worker.currentAlgorithm()).map(Coin::id).orElse(null)))
                 .toList();
     }
 
-    private static List<EarningsRow> earningsRows(List<MarketDataService.Forecast> forecasts) {
+    static List<EarningsRow> earningsRows(List<MarketDataService.Forecast> forecasts) {
         return forecasts.stream()
                 .filter(forecast -> forecast.available() && forecast.hashrateHps() > 0)
                 .map(forecast -> new EarningsRow(forecast.coin(), forecast.ticker(),
-                        forecast.hashrateHps(), forecast.usdPerDay()))
+                        forecast.hashrateHps(), forecast.usdPerDay(), true))
                 .toList();
     }
 
@@ -202,9 +204,11 @@ public class NetworkDashboardService {
                             Instant collectedAt) { }
 
     public record WorkerRow(String name, String algorithm, String hardwareType, String hardwareModel,
-                            double hashrateHps, long watts, String status) { }
+                            double hashrateHps, long watts, String status, String coin) { }
 
-    public record EarningsRow(String coin, String ticker, double hashrateHps, double usdPerDay) { }
+    /** Nullable for backward-compatible deserialization of snapshots from older LAN peers. */
+    public record EarningsRow(String coin, String ticker, double hashrateHps, double usdPerDay,
+                              Boolean available) { }
 
     public record Totals(int workerCount, double hashrateHps, long watts, double usdPerDay) { }
 

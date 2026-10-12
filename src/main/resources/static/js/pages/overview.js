@@ -67,9 +67,13 @@
     });
     const remoteRows = (networkAgents?.agents || []).filter(agent => !agent.own && agent.reachable)
       .flatMap(agent => (agent.workers || []).filter(row => row.status === 'MINING' || row.status === 'ERROR').map(row => {
-        const forecast = (agent.earnings || []).find(item => item.coin === row.coin);
+        // Current peers publish coin/available explicitly. For older peers, infer the coin from
+        // the closed algorithm catalog and treat their already-filtered earnings rows as available.
+        const coin = row.coin || ui.coinIdForAlgorithm(row.algorithm);
+        const rawForecast = (agent.earnings || []).find(item => item.coin === coin);
+        const forecast = rawForecast ? {...rawForecast, available: rawForecast.available !== false} : null;
         const usdPerDay = ui.workerUsdPerDay(Number(row.hashrateHps), forecast);
-        return {...row, agent: agent.name || t('pc_agent'), local: false, usdPerDay,
+        return {...row, coin, agent: agent.name || t('pc_agent'), local: false, usdPerDay,
           revenuePerKwh: ui.revenuePerKwh(usdPerDay, Number(row.watts))};
       }));
     return [...localRows, ...remoteRows];

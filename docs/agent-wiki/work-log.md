@@ -1560,6 +1560,31 @@ Vorgehen / Andockpunkte für andere Agenten:
   `scan-i18n-literals.cjs` (0), `simulate-i18n-render.cjs` (alle 9 Seiten in
   beiden Sprachen) und `git diff --check` sauber.
 
+## 2026-10-12 — Remote-Worker: Earnings und Earnings/kWh
+
+- Ursache: Der LAN-Snapshot entfernte beim Abbilden des internen Worker-/Forecast-
+  Modells genau die beiden Felder, welche die Dashboard-Formel voraussetzt:
+  `WorkerRow` hatte keine Coin-ID und `EarningsRow` kein `available`. Deshalb
+  fand `overview.js` keinen Forecast; selbst ein Treffer wäre von
+  `workerUsdPerDay()` als nicht verfügbar abgelehnt worden. Die übertragene
+  Agent-Gesamtsumme wurde für einzelne Tabellenzeilen absichtlich nicht
+  verwendet.
+- Umsetzung: Der additive Snapshot-Vertrag veröffentlicht nun `worker.coin`
+  (aus dem zentralen `Coin.byAlgorithm`, inklusive Aliase) und
+  `earnings.available=true` für die bereits serverseitig gefilterten Forecasts.
+  Das Dashboard unterstützt gemischte LAN-Versionen: Fehlt `coin`, wird es aus
+  dem geschlossenen Algorithmus-Katalog abgeleitet; fehlt `available`, gilt der
+  vom alten Agent bereits gefilterte Forecast als verfügbar. Die bestehende
+  Berechnung und Währungsdarstellung bleiben unverändert.
+- Verifikation: `NetworkDashboardServiceTest` prüft Coin-Auflösung inklusive
+  `blake3`-Alias, den Availability-Vertrag und die Deserialisierung eines alten
+  Snapshots ohne additive Felder. `check-dashboard-startup.cjs` rendert einen
+  solchen Legacy-Peer und verlangt Tagesertrag sowie positiven Ertrag/kWh.
+  `sh gradlew test standaloneJar --offline` erfolgreich (184 Tests / 48
+  Klassen); `check-i18n.cjs` (1255 Keys, DE/EN),
+  `scan-i18n-literals.cjs` (0), `simulate-i18n-render.cjs` (9 Seiten in beiden
+  Sprachen), JS-Syntax und `git diff --check` sauber. Keine neuen UI-Texte.
+
 ## 2026-10-12 — SRBMiner-Migrationshinweis und Worker-Update
 
 - Eine vorhandene, aber nicht mit der geprüften SRBMiner-Version markierte Binary wird im
