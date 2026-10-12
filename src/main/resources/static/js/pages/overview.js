@@ -1,4 +1,4 @@
-// Dashboard: readiness first, then measurement, then money. One aggregate, pushed over SSE.
+// Dashboard: readiness first, then measurement, then money.
 // Stable dashboard snapshots use REST; only telemetry remains live over SSE. A channel that fails
 // drops its derived state instead of keeping dead numbers on screen.
 (() => {
@@ -9,6 +9,9 @@
   let overview, telemetry, settings, assessment, energy, agentUi = null, energyError = null, uiRequested = false;
   let networkAgents = null;
   let savedAt = null, fresh = true;
+  // A persisted overview snapshot may invoke the subscription synchronously. Every value read
+  // by that render path must therefore be initialized before any channel is registered.
+  let agentName = null, agentNameBusy = false, agentNameState = '', agentNameError = false;
 
   function renderStatusStrip(data) {
     const strip = $('status-strip');
@@ -204,7 +207,6 @@
 
   // ------------------------------------------------------------------ agent identity
 
-  let agentName = null, agentNameBusy = false, agentNameState = '', agentNameError = false;
   function renderAgentName() {
     const input = $('agent-name-input');
     // A live re-render must never overwrite what the operator is typing.

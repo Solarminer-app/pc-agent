@@ -1542,13 +1542,23 @@ Vorgehen / Andockpunkte für andere Agenten:
   öffnet seine SSE-Verbindung erst, wenn Vorbereitung/Download läuft; dann
   bleiben Fortschritt und Ready-Übergang live. Cache-Buster aller betroffenen
   HTML-Seiten wurden angehoben.
+- Während der Verifikation reproduziert und behoben: Der sofortige Cache-Paint
+  konnte `dashboardWorkers()` ausführen, bevor das weiter unten deklarierte
+  `let agentName` initialisiert war (`ReferenceError`, kompletter Render-Pfad
+  abgebrochen). Der gesamte Identity-Zustand wird jetzt vor der ersten
+  Channel-Registrierung initialisiert; `overview.js` erhielt ebenfalls einen
+  neuen Cache-Buster.
 - Vertrag/i18n: `/external/**`, REST-Pfade und Payloads unverändert. Keine neuen
   sichtbaren Texte; deutsche und englische Kataloge bleiben geschlossen.
 - Verifikation: `AgentEventControllerTest` pinnt exakt die sechs Kanäle;
-  `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --offline`
-  erfolgreich. `node --check` für alle geänderten JS-Dateien und
-  `git diff --check` sauber. Weitere i18n-/Standalone-Evidence wird nach dem
-  abschließenden Lauf ergänzt.
+  `check-dashboard-startup.cjs` rendert den synchron gelieferten Cache-Snapshot
+  ohne Initialisierungsfehler; ein separater Loader-Harness belegt Cache-Paint +
+  genau eine sofortige REST-Revalidierung + keine EventSource für REST-Kanäle.
+  `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test standaloneJar
+  --offline` erfolgreich (181 Tests / 47 Klassen). `node --check` für alle
+  geänderten JS-Dateien, `check-i18n.cjs` (1255 Keys, DE/EN),
+  `scan-i18n-literals.cjs` (0), `simulate-i18n-render.cjs` (alle 9 Seiten in
+  beiden Sprachen) und `git diff --check` sauber.
 
 ## 2026-10-12 — SRBMiner-Migrationshinweis und Worker-Update
 
