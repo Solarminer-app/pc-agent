@@ -33,16 +33,16 @@ function rangeControl(gpu, enabled) {
     }
     min.value = String(gpu.userMinPowerLimitWatts);
     max.value = String(gpu.userMaxPowerLimitWatts);
-    min.setAttribute('aria-label', gpu.model + ': ' + i18n.t('minimale SolarMiner-Leistung'));
-    max.setAttribute('aria-label', gpu.model + ': ' + i18n.t('maximale SolarMiner-Leistung'));
+    min.setAttribute('aria-label', gpu.model + ': ' + i18n.t('minimum_solarminer_power'));
+    max.setAttribute('aria-label', gpu.model + ': ' + i18n.t('maximum_solarminer_power'));
     const values = node('div', 'dual-range-values'), actions = node('div', 'hardware-actions');
-    const save = node('button', 'button primary', 'Grenzen anwenden');
+    const save = node('button', 'button primary', 'apply_limits');
     save.type = 'button';
     save.disabled = true;
-    const reset = node('button', 'button subtle', 'Verwerfen');
+    const reset = node('button', 'button subtle', 'discard');
     reset.type = 'button';
     reset.disabled = true;
-    const state = node('small', '', 'Gespeicherte Grenzen. Verschieben ändert noch nichts.');
+    const state = node('small', '', 'saved_limits_moving_the_sliders_does_not_app');
     const draw = () => {
         if (+min.value > +max.value) {
             if (document.activeElement === min) max.value = min.value; else min.value = max.value;
@@ -50,7 +50,7 @@ function rangeControl(gpu, enabled) {
         const span = +min.max - +min.min;
         selected.style.left = (span ? 100 * (+min.value - +min.min) / span : 0) + '%';
         selected.style.right = (span ? 100 - 100 * (+max.value - +max.min) / span : 0) + '%';
-        values.replaceChildren(node('span', '', i18n.t('Min. {watts} W', {watts: fmt(min.value)})), node('strong', '', fmt(min.value) + '–' + fmt(max.value) + ' W'), node('span', '', i18n.t('Max. {watts} W', {watts: fmt(max.value)})));
+        values.replaceChildren(node('span', '', i18n.t('min_watts_w', {watts: fmt(min.value)})), node('strong', '', fmt(min.value) + '–' + fmt(max.value) + ' W'), node('span', '', i18n.t('max_watts_w', {watts: fmt(max.value)})));
     };
     const edit = () => {
         draw();
@@ -61,7 +61,7 @@ function rangeControl(gpu, enabled) {
         }); else drafts.delete(gpu.deviceId);
         save.disabled = reset.disabled = !dirty;
         state.classList.toggle('hardware-draft', dirty);
-        state.textContent = i18n.t(dirty ? 'Noch nicht angewendet.' : 'Gespeicherte Grenzen. Verschieben ändert noch nichts.');
+        state.textContent = i18n.t(dirty ? 'not_applied_yet' : 'saved_limits_moving_the_sliders_does_not_app');
     };
     for (const input of [min, max]) input.addEventListener('input', edit);
     reset.addEventListener('click', () => {
@@ -81,13 +81,15 @@ function rangeControl(gpu, enabled) {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(value)
             });
-            if (!response.ok) throw new Error('Die Treiber haben diese Grenzen abgelehnt. Der Entwurf bleibt zum Prüfen erhalten.');
+            if (!response.ok) throw new Error('the_drivers_rejected_these_limits_your_draft');
+            // Loading plan P4: the POST answer is the new GpuStatus — apply it directly
+            // instead of waiting for the next push, then re-read the page view once.
+            const saved = await response.json();
             drafts.delete(gpu.deviceId);
-            gpu.userMinPowerLimitWatts = value.minimumWatts;
-            gpu.userMaxPowerLimitWatts = value.maximumWatts;
+            Object.assign(gpu, saved);
             state.classList.remove('hardware-draft');
-            state.textContent = i18n.t('Leistungsgrenzen gespeichert.');
-            notice(i18n.t('{gpu}: Leistungsgrenzen gespeichert.', {gpu: gpu.model}));
+            state.textContent = i18n.t('power_limits_saved');
+            notice(i18n.t('gpu_power_limits_saved', {gpu: gpu.model}));
             save.blur();
         } catch (error) {
             notice(i18n.s(error.message), true);
@@ -95,7 +97,7 @@ function rangeControl(gpu, enabled) {
             saving = false;
             min.disabled = max.disabled = !enabled;
             save.disabled = reset.disabled = !drafts.has(gpu.deviceId);
-            await refresh();
+            window.SolarMinerLive.refresh('power-control');
         }
     });
     draw();
@@ -113,7 +115,7 @@ function renderSettings(data) {
     input.type = 'checkbox';
     input.checked = Boolean(data.dynamicPowerScalingEnabled);
     const copy = node('span');
-    copy.append(node('strong', '', 'Dynamische Leistungsregelung'), node('small', '', 'Der Node darf Wattziele innerhalb deiner Grenzen verteilen. Ohne Regelung bleiben Start und Pause möglich.'));
+    copy.append(node('strong', '', 'dynamic_power_control'), node('small', '', 'the_node_may_allocate_power_within_your_limi'));
     row.append(input, copy, node('span', 'toggle'));
     list.append(row);
     input.addEventListener('change', async () => {
@@ -125,8 +127,12 @@ function renderSettings(data) {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({...data, dynamicPowerScalingEnabled: input.checked})
             });
-            if (!response.ok) throw new Error('Die lokale Einstellung konnte nicht gespeichert werden.');
-            notice('Leistungsregelung aktualisiert.');
+            if (!response.ok) throw new Error('could_not_save_the_local_setting');
+            // Loading plan P4: the POST answer is the saved settings object — trust it
+            // immediately; the server also wakes the affected channels right away.
+            const saved = await response.json().catch(() => null);
+            if (saved) data.dynamicPowerScalingEnabled = Boolean(saved.dynamicPowerScalingEnabled);
+            notice('power_control_updated');
         } catch (error) {
             input.checked = !input.checked;
             notice(i18n.s(error.message), true);
@@ -134,10 +140,10 @@ function renderSettings(data) {
             saving = false;
             input.disabled = false;
             input.blur();
-            await refresh();
+            window.SolarMinerLive.refresh('power-control');
         }
     });
-    const link = node('a', 'control-setting', 'Welche Geräte der Node verwendet, legst du im Mining-Profil fest →');
+    const link = node('a', 'control-setting', 'assign_devices_used_by_the_node_in_the_minin');
     link.href = '/mining.html';
     list.append(link);
 }
@@ -152,48 +158,36 @@ function render(data) {
         head.append(node('span', 'device-kind', gpu.vendor), node('h2', '', gpu.model), node('span', 'hardware-index', 'GPU ' + gpu.index));
         card.append(head);
         if (!gpu.supportsDynamicPowerScaling) {
-            card.append(node('p', 'muted', 'Für dieses Gerät ist nur Start/Stopp verfügbar. Leistungsgrenzen können nicht zuverlässig angewendet werden.'));
+            card.append(node('p', 'muted', 'this_device_supports_start_stop_only_power_l'));
             if (gpu.regulationError) card.append(node('p', 'muted', i18n.s(gpu.regulationError)));
             list.append(card);
             continue;
         }
         const stats = node('div', 'hardware-gpu-stats');
-        stats.append(node('span', '', i18n.t('Treiber {min}–{max} W', {min: fmt(gpu.driverMinPowerLimitWatts), max: fmt(gpu.driverMaxPowerLimitWatts)})), node('span', '', i18n.t('Limit {watts} W', {watts: gpu.currentPowerLimitWatts ?? '—'})), node('span', '', i18n.t('Aufnahme {watts}', {watts: gpu.currentUsageWatts == null ? '—' : fmt(gpu.currentUsageWatts) + ' W'})));
+        stats.append(node('span', '', i18n.t('driver_min_max_w', {min: fmt(gpu.driverMinPowerLimitWatts), max: fmt(gpu.driverMaxPowerLimitWatts)})), node('span', '', i18n.t('limit_watts_w', {watts: gpu.currentPowerLimitWatts ?? '—'})), node('span', '', i18n.t('draw_watts', {watts: gpu.currentUsageWatts == null ? '—' : fmt(gpu.currentUsageWatts) + ' W'})));
         card.append(stats, rangeControl(gpu, data.dynamicPowerScalingEnabled));
-        if (!data.dynamicPowerScalingEnabled) card.append(node('p', 'muted', 'Dynamische Leistungsregelung ist ausgeschaltet. Aktiviere sie oben, um Grenzen zu bearbeiten.'));
+        if (!data.dynamicPowerScalingEnabled) card.append(node('p', 'muted', 'dynamic_power_control_is_disabled_enable_it'));
         const details = node('details', 'hardware-identity');
-        details.append(node('summary', '', 'Gerätekennung'), node('p', 'hardware-id', gpu.deviceId));
+        details.append(node('summary', '', 'device_identity'), node('p', 'hardware-id', gpu.deviceId));
         card.append(details);
         list.append(card);
     }
     if (!list.children.length) {
         const empty = node('div', 'empty-state');
-        empty.append(node('h2', '', 'Keine regelbare GPU erkannt'), node('p', 'muted', 'Prüfe GPU-Treiber und Gerätezugriff. CPU-Mining kannst du unabhängig davon in Miner einrichten.'));
-        const link = node('a', 'button', 'Miner öffnen →');
+        empty.append(node('h2', '', 'no_controllable_gpu_detected'), node('p', 'muted', 'check_gpu_drivers_and_device_access_you_can'));
+        const link = node('a', 'button', 'open_miner_251fb2');
         link.href = '/mining.html';
         empty.append(link);
         list.append(empty);
     }
 }
 
-async function refresh() {
-    if (refreshing) return;
-    refreshing = true;
-    try {
-        const response = await fetch('/api/agent/local/power-control', {cache: 'no-store'});
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        render(await response.json());
-        if ($('notice').dataset.kind === 'connection') $('notice').hidden = true;
-        $('connection').className = 'badge online';
-        $('connection').textContent = i18n.t('Agent verbunden');
-        $('updated').textContent = i18n.t('Aktualisiert {time}', {time: new Date().toLocaleTimeString(i18n.locale)});
-    } catch (error) {
-        $('connection').className = 'badge offline';
-        $('connection').textContent = i18n.t('Agent nicht erreichbar');
-        notice(i18n.t('Hardwaredaten konnten nicht geladen werden: {error}', {error: i18n.s(error.message)}), true, 'connection');
-    } finally {
-        refreshing = false;
-    }
+function applyPowerStatus(data) {
+    render(data);
+    if ($('notice').dataset.kind === 'connection') $('notice').hidden = true;
+    $('connection').className = 'badge online';
+    $('connection').textContent = i18n.t('agent_connected');
+    $('updated').textContent = i18n.t('updated_time', {time: new Date().toLocaleTimeString(i18n.locale)});
 }
 
 window.addEventListener('beforeunload', event => {
@@ -202,8 +196,16 @@ window.addEventListener('beforeunload', event => {
         event.returnValue = '';
     }
 });
-$('refresh').addEventListener('click', refresh);
-refresh();
-setInterval(() => {
-    if (!document.hidden) refresh();
-}, 5000);
+// Phase 5c: power-control state arrives over the shared SSE stream (server tick 5 s,
+// same rate as the old poll); the watchdog re-reads only after a silent push.
+$('refresh').addEventListener('click', () => window.SolarMinerLive.refresh('power-control'));
+window.SolarMinerLive.channel('power-control', {endpoint: '/api/agent/local/power-control', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
+    .subscribe((data, meta) => {
+        if (data) applyPowerStatus(data);
+        else if (meta.error) {
+            $('connection').className = 'badge offline';
+            $('connection').textContent = i18n.t('agent_unavailable');
+            notice(i18n.t('could_not_load_hardware_data_error', {error: i18n.s(meta.error.message || '')}), true, 'connection');
+        }
+    });
+window.SolarMinerLive.start();

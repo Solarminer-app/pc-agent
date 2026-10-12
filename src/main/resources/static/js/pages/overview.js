@@ -7,7 +7,8 @@
   const $ = ui.$;
   const t = ui.t;
   const preferences = window.SolarMinerPreferences;
-  let overview, telemetry, settings, assessment, energy, energyError = null;
+  let overview, telemetry, settings, assessment, energy, agentUi = null, energyError = null, uiRequested = false;
+  let networkAgents = null;
   let savedAt = null, fresh = true;
 
   function renderStatusStrip(data) {
@@ -20,45 +21,37 @@
       const pill = ui.statusPill(null, value);
       if (tone) pill.classList.add(tone);
       item.append(pill);
-      if (href) { const link = ui.element('a', '', 'Öffnen'); link.href = href; item.append(link); }
+      if (href) { const link = ui.element('a', '', 'open'); link.href = href; item.append(link); }
       strip.append(item);
     };
     const proxy = data.proxy || {};
-    add('Agent', !fresh ? 'nicht erreichbar' : 'verbunden',
+    add('Agent', !fresh ? 'unavailable_9da3a4' : 'connected_e0e3b1',
       fresh ? 'tone-ok' : 'tone-bad');
-    add('Mining-Verbindung', !proxy.reachable ? 'getrennt' : proxy.mode === 'standalone' ? 'lokaler Proxy' : 'Proxy im Netzwerk',
+    add('mining_connection', !proxy.reachable ? 'disconnected' : proxy.mode === 'standalone' ? 'local_proxy_5d93d2' : 'network_proxy',
       proxy.reachable ? 'tone-ok' : 'tone-bad', '/proxy.html');
-    add('Node', assessment?.connected ? 'verbunden' : assessment?.connected === false ? 'nicht verbunden' : 'unbekannt',
+    add('Node', assessment?.connected ? 'connected_e0e3b1' : assessment?.connected === false ? 'not_connected' : 'unknown_a4967c',
       assessment?.connected ? 'tone-ok' : '', '/workers.html');
     const workers = (data.stats?.workers || []);
     const errors = workers.filter(worker => worker.miningStatus === 'ERROR').length;
-    if (errors) add('Meldungen', t('{count} Worker mit Fehler', {count: errors}), 'tone-bad', '/workers.html');
+    if (errors) add('notifications', t('count_workers_with_errors', {count: errors}), 'tone-bad', '/workers.html');
   }
 
-  function renderAlerts(data) {
+  // Phase 5c: the alert rules run once in the backend (AgentStatusService.uiState) and
+  // arrive on the "ui" channel; the UI only renders rows. Keys are closed-catalog entries.
+  function renderAlerts(agentUi) {
     const list = $('alerts');
     list.replaceChildren();
-    const installed = (data.coins || []).filter(coin => coin.binaryAvailable && !coin.experimental);
-    const unconfigured = installed.find(coin => !coin.configured);
-    const workers = data.stats?.workers || [];
-    const errors = workers.filter(worker => worker.miningStatus === 'ERROR');
-    const enabledIds = settings ? ['cpu', ...(data.gpus || []).map(gpu => gpu.deviceId)]
-      .filter(id => settings.workerExternalControl?.[id] !== false
-        && (settings.workerCoins == null || (settings.workerCoins[id]
-          || (id === 'cpu' ? 'none' : settings.workerCoins['*'] || 'none')) !== 'none')) : [];
-    const items = [];
-    if (!installed.length) items.push(['warn', 'Noch kein Miner installiert', 'Wähle in der Miner-Bibliothek einen passenden Build und installiere ihn.', '/mining.html', 'Miner installieren →']);
-    else if (unconfigured) items.push(['warn', 'Einrichtung unvollständig', t('{coin}: Pool, Auszahlung oder Geräteauswahl fehlen.', {coin: unconfigured.name}), '/workers.html', 'Worker einrichten →']);
-    if (!data.proxy?.reachable) items.push(['bad', 'Mining-Verbindung getrennt', 'Der Proxy ist nicht erreichbar; ohne ihn starten die Miner nicht.', '/proxy.html', 'Verbindung prüfen →']);
-    if (errors.length) items.push(['bad', t('{count} Worker mit Fehler', {count: errors.length}), errors.map(worker => worker.workerDisplayName).join(', '), '/workers.html', 'Worker prüfen →']);
-    if (settings?.externalControlEnabled && !enabledIds.length) items.push(['warn', 'Node-Steuerung erlaubt, aber kein Gerät freigegeben', 'Wähle unter Node-Automatisierung mindestens einen Worker aus, damit der Node automatisch regeln darf.', '/automation.html', 'Node-Automatisierung öffnen →']);
-    if (!items.length) items.push(['ok', 'Alles im erwarteten Bereich', 'Keine offene Aktion. Die Messwerte unten zeigen den laufenden Betrieb.', null, null]);
-    for (const [tone, title, description, href, action] of items) {
-      const row = ui.element('div', `notice-line ${tone}`);
+    for (const alert of agentUi?.alerts || []) {
+      const row = ui.element('div', `notice-line ${alert.tone}`);
       const copy = ui.element('div');
-      copy.append(ui.element('strong', '', title), ui.element('div', '', description));
+      const title = alert.titleKey ? t(alert.titleKey, alert.titleParams || {}) : '';
+      const description = alert.descriptionKey ? t(alert.descriptionKey, alert.descriptionParams || {})
+        : (alert.descriptionLiteral || '');
+      const strong = document.createElement('strong'); strong.textContent = title;
+      const detail = document.createElement('div'); detail.textContent = description;
+      copy.append(strong, detail);
       row.append(copy);
-      if (href) { const link = ui.element('a', '', action); link.href = href; row.append(link); }
+      if (alert.href) { const link = ui.element('a', '', alert.actionKey); link.href = alert.href; row.append(link); }
       list.append(row);
     }
   }
@@ -80,20 +73,81 @@
       const usdPerDay = forecast ? forecast.usdPerDay * ratio : null;
       const metrics = ui.element('div', 'live-worker-metrics');
       for (const [label, value] of [
-        ['Hashrate', ui.hashrate(row.hashrateHps)], ['Leistung', row.watts ? ui.power(row.watts) : '—'],
-        ['Temperatur', row.temperature.value != null ? ui.temperature(row.temperature.value) : '—'],
-        ['Ertrag', usdPerDay != null ? t('≈ {value}/Tag', {value: preferences.moneyFromUsd(usdPerDay)}) : '—'],
-        ['Ertrag pro kWh', ui.moneyPerKwh(ui.revenuePerKwh(usdPerDay, row.watts))]]) {
+        ['hashrate', ui.hashrate(row.hashrateHps)], ['power_4606f4', row.watts ? ui.power(row.watts) : '—'],
+        ['temperature', row.temperature.value != null ? ui.temperature(row.temperature.value) : '—'],
+        ['earnings', usdPerDay != null ? t('value_day', {value: preferences.moneyFromUsd(usdPerDay)}) : '—'],
+        ['earnings_per_kwh', ui.moneyPerKwh(ui.revenuePerKwh(usdPerDay, row.watts))]]) {
         const item = ui.element('div'); item.append(ui.element('span', '', label), ui.element('strong', '', value)); metrics.append(item);
       }
       card.append(metrics);
       const targetPool = poolTargets[row.coin] || row.pools?.[0];
-      const pool = ui.element('p', 'live-worker-pool', targetPool ? `${targetPool} · ${t('Latenz')} ${ui.latency(row.latency)}` : t('Kein Pool gemeldet'));
+      const pool = ui.element('p', 'live-worker-pool', targetPool ? `${targetPool} · ${t('latency')} ${ui.latency(row.latency)}` : t('no_pool_reported'));
       const session = energy?.activeSessions?.find(item => item.deviceId === row.deviceId);
-      if (session) pool.append(ui.element('span', '', ` · ${t('Session')} ${ui.kilowattHours(Number(session.wattHours))}`));
-      const link = ui.element('a', '', 'Worker öffnen →'); link.href = '/workers.html'; card.append(pool, link); return card;
+      if (session) pool.append(ui.element('span', '', ` · ${t('session')} ${ui.kilowattHours(Number(session.wattHours))}`));
+      const link = ui.element('a', '', 'open_worker'); link.href = '/workers.html'; card.append(pool, link); return card;
     }));
-    if (!rows.length) grid.append(ui.element('div', 'notice-line warn', 'Kein Worker läuft gerade. Richte Hardware im Bereich Worker ein oder starte eine vorhandene Zuweisung.'));
+    if (!rows.length) grid.append(ui.element('div', 'notice-line warn', 'no_worker_is_running_configure_hardware_in_w'));
+  }
+
+  function renderNetworkAgents() {
+    const grid = $('network-agents-grid');
+    const note = $('network-agents-note');
+    if (!networkAgents) {
+      grid.replaceChildren(ui.element('div', 'skeleton'));
+      note.textContent = t('searching_the_local_network_for_pc_agents');
+      return;
+    }
+    const peers = (networkAgents.agents || []).filter(agent => !agent.own);
+    if (!peers.length) {
+      grid.replaceChildren();
+      note.textContent = t('no_other_pc_agents_found_searching_the_local');
+      return;
+    }
+    note.textContent = networkAgents.sharingEnabled
+      ? t('another_pc_agent_shares_only_read_only_wo')
+      : t('lan_visibility_off_peers_stay_listed_without');
+    grid.replaceChildren(...peers.map(agent => {
+      const card = ui.element('article', `network-agent-card ${agent.reachable ? '' : 'error'}`);
+      const head = ui.element('div', 'live-worker-head');
+      const identity = ui.element('div');
+      identity.append(ui.element('strong', '', agent.name || t('worker')),
+        ui.element('span', '', `${agent.host}:${agent.dashboardPort}`));
+      head.append(identity, (() => {
+        const pill = ui.statusPill(null, t(agent.reachable ? 'connected_e0e3b1' : 'unavailable_9da3a4'));
+        pill.classList.add(agent.reachable ? 'tone-ok' : 'tone-bad');
+        return pill;
+      })());
+      card.append(head);
+      if (agent.error) card.append(ui.element('p', 'network-agent-error', window.SolarMinerI18n.s(agent.error)));
+      const totals = agent.totals || {};
+      const metrics = ui.element('div', 'live-worker-metrics');
+      for (const [label, value] of [
+        ['worker', String(totals.workerCount || 0)],
+        ['hashrate', ui.hashrate(totals.hashrateHps || 0)],
+        ['power_4606f4', totals.watts ? ui.power(totals.watts) : '—'],
+        ['earnings', totals.usdPerDay ? t('value_day', {value: preferences.moneyFromUsd(totals.usdPerDay)}) : '—']]) {
+        const item = ui.element('div'); item.append(ui.element('span', '', label), ui.element('strong', '', value)); metrics.append(item);
+      }
+      card.append(metrics);
+      const rows = (agent.workers || []).slice(0, 6);
+      if (rows.length) {
+        const list = ui.element('div', 'network-agent-workers');
+        for (const row of rows) {
+          const line = ui.element('p', 'network-agent-worker');
+          line.append(ui.element('strong', '', row.name || t('worker')),
+            ui.element('span', '', ` · ${row.hardwareType || '—'} · ${row.algorithm || '—'} · ${ui.hashrate(row.hashrateHps || 0)}`));
+          list.append(line);
+        }
+        card.append(list);
+      }
+      if (agent.reachable) {
+        const link = ui.element('a', '', t('open_agent_dashboard'));
+        link.href = `http://${agent.host}:${agent.dashboardPort}/`;
+        link.target = '_blank'; link.rel = 'noopener';
+        card.append(link);
+      }
+      return card;
+    }));
   }
 
   function renderEnergy() {
@@ -101,8 +155,8 @@
     $('energy-settings').disabled = !energy;
     if (!energy) {
       root.replaceChildren(ui.element('div', energyError ? 'notice-line warn' : 'skeleton',
-        energyError ? 'Energiedaten konnten nicht geladen werden.' : undefined));
-      $('energy-note').textContent = energyError ? `${t('Energie-API:')} ${t(energyError)}` : '';
+        energyError ? 'energy_data_could_not_be_loaded' : undefined));
+      $('energy-note').textContent = energyError ? `${t('energy_api')} ${t(energyError)}` : '';
       return;
     }
     const activeWh = (energy.activeSessions || []).reduce((sum, session) => sum + Number(session.wattHours || 0), 0);
@@ -111,12 +165,12 @@
     const tariff = preferences.convert(energy.settings.pricePerKwh, energy.settings.currency);
     const tariffCurrency = tariff == null ? energy.settings.currency : preferences.currency;
     root.replaceChildren(
-      ui.metric({label: 'Laufende Sessions', value: ui.kilowattHours(activeWh), detail: t('{count} Worker · {duration}', {count: energy.activeSessions.length, duration: ui.duration(activeSeconds)}), tone: energy.activeSessions.length ? 'ok' : ''}),
-      ui.metric({label: 'Heute', value: ui.kilowattHours(Number(energy.today.kilowattHours) * 1000), detail: `${money(energy.today.cost)} ${t('Stromkosten')}`}),
-      ui.metric({label: '7 Tage', value: ui.kilowattHours(Number(energy.last7Days.kilowattHours) * 1000, 2), detail: `${money(energy.last7Days.cost)} ${t('Stromkosten')}`}),
-      ui.metric({label: 'Messabdeckung', value: `${Math.round(energy.today.measurementCoverage * 100)} %`, detail: t('Fehlende Sensorintervalle werden nicht geschätzt')})
+      ui.metric({label: 'running_sessions', value: ui.kilowattHours(activeWh), detail: t('count_workers_duration', {count: energy.activeSessions.length, duration: ui.duration(activeSeconds)}), tone: energy.activeSessions.length ? 'ok' : ''}),
+      ui.metric({label: 'today_1ab330', value: ui.kilowattHours(Number(energy.today.kilowattHours) * 1000), detail: `${money(energy.today.cost)} ${t('electricity_cost')}`}),
+      ui.metric({label: '7_days', value: ui.kilowattHours(Number(energy.last7Days.kilowattHours) * 1000, 2), detail: `${money(energy.last7Days.cost)} ${t('electricity_cost')}`}),
+      ui.metric({label: 'measurement_coverage', value: `${Math.round(energy.today.measurementCoverage * 100)} %`, detail: t('missing_sensor_intervals_are_not_estimated')})
     );
-    $('energy-note').textContent = t('Komponentenverbrauch aus verfügbaren CPU-Package- und GPU-Board-Sensoren · Tarif {tariff} {currency}/kWh. Netzteil- und übrige Systemverluste können fehlen.',
+    $('energy-note').textContent = t('component_consumption_from_available_cpu_pac',
       {tariff: Number(tariff == null ? energy.settings.pricePerKwh : tariff).toLocaleString(preferences.locale, {maximumFractionDigits: 4}), currency: tariffCurrency});
   }
 
@@ -124,54 +178,74 @@
     if (!energy) return;
     const converted = preferences.convert(energy.settings.pricePerKwh, energy.settings.currency);
     const editCurrency = converted == null ? energy.settings.currency : preferences.currency;
-    const value = prompt(t('Strompreis in {currency} pro kWh', {currency: editCurrency}), converted == null ? energy.settings.pricePerKwh : converted);
+    const value = prompt(t('electricity_rate_in_currency_per_kwh', {currency: editCurrency}), converted == null ? energy.settings.pricePerKwh : converted);
     if (value == null) return;
     const price = Number(String(value).replace(',', '.'));
-    if (!Number.isFinite(price) || price < 0) return alert(t('Bitte gib einen gültigen positiven Strompreis ein.'));
+    if (!Number.isFinite(price) || price < 0) return alert(t('enter_a_valid_positive_electricity_rate'));
     try {
-      energy.settings = await ui.postJson('/api/agent/local/energy/settings', {pricePerKwh: price, currency: editCurrency});
+      energy.settings = await ui.postJson('/api/agent/local/economics/settings', {pricePerKwh: price, currency: editCurrency});
       window.SolarMinerLive.refresh('energy');
-    } catch (_) { alert(t('Stromtarif konnte nicht gespeichert werden.')); }
+    } catch (_) { alert(t('could_not_save_the_electricity_rate')); }
   }
 
-  function render(data, isFresh = fresh) {
+  function render(data, isFresh = fresh, reconcilingSnapshot = false) {
     overview = data;
     fresh = isFresh;
     renderStatusStrip(data);
-    renderAlerts(data);
+    renderAlerts(agentUi);
     renderLiveWorkers(data);
     renderEnergy();
-    ui.setConnection(fresh ? 'online' : 'offline');
+    renderNetworkAgents();
+    // A cached tab snapshot is deliberately painted before the live read. Its short
+    // overview TTL may already have elapsed during normal page navigation; that is a
+    // loading transition, not an outage. Keep the previous dashboard visible while the
+    // bundled first paint replaces it, but retain the offline warning for real failures.
+    ui.setConnection(reconcilingSnapshot ? 'connecting' : fresh ? 'online' : 'offline');
     ui.setUpdated(savedAt);
-    if (!fresh) ui.notice('Letzter bekannter Stand · aktuelle Daten werden geprüft.', {error: true, kind: 'connection'});
+    if (!fresh && !reconcilingSnapshot) ui.notice('last_known_state_checking_current_data', {error: true, kind: 'connection'});
     else ui.clearNotice('connection');
   }
 
   // ------------------------------------------------------------------ live channels
 
   window.SolarMinerLive.channel('overview',
-    {endpoint: '/api/agent/local/overview', maxAgeMs: 6000})
+    {endpoint: '/api/agent/local/overview', maxAgeMs: 12000, transport: 'rest', pollMs: 10000})
     .subscribe((data, meta) => {
       if (!data) { fresh = false; if (overview) render(overview, false); return; }
       savedAt = Date.now();
       window.SolarMinerMiningCache?.write(data);
-      render(data, !meta.stale);
+      const reconcilingSnapshot = meta.source === 'snapshot' && meta.stale && !meta.error;
+      render(data, reconcilingSnapshot || !meta.stale, reconcilingSnapshot);
+      // Alert derivation reads the overview again in the backend. It is useful secondary UI,
+      // but must never compete with the first overview REST response on the critical path.
+      if (!uiRequested && meta.source !== 'snapshot') {
+        uiRequested = true;
+        window.setTimeout(() => window.SolarMinerLive.refresh('ui'), 0);
+      }
     });
-  window.SolarMinerLive.channel('settings', {endpoint: '/api/agent/local/power-control/settings', maxAgeMs: 8000})
+  window.SolarMinerLive.channel('settings', {endpoint: '/api/agent/local/power-control/settings', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
     .subscribe((data, meta) => { settings = meta.error ? null : data; if (overview) render(overview); });
-  window.SolarMinerLive.channel('node-assessment', {endpoint: '/api/agent/local/node-assessment', maxAgeMs: 15000})
+  window.SolarMinerLive.channel('node-assessment', {endpoint: '/api/agent/local/node-assessment', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
     .subscribe((data, meta) => { assessment = meta.error ? null : data; if (overview) render(overview); });
   window.SolarMinerLive.channel('telemetry', {endpoint: '/api/agent/local/telemetry', maxAgeMs: 8000})
     .subscribe((data, meta) => { telemetry = meta.error ? null : data; if (overview) render(overview); });
-  window.SolarMinerLive.channel('energy', {endpoint: '/api/agent/local/energy', maxAgeMs: 15000})
+  window.SolarMinerLive.channel('energy', {endpoint: '/api/agent/local/economics', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
     .subscribe((data, meta) => {
       if (meta.error) {
         energy = null;
-        energyError = meta.error.name === 'TimeoutError' ? 'Zeitüberschreitung'
-          : /404/.test(meta.error.message) ? 'HTTP 404 · PC-Agent neu starten oder aktualisieren.'
-            : 'Verbindung fehlgeschlagen';
+        energyError = meta.error.name === 'TimeoutError' ? 'request_timed_out'
+          : /404/.test(meta.error.message) ? 'http_404_restart_or_update_the_pc_agent'
+            : 'connection_failed';
       } else { energy = data; energyError = null; }
       renderEnergy();
+    });
+  window.SolarMinerLive.channel('ui', {endpoint: '/api/agent/local/status/ui', maxAgeMs: 30000, transport: 'rest', initial: false})
+    .subscribe((data, meta) => { agentUi = meta.error ? null : data; if (overview) renderAlerts(agentUi); });
+  window.SolarMinerLive.channel('network-agents',
+    {endpoint: '/api/agent/local/network/agents', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
+    .subscribe((data, meta) => {
+      networkAgents = meta.error ? null : data;
+      renderNetworkAgents();
     });
 
   // ------------------------------------------------------------------ agent identity
@@ -195,13 +269,13 @@
   $('agent-name-form').addEventListener('submit', async event => {
     event.preventDefault();
     if (agentNameBusy) return;
-    agentNameBusy = true; agentNameError = false; agentNameState = 'Speichern …'; renderAgentName();
+    agentNameBusy = true; agentNameError = false; agentNameState = 'saving'; renderAgentName();
     try {
       const identity = await ui.postJson('/api/agent/local/power-control/identity', {name: $('agent-name-input').value.trim()});
       agentName = identity?.name || null;
       window.SolarMinerAgentIdentity?.apply(agentName);
-      agentNameState = agentName ? 'Gespeichert. Der SolarMiner Node zeigt diesen Namen.'
-        : 'Name entfernt. Der Node zeigt wieder SolarMiner PC Agent.';
+      agentNameState = agentName ? 'saved_the_solarminer_node_shows_this_name'
+        : 'name_removed_the_node_shows_solarminer_pc_ag';
     } catch (error) { agentNameState = error.message; agentNameError = true; }
     finally { agentNameBusy = false; renderAgentName(); }
   });

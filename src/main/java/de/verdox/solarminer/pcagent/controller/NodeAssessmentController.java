@@ -1,7 +1,7 @@
 package de.verdox.solarminer.pcagent.controller;
 
-import de.verdox.solarminer.pcagent.mining.NodeAssessmentService;
-import de.verdox.solarminer.pcagent.mining.AgentControlSettingsService;
+import de.verdox.solarminer.pcagent.mining.agent.NodeAssessmentService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -14,10 +14,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class NodeAssessmentController {
     private final NodeAssessmentService assessments;
     private final AgentControlSettingsService controls;
+    private final AgentStatusService status;
 
-    public NodeAssessmentController(NodeAssessmentService assessments, AgentControlSettingsService controls) {
+    public NodeAssessmentController(NodeAssessmentService assessments, AgentControlSettingsService controls,
+                                    @org.springframework.context.annotation.Lazy AgentStatusService status) {
         this.assessments = assessments;
         this.controls = controls;
+        this.status = status;
     }
 
     @GetMapping
@@ -35,5 +38,8 @@ public class NodeAssessmentController {
             throw new org.springframework.web.server.ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Node-Steuerung wurde lokal nicht freigegeben");
         if (!assessments.update(assessment)) throw new IllegalArgumentException("Ungültige Node-Bewertung");
+        // The Node pushes assessments over /external/**; the local dashboard still learns
+        // about them via an immediate section re-evaluation (loading plan P3/P6 safety net).
+        if (status != null) status.invalidate("node-assessment", "overview");
     }
 }

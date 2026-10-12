@@ -1536,6 +1536,46 @@ th[aria-sort=descending] .table-sort::after {
     gap: 10px
 }
 
+.network-agents-grid {
+    display: grid;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    gap: 11px;
+    margin-bottom: 10px
+}
+
+.network-agents-grid:empty {
+    display: none
+}
+
+.network-agent-card {
+    padding: 17px;
+    border: 1px solid #35516b;
+    border-radius: 12px;
+    background: #131c28
+}
+
+.network-agent-card.error {
+    border-color: #7a4a45;
+    background: #261a1a
+}
+
+.network-agent-workers {
+    display: grid;
+    gap: 6px;
+    margin: 0 0 9px
+}
+
+.network-agent-worker {
+    margin: 0;
+    font-size: 11.5px;
+    color: var(--muted);
+    overflow-wrap: anywhere
+}
+
+.network-agent-worker strong {
+    color: inherit
+}
+
 .energy-kpis > .notice-line {
     grid-column: 1 / -1
 }
@@ -1803,7 +1843,7 @@ th[aria-sort=descending] .table-sort::after {
         min-width: 190px
     }
 
-    .live-worker-grid, .software-grid {
+    .live-worker-grid, .software-grid, .network-agents-grid {
         grid-template-columns:1fr
     }
 

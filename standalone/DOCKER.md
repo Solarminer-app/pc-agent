@@ -44,7 +44,7 @@ The setup script also creates `/opt/solarminer-pc-agent/data`. Run the compose c
 For NVIDIA add the NVIDIA overlay after installing NVIDIA Container Toolkit:
 
 ```sh
-docker compose -f docker-compose.pc-agent.yml -f docker-compose.pc-agent.nvidia.yml up -d
+docker compose -f ../docker-compose.pc-agent.yml -f ../docker-compose.pc-agent.nvidia.yml up -d
 ```
 
 The Agent downloads the signed Stratum-proxy release from GitHub on first use.
@@ -59,7 +59,7 @@ the persistent `/data` volume remains available during a later GitHub outage.
 For AMD add the AMD overlay. The host needs a working AMDGPU/ROCm OpenCL stack:
 
 ```sh
-docker compose -f docker-compose.pc-agent.yml -f docker-compose.pc-agent.amd.yml up -d
+docker compose -f ../docker-compose.pc-agent.yml -f ../docker-compose.pc-agent.amd.yml up -d
 ```
 
 AMD CPU package power is read from the host kernel's RAPL `energy_uj` counter,
@@ -79,12 +79,17 @@ current PearlHash support matrix lists AMD and NVIDIA, not Intel. A verified
 Intel PearlHash miner and end-to-end pool test are required before enabling
 that route.
 
-The agent UI on port `8084` must not be exposed to the public internet. External
-proxy discovery receives the proxy heartbeat through the published UDP port
-`8092` and retains the UDP `8091` request fallback for older proxies. If the
-host firewall or Docker installation does not forward LAN broadcasts, enter the
-proxy's LAN host/IP directly; switching from local mode preserves and activates
-that address. The retained
-`docker-compose.pc-agent.standalone.yml` is a host-network compatibility
-profile for existing deployments; it uses the same image and the same UI mode
-selection.
+The agent UI on port `8084` must not be exposed to the public internet. The
+recommended Linux Compose profile uses host networking so proxy discovery on
+UDP `8091`/`8092` and peer-Agent discovery on UDP `8093` can use the physical
+LAN. Allow TCP `8084` and UDP `8092`/`8093` only on the trusted LAN firewall
+profile. The profile has no `ports:` mappings because the process already owns
+the host network; verify these ports are free before starting it. On Docker
+Desktop or another VM-based Docker runtime, test the actual LAN path instead of
+assuming host networking reaches the physical host. UDP broadcast remains
+limited to one Layer-2 broadcast domain; it does not discover agents across a
+routed subnet.
+
+Docker bridge networking is not a supported PC-Agent deployment mode. It does
+not forward the Agent's own broadcasts onto the physical LAN, so it cannot
+provide reliable automatic proxy or peer-Agent discovery.

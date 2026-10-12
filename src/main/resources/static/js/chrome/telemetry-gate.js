@@ -16,11 +16,11 @@
     if (windows && !ready) {
       const starting = data.sensorServiceStatus === 'starting';
       document.getElementById('gate-copy').textContent = t(starting
-        ? 'Bitte bestätige die Windows-Sicherheitsabfrage. Der PC-Agent wartet auf die Administratorfreigabe.'
-        : 'LibreHardwareMonitor läuft nicht. Windows benötigt eine Administratorfreigabe, um den Hardware-Monitor neu zu starten.');
+        ? 'please_approve_the_windows_security_prompt_t'
+        : 'librehardwaremonitor_is_not_running_windows');
       document.getElementById('gate-detail').textContent = s(data.sensorServiceDetail || '');
       retryButton.disabled = retrying || starting;
-      retryButton.textContent = t(starting ? 'Warte auf Windows-Freigabe …' : 'LibreHardwareMonitor neu starten');
+      retryButton.textContent = t(starting ? 'waiting_for_windows_approval' : 'restart_librehardwaremonitor');
     }
   }
 
@@ -28,12 +28,12 @@
     if (retrying) return;
     retrying = true;
     retryButton.disabled = true;
-    retryButton.textContent = t('Windows-Freigabe wird angefordert …');
+    retryButton.textContent = t('requesting_windows_approval');
     try {
       await window.SolarMinerUI.postJson('/api/agent/local/telemetry/restart');
     } catch (error) {
       document.getElementById('gate-detail').textContent =
-        t('Neustart konnte nicht angefordert werden: {error}', {error: error.message});
+        t('could_not_request_restart_error', {error: error.message});
     } finally {
       retrying = false;
       window.SolarMinerLive.refresh('telemetry');

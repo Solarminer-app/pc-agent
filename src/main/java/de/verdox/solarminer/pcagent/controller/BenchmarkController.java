@@ -1,11 +1,12 @@
 package de.verdox.solarminer.pcagent.controller;
 
-import de.verdox.solarminer.pcagent.mining.BenchmarkSessionService;
-import de.verdox.solarminer.pcagent.mining.BenchmarkSharingService;
+import de.verdox.solarminer.pcagent.mining.measurement.BenchmarkSessionService;
+import de.verdox.solarminer.pcagent.mining.measurement.BenchmarkSharingService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -13,10 +14,13 @@ import java.util.Map;
 public class BenchmarkController {
     private final BenchmarkSessionService sessions;
     private final BenchmarkSharingService sharing;
+    private final AgentStatusService status;
 
-    public BenchmarkController(BenchmarkSessionService sessions, BenchmarkSharingService sharing) {
+    public BenchmarkController(BenchmarkSessionService sessions, BenchmarkSharingService sharing,
+                               AgentStatusService status) {
         this.sessions = sessions;
         this.sharing = sharing;
+        this.status = status;
     }
 
     @GetMapping
@@ -33,7 +37,10 @@ public class BenchmarkController {
     @PostMapping
     public BenchmarkSessionService.Session start(@RequestBody StartRequest request) {
         try {
-            return sessions.start(request.mode());
+            BenchmarkSessionService.Session session = sessions.start(request.mode(), request.coins());
+            // The benchmarks/efficiency channels have their own producers; wake them by name.
+            status.invalidate("benchmarks", "efficiency", "overview", "power-control", "workers");
+            return session;
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (IllegalStateException e) {
@@ -43,7 +50,9 @@ public class BenchmarkController {
 
     @PostMapping("/cancel")
     public BenchmarkSessionService.Session cancel() {
-        return sessions.cancel();
+        BenchmarkSessionService.Session session = sessions.cancel();
+        status.invalidate("benchmarks", "efficiency", "overview", "power-control", "workers");
+        return session;
     }
 
     @GetMapping("/sharing")
@@ -55,6 +64,7 @@ public class BenchmarkController {
     public boolean sharing(@RequestBody SharingRequest request) {
         if (request == null || !sharing.setSharingEnabled(request.enabled()))
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not save benchmark sharing choice");
+        status.invalidate("benchmark-upload");
         return sharing.sharingEnabled();
     }
 
@@ -65,16 +75,19 @@ public class BenchmarkController {
 
     @PostMapping("/sharing/retry-manual")
     public BenchmarkSharingService.ReportStatus retryManualReport() {
-        return sharing.retryManualResults();
+        BenchmarkSharingService.ReportStatus result = sharing.retryManualResults();
+        status.invalidate("benchmark-upload");
+        return result;
     }
 
     @PostMapping("/sharing/upload-manual")
     public BenchmarkSharingService.ReportStatus uploadManualReport() {
-        return sharing.uploadManualResultsOnce();
+        BenchmarkSharingService.ReportStatus result = sharing.uploadManualResultsOnce();
+        status.invalidate("benchmark-upload");
+        return result;
     }
 
-    public record StartRequest(String mode) {
-    }
+    public record StartRequest(String mode, List<String> coins) { }
 
     public record SharingRequest(boolean enabled) {
     }

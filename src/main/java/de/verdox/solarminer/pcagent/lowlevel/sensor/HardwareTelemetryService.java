@@ -2,7 +2,10 @@ package de.verdox.solarminer.pcagent.lowlevel.sensor;
 
 import com.sun.management.OperatingSystemMXBean;
 import de.verdox.solarminer.pcagent.lowlevel.HardwareIdentityService;
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.lang.management.ManagementFactory;
@@ -38,16 +41,36 @@ public class HardwareTelemetryService {
     }
 
     public Snapshot snapshot() {
-        long now = System.nanoTime();
         Snapshot current = cached;
-        if (current != null && now - lastCollectedNanos < TimeUnit.SECONDS.toNanos(1)) return current;
+        if (current != null) return current;
+        // A browser request must never become the first hardware probe. The background
+        // collector starts at ApplicationReady; this shape lets the UI render its normal
+        // loading state during that very small bootstrap window.
+        return emptySnapshot();
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmSnapshot() {
+        Thread.startVirtualThread(this::refreshSnapshot);
+    }
+
+    /** Driver, sysfs and monitor I/O belong exclusively to this background refresh path. */
+    @Scheduled(fixedDelayString = "${solarminer.agent.telemetry-refresh-ms:1000}")
+    public void refreshSnapshot() {
+        if (cached != null && System.nanoTime() - lastCollectedNanos < TimeUnit.SECONDS.toNanos(1)) return;
         synchronized (this) {
-            now = System.nanoTime();
-            if (cached != null && now - lastCollectedNanos < TimeUnit.SECONDS.toNanos(1)) return cached;
+            long now = System.nanoTime();
+            if (cached != null && now - lastCollectedNanos < TimeUnit.SECONDS.toNanos(1)) return;
             cached = collect();
             lastCollectedNanos = System.nanoTime();
-            return cached;
         }
+    }
+
+    private Snapshot emptySnapshot() {
+        return new Snapshot(Instant.EPOCH, System.getProperty("os.name", "unknown"),
+                System.getProperty("os.arch", "unknown"), null, List.of(), List.of(), Map.of(), Map.of(),
+                isWindows() ? lhmBootstrap.status() : "not-required",
+                isWindows() ? lhmBootstrap.detail() : "Linux kernel sensor interfaces are used.");
     }
 
     private Snapshot collect() {

@@ -14,11 +14,11 @@
   card.className = 'gate-card';
   const kicker = document.createElement('p');
   kicker.className = 'kicker';
-  kicker.textContent = t('MINING-PROXY');
+  kicker.textContent = t('mining_proxy');
   const title = document.createElement('h2');
   const copy = document.createElement('p');
-  title.textContent = t('Mining-Proxy wird vorbereitet');
-  copy.textContent = t('Der PC-Agent sucht die neueste Proxy-Version auf GitHub.');
+  title.textContent = t('preparing_the_mining_proxy');
+  copy.textContent = t('the_pc_agent_is_looking_for_the_newest_proxy');
   const bar = document.createElement('div');
   bar.className = 'gate-progress';
   bar.setAttribute('hidden', '');
@@ -28,7 +28,7 @@
   detail.className = 'muted';
   const logLabel = document.createElement('p');
   logLabel.className = 'proxy-gate-log-label';
-  logLabel.textContent = t('Proxy-Log');
+  logLabel.textContent = t('proxy_log');
   const log = document.createElement('pre');
   log.className = 'proxy-gate-log';
   log.hidden = true;
@@ -36,7 +36,7 @@
   const retry = document.createElement('button');
   retry.type = 'button';
   retry.className = 'button primary';
-  retry.textContent = t('Erneut versuchen');
+  retry.textContent = t('try_again');
   retry.setAttribute('hidden', '');
   card.append(kicker, title, copy, bar, detail, logLabel, log, retry);
   gate.append(card);
@@ -63,7 +63,7 @@
   async function refreshLog() {
     if (closed) return;
     try {
-      const response = await fetch('/api/agent/local/proxy-gate/log?offset=' + encodeURIComponent(logOffset),
+      const response = await fetch('/api/agent/local/proxy/gate/log?offset=' + encodeURIComponent(logOffset),
         {cache: 'no-store'});
       if (!response.ok) return;
       const chunk = await response.json();
@@ -78,27 +78,27 @@
   function show(state, percent, version, message) {
     gate.hidden = false;
     const downloading = state === 'downloading';
-    title.textContent = t(state === 'failed' ? 'Mining-Proxy nicht bereit' : 'Mining-Proxy wird vorbereitet');
-    copy.textContent = t(state === 'checking' ? 'Der PC-Agent sucht die neueste Proxy-Version auf GitHub.'
-      : downloading ? 'Der SolarMiner-Stratum-Proxy wird heruntergeladen.'
-        : state === 'starting' ? 'Der lokale Mining-Proxy wird gestartet.'
-          : state === 'running' ? 'Der lokale Mining-Proxy wird gestartet.'
-            : 'Der SolarMiner-Stratum-Proxy konnte nicht geladen oder gestartet werden.');
+    title.textContent = t(state === 'failed' ? 'mining_proxy_not_ready' : 'preparing_the_mining_proxy');
+    copy.textContent = t(state === 'checking' ? 'the_pc_agent_is_looking_for_the_newest_proxy'
+      : downloading ? 'the_solarminer_stratum_proxy_is_downloading'
+        : state === 'starting' ? 'the_local_mining_proxy_is_starting'
+          : state === 'running' ? 'the_local_mining_proxy_is_starting'
+            : 'the_solarminer_stratum_proxy_could_not_be_do');
     bar.hidden = !downloading;
     if (downloading) barFill.style.width = Math.max(2, Math.min(100, percent)) + '%';
-    detail.textContent = (version ? t('Version {version}', {version}) + ' · ' : '')
-      + (window.SolarMinerI18n.s(message) || t('Ohne Proxy kann dieser PC nicht minen.'));
+    detail.textContent = (version ? t('version_version', {version}) + ' · ' : '')
+      + (window.SolarMinerI18n.s(message) || t('this_pc_cannot_mine_without_a_proxy'));
     retry.hidden = state !== 'failed' || retrying;
   }
 
   unsubscribe = window.SolarMinerLive.channel('proxy-gate',
-    {endpoint: '/api/agent/local/proxy-gate', maxAgeMs: 10000})
+    {endpoint: '/api/agent/local/proxy/gate', maxAgeMs: 10000})
     .subscribe((gateState, meta) => {
       if (closed) return;
       if (gateState?.ready) { close(); return; }
       if ((!gateState || !gateState.state) && meta.error) {
         // No snapshot ever arrived and the transport is failing: the agent itself is unreachable.
-        show('failed', 0, '', t('Der PC-Agent ist nicht erreichbar.'));
+        show('failed', 0, '', t('the_pc_agent_is_unreachable'));
         return;
       }
       if (gateState?.state) show(gateState.state, gateState.percent, gateState.version, gateState.detail);
@@ -118,15 +118,15 @@
     if (retrying) return;
     retrying = true;
     retry.disabled = true;
-    retry.textContent = t('Erneuter Versuch läuft …');
+    retry.textContent = t('retrying');
     try {
-      await window.SolarMinerUI.postJson('/api/agent/local/proxy-gate/retry');
+      await window.SolarMinerUI.postJson('/api/agent/local/proxy/gate/retry');
     } catch (error) {
-      detail.textContent = t('Erneuter Versuch fehlgeschlagen: {error}', {error: window.SolarMinerI18n.s(error.message)});
+      detail.textContent = t('retry_failed_error', {error: window.SolarMinerI18n.s(error.message)});
     } finally {
       retrying = false;
       retry.disabled = false;
-      retry.textContent = t('Erneut versuchen');
+      retry.textContent = t('try_again');
     }
     window.SolarMinerLive.refresh('proxy-gate');
   });

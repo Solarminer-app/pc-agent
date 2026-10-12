@@ -3,13 +3,9 @@ services:
     image: ${PC_AGENT_IMAGE:-verdox/solar-miner-pc-agent:latest}
     container_name: solarminer-pc-agent
     restart: unless-stopped
-    # The image includes a local proxy. The UI defaults to an external proxy;
-    # operators can switch to the bundled loopback-only proxy at any time.
-    ports:
-      - "8084:8084"
-      # Receives the external proxy's LAN heartbeat. UDP 8091 belongs to the
-      # proxy's legacy query listener and must not be published by the Agent.
-      - "8092:8092/udp"
+    # Supported Linux network mode. The Agent's UDP broadcasts must leave the
+    # physical host interface for LAN proxy and peer-agent discovery to work.
+    network_mode: host
     init: true
     cap_add:
       - IPC_LOCK

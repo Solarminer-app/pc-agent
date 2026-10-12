@@ -3,15 +3,15 @@ package de.verdox.solarminer.pcagent.xmr;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
-import de.verdox.solarminer.pcagent.mining.ProxyConfigurationService;
-import de.verdox.solarminer.pcagent.mining.MinerStopContext;
-import de.verdox.solarminer.pcagent.mining.MinerConsoleService;
-import de.verdox.solarminer.pcagent.mining.PayoutDefaultsService;
-import de.verdox.solarminer.pcagent.mining.MinerProcessRegistry;
-import de.verdox.solarminer.pcagent.mining.MinerShareTelemetry;
+import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
+import de.verdox.solarminer.pcagent.miner.MinerStopContext;
+import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
+import de.verdox.solarminer.pcagent.miner.MinerProcessRegistry;
+import de.verdox.solarminer.pcagent.miner.MinerShareTelemetry;
 import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.miner.CpuMiner;
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.miner.RandomXCapability;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import java.util.List;
 import de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService;
 import de.verdox.solarminer.pcagent.lowlevel.sensor.HardwareSensorReader;
@@ -22,10 +22,8 @@ import org.springframework.stereotype.Service;
 import oshi.SystemInfo;
 import oshi.hardware.CentralProcessor;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -34,15 +32,15 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
 
 @Service
-public class XmrMinerService implements CpuMiner {
+public class XmrMinerService extends de.verdox.solarminer.pcagent.miner.engine.AbstractMinerEngine implements CpuMiner, de.verdox.solarminer.pcagent.miner.RandomXCapability {
     private static final Logger LOGGER = Logger.getLogger(XmrMinerService.class.getName());
     private static final Path XMRIG_DIR = Paths.get("./solarminer-agent/xmrig/").toAbsolutePath().normalize();
 
@@ -50,6 +48,7 @@ public class XmrMinerService implements CpuMiner {
     private final ProxyConfigurationService proxyConfigurationService;
     private final PayoutDefaultsService payoutDefaultsService;
     private final MinerConsoleService console;
+    private final de.verdox.solarminer.pcagent.xmr.WindowsHugePagesService windowsHugePages;
     private final ObjectMapper objectMapper;
     private final HardwareSensorReader sensorReader;
     private final String processorName;
@@ -66,7 +65,6 @@ public class XmrMinerService implements CpuMiner {
     @Getter
     private long desiredPowerUsage = 0;
 
-    private final ExecutorService streamReaderExecutor = Executors.newCachedThreadPool();
     private ScheduledExecutorService apiPollerExecutor;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -83,11 +81,13 @@ public class XmrMinerService implements CpuMiner {
 
     public XmrMinerService(XmrConfigService configService, ObjectMapper objectMapper, HardwareSensorReader sensorReader,
                            ProxyConfigurationService proxyConfigurationService, MinerConsoleService console,
-                           PayoutDefaultsService payoutDefaultsService) {
+                           PayoutDefaultsService payoutDefaultsService,
+                           de.verdox.solarminer.pcagent.xmr.WindowsHugePagesService windowsHugePages) {
         this.configService = configService;
         this.proxyConfigurationService = proxyConfigurationService;
         this.console = console;
         this.payoutDefaultsService = payoutDefaultsService;
+        this.windowsHugePages = windowsHugePages;
         this.objectMapper = objectMapper;
         this.sensorReader = sensorReader;
 
@@ -103,11 +103,17 @@ public class XmrMinerService implements CpuMiner {
     @Scheduled(fixedDelay = 30_000)
     public synchronized void restartAfterUnexpectedExit() {
         if (minerStatus != MinerStats.MinerStatus.ERROR || desiredPowerUsage <= 0 || isMiningProcessAlive()) return;
-        if (crashRestartAttempts >= 3) return;
+        if (!restartBudgetLeft(crashRestartAttempts)) return;
         crashRestartAttempts++;
-        console.append(Coin.MONERO.id(), "[SolarMiner] XMRig watchdog restart " + crashRestartAttempts + "/3");
+        console.append(Coin.MONERO.id(), "[SolarMiner] XMRig watchdog restart " + crashRestartAttempts + "/" + MAX_CRASH_RESTARTS);
         startMining();
     }
+
+    // --- AbstractMinerEngine accessors: the XMRig engine reuses the shared console/mapper/logger. ---
+
+    @Override protected MinerConsoleService console() { return console; }
+    @Override protected ObjectMapper mapper() { return objectMapper; }
+    @Override protected Logger logger() { return LOGGER; }
 
     @PreDestroy
     public void onShutdown() {
@@ -163,11 +169,11 @@ public class XmrMinerService implements CpuMiner {
      */
     public synchronized boolean ensureDefaultConfiguration() {
         if (configService.isProxyRouteConfigured()) return true;
-        if (configService.hasConfiguredPoolLogin() || proxyConfigurationService.moneroUrl() == null) return false;
+        if (configService.hasConfiguredPoolLogin() || proxyConfigurationService.coinUrl(Coin.MONERO) == null) return false;
         PayoutDefaultsService.DefaultPayout payout = payoutDefaultsService.resolve(Coin.MONERO.id()).orElse(null);
         if (payout == null) return false;
         try {
-            configService.configureXmrig(XmrDownloadService.CONFIG_PATH, proxyConfigurationService.moneroUrl(),
+            configService.configureXmrig(XmrDownloadService.CONFIG_PATH, proxyConfigurationService.coinUrl(Coin.MONERO),
                     payout.poolUrl() + ";" + payout.login() + ";x", false);
             payoutDefaultsService.markDefault(Coin.MONERO.id(), true);
             return true;
@@ -187,7 +193,7 @@ public class XmrMinerService implements CpuMiner {
         PayoutDefaultsService.DefaultPayout payout = payoutDefaultsService.resolve(Coin.MONERO.id()).orElse(null);
         if (payout == null) return;
         try {
-            if (configService.updateProxyRoute(XmrDownloadService.CONFIG_PATH, proxyConfigurationService.moneroUrl(),
+            if (configService.updateProxyRoute(XmrDownloadService.CONFIG_PATH, proxyConfigurationService.coinUrl(Coin.MONERO),
                     payout.poolUrl() + ";" + payout.login() + ";x")) {
                 console.append(Coin.MONERO.id(), "[SolarMiner] Payout updated to the current SolarMiner default target");
             }
@@ -251,21 +257,16 @@ public class XmrMinerService implements CpuMiner {
             minerStatus = MinerStats.MinerStatus.MINING;
             apiErrorCount = 0;
 
-            var outputTask = streamReaderExecutor.submit(() -> {
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(started.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        console.append(Coin.MONERO.id(), line);
-                    }
-                } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error reading XMRig output stream", e);
-                    console.append(Coin.MONERO.id(), "[SolarMiner] Could not read miner output: " + e.getMessage());
-                }
-            });
+            var outputThread = drainProcessOutput(started, "xmrig-output-" + started.pid(),
+                    line -> console.append(Coin.MONERO.id(), line),
+                    e -> {
+                        LOGGER.log(Level.WARNING, "Error reading XMRig output stream", e);
+                        console.append(Coin.MONERO.id(), "[SolarMiner] Could not read miner output: " + e.getMessage());
+                    });
 
             started.onExit().thenAccept(process -> {
-                try { outputTask.get(1, TimeUnit.SECONDS); }
-                catch (Exception ignored) { }
+                try { outputThread.join(1_000); }
+                catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
                 if (minerStatus == MinerStats.MinerStatus.MINING) {
                     LOGGER.severe("XMRig process crashed or exited unexpectedly with code: " + process.exitValue());
                     console.append(Coin.MONERO.id(), "[SolarMiner] XMRig exited with code " + process.exitValue());
@@ -398,8 +399,24 @@ public class XmrMinerService implements CpuMiner {
         return Math.max(1, (long) Math.ceil((double) estimatedMaxCpuWattage / totalLogicalProcessors));
     }
 
+    /**
+     * CPU temperature with a 1 s in-memory cache (REST audit R7): the stats read model runs
+     * on every dashboard tick and must not re-probe sysfs/LHM per request. The probe itself
+     * stays cheap; the cache only absorbs poll bursts.
+     */
+    private volatile double cachedCpuTemperature = -1.0;
+    private volatile long cachedCpuTemperatureAt;
+
     public double readCPUTemperature() {
-        return sensorReader.getCpuTemperatureCelsius();
+        long now = System.nanoTime();
+        double cached = cachedCpuTemperature;
+        if (cached >= 0 && now - cachedCpuTemperatureAt < java.util.concurrent.TimeUnit.SECONDS.toNanos(1)) return cached;
+        double value = sensorReader.getCpuTemperatureCelsius();
+        if (value >= 0) {
+            cachedCpuTemperature = value;
+            cachedCpuTemperatureAt = now;
+        }
+        return value;
     }
 
     public long getWattage() {
@@ -478,4 +495,56 @@ public class XmrMinerService implements CpuMiner {
         return configService.updateProxyRoute(XmrDownloadService.CONFIG_PATH, proxyUrl);
     }
     @Override public void appendBenchmarkEvent(String message) { console.append(Coin.MONERO.id(), message); }
+
+    // --- RandomXCapability: the XMRig adapter owns its own algorithm tuning (Phase 5d). ---
+
+    @Override public RandomXCapability.Status randomXStatus() {
+        // REST audit X2: the optimizations GET is a read model. The config-file checks and the
+        // Windows privilege probe (a whoami process) run at most once per 5 s; applyRandomXOptimization
+        // invalidates the cache so a toggle is visible immediately.
+        RandomXCapability.Status cached = cachedRandomXStatus;
+        long now = System.nanoTime();
+        if (cached != null && now - cachedRandomXStatusAt < java.util.concurrent.TimeUnit.SECONDS.toNanos(5)) return cached;
+        RandomXCapability.Status status = computeRandomXStatus();
+        cachedRandomXStatus = status;
+        cachedRandomXStatusAt = now;
+        return status;
+    }
+
+    private volatile RandomXCapability.Status cachedRandomXStatus;
+    private volatile long cachedRandomXStatusAt;
+
+    private RandomXCapability.Status computeRandomXStatus() {
+        boolean hugePages = configService.hugePagesEnabled(XmrDownloadService.CONFIG_PATH);
+        boolean oneGb = configService.randomXOneGbPagesEnabled(XmrDownloadService.CONFIG_PATH);
+        boolean permission = windowsHugePages.availableInCurrentSession();
+        return new RandomXCapability.Status(hugePages && (!windowsHugePages.isWindows() || permission), hugePages,
+                oneGb && "linux".equals(platform()), permission,
+                windowsHugePages.isWindows() && hugePages && !permission);
+    }
+
+    @Override public RandomXCapability.Status applyRandomXOptimization(String setting, boolean enabled)
+            throws IOException, InterruptedException {
+        if ("huge-pages".equals(setting)) {
+            if (windowsHugePages.isWindows()) windowsHugePages.configureForCurrentUser(enabled);
+            configService.setHugePages(XmrDownloadService.CONFIG_PATH, enabled);
+        } else if ("1gb-pages".equals(setting) && "linux".equals(platform())) {
+            configService.setRandomXOneGbPages(XmrDownloadService.CONFIG_PATH, enabled);
+        } else {
+            if (!"1gb-pages".equals(setting) || enabled)
+                throw new IllegalArgumentException("Diese RandomX-Optimierung wird auf diesem Betriebssystem nicht unterstützt");
+        }
+        cachedRandomXStatus = null; // the toggle must be visible on the next read
+        return randomXStatus();
+    }
+
+    /** Windows huge-page grants only take effect once the process restarted with the right. */
+    @Override public boolean restartRequiredAfterToggle(boolean enabled) {
+        return !enabled || !windowsHugePages.isWindows() || windowsHugePages.availableInCurrentSession();
+    }
+
+    private static String platform() {
+        String os = System.getProperty("os.name", "").toLowerCase();
+        return os.contains("linux") ? "linux" : os.contains("win") ? "windows" : "other";
+    }
 }

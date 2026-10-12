@@ -1,35 +1,30 @@
 package de.verdox.solarminer.pcagent.pearl;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.dto.Pools;
-import de.verdox.solarminer.pcagent.mining.MinerConsoleService;
-import de.verdox.solarminer.pcagent.mining.MinerStopContext;
-import de.verdox.solarminer.pcagent.mining.MinerShareTelemetry;
-import de.verdox.solarminer.pcagent.mining.PayoutDefaultsService;
-import de.verdox.solarminer.pcagent.mining.ProxyConfigurationService;
-import de.verdox.solarminer.pcagent.mining.MinerProcessRegistry;
+import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
+import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
+import de.verdox.solarminer.pcagent.miner.MinerStopContext;
+import de.verdox.solarminer.pcagent.miner.MinerShareTelemetry;
+import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
+import de.verdox.solarminer.pcagent.miner.MinerProcessRegistry;
 import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.miner.GpuCoinMiner;
+import de.verdox.solarminer.pcagent.miner.engine.AbstractSrbMinerEngine;
+import de.verdox.solarminer.pcagent.miner.engine.SrbMonitorPolicy;
+import de.verdox.solarminer.pcagent.miner.engine.WorkerRunState;
+import de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -37,17 +32,18 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import de.verdox.solarminer.pcagent.miner.MinerConfig;
 import de.verdox.solarminer.pcagent.miner.GpuState;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
 
 /** Runs one SRBMiner-MULTI process per selected GPU, independently of XMRig. */
 @Service
-public class PearlMinerService implements GpuCoinMiner {
+public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoinMiner {
     private static final Logger LOGGER = Logger.getLogger(PearlMinerService.class.getName());
     private static final Pattern NVIDIA = Pattern.compile("GPU(\\d+)\\s+\\[CUDA]\\[(\\d+)][^\\r\\n]*");
     private static final Pattern AMD = Pattern.compile("GPU(\\d+)\\s+\\[\\d+]\\[(\\d+)][^\\r\\n]*");
@@ -58,10 +54,11 @@ public class PearlMinerService implements GpuCoinMiner {
     private final MinerConsoleService console;
     private final PayoutDefaultsService payoutDefaultsService;
     private final LocalGpuPowerService gpuPowerService;
+    private final LocalRunLock localRuns;
     private final Path executable;
     private final Path configFile;
-    private final HttpClient apiClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build();
-    private final Map<String, GpuRun> runs = new ConcurrentHashMap<>();
+    /** Map key stays the Pearl-local worker key {@code vendor:index}. */
+    private final Map<String, WorkerRunState> runs = new ConcurrentHashMap<>();
     private final Set<String> manuallyPaused = ConcurrentHashMap.newKeySet();
     private volatile MinerConfig config;
     /**
@@ -70,41 +67,12 @@ public class PearlMinerService implements GpuCoinMiner {
      * sweep ends, so the operator's configuration state is untouched.
      */
     private volatile MinerConfig sweepOverride;
+    private volatile MinerConfig benchmarkOverride;
     private volatile String lastError;
-
-    private static final class GpuRun {
-        final LocalGpuPowerService.Gpu gpu;
-        final String key;
-        final String consoleId;
-        final AtomicReference<String> output = new AtomicReference<>("");
-        volatile Process process;
-        volatile MinerStats.MinerStatus status = MinerStats.MinerStatus.PAUSED;
-        volatile String error;
-        volatile String detail = "Miner nicht gestartet";
-        volatile boolean jobReceived;
-        volatile boolean poolHealthy;
-        volatile double hashesPerSecond;
-        volatile Long acceptedShares;
-        volatile Long rejectedShares;
-        volatile MinerShareTelemetry.Counters poolCounters = MinerShareTelemetry.Counters.unavailable();
-        int apiPort;
-
-        GpuRun(LocalGpuPowerService.Gpu gpu) {
-            this.gpu = gpu;
-            this.key = gpu.vendor() + ":" + gpu.index();
-            this.consoleId = "pearl-" + gpu.vendor() + "-" + gpu.index();
-        }
-
-        boolean running() { return process != null && process.isAlive(); }
-
-        MinerStats.MinerStatus visibleStatus() {
-            return status;
-        }
-    }
 
     public PearlMinerService(ObjectMapper mapper, ProxyConfigurationService proxyConfigurationService,
                              LocalGpuPowerService gpuPowerService, MinerConsoleService console,
-                             PayoutDefaultsService payoutDefaultsService,
+                             PayoutDefaultsService payoutDefaultsService, LocalRunLock localRuns,
                              @Value("${solarminer.pearl.binary:./solarminer-agent/srbminer/SRBMiner-MULTI}") String binary,
                              @Value("${solarminer.pearl.config:./solarminer-agent/srbminer/solarminer-config.json}") String configPath) {
         this.mapper = mapper;
@@ -112,6 +80,7 @@ public class PearlMinerService implements GpuCoinMiner {
         this.gpuPowerService = gpuPowerService;
         this.console = console;
         this.payoutDefaultsService = payoutDefaultsService;
+        this.localRuns = localRuns;
         String binaryName = System.getProperty("os.name", "").toLowerCase().contains("win") && !binary.endsWith(".exe")
                 ? binary + ".exe" : binary;
         this.executable = Path.of(binaryName).toAbsolutePath().normalize();
@@ -140,7 +109,7 @@ public class PearlMinerService implements GpuCoinMiner {
             if (!stop()) throw new IOException("Pearl-GPU-Prozesse konnten nicht angehalten werden");
             runs.clear();
         } else {
-            for (GpuRun run : List.copyOf(runs.values())) {
+            for (WorkerRunState run : List.copyOf(runs.values())) {
                 if (!selected(run.gpu, next)) {
                     if (!stopGpu(run.gpu.vendor(), run.gpu.index()))
                         throw new IOException("Pearl-GPU " + run.key + " konnte nicht angehalten werden");
@@ -156,9 +125,9 @@ public class PearlMinerService implements GpuCoinMiner {
 
     /** Updates only the proxy endpoint after the operator changes the shared proxy connection. */
     public synchronized boolean updateProxyRoute(String proxyUrl) throws IOException {
-        MinerConfig current = config;
-        if (current == null || current.proxyUrl().equals(proxyUrl)) return false;
-        MinerConfig updated = new MinerConfig(current.poolUrl(), proxyUrl, current.wallet(), current.worker(), current.devices());
+        MinerConfig updated = de.verdox.solarminer.pcagent.miner.engine.RouteValidator
+                .withProxyRoute(config, proxyUrl);
+        if (updated == null) return false;
         validate(updated);
         if (!proxyConfigurationService.matches(proxyUrl, Coin.PEARL))
             throw new IllegalArgumentException("SolarMiner-Proxy-Route stimmt nicht");
@@ -168,18 +137,8 @@ public class PearlMinerService implements GpuCoinMiner {
     }
 
     private void writeConfig(MinerConfig next) throws IOException {
-        Files.createDirectories(configFile.getParent());
-        Path temp = Files.createTempFile(configFile.getParent(), "pearl-", ".json");
-        try {
-            mapper.writeValue(temp.toFile(), next);
-            try {
-                Files.move(temp, configFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                Files.move(temp, configFile, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } finally {
-            Files.deleteIfExists(temp);
-        }
+        if (!de.verdox.solarminer.pcagent.support.AtomicFileStore.writeJson(configFile, next, mapper, "pearl-"))
+            throw new IOException("Pearl miner configuration could not be written");
     }
 
     /**
@@ -205,27 +164,26 @@ public class PearlMinerService implements GpuCoinMiner {
     }
 
     public static void validate(MinerConfig value) {
-        if (value == null || value.poolUrl() == null ||
-                !value.poolUrl().matches("^stratum\\+(tcp|ssl)://[A-Za-z0-9.-]+:[1-9][0-9]{0,4}$"))
-            throw new IllegalArgumentException("Pearl pool must be stratum+tcp/ssl://host:port");
-        int port = URI.create(value.poolUrl()).getPort();
-        if (port < 1 || port > 65535) throw new IllegalArgumentException("Pearl pool port must be 1-65535");
-        if (value.proxyUrl() == null || !value.proxyUrl().matches("^stratum\\+tcp://[A-Za-z0-9.-]+:[1-9][0-9]{0,4}$")
-                || URI.create(value.proxyUrl()).getPort() > 65535)
-            throw new IllegalArgumentException("Pearl proxy must be stratum+tcp://host:port");
-        if (value.wallet() == null || !value.wallet().matches("^prl1[023456789acdefghjklmnpqrstuvwxyz]{20,120}$"))
-            throw new IllegalArgumentException("A Pearl prl1 payout address is required");
-        if (value.worker() == null || !value.worker().matches("^[A-Za-z0-9_-]{1,32}$"))
-            throw new IllegalArgumentException("Pearl worker must contain 1-32 letters, digits, _ or -");
-        if (value.devices() != null && !value.devices().matches("^(all|((NVIDIA|AMD):)?[0-9]+(,((NVIDIA|AMD):)?[0-9]+)*)$"))
-            throw new IllegalArgumentException("Pearl devices must be vendor:index values or 'all'");
+        de.verdox.solarminer.pcagent.miner.engine.RouteValidator.validateRoute(value,
+                de.verdox.solarminer.pcagent.miner.engine.WalletRule.PEARL,
+                "Pearl pool must be stratum+tcp/ssl://host:port",
+                "Pearl proxy must be stratum+tcp://host:port",
+                "A Pearl prl1 payout address is required",
+                "Pearl worker must contain 1-32 letters, digits, _ or -");
+        de.verdox.solarminer.pcagent.miner.engine.RouteValidator.validateDevices(value.devices(),
+                "^(all|((NVIDIA|AMD):)?[0-9]+(,((NVIDIA|AMD):)?[0-9]+)*)$",
+                "Pearl devices must be vendor:index values or 'all'");
     }
 
     public void setSweepOverride(MinerConfig value) { sweepOverride = value; }
     public void clearSweepOverride() { sweepOverride = null; }
+    @Override public void setBenchmarkOverride(MinerConfig value) { benchmarkOverride = value; }
+    @Override public void clearBenchmarkOverride() { benchmarkOverride = null; }
 
     /** Operator config wins; the ephemeral sweep override is only consulted while unconfigured. */
     private MinerConfig effectiveConfig() {
+        MinerConfig benchmark = benchmarkOverride;
+        if (benchmark != null) return benchmark;
         MinerConfig current = config;
         return current != null ? current : sweepOverride;
     }
@@ -251,6 +209,7 @@ public class PearlMinerService implements GpuCoinMiner {
 
     public synchronized boolean start() {
         manuallyPaused.clear();
+        resetRestartBudget();
         return startForBudget();
     }
 
@@ -273,6 +232,8 @@ public class PearlMinerService implements GpuCoinMiner {
 
     public synchronized boolean resumeGpuManually(String vendor, int index) {
         manuallyPaused.remove(vendor + ":" + index);
+        WorkerRunState resumed = runs.get(vendor + ":" + index);
+        if (resumed != null) resumed.restartAttempts = 0;
         return startGpu(vendor, index);
     }
 
@@ -288,9 +249,33 @@ public class PearlMinerService implements GpuCoinMiner {
         return stop();
     }
 
+    /**
+     * O1 (owner 2026-10-11): bounded crash restart for Pearl workers, mirroring the XMRig
+     * watchdog (max {@code MAX_CRASH_RESTARTS} attempts per worker, 30 s scan cadence).
+     * Skipped while a local measurement run owns the hardware. The budget refills on an
+     * operator start/stop/resume, exactly like the XMRig stop path.
+     */
+    @Scheduled(fixedDelay = 30_000)
+    public synchronized void restartAfterUnexpectedExit() {
+        if (localRuns.busy()) return;
+        for (WorkerRunState run : List.copyOf(runs.values())) {
+            if (!restartEligible(run)) continue;
+            run.restartAttempts++;
+            console.append(Coin.PEARL.id(), "[SolarMiner] SRBMiner watchdog restart " + run.restartAttempts
+                    + "/" + MAX_CRASH_RESTARTS + " (" + run.gpuLabel() + ")");
+            startGpu(run.gpu);
+        }
+    }
+
+    /** An operator-initiated action refills the bounded O1 restart budget. */
+    private void resetRestartBudget() {
+        for (WorkerRunState run : runs.values()) run.restartAttempts = 0;
+    }
+
     private synchronized boolean startGpu(LocalGpuPowerService.Gpu gpu) {
         String key = gpu.vendor() + ":" + gpu.index();
-        GpuRun run = runs.computeIfAbsent(key, ignored -> new GpuRun(gpu));
+        WorkerRunState run = runs.computeIfAbsent(key, ignored ->
+                new WorkerRunState(Coin.PEARL.id(), gpu, "pearl-" + key, "Miner nicht gestartet"));
         if (run.running()) return true;
         if (MinerProcessRegistry.gpuCoinUsesDevice(gpu.deviceId()))
             return fail(run, "This GPU is already mining RVN or ETC; pause that GPU worker first");
@@ -302,7 +287,7 @@ public class PearlMinerService implements GpuCoinMiner {
         }
         refreshDefaultPayout();
         MinerConfig route = effectiveConfig();
-        boolean noOtherPearlGpuRunning = runs.values().stream().noneMatch(GpuRun::running);
+        boolean noOtherPearlGpuRunning = runs.values().stream().noneMatch(WorkerRunState::running);
         if (noOtherPearlGpuRunning) console.started(Coin.PEARL.id());
         console.started(run.consoleId);
         console.append(Coin.PEARL.id(), "[" + key + "] New miner start");
@@ -330,17 +315,18 @@ public class PearlMinerService implements GpuCoinMiner {
             run.acceptedShares = null;
             run.rejectedShares = null;
             run.poolCounters = MinerShareTelemetry.Counters.unavailable();
-            run.jobReceived = false;
-            run.poolHealthy = false;
+            run.healthy = false;
+            run.hashrate = 0;
+            run.diagnosis = null;
             run.output.set("");
             lastError = null;
-            Thread outputThread = Thread.ofVirtual().name("pearl-output-" + key).start(() -> drain(run, started));
-            Thread.ofVirtual().name("pearl-health-" + key).start(() -> monitor(run, started));
+            Thread outputThread = startOutputDrain(run, started, "pearl-output-" + key, false, true, this::redact);
+            Thread.ofVirtual().name("pearl-health-" + key).start(() -> monitorLoop(run, started, SrbMonitorPolicy.pearl(),
+                    () -> true, candidate -> runs.get(candidate.gpu.vendor() + ":" + candidate.gpu.index()) == candidate));
             started.onExit().thenAccept(done -> {
                 try { outputThread.join(1000); }
                 catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                if (runs.get(key) != run || run.process != done) return;
-                if (run.status == MinerStats.MinerStatus.MINING)
+                if (unexpectedExit(run, done))
                     fail(run, "SRBMiner on " + key + " exited (code " + done.exitValue() + ")"
                             + (run.output.get().isBlank() ? "" : ": " + run.output.get()));
             });
@@ -350,16 +336,32 @@ public class PearlMinerService implements GpuCoinMiner {
         }
     }
 
-    private boolean fail(GpuRun run, String error) {
+    @Override
+    public de.verdox.solarminer.pcagent.miner.diagnostics.MinerLogDiagnostics.Diagnosis diagnosis(String vendor, int index) {
+        WorkerRunState run = runs.get(vendor + ":" + index);
+        return run == null ? null : run.diagnosis;
+    }
+
+    @Override protected MinerConsoleService console() { return console; }
+    @Override protected ObjectMapper mapper() { return mapper; }
+    @Override protected Logger logger() { return LOGGER; }
+    @Override protected String aggregateConsoleId(WorkerRunState run) { return Coin.PEARL.id(); }
+    @Override protected String aggregateTag(WorkerRunState run) { return run.gpuLabel(); }
+    @Override protected String drainTag(WorkerRunState run) { return run.gpuLabel(); }
+
+    @Override
+    protected boolean fail(WorkerRunState run, String error) {
+        var diagnosis = run.diagnosis;
+        if (diagnosis != null && !error.contains(diagnosis.detail())) error = error + " · " + diagnosis.detail();
         run.status = MinerStats.MinerStatus.ERROR;
         run.error = error;
         run.detail = error;
-        run.poolHealthy = false;
-        run.hashesPerSecond = 0;
+        run.healthy = false;
+        run.hashrate = 0;
         lastError = error;
         LOGGER.warning(error);
         console.append(run.consoleId, "[SolarMiner] " + error);
-        console.append(Coin.PEARL.id(), "[" + run.key + "] " + error);
+        console.append(Coin.PEARL.id(), "[" + run.gpuLabel() + "] " + error);
         return false;
     }
 
@@ -373,75 +375,8 @@ public class PearlMinerService implements GpuCoinMiner {
                 Integer.toString(apiPort), "--gpu-id", Integer.toString(srbId));
     }
 
-    private void monitor(GpuRun run, Process started) {
-        Instant launched = Instant.now();
-        Instant lastHealthy = launched;
-        while (started.isAlive() && run.process == started && runs.get(run.key) == run) {
-            try {
-                HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + run.apiPort + "/"))
-                        .timeout(Duration.ofSeconds(2)).GET().build();
-                HttpResponse<String> response = apiClient.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() == 200) {
-                    JsonNode algorithms = mapper.readTree(response.body()).path("algorithms");
-                    JsonNode pool = algorithms.isArray() && !algorithms.isEmpty()
-                            ? algorithms.get(0).path("pool") : mapper.createObjectNode();
-                    JsonNode hashrate = algorithms.isArray() && !algorithms.isEmpty()
-                            ? algorithms.get(0).path("hashrate") : mapper.createObjectNode();
-                    double reportedHashrate = hashrate.path("gpu").path("total").asDouble(0);
-                    if (!(reportedHashrate > 0)) reportedHashrate = hashrate.path("1min").asDouble(0);
-                    run.hashesPerSecond = reportedHashrate;
-                    updateShares(run, pool);
-                    long uptime = pool.path("uptime").asLong(0);
-                    long lastJob = pool.path("last_job_received").asLong(0);
-                    if (uptime > 0 && lastJob > 0 && lastJob < 120) {
-                        run.jobReceived = true;
-                        run.poolHealthy = true;
-                        lastHealthy = Instant.now();
-                        run.detail = "Pool connected, last job " + lastJob + " s ago";
-                    } else {
-                        run.poolHealthy = false;
-                        run.detail = "Waiting for pool connection and mining job";
-                    }
-                } else {
-                    run.poolHealthy = false;
-                    run.detail = "Miner API returned HTTP " + response.statusCode();
-                }
-            } catch (Exception e) {
-                run.poolHealthy = false;
-                run.detail = "Miner API is not reachable yet";
-            }
-            if (!started.isAlive() || run.process != started || run.status != MinerStats.MinerStatus.MINING) return;
-            boolean startupTimeout = !run.jobReceived && Duration.between(launched, Instant.now()).toSeconds() >= 90;
-            boolean stalled = run.jobReceived && Duration.between(lastHealthy, Instant.now()).toSeconds() >= 120;
-            if (startupTimeout || stalled) {
-                fail(run, "SRBMiner on " + run.key + " has not received a mining job "
-                        + (startupTimeout ? "within 90" : "for 120") + " seconds: " + run.output.get());
-                started.destroy();
-                return;
-            }
-            try { Thread.sleep(5000); }
-            catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-        }
-    }
-
-    private void drain(GpuRun run, Process started) {
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(started.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                String safe = redact(line);
-                console.append(run.consoleId, line);
-                console.append(Coin.PEARL.id(), "[" + run.key + "] " + line);
-                run.output.updateAndGet(previous -> {
-                    String combined = (previous.isBlank() ? "" : previous + " | ") + safe;
-                    return combined.length() > 1200 ? combined.substring(combined.length() - 1200) : combined;
-                });
-            }
-        } catch (IOException e) {
-            LOGGER.log(Level.FINE, "Pearl miner output ended", e);
-        }
-    }
-
-    int mappedGpuId(LocalGpuPowerService.Gpu gpu) throws IOException {
+    /** Shared SRBMiner device mapping used by the generic SRB coin adapter. */
+    public int mappedGpuId(LocalGpuPowerService.Gpu gpu) throws IOException {
         // On Linux SRBMiner can return an empty device list when stdout is a pipe,
         // even though the same CUDA devices are listed on a terminal.
         List<String> command = System.getProperty("os.name", "").toLowerCase().contains("linux")
@@ -542,48 +477,32 @@ public class PearlMinerService implements GpuCoinMiner {
     }
 
     public synchronized boolean stopGpu(String vendor, int index) {
-        GpuRun run = runs.get(vendor + ":" + index);
+        WorkerRunState run = runs.get(vendor + ":" + index);
         if (run == null) return true;
         run.status = MinerStats.MinerStatus.PAUSED;
-        run.poolHealthy = false;
-        run.hashesPerSecond = 0;
+        run.healthy = false;
+        run.hashrate = 0;
         run.acceptedShares = null;
         run.rejectedShares = null;
         run.poolCounters = MinerShareTelemetry.Counters.unavailable();
         run.detail = "Miner pausiert";
-        Process process = run.process;
-        if (process == null || !process.isAlive()) return true;
-        String source = MinerStopContext.source();
-        console.append(run.consoleId, "[SolarMiner] Stop requested by: " + source);
-        console.append(Coin.PEARL.id(), "[" + run.key + "] Stop requested by: " + source);
-        process.destroy();
-        try {
-            if (!process.waitFor(Duration.ofSeconds(5).toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly();
-                if (!process.waitFor(Duration.ofSeconds(5).toMillis(), TimeUnit.MILLISECONDS)) return false;
-            }
-            console.append(run.consoleId, "[SolarMiner] SRBMiner stopped");
-            console.append(Coin.PEARL.id(), "[" + run.key + "] SRBMiner stopped");
-            return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            process.destroyForcibly();
-            return false;
-        }
+        // An explicit stop refills the bounded O1 restart budget (mirrors the XMRig stop path).
+        run.restartAttempts = 0;
+        return stopProcess(run, MinerStopContext.source(), true, "SRBMiner stopped");
     }
 
     public synchronized boolean stop() {
         boolean success = true;
-        for (GpuRun run : runs.values()) success = stopGpu(run.gpu.vendor(), run.gpu.index()) && success;
+        for (WorkerRunState run : runs.values()) success = stopGpu(run.gpu.vendor(), run.gpu.index()) && success;
         success = MinerProcessRegistry.stopSrbExceptGpuCoins() && success;
         return success;
     }
 
-    public boolean running() { return runs.values().stream().anyMatch(GpuRun::running) || hasExternalMiner(); }
-    public boolean poolHealthy() { return runs.values().stream().anyMatch(run -> run.running() && run.poolHealthy); }
+    public boolean running() { return runs.values().stream().anyMatch(WorkerRunState::running) || hasExternalMiner(); }
+    public boolean poolHealthy() { return runs.values().stream().anyMatch(run -> run.running() && run.healthy); }
     public String connectionDetail() {
-        long healthy = runs.values().stream().filter(run -> run.running() && run.poolHealthy).count();
-        long running = runs.values().stream().filter(GpuRun::running).count();
+        long healthy = runs.values().stream().filter(run -> run.running() && run.healthy).count();
+        long running = runs.values().stream().filter(WorkerRunState::running).count();
         return running > 0 ? healthy + " von " + running + " GPU-Minern mit Pool verbunden"
                 : hasExternalMiner() ? "SRBMiner läuft außerhalb des PC-Agent; Pool- und GPU-Status nicht verfügbar"
                 : lastError != null ? lastError : "GPU-Miner pausiert";
@@ -606,7 +525,8 @@ public class PearlMinerService implements GpuCoinMiner {
         }
     }
 
-    static Path versionPath(Path executable) {
+    /** Shared SRBMiner version-marker location for install and removal flows. */
+    public static Path versionPath(Path executable) {
         return executable.resolveSibling(".solarminer-srbminer-version");
     }
     public Path executablePath() { return executable; }
@@ -614,10 +534,10 @@ public class PearlMinerService implements GpuCoinMiner {
     public List<GpuState> gpuStates(List<LocalGpuPowerService.Gpu> cards) {
         boolean externalMiner = hasExternalMiner();
         return cards.stream().map(gpu -> {
-            GpuRun run = runs.get(gpu.vendor() + ":" + gpu.index());
+            WorkerRunState run = runs.get(gpu.vendor() + ":" + gpu.index());
             return new GpuState(gpu.vendor(), gpu.index(), gpu.model(), selected(gpu),
-                    run == null ? externalMiner ? MinerStats.MinerStatus.MINING : MinerStats.MinerStatus.PAUSED : run.visibleStatus(),
-                    run != null ? run.running() : externalMiner, run != null && run.poolHealthy,
+                    run == null ? externalMiner ? MinerStats.MinerStatus.MINING : MinerStats.MinerStatus.PAUSED : run.status,
+                    run != null ? run.running() : externalMiner, run != null && run.healthy,
                     manuallyPaused.contains(gpu.vendor() + ":" + gpu.index()),
                     run == null ? externalMiner ? "SRBMiner läuft außerhalb des PC-Agent; GPU-Zuordnung nicht verfügbar" : "Noch nicht gestartet" : run.detail,
                     run == null ? null : run.error);
@@ -637,13 +557,13 @@ public class PearlMinerService implements GpuCoinMiner {
         if (current == null) return List.of();
         List<Pools> pools = List.of(new Pools(current.poolUrl(), current.wallet() + "/" + current.worker(), ""));
         return cards.stream().filter(this::selected).map(gpu -> {
-            GpuRun run = runs.get(gpu.vendor() + ":" + gpu.index());
+            WorkerRunState run = runs.get(gpu.vendor() + ":" + gpu.index());
             boolean externalMiner = hasExternalMiner();
             boolean reported = run != null && !externalMiner && run.status == MinerStats.MinerStatus.MINING;
             MinerShareTelemetry.Counters counters = run == null ? MinerShareTelemetry.Counters.unavailable() : run.poolCounters;
-            return new MinerStats.Worker(externalMiner ? MinerStats.MinerStatus.MINING : run == null ? MinerStats.MinerStatus.PAUSED : run.visibleStatus(),
+            return new MinerStats.Worker(externalMiner ? MinerStats.MinerStatus.MINING : run == null ? MinerStats.MinerStatus.PAUSED : run.status,
                     "SRBMiner " + gpu.model() + " (" + gpu.vendor() + ":" + gpu.index() + ")", "PearlHash",
-                    run == null || externalMiner ? 0.0 : run.hashesPerSecond / 1_000_000_000_000.0, 0.0,
+                    run == null || externalMiner ? 0.0 : run.hashrate / 1_000_000_000_000.0, 0.0,
                     gpuPowerService.appliedTarget(gpu), gpu.minWatts(), gpu.maxWatts(), gpu.maxWatts(),
                     gpu.currentWatts() == null ? 0 : Math.round(gpu.currentWatts()), pools,
                     "GPU", gpu.model(), gpu.deviceId(),
@@ -652,14 +572,6 @@ public class PearlMinerService implements GpuCoinMiner {
                     reported ? new MinerStats.PoolTelemetry(counters.difficulty(), counters.bestShare(), counters.stale(), counters.latencyMs())
                             : MinerStats.PoolTelemetry.unavailable());
         }).toList();
-    }
-
-    /** SRBMiner has used both pool.accepted and pool.shares.accepted across releases. */
-    private static void updateShares(GpuRun run, JsonNode pool) {
-        MinerShareTelemetry.Counters counters = MinerShareTelemetry.srbMiner(pool);
-        run.acceptedShares = counters.accepted();
-        run.rejectedShares = counters.rejected();
-        run.poolCounters = counters;
     }
 
     private boolean hasExternalMiner() {
@@ -673,12 +585,12 @@ public class PearlMinerService implements GpuCoinMiner {
     /** Adds an orchestration event to the aggregate and every currently known GPU console. */
     public synchronized void appendBenchmarkEvent(String message) {
         console.append(Coin.PEARL.id(), message);
-        for (GpuRun run : runs.values()) console.append(run.consoleId, message);
+        for (WorkerRunState run : runs.values()) console.append(run.consoleId, message);
     }
 
     /** Managed processes only; external miners are rejected before an installed benchmark begins. */
     public synchronized Set<String> runningGpuDeviceIds() {
-        return runs.values().stream().filter(GpuRun::running).map(run -> run.gpu.deviceId()).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return runs.values().stream().filter(WorkerRunState::running).map(run -> run.gpu.deviceId()).collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     public synchronized Set<String> manuallyPausedGpuKeys() { return Set.copyOf(manuallyPaused); }

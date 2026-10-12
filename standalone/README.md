@@ -92,6 +92,8 @@ package manager, but keeps Java private under the user's data directory. Both
 the Adoptium JRE and Agent JAR are SHA-256 verified. `install-docker.sh`
 installs Docker Engine and Compose from the system package manager when they
 are missing, validates the release-owned Compose files, and starts them. It
+uses Linux host networking so LAN UDP discovery can reach the physical network.
+It
 does not install or replace kernel/GPU drivers: NVIDIA requires an existing
 driver and NVIDIA Container Toolkit; AMD requires working `/dev/kfd` and
 `/dev/dri` devices. Installer output and errors are bilingual (German/English).
@@ -99,8 +101,10 @@ driver and NVIDIA Container Toolkit; AMD requires working `/dev/kfd` and
 Auf Deutsch: `install-linux.sh` installiert fehlende Basiswerkzeuge über einen
 erkannten Paketmanager, hält Java aber privat im Datenverzeichnis des Nutzers.
 Adoptium-JRE und Agent-JAR werden per SHA-256 geprüft. `install-docker.sh`
-installiert fehlendes Docker samt Compose aus dem System-Paketmanager, prüft
-die Release-Compose-Dateien und startet sie. Kernel- oder GPU-Treiber werden
+installiert fehlendes Docker samt Compose aus dem System-Paketmanager, prüft die
+Release-Compose-Dateien und startet sie. Unter Linux verwendet es
+Host-Netzwerkzugriff, damit die LAN-UDP-Erkennung das physische Netzwerk
+erreicht. Kernel- oder GPU-Treiber werden
 nicht verändert: NVIDIA setzt einen vorhandenen Treiber samt NVIDIA Container
 Toolkit voraus, AMD funktionierende `/dev/kfd`- und `/dev/dri`-Geräte.
 Stable und Beta sind getrennte Kanäle und Datenverzeichnisse. Die Beta-Skripte

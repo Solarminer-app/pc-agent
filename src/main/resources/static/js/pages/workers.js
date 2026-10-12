@@ -30,7 +30,11 @@
     const hours = Math.floor((seconds || 0) / 3600), minutes = Math.floor(((seconds || 0) % 3600) / 60);
     return hours ? `${hours} h ${minutes} min` : `${minutes} min`;
   };
-  const coinTicker = id => ({monero: 'XMR', pearl: 'PRL', ravencoin: 'RVN', ethereumclassic: 'ETC', decred: 'DCR', quantus: 'QTC', none: 'Frei'})[id] || id;
+  // Phase 5c: ticker/algorithm identities come from the backend coin catalog (closed Coin
+  // enum); the UI keeps no coin table of its own. "none" is the UI's unassigned pseudo-coin.
+  const coinRow = id => (window.SolarMinerCoinCatalog || []).find(row => row.id === id) || null;
+  const coinTicker = id => id === 'none' ? 'unassigned' : (coinRow(id)?.ticker || id);
+  const coinAlgorithm = id => coinRow(id)?.algorithm || '';
 
   function filtered() {
     return workers.filter(worker => {
@@ -47,11 +51,11 @@
       const item = ui.element('span', 'strip-item'); item.append(ui.element('span', '', `${t(label)}: `));
       const pill = ui.statusPill(null, value); if (tone) pill.classList.add(tone); item.append(pill); strip.append(item);
     };
-    add('Agent', 'verbunden', 'tone-ok');
+    add('Agent', 'connected_e0e3b1', 'tone-ok');
     add('Zugewiesen', `${workers.filter(worker => worker.coin !== 'none').length}/${workers.length}`,
       workers.some(worker => worker.coin === 'none') ? 'tone-warn' : 'tone-ok');
     const broken = workers.filter(worker => worker.coin !== 'none' && (!worker.minerInstalled || !worker.configured)).length;
-    if (broken) add('Handlungsbedarf', t('{count} Worker', {count: broken}), 'tone-bad');
+    if (broken) add('Handlungsbedarf', t('count_workers', {count: broken}), 'tone-bad');
   }
 
   function renderKpis() {
@@ -64,26 +68,27 @@
     const tariff = energy ? preferences.convert(energy.settings.pricePerKwh, energy.settings.currency) : null;
     const tariffCurrency = tariff == null ? energy?.settings?.currency : preferences.currency;
     $('kpi-strip').replaceChildren(
-      ui.metric({label: 'Worker aktiv', value: `${running.length}/${workers.length}`, detail: 'Laufend / erkannte Komponenten', tone: running.length ? 'ok' : ''}),
-      ui.metric({label: 'Leistung', value: totalWatts ? ui.power(totalWatts) : '—', detail: 'Nur verfügbare Sensorwerte'}),
-      ui.metric({label: 'Algorithmen', value: algorithms.size ? String(algorithms.size) : '—', detail: [...algorithms].map(([name, value]) => `${name} ${ui.hashrate(value)}`).join(' · ') || 'Keine Hashrate'}),
-      ui.metric({label: 'Höchste Temperatur', value: temps.length ? ui.temperature(Math.max(...temps)) : '—', detail: 'Miner- oder Host-Sensor'}),
-      ui.metric({label: 'Energie heute', value: today ? `${Number(today.kilowattHours).toLocaleString(window.SolarMinerI18n.locale, {maximumFractionDigits: 3})} kWh` : '—', detail: today ? t('{percent} % Messabdeckung', {percent: Math.round(today.measurementCoverage * 100)}) : 'Journal wird geladen'}),
-      ui.metric({label: 'Stromkosten heute', value: today ? money(today.cost) : '—', detail: t('Tarif {price} {currency}/kWh', {price: energy ? Number(tariff == null ? energy.settings.pricePerKwh : tariff).toLocaleString(preferences.locale, {maximumFractionDigits: 4}) : '—', currency: tariffCurrency || ''})})
+      ui.metric({label: 'worker_active', value: `${running.length}/${workers.length}`, detail: 'running_detected_components', tone: running.length ? 'ok' : ''}),
+      ui.metric({label: 'power_4606f4', value: totalWatts ? ui.power(totalWatts) : '—', detail: 'available_sensor_readings_only'}),
+      ui.metric({label: 'algorithms', value: algorithms.size ? String(algorithms.size) : '—', detail: [...algorithms].map(([name, value]) => `${name} ${ui.hashrate(value)}`).join(' · ') || 'no_hashrate'}),
+      ui.metric({label: 'highest_temperature', value: temps.length ? ui.temperature(Math.max(...temps)) : '—', detail: 'miner_or_host_sensor'}),
+      ui.metric({label: 'energy_today', value: today ? `${Number(today.kilowattHours).toLocaleString(window.SolarMinerI18n.locale, {maximumFractionDigits: 3})} kWh` : '—', detail: today ? t('percent_measurement_coverage', {percent: Math.round(today.measurementCoverage * 100)}) : 'loading_energy_journal'}),
+      ui.metric({label: 'electricity_cost_today', value: today ? money(today.cost) : '—', detail: t('rate_price_currency_kwh', {price: energy ? Number(tariff == null ? energy.settings.pricePerKwh : tariff).toLocaleString(preferences.locale, {maximumFractionDigits: 4}) : '—', currency: tariffCurrency || ''})})
     );
   }
 
   function renderScope() {
     const bar = ui.element('div', 'scope-bar');
     const chips = ui.element('div', 'scope-chips');
-    for (const id of ['monero', 'pearl', 'ravencoin', 'ethereumclassic', 'decred', 'quantus', 'none']) {
+    const scopeIds = [...(window.SolarMinerCoinCatalog || []).map(row => row.id), 'none'];
+    for (const id of scopeIds) {
       const button = ui.element('button', `scope-chip${coin === id ? ' selected' : ''}`, coinTicker(id)); button.type = 'button';
       if (workers.some(worker => worker.coin === id && worker.status === 'MINING')) button.classList.add('running');
       button.addEventListener('click', () => { coin = coin === id ? null : id; render(); }); chips.append(button);
     }
-    const input = ui.element('input', 'scope-search'); input.type = 'search'; input.placeholder = t('Worker, Gerät, Coin oder Miner suchen'); input.value = search;
+    const input = ui.element('input', 'scope-search'); input.type = 'search'; input.placeholder = t('search_worker_device_coin_or_miner'); input.value = search;
     input.addEventListener('input', event => { search = event.target.value.trim().toLowerCase(); renderTable(); });
-    const count = ui.element('span', 'scope-count', t('{count} Worker', {count: filtered().length}));
+    const count = ui.element('span', 'scope-count', t('count_workers', {count: filtered().length}));
     bar.append(chips, input, count); $('scope-bar').replaceChildren(bar);
   }
 
@@ -92,33 +97,33 @@
     if (!session) return null;
     const wrap = ui.element('div');
     wrap.append(ui.element('strong', '', `${(Number(session.wattHours) / 1000).toLocaleString(window.SolarMinerI18n.locale, {maximumFractionDigits: 3})} kWh`));
-    wrap.append(ui.element('span', 'cell-sub', t('{duration} · {percent} % gemessen', {duration: duration(session.runtimeSeconds), percent: Math.round(session.runtimeSeconds ? session.measuredSeconds / session.runtimeSeconds * 100 : 0)})));
+    wrap.append(ui.element('span', 'cell-sub', t('duration_percent_measured', {duration: duration(session.runtimeSeconds), percent: Math.round(session.runtimeSeconds ? session.measuredSeconds / session.runtimeSeconds * 100 : 0)})));
     return wrap;
   }
 
   const columns = [
-    {label: 'Komponente', key: 'hardwareModel', width: '19%', render: worker => {
+    {label: 'component', key: 'hardwareModel', width: '19%', render: worker => {
       const wrap = ui.element('div'); wrap.append(ui.element('strong', '', worker.hardwareModel));
       wrap.append(ui.element('span', 'cell-sub', worker.deviceId)); return wrap;
     }},
-    {label: 'Zuweisung', key: 'coinName', width: '18%', render: worker => {
+    {label: 'assignment', key: 'coinName', width: '18%', render: worker => {
       const wrap = ui.element('div');
-      wrap.append(ui.element('strong', '', worker.coin === 'none' ? t('Nicht zugewiesen') : `${worker.coinName} · ${worker.minerSoftwareName || t('kein Miner')}`));
-      wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? t('Freie Kapazität') : `${worker.algorithm} · ${worker.configured ? worker.poolUrl ? t('Pool eingerichtet') : t('Standardroute') : t('SolarMiner-Standardziel wird beim Start geprüft')}`)); return wrap;
+      wrap.append(ui.element('strong', '', worker.coin === 'none' ? t('unassigned_4cfcb8') : `${worker.coinName} · ${worker.minerSoftwareName || t('no_miner')}`));
+      wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? t('free_capacity') : `${worker.algorithm} · ${worker.configured ? worker.poolUrl ? t('pool_configured') : t('default_route') : t('solarminer_default_payout_will_be_checked_at')}`)); return wrap;
     }},
-    {label: 'Status', key: 'status', width: '11%', render: worker => ui.statusPill(worker.status)},
+    {label: 'status_bae7d5', key: 'status', width: '11%', render: worker => ui.statusPill(worker.status)},
     {label: 'Live', key: 'telemetry', width: '16%', render: worker => {
       if (worker.status !== 'MINING') return null;
       const wrap = ui.element('div'); wrap.append(ui.element('strong', '', ui.hashrate(hps(worker))));
-      wrap.append(ui.element('span', 'cell-sub', `${watts(worker) ? ui.power(watts(worker)) : t('Leistung —')} · ${temperature(worker) != null ? ui.temperature(temperature(worker)) : t('Temperatur —')}`)); return wrap;
+      wrap.append(ui.element('span', 'cell-sub', `${watts(worker) ? ui.power(watts(worker)) : t('power_ce610e')} · ${temperature(worker) != null ? ui.temperature(temperature(worker)) : t('temperature_2500e7')}`)); return wrap;
     }},
-    {label: 'Session-Energie', key: 'energy', width: '18%', render: energyCell},
-    {label: 'Aktion', key: 'status', width: '18%', align: 'right', render: worker => {
+    {label: 'session_energy', key: 'energy', width: '18%', render: energyCell},
+    {label: 'action', key: 'status', width: '18%', align: 'right', render: worker => {
       const wrap = ui.element('div', 'row-actions');
-      const configure = ui.element('button', 'button subtle', worker.coin === 'none' ? 'Einrichten' : 'Ändern'); configure.type = 'button'; configure.disabled = !catalogReady || pendingWorkers.has(worker.deviceId);
+      const configure = ui.element('button', 'button subtle', worker.coin === 'none' ? 'set_up' : 'change'); configure.type = 'button'; configure.disabled = !catalogReady || pendingWorkers.has(worker.deviceId);
       configure.addEventListener('click', event => { event.stopPropagation(); openEditor(worker); }); wrap.append(configure);
       if (worker.coin !== 'none') {
-        const running = worker.status === 'MINING'; const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, running ? 'Pausieren' : 'Starten');
+        const running = worker.status === 'MINING'; const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, running ? 'pause' : 'start');
         toggle.type = 'button'; toggle.disabled = pendingWorkers.has(worker.deviceId) || !worker.minerInstalled;
         toggle.addEventListener('click', event => { event.stopPropagation(); action(worker, running ? 'pause' : 'start'); }); wrap.append(toggle);
       }
@@ -127,12 +132,12 @@
   ];
 
   function renderTable() {
-    const list = filtered(); $('worker-count').textContent = t('{count} Worker', {count: list.length});
+    const list = filtered(); $('worker-count').textContent = t('count_workers', {count: list.length});
     $('worker-hidden').hidden = list.length === workers.length;
-    if (!$('worker-hidden').hidden) $('worker-hidden').textContent = t('{count} ausgeblendet · Filter zurücksetzen', {count: workers.length - list.length});
+    if (!$('worker-hidden').hidden) $('worker-hidden').textContent = t('count_hidden_reset_filters', {count: workers.length - list.length});
     $('idle-devices').hidden = !workers.some(worker => worker.coin === 'none');
-    if (!$('idle-devices').hidden) $('idle-devices').textContent = t('{count} Komponenten sind noch keinem Mining-Profil zugewiesen.', {count: workers.filter(worker => worker.coin === 'none').length});
-    $('worker-table').replaceChildren(ui.table({columns, rows: list, empty: 'Keine Worker passen zu den Filtern.', onRow: openConsole}));
+    if (!$('idle-devices').hidden) $('idle-devices').textContent = t('count_components_are_not_assigned_to_a_minin', {count: workers.filter(worker => worker.coin === 'none').length});
+    $('worker-table').replaceChildren(ui.table({columns, rows: list, empty: 'no_workers_match_the_filters', onRow: openConsole}));
   }
 
   function render() { renderStatus(); renderKpis(); renderScope(); renderTable(); }
@@ -143,15 +148,15 @@
     const coinMiners = miners.filter(item => item.coin === coinId);
     for (const miner of coinMiners) {
       const option = document.createElement('option'); option.value = miner.id;
-      option.textContent = `${miner.name}${!miner.selectable ? ` · ${t('derzeit nicht zuweisbar')}` : miner.installed ? '' : ` · ${t('nicht installiert')}`}`;
+      option.textContent = `${miner.name}${!miner.selectable ? ` · ${t('currently_unavailable_for_assignment')}` : miner.installed ? '' : ` · ${t('not_installed')}`}`;
       option.disabled = !miner.selectable || !miner.installed; select.append(option);
     }
     if (selectedId && [...select.options].some(option => option.value === selectedId && !option.disabled)) select.value = selectedId;
     const chosen = coinMiners.find(miner => miner.id === select.value);
-    $('worker-miner-help').textContent = coinId === 'none' ? t('Keine Software erforderlich.')
-      : chosen && !chosen.selectable ? s(chosen.unavailableReason || 'Diese Miner-Software ist für den Coin derzeit nicht freigegeben.')
-      : chosen?.installed ? t('Installiert und einsatzbereit.')
-      : t('Installiere zuerst eine kompatible Software im Bereich Miner-Software.');
+    $('worker-miner-help').textContent = coinId === 'none' ? t('no_software_required')
+      : chosen && !chosen.selectable ? s(chosen.unavailableReason || 'this_miner_software_is_currently_not_releas')
+      : chosen?.installed ? t('installed_and_ready')
+      : t('install_compatible_software_in_the_miner_sof');
     $('worker-miner-install').hidden = coinId === 'none' || !chosen?.selectable || Boolean(chosen?.installed);
     $('worker-save').disabled = coinId !== 'none' && (!chosen || !chosen.selectable || !chosen.installed);
     select.disabled = coinId === 'none';
@@ -162,16 +167,17 @@
     $('worker-editor-title').textContent = worker.hardwareModel;
     $('worker-editor-hardware').textContent = `${worker.hardwareType} · ${worker.deviceId}`;
     const coinSelect = $('worker-coin'); coinSelect.replaceChildren();
-    const ids = worker.hardwareType === 'CPU' ? ['none', 'monero'] : ['none', 'pearl', 'ravencoin', 'ethereumclassic', 'decred', 'quantus'];
+    const catalog = window.SolarMinerCoinCatalog || [];
+    const ids = ['none', ...catalog.filter(row => worker.hardwareType === 'CPU' ? row.device === 'CPU' : row.device !== 'CPU').map(row => row.id)];
     for (const id of ids) {
       const option = document.createElement('option'); option.value = id;
       const coinMiners = miners.filter(miner => miner.coin === id);
       const unavailable = id !== 'none' && coinMiners.length > 0 && !coinMiners.some(miner => miner.selectable);
       const reason = coinMiners.find(miner => !miner.selectable)?.unavailableReason;
-      option.textContent = id === 'none' ? t('Nicht zugewiesen') : t('{coin} · {algorithm}{unavailable}', {
+      option.textContent = id === 'none' ? t('unassigned_4cfcb8') : t('coin_algorithmunavailable', {
         coin: coinTicker(id),
-        algorithm: {monero:'RandomX',pearl:'PearlHash',ravencoin:'KAWPOW',ethereumclassic:'ETCHash',decred:'BLAKE3',quantus:'QPoW (Poseidon2)'}[id],
-        unavailable: unavailable ? ` · ${t('nicht freigegeben')}` : ''
+        algorithm: coinAlgorithm(id),
+        unavailable: unavailable ? ` · ${t('not_enabled')}` : ''
       });
       option.disabled = unavailable;
       if (reason) option.title = s(reason);
@@ -231,7 +237,7 @@
       $('worker-console-notice').hidden = true;
     } catch (error) {
       const message = $('worker-console-notice');
-      message.textContent = t('Konsolenausgabe konnte nicht geladen werden: {error}', {error: s(error.message)});
+      message.textContent = t('console_output_could_not_be_loaded_error', {error: s(error.message)});
       message.hidden = false;
     } finally {
       if (session === consoleSession && consoleId && $('worker-console').open)
@@ -244,24 +250,24 @@
     consoleSession += 1;
     const session = consoleSession;
     consoleId = workerConsoleId(worker); consoleOffset = 0; consoleRunId = ''; consoleDecoder = new TextDecoder();
-    $('worker-console-title').textContent = t('Miner-Konsole · {worker}', {worker: worker.hardwareModel});
-    $('worker-console-meta').textContent = `${worker.coinName || coinTicker(worker.coin)} · ${worker.algorithm || '—'} · ${worker.deviceId}`;
+    $('worker-console-title').textContent = t('miner_console_worker', {worker: worker.hardwareModel});
+    $('worker-console-meta').textContent = `${worker.coinName || t(coinTicker(worker.coin))} · ${worker.algorithm || '—'} · ${worker.deviceId}`;
     $('worker-console-output').textContent = '';
     const download = $('worker-console-download');
     download.hidden = !consoleId;
     if (consoleId) download.href = `/api/agent/local/console/${encodeURIComponent(consoleId)}/download`;
     const message = $('worker-console-notice');
     message.hidden = Boolean(consoleId);
-    message.textContent = consoleId ? '' : t('Weise diesem Worker zuerst einen Coin zu. Danach erscheint hier seine Minerausgabe.');
+    message.textContent = consoleId ? '' : t('assign_a_coin_to_this_worker_first_its_miner');
     $('worker-console').showModal();
     if (consoleId) pollConsole(session);
   }
 
   function updatePoolSummary(coinId, poolUrl, configured) {
     const box = $('worker-pool-summary'); box.replaceChildren();
-    if (coinId === 'none') { box.textContent = t('Die Komponente bleibt frei und kann nicht gestartet werden.'); return; }
-    const text = ui.element('span', '', configured ? `${t('Pool')}: ${poolUrl || t('SolarMiner-Standardroute')}` : t('Ohne eigene Wallet wird beim Start das SolarMiner-Standardziel geprüft. Die gesamte Auszahlung geht dann dorthin.'));
-    const link = ui.element('a', '', 'Wallet & Pool bearbeiten →'); link.href = '/wallets.html'; box.append(text, link);
+    if (coinId === 'none') { box.textContent = t('this_component_remains_unassigned_and_cannot'); return; }
+    const text = ui.element('span', '', configured ? `${t('pool')}: ${poolUrl || t('solarminer_default_route')}` : t('without_your_own_wallet_the_solarminer_defau'));
+    const link = ui.element('a', '', 'edit_wallet_pool'); link.href = '/wallets.html'; box.append(text, link);
   }
 
   async function save(event) {
@@ -281,8 +287,8 @@
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(assignment)
       });
       if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || `HTTP ${response.status}`); }
-      notice('Zuweisung gespeichert. Ein laufender vorheriger Worker wurde sicher angehalten.'); await load();
-    } catch (error) { notice(t('Zuweisung fehlgeschlagen: {error}', {error: s(error.message)}), true, true); }
+      notice('assignment_saved_the_previous_running_worker'); await load();
+    } catch (error) { notice(t('assignment_failed_error', {error: s(error.message)}), true, true); }
     finally {
       pendingWorkers.delete(worker.deviceId);
       renderTable();
@@ -299,42 +305,43 @@
         const body = await response.json().catch(() => null);
         throw new Error(body?.detail || body?.message || `HTTP ${response.status}`);
       }
-      if (await response.json() !== true) throw new Error(t('Die Worker-Aktion wurde nicht angewendet. Prüfe die Miner-Konsole.'));
-      notice(t(command === 'start' ? '{worker} wurde gestartet.' : '{worker} wurde pausiert.', {worker: worker.hardwareModel}), false, true); await load();
-    } catch (error) { notice(`${t('Worker-Aktion fehlgeschlagen:')} ${window.SolarMinerI18n.s(error.message)}`, true, true); await load(); }
+      if (await response.json() !== true) throw new Error(t('the_worker_action_was_not_applied_check_the'));
+      notice(t(command === 'start' ? 'worker_started' : 'worker_paused', {worker: worker.hardwareModel}), false, true); await load();
+    } catch (error) { notice(`${t('worker_action_failed')} ${window.SolarMinerI18n.s(error.message)}`, true, true); await load(); }
     finally {
       pendingWorkers.delete(worker.deviceId);
       renderTable();
     }
   }
 
-  async function load() {
-    if (loading) return;
-    loading = true;
+  async function loadMinerCatalog() {
     try {
-      // Render the inventory as soon as it arrives. Miner discovery may take longer and is
-      // needed only for assignment, not for showing or starting existing workers.
-      workers = await ui.getJson('/api/agent/local/workers');
-      $('connection').className = 'badge online'; $('connection').textContent = t('Agent verbunden'); render();
-      try {
-        miners = await ui.getJson('/api/agent/local/miner-options');
-        catalogReady = true;
-        renderTable();
-      } catch (error) {
-        catalogReady = false;
-        renderTable();
-        notice(t('Miner-Katalog konnte nicht geladen werden: {error}', {error: s(error.message)}), true, true);
-      }
-      try {
-        const response = await fetch('/api/agent/local/energy', {cache: 'no-store', signal: AbortSignal.timeout(8000)});
-        if (response.ok) { energy = await response.json(); renderKpis(); renderTable(); }
-      } catch (_) { /* Energy is optional for the worker inventory. */ }
+      miners = await ui.getJson('/api/agent/local/miner-options');
+      catalogReady = true;
+      renderTable();
     } catch (error) {
-      $('connection').className = 'badge offline'; $('connection').textContent = t('Agent nicht erreichbar');
-      notice(t('Worker konnten nicht geladen werden: {error}', {error: s(error.message)}), true, true);
-    } finally {
-      loading = false;
+      catalogReady = false;
+      renderTable();
+      notice(t('could_not_load_miner_catalog_error', {error: s(error.message)}), true, true);
     }
+  }
+
+  // Phase 5c: the worker inventory and the energy journal arrive over the shared SSE
+  // stream (channels "workers" and "energy"); the watchdog re-reads only when a push
+  // went silent. The miner catalog stays a plain fetch — it only matters for assignment.
+  function load() {
+    window.SolarMinerLive.refresh('workers');
+    window.SolarMinerLive.refresh('energy');
+    loadMinerCatalog();
+    loadCoinCatalog();
+  }
+
+  async function loadCoinCatalog() {
+    if (window.SolarMinerCoinCatalog) { render(); return; }
+    try {
+      window.SolarMinerCoinCatalog = await ui.cachedCoinCatalog();
+      render();
+    } catch (_) { /* Scope chips fall back to nothing until the catalog arrives. */ }
   }
 
   for (const button of document.querySelectorAll('[data-hardware]')) button.addEventListener('click', () => {
@@ -346,5 +353,21 @@
   $('worker-console').addEventListener('close', stopConsolePolling);
   $('refresh').addEventListener('click', load);
   document.addEventListener('solarminer:preferences-changed', () => { if (workers.length) render(); });
-  load(); setInterval(() => { if (!document.hidden && !$('worker-editor').open && !$('worker-console').open) load(); }, 5000);
+  window.SolarMinerLive.channel('workers', {endpoint: '/api/agent/local/workers', maxAgeMs: 8000})
+    .subscribe((list, meta) => {
+      if (list) {
+        // Skip inventory churn while a modal owns the screen (same rule as the old poll gate).
+        if ($('worker-editor').open || $('worker-console').open) return;
+        workers = list;
+        $('connection').className = 'badge online'; $('connection').textContent = t('agent_connected');
+        render();
+      } else if (meta.error) {
+        $('connection').className = 'badge offline'; $('connection').textContent = t('agent_unavailable');
+        notice(t('could_not_load_workers_error', {error: s(meta.error.message || '')}), true, true);
+      }
+    });
+  window.SolarMinerLive.channel('energy', {endpoint: '/api/agent/local/economics', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
+    .subscribe(value => { if (value) { energy = value; renderKpis(); renderTable(); } });
+  window.SolarMinerLive.start();
+  load();
 })();

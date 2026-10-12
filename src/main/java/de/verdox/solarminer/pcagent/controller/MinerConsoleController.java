@@ -1,6 +1,6 @@
 package de.verdox.solarminer.pcagent.controller;
 
-import de.verdox.solarminer.pcagent.mining.MinerConsoleService;
+import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;

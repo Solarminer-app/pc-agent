@@ -34,6 +34,7 @@ else
     export PC_AGENT_IMAGE="verdox/solar-miner-pc-agent:latest"
 fi
 say "Kanal: $CHANNEL / Channel: $CHANNEL"
+say "Netzwerkmodus: host / Network mode: host"
 
 install_docker() {
     command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && return

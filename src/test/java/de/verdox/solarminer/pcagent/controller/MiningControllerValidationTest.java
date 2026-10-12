@@ -2,20 +2,19 @@ package de.verdox.solarminer.pcagent.controller;
 
 import de.verdox.solarminer.pcagent.lowlevel.sensor.WindowsLhmBootstrapService;
 import de.verdox.solarminer.pcagent.mining.MiningService;
-import de.verdox.solarminer.pcagent.mining.EarningsForecastService;
-import de.verdox.solarminer.pcagent.mining.PayoutDefaultsService;
-import de.verdox.solarminer.pcagent.mining.ReferralConfigurationService;
-import de.verdox.solarminer.pcagent.mining.FeeTransparencyService;
-import de.verdox.solarminer.pcagent.mining.WalletBalanceService;
+import de.verdox.solarminer.pcagent.mining.economics.MarketDataService;
+import de.verdox.solarminer.pcagent.mining.fee.ReferralConfigurationService;
+import de.verdox.solarminer.pcagent.mining.fee.FeeTransparencyService;
+import de.verdox.solarminer.pcagent.mining.wallet.WalletBalanceService;
 import de.verdox.solarminer.pcagent.mining.WindowsDefenderExclusionService;
-import de.verdox.solarminer.pcagent.mining.ProxyConfigurationService;
-import de.verdox.solarminer.pcagent.mining.ProxyDiscoveryService;
-import de.verdox.solarminer.pcagent.mining.LocalRunLock;
+import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
+import de.verdox.solarminer.pcagent.mining.proxy.ProxyDiscoveryService;
+import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
 import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
-import de.verdox.solarminer.pcagent.pearl.SrbDownloadService;
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
-import de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService;
+import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
 import de.verdox.solarminer.pcagent.xmr.XmrConfigService;
 import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
 import de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService;
@@ -40,6 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 import de.verdox.solarminer.pcagent.miner.MinerConfig;
+import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
 
 class MiningControllerValidationTest {
     private final WindowsLhmBootstrapService sensors = mock(WindowsLhmBootstrapService.class);
@@ -52,7 +52,7 @@ class MiningControllerValidationTest {
     private final XmrMinerService cpu = mock(XmrMinerService.class);
     private final LocalGpuPowerService gpuPower = mock(LocalGpuPowerService.class);
     private final MiningService mining = mock(MiningService.class);
-    private final EarningsForecastService earnings = mock(EarningsForecastService.class);
+    private final MarketDataService earnings = mock(MarketDataService.class);
     private final MinerCatalogService minerCatalog = mock(MinerCatalogService.class);
     private final LocalRunLock localRuns = new LocalRunLock();
 
@@ -61,7 +61,7 @@ class MiningControllerValidationTest {
         for (String coin : java.util.List.of("monero", "pearl", "ravencoin", "ethereumclassic", "decred", "quantus")) {
             MinerCatalogService.MinerOption option = new MinerCatalogService.MinerOption(
                     coin.equals("monero") ? "xmrig" : "srbminer-multi", coin, "test", coin.equals("monero") ? "CPU" : "GPU",
-                    "test", null, java.util.List.of(), java.util.List.of(), "https://example.test", coin.equals("ravencoin") || coin.equals("ethereumclassic"), true, "READY", "ready", true, null);
+                    "test", null, null, null, java.util.List.of(), java.util.List.of(), "https://example.test", coin.equals("ravencoin") || coin.equals("ethereumclassic"), true, "READY", "ready", true, null);
             when(minerCatalog.selected(coin)).thenReturn(option);
             when(minerCatalog.options(coin)).thenReturn(java.util.List.of(option));
         }
@@ -88,12 +88,6 @@ class MiningControllerValidationTest {
         when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.ETHEREUMCLASSIC)).thenReturn("stratum+tcp://proxy.lan:3337");
         when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.DECRED)).thenReturn("stratum+tcp://proxy.lan:3338");
         when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.QUANTUS)).thenReturn("stratum+tcp://proxy.lan:3339");
-        when(proxy.moneroUrl()).thenReturn("stratum+tcp://proxy.lan:3335");
-        when(proxy.pearlUrl()).thenReturn("stratum+tcp://proxy.lan:3334");
-        when(proxy.ravencoinUrl()).thenReturn("stratum+tcp://proxy.lan:3336");
-        when(proxy.ethereumclassicUrl()).thenReturn("stratum+tcp://proxy.lan:3337");
-        when(proxy.decredUrl()).thenReturn("stratum+tcp://proxy.lan:3338");
-        when(proxy.quantusUrl()).thenReturn("stratum+tcp://proxy.lan:3339");
         when(mining.pauseAll(any())).thenReturn(true);
         when(proxyDiscovery.discover()).thenReturn(java.util.List.of(
                 new ProxyDiscoveryService.ProxyCandidate("192.168.1.10", 8090, 3335, 3334,
@@ -122,7 +116,7 @@ class MiningControllerValidationTest {
     @Test
     void emptyRavencoinWalletUsesTheMarkedHouseRoute() throws Exception {
         String houseWallet = "RHaGK3iARQdKgZ6VPDP4N5chP3aVgUUfz7";
-        when(payouts.resolve("ravencoin")).thenReturn(Optional.of(new PayoutDefaultsService.DefaultPayout(
+        when(payouts.resolveCached("ravencoin")).thenReturn(Optional.of(new PayoutDefaultsService.DefaultPayout(
                 "ravencoin", "solarminer-rvn-kawpow", "stratum+tcp://rvn.2miners.com:6060",
                 houseWallet + ".solarminer", "x")));
         controller().perform(post("/api/agent/local/ravencoin/configuration").contentType(MediaType.APPLICATION_JSON)
@@ -141,7 +135,7 @@ class MiningControllerValidationTest {
 
     @Test
     void emptyEtcWalletWithoutHouseRouteIsRejected() throws Exception {
-        when(payouts.resolve("ethereumclassic")).thenReturn(Optional.empty());
+        when(payouts.resolveCached("ethereumclassic")).thenReturn(Optional.empty());
         controller().perform(post("/api/agent/local/ethereumclassic/configuration").contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"poolUrl":"","proxyUrl":"stratum+tcp://127.0.0.1:3337",
@@ -220,7 +214,7 @@ class MiningControllerValidationTest {
 
     @Test
     void emptyPearlWalletWithoutFeeBackendPayoutIsRefusedWithAReason() throws Exception {
-        when(payouts.resolve("pearl")).thenReturn(Optional.empty());
+        when(payouts.resolveCached("pearl")).thenReturn(Optional.empty());
         controller().perform(post("/api/agent/local/pearl/configuration").contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"poolUrl":"","proxyUrl":"stratum+tcp://127.0.0.1:3334",
@@ -233,7 +227,7 @@ class MiningControllerValidationTest {
     @Test
     void emptyPearlWalletStoresTheFeeBackendRouteTogether() throws Exception {
         String houseWallet = "prl1" + "q".repeat(30);
-        when(payouts.resolve("pearl")).thenReturn(Optional.of(new PayoutDefaultsService.DefaultPayout("pearl",
+        when(payouts.resolveCached("pearl")).thenReturn(Optional.of(new PayoutDefaultsService.DefaultPayout("pearl",
                 "solarminer-prl-pearlhash", "stratum+ssl://prl.kryptex.network:8048", houseWallet + "/solarminer", "")));
         when(proxy.matches("stratum+tcp://127.0.0.1:3334", de.verdox.solarminer.pcagent.coin.Coin.PEARL)).thenReturn(true);
         controller().perform(post("/api/agent/local/pearl/configuration").contentType(MediaType.APPLICATION_JSON)
@@ -254,8 +248,8 @@ class MiningControllerValidationTest {
 
     @Test
     void emptyMoneroWalletRoutesToTheFeeBackendPoolAndWorker() throws Exception {
-        when(proxy.moneroUrl()).thenReturn("stratum+tcp://127.0.0.1:3335");
-        when(payouts.resolve("monero")).thenReturn(Optional.of(new PayoutDefaultsService.DefaultPayout("monero",
+        when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.MONERO)).thenReturn("stratum+tcp://127.0.0.1:3335");
+        when(payouts.resolveCached("monero")).thenReturn(Optional.of(new PayoutDefaultsService.DefaultPayout("monero",
                 "solarminer-xmr-randomx", "stratum+tcp://xmr.kryptex.network:7029", "4HouseWallet.solarminer", "")));
         controller().perform(post("/api/agent/local/monero/configuration").contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -271,7 +265,7 @@ class MiningControllerValidationTest {
 
     @Test
     void ownMoneroWalletStillKeepsItsOwnPoolAndWorker() throws Exception {
-        when(proxy.moneroUrl()).thenReturn("stratum+tcp://127.0.0.1:3335");
+        when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.MONERO)).thenReturn("stratum+tcp://127.0.0.1:3335");
         controller().perform(post("/api/agent/local/monero/configuration").contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"poolUrl":"stratum+tcp://xmr-eu.kryptex.network:7029",

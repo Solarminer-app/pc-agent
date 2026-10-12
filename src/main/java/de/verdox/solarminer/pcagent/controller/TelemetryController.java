@@ -14,11 +14,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class TelemetryController {
     private final HardwareTelemetryService telemetryService;
     private final WindowsLhmBootstrapService lhmBootstrapService;
+    private final AgentStatusService status;
 
     public TelemetryController(HardwareTelemetryService telemetryService,
-                               WindowsLhmBootstrapService lhmBootstrapService) {
+                               WindowsLhmBootstrapService lhmBootstrapService,
+                               @org.springframework.context.annotation.Lazy AgentStatusService status) {
         this.telemetryService = telemetryService;
         this.lhmBootstrapService = lhmBootstrapService;
+        this.status = status;
     }
 
     @GetMapping
@@ -28,6 +31,8 @@ public class TelemetryController {
 
     @org.springframework.web.bind.annotation.PostMapping("/restart")
     public boolean restartLibreHardwareMonitor() {
-        return lhmBootstrapService.restartWithElevation();
+        boolean restarted = lhmBootstrapService.restartWithElevation();
+        if (restarted && status != null) status.invalidate("telemetry", "overview");
+        return restarted;
     }
 }

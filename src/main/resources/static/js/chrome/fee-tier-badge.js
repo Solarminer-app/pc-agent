@@ -41,26 +41,26 @@
     badge.classList.toggle('proxy', !nodeMode);
     const devParts = (summary.parts || []).filter(p => p.kind === 'SOLARMINER' || p.kind === 'REFERRER');
     const total = devParts.reduce((sum, p) => sum + (Number(p.percentage) || 0), 0);
-    const modeLabel = nodeMode ? t('Node verbunden') : t('Ohne Node');
+    const modeLabel = nodeMode ? t('node_connected') : t('without_a_node');
     label.textContent = summary.resolved
-      ? `${modeLabel} · ${t('Dev-Fee')} ${fmtPct(total)}`
+      ? `${modeLabel} · ${t('dev_fee')} ${fmtPct(total)}`
       : modeLabel;
 
     const lines = [];
     lines.push(nodeMode
-      ? t('Ein SolarMiner Node steuert oder fragt diesen Agenten ab – volle Automatisierungsgebühr.')
-      : t('Dieser Agent läuft ohne SolarMiner Node – reduzierte Proxy-Gebühr.'));
+      ? t('a_solarminer_node_steers_or_reads_this_agent')
+      : t('this_agent_runs_without_a_solarminer_node_re'));
     if (summary.resolved) {
-      lines.push(t('Aufteilung der Dev-Fee:'));
+      lines.push(t('dev_fee_split'));
       for (const part of devParts) {
         lines.push(part.kind === 'SOLARMINER'
-          ? t('SolarMiner: {pct}', { pct: fmtPct(part.percentage) })
-          : t('Referrer {code}: {pct}', { code: summary.referral || '', pct: fmtPct(part.percentage) }));
+          ? t('solarminer_pct', { pct: fmtPct(part.percentage) })
+          : t('referrer_code_pct', { code: summary.referral || '', pct: fmtPct(part.percentage) }));
       }
-      lines.push(t('Gesamt: {pct}', { pct: fmtPct(total) }));
-      lines.push(t('Die Werte kommen live vom SolarMiner Fee-Backend und ändern sich mit Modus und Referral-Code.'));
+      lines.push(t('total_pct', { pct: fmtPct(total) }));
+      lines.push(t('values_come_live_from_the_solarminer_fee_bac'));
     } else {
-      lines.push(t('Dev-Fee-Aufteilung gerade nicht abrufbar – Proxy-Verbindung prüfen.'));
+      lines.push(t('dev_fee_split_currently_unavailable_check_th'));
     }
     tooltip.textContent = lines.join('\n');
     badge.setAttribute('aria-label', lines.join(' '));
@@ -73,6 +73,7 @@
   badge.addEventListener('focus', show);
   badge.addEventListener('blur', hide);
 
-  window.SolarMinerLive.channel('fee-tier', {endpoint: '/api/agent/local/fee-tier', maxAgeMs: 15_000}).subscribe(render);
+  window.SolarMinerLive.channel('fee-tier', {endpoint: '/api/agent/local/fee-tier', maxAgeMs: 60_000,
+    transport: 'rest', pollMs: 60_000}).subscribe(render);
   window.SolarMinerLive.start();
 })();

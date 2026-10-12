@@ -3,8 +3,10 @@ package de.verdox.solarminer.pcagent.mining;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.lowlevel.HardwareIdentityService;
-import de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService;
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentIdentityService;
+import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,14 @@ class NodeMiningProfileTest {
     @Test void newInstallDoesNotEnrollHardwareAutomatically() {
         assertFalse(controls().workerEnabled("cpu"));
         assertFalse(controls().workerEnabled("GPU-new"));
+    }
+
+    @Test void lanVisibilityIsEnabledByDefaultButKeepsAnExplicitOptOut() throws Exception {
+        assertTrue(controls().get().networkSharingActive());
+
+        java.nio.file.Files.writeString(directory.resolve("controls.json"),
+                "{\"dynamicPowerScalingEnabled\":true,\"externalControlEnabled\":false,\"networkSharingEnabled\":false}");
+        assertFalse(controls().get().networkSharingActive());
     }
 
     @Test void migratesExistingWorkerPermissionsWithoutDroppingOtherDevices() throws Exception {
@@ -71,7 +81,8 @@ class NodeMiningProfileTest {
         var cpu = mock(XmrMinerService.class); var pearl = mock(PearlMinerService.class);
         var coins = mock(GpuCoinMinerService.class); var power = mock(LocalGpuPowerService.class);
         var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test GPU", 100, 250, 100, 250, 200, 150.0, "measured", true, null);
-        when(power.discover()).thenReturn(List.of(gpu));
+        // REST audit R6: read models use snapshot(), command paths still discover().
+        when(power.discover()).thenReturn(List.of(gpu)); when(power.snapshot()).thenReturn(List.of(gpu));
         when(coins.selected("ravencoin")).thenReturn(List.of(gpu));
         when(coins.eligible("ravencoin")).thenReturn(List.of(gpu));
         when(pearl.stopGpu("NVIDIA", 0)).thenReturn(true);
@@ -98,7 +109,9 @@ class NodeMiningProfileTest {
         var cpu = mock(XmrMinerService.class); var pearl = mock(PearlMinerService.class);
         var coins = mock(GpuCoinMinerService.class); var power = mock(LocalGpuPowerService.class);
         var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test GPU", 100, 250, 100, 250, 200, 150.0, "measured", true, null);
-        when(power.discover()).thenReturn(List.of(gpu)); when(coins.selected("ravencoin")).thenReturn(List.of(gpu));
+        // REST audit R6: read models use snapshot(), command paths still discover().
+        when(power.discover()).thenReturn(List.of(gpu)); when(power.snapshot()).thenReturn(List.of(gpu));
+        when(coins.selected("ravencoin")).thenReturn(List.of(gpu));
         when(cpu.getWorkerStats()).thenReturn(worker("cpu", "RandomX"));
         when(pearl.workerStats(anyList())).thenReturn(List.of(worker("GPU-a", "PearlHash")));
         when(coins.workerStats(eq("ravencoin"), anyList())).thenReturn(List.of(worker("GPU-a", "kawpow")));

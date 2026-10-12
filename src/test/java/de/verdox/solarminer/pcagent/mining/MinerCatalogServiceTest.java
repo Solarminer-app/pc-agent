@@ -1,6 +1,6 @@
 package de.verdox.solarminer.pcagent.mining;
 
-import de.verdox.solarminer.pcagent.pearl.SrbDownloadService;
+import de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
 import de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService;
@@ -31,6 +31,8 @@ class MinerCatalogServiceTest {
         Path file = directory.resolve("selections.properties");
 
         MinerCatalogService catalog = new MinerCatalogService(xmrig, srb, xmrMiner, pearlMiner, file.toString());
+        // REST audit R5: installation state is a snapshot; probe it once like the scheduler does.
+        catalog.refreshInstallState();
 
         MinerCatalogService.MinerOption option = catalog.selected("monero");
         assertEquals("xmrig", option.id());
@@ -47,6 +49,7 @@ class MinerCatalogServiceTest {
         assertTrue(catalog.download("monero", "xmrig"));
 
         MinerCatalogService restarted = new MinerCatalogService(xmrig, srb, xmrMiner, pearlMiner, file.toString());
+        restarted.refreshInstallState();
         assertEquals("xmrig", restarted.selected("monero").id());
         assertEquals(1, restarted.options("monero").size());
         assertFalse(restarted.options("ravencoin").stream().filter(value -> value.id().equals("teamredminer"))

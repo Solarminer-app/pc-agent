@@ -1,0 +1,42 @@
+package de.verdox.solarminer.pcagent.controller;
+
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
+import de.verdox.solarminer.pcagent.mining.network.AgentNetworkDiscoveryService;
+import de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+/**
+ * Local dashboard contract for the LAN peer view: this agent plus every discovered peer agent
+ * with its worker rows and earnings. Reads only — control stays on each machine's own dashboard.
+ */
+@RestController
+@RequestMapping("/api/agent/local/network")
+@Tag(name = "PC mining agent - network dashboard", description = "Local view of peer PC-Agents in the same LAN")
+public class NetworkDashboardController {
+    private final NetworkDashboardService dashboard;
+    private final AgentNetworkDiscoveryService discovery;
+    private final AgentControlSettingsService controls;
+
+    public NetworkDashboardController(NetworkDashboardService dashboard,
+                                      AgentNetworkDiscoveryService discovery,
+                                      AgentControlSettingsService controls) {
+        this.dashboard = dashboard;
+        this.discovery = discovery;
+        this.controls = controls;
+    }
+
+    public record NetworkView(boolean sharingEnabled, int peerCount,
+                              List<NetworkDashboardService.AgentCard> agents) { }
+
+    @GetMapping("/agents")
+    public NetworkView agents() {
+        List<NetworkDashboardService.AgentCard> cards = dashboard.cards();
+        return new NetworkView(controls.get().networkSharingActive(),
+                Math.max(0, cards.size() - 1), cards);
+    }
+}

@@ -1,6 +1,6 @@
 package de.verdox.solarminer.pcagent.controller;
 
-import de.verdox.solarminer.pcagent.mining.AgentControlSettingsService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,10 +25,10 @@ public class AgentWriteAccessFilter extends OncePerRequestFilter {
     private static final String EXTERNAL_API = AGENT_API + "external";
 
     private final AgentControlSettingsService controls;
-    private final de.verdox.solarminer.pcagent.mining.FeeTierService feeTiers;
+    private final de.verdox.solarminer.pcagent.mining.fee.FeeTierService feeTiers;
 
     public AgentWriteAccessFilter(AgentControlSettingsService controls,
-                                  de.verdox.solarminer.pcagent.mining.FeeTierService feeTiers) {
+                                  de.verdox.solarminer.pcagent.mining.fee.FeeTierService feeTiers) {
         this.controls = controls;
         this.feeTiers = feeTiers;
     }
@@ -52,6 +52,17 @@ public class AgentWriteAccessFilter extends OncePerRequestFilter {
             if ("GET".equalsIgnoreCase(request.getMethod())
                     && path.equals(EXTERNAL_API + "/identity")) {
                 filterChain.doFilter(request, response);
+                return;
+            }
+            // The peer-dashboard snapshot is a read-only visibility contract gated by its
+            // own explicit LAN-sharing consent, not by the Node-control gate.
+            if ("GET".equalsIgnoreCase(request.getMethod())
+                    && path.equals(EXTERNAL_API + "/network-snapshot")) {
+                if (controls.get().networkSharingActive()) {
+                    filterChain.doFilter(request, response);
+                } else {
+                    forbidden(response, "LAN-Sichtbarkeit wurde lokal deaktiviert");
+                }
                 return;
             }
             if (controls.get().externalControlEnabled()) {

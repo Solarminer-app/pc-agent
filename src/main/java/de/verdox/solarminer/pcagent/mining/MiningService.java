@@ -5,12 +5,16 @@ import de.verdox.solarminer.pcagent.coin.WorkerIds;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.dto.Pools;
 import de.verdox.solarminer.pcagent.lowlevel.HardwareIdentityService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentIdentityService;
+import de.verdox.solarminer.pcagent.mining.power.PowerApplicationState;
+import de.verdox.solarminer.pcagent.mining.power.PowerBudgetPlanner;
 import de.verdox.solarminer.pcagent.miner.CoinMiner;
 import de.verdox.solarminer.pcagent.miner.CpuMiner;
 import de.verdox.solarminer.pcagent.miner.GpuCoinMiner;
 import de.verdox.solarminer.pcagent.miner.MinerConfig;
 import de.verdox.solarminer.pcagent.miner.MinerFactory;
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -21,6 +25,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import de.verdox.solarminer.pcagent.miner.MinerStopContext;
 
 /**
  * Coin-independent mining orchestration: power budgets, pause/resume and worker selection are
@@ -223,7 +228,9 @@ public class MiningService {
 
     private List<LocalGpuPowerService.Gpu> selectedGpus(boolean external) {
         if (!external) return selectedGpus();
-        return gpuPowerService.discover().stream().filter(gpu -> controls.workerEnabled(gpu.deviceId()))
+        // REST audit R6: externallySelected() feeds REST read models (power-control status),
+        // so membership checks use the snapshot; command paths refresh explicitly.
+        return gpuPowerService.snapshot().stream().filter(gpu -> controls.workerEnabled(gpu.deviceId()))
                 .filter(gpu -> selectedForCoin(controls.get().coinFor(gpu.deviceId()), false).stream()
                         .anyMatch(selected -> selected.deviceId().equals(gpu.deviceId()))).toList();
     }
@@ -419,17 +426,8 @@ public class MiningService {
     }
 
     private void persistSelectedCoin(String coinId) throws IOException {
-        Files.createDirectories(coinSelectionFile.getParent());
-        Path temp = Files.createTempFile(coinSelectionFile.getParent(), "coin-", ".tmp");
-        try {
-            Files.writeString(temp, coinId);
-            try {
-                Files.move(temp, coinSelectionFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                Files.move(temp, coinSelectionFile, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } finally {
-            Files.deleteIfExists(temp);
+        if (!de.verdox.solarminer.pcagent.support.AtomicFileStore.writeText(coinSelectionFile, coinId, "coin-")) {
+            throw new IOException("Could not persist selected coin " + coinId);
         }
     }
 
@@ -493,7 +491,9 @@ public class MiningService {
     }
 
     private List<MinerStats.Worker> getWorkerStats(List<LocalGpuPowerService.Gpu> discoveredGpus) {
-        List<LocalGpuPowerService.Gpu> cards = discoveredGpus == null ? gpuPowerService.discover() : discoveredGpus;
+        // REST audit R6: stats composition reads the driver snapshot unless the caller
+        // already passed a fresh one; driver discovery never runs on a request thread.
+        List<LocalGpuPowerService.Gpu> cards = discoveredGpus == null ? gpuPowerService.snapshot() : discoveredGpus;
         List<MinerStats.Worker> workers = new ArrayList<>();
         workers.add(cpu.getWorkerStats());
         AgentControlSettingsService.Settings owner = controls.get();

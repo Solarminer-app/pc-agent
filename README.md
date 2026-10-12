@@ -37,7 +37,8 @@ Push a `pc-agent-v<version>` tag matching `pcAgentVersion` in
 `gradle.properties`. The `release.yml` workflow runs tests, verifies that no
 Stratum proxy classes are bundled, publishes the Docker image, and creates the
 GitHub release with the standalone JAR, SHA-256, Windows launchers, one-command
-bootstrap scripts, and the base/NVIDIA/AMD Compose files.
+bootstrap scripts, and the host-network/NVIDIA/AMD Compose files. Docker
+Compose is supported only with Linux host networking so LAN discovery can work.
 
 ## Working here
 

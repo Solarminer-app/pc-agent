@@ -2,8 +2,8 @@ package de.verdox.solarminer.pcagent.miner;
 
 import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
-import de.verdox.solarminer.pcagent.pearl.GpuCoinMinerService;
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 
 import java.io.IOException;
 import java.util.List;
@@ -56,10 +56,22 @@ public final class SrbGpuCoinView implements GpuCoinMiner {
     @Override public boolean resumeGpu(String vendor, int index) { return service.resumeGpu(key(), vendor, index); }
     @Override public boolean startForBudget() { return service.startForBudget(key()); }
     @Override public boolean hasExternalMinerProcess() { return service.hasExternalSrbMiner(); }
+    @Override public de.verdox.solarminer.pcagent.miner.diagnostics.MinerLogDiagnostics.Diagnosis diagnosis(String vendor, int index) {
+        return service.diagnosis(key(), vendor, index);
+    }
 
+    /**
+     * Hardware device ids of running managed processes, matching the {@link GpuCoinMiner}
+     * contract and Pearl's implementation (Phase 3 fix: this view previously returned
+     * {@code vendor:index} keys, which {@link #restoreWorkerState} could never match).
+     */
     @Override public Set<String> runningGpuDeviceIds() {
-        return gpuStates(power.discover()).stream().filter(GpuState::running)
-                .map(state -> state.vendor() + ":" + state.index()).collect(Collectors.toUnmodifiableSet());
+        List<GpuState> states = gpuStates(power.discover());
+        return power.discover().stream()
+                .filter(gpu -> states.stream().anyMatch(state -> state.running()
+                        && state.vendor().equals(gpu.vendor()) && state.index() == gpu.index()))
+                .map(LocalGpuPowerService.Gpu::deviceId)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     @Override public Set<String> manuallyPausedGpuKeys() {
@@ -82,6 +94,8 @@ public final class SrbGpuCoinView implements GpuCoinMiner {
 
     @Override public void setSweepOverride(MinerConfig config) { service.setSweepOverride(key(), config); }
     @Override public void clearSweepOverride() { service.clearSweepOverride(key()); }
+    @Override public void setBenchmarkOverride(MinerConfig config) { service.setBenchmarkOverride(key(), config); }
+    @Override public void clearBenchmarkOverride() { service.clearBenchmarkOverride(key()); }
     @Override public MinerConfig configuration() { return service.configuration(key()); }
     @Override public void applyConfig(MinerConfig config) throws IOException { service.configure(key(), config); }
     @Override public void validateConfig(MinerConfig config) { service.validate(key(), config); }

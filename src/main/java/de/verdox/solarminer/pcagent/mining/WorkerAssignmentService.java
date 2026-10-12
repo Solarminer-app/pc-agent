@@ -6,7 +6,9 @@ import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.miner.GpuCoinMiner;
 import de.verdox.solarminer.pcagent.miner.MinerConfig;
 import de.verdox.solarminer.pcagent.miner.MinerFactory;
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
+import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -16,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
 
 /**
  * One local contract for assigning and controlling a physical CPU/GPU worker. Coin identity
@@ -46,7 +49,8 @@ public class WorkerAssignmentService {
     }
 
     public synchronized List<WorkerView> workers() {
-        List<LocalGpuPowerService.Gpu> cards = gpuPower.discover();
+        // Listing workers is a read model: do not execute driver commands on its REST path.
+        List<LocalGpuPowerService.Gpu> cards = gpuPower.snapshot();
         List<MinerStats.Worker> stats = mining.getStats(cards).workers();
         List<WorkerView> result = new ArrayList<>();
         MinerStats.Worker cpu = stats.stream().filter(worker -> WorkerIds.CPU.equals(worker.deviceId())).findFirst().orElse(null);
@@ -113,8 +117,11 @@ public class WorkerAssignmentService {
         MinerConfig existing = miner.configuration();
         if (coin == Coin.PEARL && existing != null) return;
         if (existing != null && !payouts.usesDefault(coin.id())) return;
-        if (existing != null && payouts.resolve(coin.id()).isEmpty()) return; // Keep the last verified house route during an outage.
-        PayoutDefaultsService.DefaultPayout payout = payouts.resolve(coin.id()).orElseThrow(() ->
+        // REST audit R3: assignment runs on the request thread, so it reads the pre-warmed
+        // cache instead of calling the fee backend itself. The scheduled pre-warm marks a
+        // target missing within its TTL during an outage, which preserves the old behavior.
+        if (existing != null && payouts.resolveCached(coin.id()).isEmpty()) return; // Keep the last verified house route during an outage.
+        PayoutDefaultsService.DefaultPayout payout = payouts.resolveCached(coin.id()).orElseThrow(() ->
                 new IllegalStateException("SolarMiner default payout for " + coin.id() + " is unavailable. Check the proxy and fee target."));
         String proxyUrl = proxy.coinUrl(coin);
         if (proxyUrl == null) throw new IllegalStateException("SolarMiner proxy route for " + coin.id() + " is unavailable");
@@ -136,13 +143,21 @@ public class WorkerAssignmentService {
      * Prepares every installed GPU miner with the SolarMiner house route, without starting it.
      * A benchmark must not require a prior Worker assignment or a manually saved payout route.
      */
-    public synchronized Map<String, String> prepareBenchmarkDefaults() {
+    public synchronized Map<String, String> prepareBenchmarkDefaults() { return prepareBenchmarkDefaults(Set.of()); }
+
+    /**
+     * Selection-aware variant: only coins the operator opted into are prepared with the house
+     * route. An empty selection prepares every installed GPU miner, matching the previous
+     * behaviour. Coins the operator configured themselves are never touched either way.
+     */
+    public synchronized Map<String, String> prepareBenchmarkDefaults(Set<String> selectedCoinIds) {
         Map<String, String> unavailable = new LinkedHashMap<>();
         List<LocalGpuPowerService.Gpu> cards = gpuPower.discover();
         if (cards.isEmpty()) return Map.of();
         String devices = cards.stream().map(gpu -> gpu.vendor() + ":" + gpu.index()).collect(java.util.stream.Collectors.joining(","));
         LocalGpuPowerService.Gpu first = cards.getFirst();
         for (Coin coin : Coin.gpuCoins()) {
+            if (!selectedCoinIds.isEmpty() && !selectedCoinIds.contains(coin.id())) continue;
             GpuCoinMiner miner = miners.gpuMiner(coin);
             if (miner.configured() || !miner.binaryAvailable()) continue;
             try {
@@ -174,10 +189,11 @@ public class WorkerAssignmentService {
     }
 
     /**
-     * Used only after {@link EconomicPlanningService} has validated a short-lived Node plan.
+     * Used only after {@link de.verdox.solarminer.pcagent.mining.economics.EconomicPlanningService}
+     * has validated a short-lived Node plan.
      * It keeps the same stop/persist/device-synchronisation rules as a local reassignment.
      */
-    synchronized boolean applyEconomicAssignment(String deviceId, String coinId) {
+    public synchronized boolean applyEconomicAssignment(String deviceId, String coinId) {
         Hardware hardware = hardware(deviceId);
         Coin coin = Coin.byIdOrNull(coinId);
         if (coin == null || !coin.assignableTo(hardware.type.equals("CPU"))) return false;

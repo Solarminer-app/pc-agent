@@ -1,11 +1,11 @@
 package de.verdox.solarminer.pcagent.controller;
 
 import de.verdox.solarminer.pcagent.mining.MiningService;
-import de.verdox.solarminer.pcagent.mining.AgentControlSettingsService;
-import de.verdox.solarminer.pcagent.mining.AgentIdentityService;
-import de.verdox.solarminer.pcagent.mining.BenchmarkSessionService;
-import de.verdox.solarminer.pcagent.mining.MinerConsoleService;
-import de.verdox.solarminer.pcagent.pearl.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentIdentityService;
+import de.verdox.solarminer.pcagent.mining.measurement.BenchmarkSessionService;
+import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
+import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -24,8 +24,18 @@ public class AgentPowerController {
     private final BenchmarkSessionService benchmarks;
     private final MinerConsoleService consoles;
     private final AgentIdentityService agentIdentity;
+    /** Loading plan P3: mutations report affected sections/channels for the event-driven push. */
+    private final AgentStatusService status;
 
-    public AgentPowerController(MiningService mining, LocalGpuPowerService gpus, AgentControlSettingsService controls, BenchmarkSessionService benchmarks, MinerConsoleService consoles, AgentIdentityService agentIdentity) { this.mining = mining; this.gpus = gpus; this.controls = controls; this.benchmarks = benchmarks; this.consoles = consoles; this.agentIdentity = agentIdentity; }
+    public AgentPowerController(MiningService mining, LocalGpuPowerService gpus, AgentControlSettingsService controls,
+                                BenchmarkSessionService benchmarks, MinerConsoleService consoles,
+                                AgentIdentityService agentIdentity,
+                                @org.springframework.context.annotation.Lazy AgentStatusService status) {
+        this.mining = mining; this.gpus = gpus; this.controls = controls; this.benchmarks = benchmarks;
+        this.consoles = consoles; this.agentIdentity = agentIdentity; this.status = status;
+    }
+
+    private void reportChanged(String... names) { if (status != null) status.invalidate(names); }
 
     @GetMapping("/identity")
     public Identity identity() { return new Identity("solarminer-pc-agent", 1, "SolarMiner PC Agent", agentIdentity.name()); }
@@ -36,6 +46,7 @@ public class AgentPowerController {
         if (!agentIdentity.rename(request == null ? null : request.name()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Der Name darf höchstens " + AgentIdentityService.MAX_NAME_LENGTH + " Zeichen haben und keine Steuerzeichen enthalten");
+        reportChanged("network-agents");
         return identity();
     }
 
@@ -51,7 +62,10 @@ public class AgentPowerController {
 
     private PowerStatus status(boolean externalView) {
         AgentControlSettingsService.Settings owner = controls.get();
-        List<GpuStatus> cards = gpus.discover().stream().map(g -> new GpuStatus(g.deviceId(), g.vendor(), g.index(), g.model(),
+        // REST audit R6: the read model uses the last completed driver snapshot; driver
+        // discovery (nvidia-smi/amd-smi processes) stays in the background refresher and in
+        // command paths. A slow driver never slows this endpoint down.
+        List<GpuStatus> cards = gpus.snapshot().stream().map(g -> new GpuStatus(g.deviceId(), g.vendor(), g.index(), g.model(),
                 g.driverMinWatts(), g.driverMaxWatts(), g.minWatts(), g.maxWatts(), g.currentPowerLimitWatts(),
                 g.currentWatts(), g.usageMeasurement(), g.supportsDynamicPowerScaling(), g.regulationError(), mining.externallySelected(g.deviceId()))).toList();
         if (externalView) cards = owner.externalControlEnabled()
@@ -74,6 +88,7 @@ public class AgentPowerController {
     public PowerStatus target(@RequestParam long watts) {
         return withControl(() -> {
             if (!mining.setTarget(watts)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Leistungsziel konnte nicht sicher angewendet werden");
+            reportChanged("overview", "power-control", "workers");
             return status();
         }, false);
     }
@@ -87,23 +102,25 @@ public class AgentPowerController {
                 if (!mining.resumeExternally())
                     throw new ResponseStatusException(HttpStatus.CONFLICT, "Miner konnte nicht gestartet werden");
                 logExternalChange("Mining started remotely (power target " + watts + " W)");
+                reportChanged("overview", "power-control", "workers");
                 return externalStatus();
             }
             if (!mining.setExternalTarget(watts)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Leistungsziel konnte nicht sicher angewendet werden");
             logExternalChange(watts <= 0 ? "Mining paused remotely (power target 0 W)" : "Power target changed remotely to " + watts + " W");
+            reportChanged("overview", "power-control", "workers");
             return externalStatus();
         }, true);
     }
 
     public boolean externalPause() { return withControl(() -> {
         boolean success = mining.pauseExternally();
-        if (success) logExternalChange("Mining paused remotely");
+        if (success) { logExternalChange("Mining paused remotely"); reportChanged("overview", "power-control", "workers"); }
         return success;
     }, true); }
 
     public boolean externalResume() { return withControl(() -> {
         boolean success = mining.resumeExternally();
-        if (success) logExternalChange("Mining resumed remotely");
+        if (success) { logExternalChange("Mining resumed remotely"); reportChanged("overview", "power-control", "workers"); }
         return success;
     }, true); }
 
@@ -111,7 +128,7 @@ public class AgentPowerController {
         String line = Instant.now() + " [SolarMiner] [Remote Control] " + message;
         if (controls.workerEnabled(de.verdox.solarminer.pcagent.coin.WorkerIds.CPU))
             consoles.append(de.verdox.solarminer.pcagent.coin.Coin.MONERO.id(), line);
-        var selected = gpus.discover().stream().filter(gpu -> mining.externallySelected(gpu.deviceId())).toList();
+        var selected = gpus.snapshot().stream().filter(gpu -> mining.externallySelected(gpu.deviceId())).toList();
         selected.stream().map(gpu -> controls.get().coinFor(gpu.deviceId())).distinct().forEach(coin -> consoles.append(coin, line));
         selected.forEach(gpu -> consoles.append(controls.get().coinFor(gpu.deviceId()) + "-" + gpu.vendor() + "-" + gpu.index(), line));
     }
@@ -123,54 +140,32 @@ public class AgentPowerController {
     public AgentControlSettingsService.Settings settings(@RequestBody AgentControlSettingsService.Settings value) {
         // Assignments go through /workers/{id}/coin so a running old assignment is stopped first.
         if (value == null || !controls.update(new AgentControlSettingsService.Settings(value.dynamicPowerScalingEnabled(),
-                value.externalControlEnabled(), value.workerExternalControl(), controls.get().workerCoins(), controls.get().workerCoinPolicies())))
+                value.externalControlEnabled(), value.workerExternalControl(), controls.get().workerCoins(),
+                controls.get().workerCoinPolicies(), value.networkSharingEnabled())))
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Lokale Steuereinstellungen konnten nicht gespeichert werden");
+        reportChanged("settings", "power-control", "overview", "network-agents");
         return controls.get();
     }
 
-    @PostMapping("/workers/{workerId}/external-control")
-    public AgentControlSettingsService.Settings workerControl(@PathVariable String workerId, @RequestParam boolean enabled) {
-        if (!de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(workerId) && gpus.discover().stream().noneMatch(gpu -> gpu.deviceId().equals(workerId)))
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Worker wurde nicht erkannt");
-        if (!controls.setWorkerEnabled(workerId, enabled))
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Worker-Freigabe konnte nicht gespeichert werden");
-        String line = Instant.now() + " [SolarMiner] [Remote Control] External control for " + workerId + (enabled ? " enabled" : " disabled");
-        if (de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(workerId))
-            consoles.append(de.verdox.solarminer.pcagent.coin.Coin.MONERO.id(), line);
-        else {
-            consoles.append(de.verdox.solarminer.pcagent.coin.Coin.PEARL.id(), line);
-            gpus.discover().stream().filter(gpu -> gpu.deviceId().equals(workerId)).findFirst().ifPresent(gpu ->
-                    consoles.append(de.verdox.solarminer.pcagent.coin.Coin.PEARL.id() + "-" + gpu.vendor() + "-" + gpu.index(), line));
-        }
+    /**
+     * Explicit LAN-visibility consent for the peer dashboard. Sharing only publishes read-only
+     * worker/earnings rows to other PC-Agents in the same network; it never opens control.
+     */
+    @PostMapping("/network-sharing")
+    public AgentControlSettingsService.Settings networkSharing(@RequestParam boolean enabled) {
+        AgentControlSettingsService.Settings current = controls.get();
+        if (!controls.update(new AgentControlSettingsService.Settings(current.dynamicPowerScalingEnabled(),
+                current.externalControlEnabled(), current.workerExternalControl(), current.workerCoins(),
+                current.workerCoinPolicies(), enabled)))
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "LAN-Sichtbarkeit konnte nicht gespeichert werden");
+        reportChanged("settings", "network-agents");
         return controls.get();
     }
 
-    /** Persistent local assignment; selecting a tab never changes this profile. */
-    @PostMapping("/workers/{workerId}/coin")
-    public AgentControlSettingsService.Settings workerCoin(@PathVariable String workerId, @RequestParam String coin) {
-        if (!de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(workerId) && gpus.discover().stream().noneMatch(g -> g.deviceId().equals(workerId)))
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Gerät wurde nicht erkannt");
-        de.verdox.solarminer.pcagent.coin.Coin parsedCoin = de.verdox.solarminer.pcagent.coin.Coin.byIdOrNull(coin);
-        if (parsedCoin == null || !parsedCoin.assignableTo(de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(workerId)))
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Coin passt nicht zur Hardware");
-        return withControl(() -> {
-            if (!coin.equals(controls.get().coinFor(workerId)) && !mining.stopExternalWorker(workerId))
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Vorheriger Worker konnte nicht angehalten werden");
-            if (!controls.setWorkerCoin(workerId, coin))
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Standard konnte nicht gespeichert werden");
-            return controls.get();
-        }, false);
-    }
-
-    /** Local operator opt-in; an attached Node can never enable automatic coin selection itself. */
-    @PostMapping("/workers/{workerId}/coin-policy")
-    public AgentControlSettingsService.Settings workerCoinPolicy(@PathVariable String workerId, @RequestParam String policy) {
-        if (!de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(workerId) && gpus.discover().stream().noneMatch(g -> g.deviceId().equals(workerId)))
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Gerät wurde nicht erkannt");
-        if (!controls.setWorkerCoinPolicy(workerId, policy))
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Coin-Policy muss AUTO oder FIXED sein");
-        return controls.get();
-    }
+    // Phase 5d (owner decision O3): the worker-scoped consent/assignment routes that used to
+    // live under /workers/* here were merged into WorkerController when the dashboard moved
+    // over. /workers/{id}/coin and /workers/{id}/coin-policy had no remaining consumer after
+    // the worker page switched to /workers/{id}/assignment and were deleted with the merge.
 
     private <T> T withControl(java.util.function.Supplier<T> command, boolean external) {
         try {
@@ -199,6 +194,7 @@ public class AgentPowerController {
         }
         if (!applied)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "GPU-Leistungsgrenzen liegen außerhalb der aktuellen Treibergrenzen");
+        reportChanged("power-control", "overview");
         return status().gpus().stream().filter(g -> g.deviceId().equals(deviceId)).findFirst().orElseThrow();
     }
 
