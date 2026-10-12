@@ -113,20 +113,20 @@ window.SolarMinerI18nCatalog = {
         "allow_global_node_automation": {de: "Node-Automatik global erlauben", en: "Allow global Node automation"},
         "allow_node_control": {de: "Node-Steuerung erlauben", en: "Allow Node control"},
         "allow_remote_control_by_solarminer_node": {
-            de: "Remote-Steuerung durch SolarMiner Node erlauben",
-            en: "Allow remote control by SolarMiner Node"
+            de: "Remote-Steuerung durch SolarMiner Node und freigegebene PC-Agents erlauben",
+            en: "Allow remote control by SolarMiner Node and shared PC agents"
         },
         "and_its_workers_appear_here": {
             de: "— und seine Worker erscheinen hier.",
             en: "— and its workers appear here."
         },
         "another_pc_agent_shares_only_read_only_wo": {
-            de: "Ein anderer PC-Agent teilt hier nur Worker und Ertrag (schreibgeschützt). Steuerbar bleibt jeder Agent nur auf seinem eigenen PC.",
-            en: "Another PC agent shares only workers and earnings (read-only) here. Every agent stays controllable only on its own PC."
+            de: "Ein anderer PC-Agent teilt Worker, Ertrag und zusammengefasste Energiewerte. Wenn dort die externe Steuerung aktiv ist, kannst du seine Worker hier ohne weiteren Bestätigungsdialog starten und pausieren.",
+            en: "Another PC agent shares workers, earnings and aggregate energy values. If external control is enabled there, you can start and pause its workers here without another confirmation dialog."
         },
         "active_workers_on_this_and_shared_agents": {
-            de: "Aktive Worker auf diesem und freigegebenen Agents",
-            en: "Active workers on this and shared agents"
+            de: "Worker auf diesem und freigegebenen Agents",
+            en: "Workers on this and shared agents"
         },
         "average_earnings_per_kwh": {de: "Ø Ertrag pro kWh", en: "Avg. earnings per kWh"},
         "average_of_workers_with_data": {de: "Durchschnitt der Worker mit Daten", en: "Average of workers with data"},
@@ -135,8 +135,8 @@ window.SolarMinerI18nCatalog = {
         "pc_agent": {de: "PC-Agent", en: "PC agent"},
         "read_only": {de: "schreibgeschützt", en: "read-only"},
         "remote_workers_are_read_only": {
-            de: "Remote-Worker sind nur zur Ansicht verfügbar.",
-            en: "Remote workers are available for viewing only."
+            de: "Freigegebene Remote-Worker können direkt gestartet oder pausiert werden; deaktivierte Steuerungen bleiben nur sichtbar.",
+            en: "Shared remote workers can be started or paused directly; workers with control disabled remain view-only."
         },
         "some_pc_agents_are_not_sharing_live_data": {
             de: "{count} PC-Agent(s) liefern derzeit keine Live-Daten.",
@@ -156,6 +156,7 @@ window.SolarMinerI18nCatalog = {
             en: "Choose a discovered PC Agent. Only wallet targets its owner explicitly shared on the LAN are loaded. Imported values are saved locally only after you select Save wallet."
         },
         "no_other_pc_agents_found_on_the_lan": {de: "Keine weiteren PC-Agents im lokalen Netzwerk gefunden.", en: "No other PC Agents found on the local network."},
+        "no_local_or_shared_workers_available": {de: "Keine lokalen oder freigegebenen Worker verfügbar.", en: "No local or shared workers are available."},
         "load_wallet_targets": {de: "Wallet-Ziele laden", en: "Load wallet targets"},
         "loading_wallet_targets": {de: "Wallet-Ziele werden geladen …", en: "Loading wallet targets …"},
         "use_imported_wallet_target": {de: "Übernommenes Ziel verwenden", en: "Use imported target"},
@@ -176,12 +177,12 @@ window.SolarMinerI18nCatalog = {
             en: "LAN visibility enabled. Searching the local network."
         },
         "lan_visibility_is_off_this_agent_shows_no": {
-            de: "LAN-Sichtbarkeit ist deaktiviert. Andere PC-Agents sehen diesen PC, aber nicht seine Worker und seinen Ertrag.",
-            en: "LAN visibility is off. Other PC agents see this PC but not its workers or earnings."
+            de: "LAN-Sichtbarkeit ist deaktiviert. Andere PC-Agents sehen diesen PC, aber nicht seine Worker, seinen Ertrag oder seine Energiewerte.",
+            en: "LAN visibility is off. Other PC agents see this PC but not its workers, earnings or energy values."
         },
         "lan_visibility_off_peers_stay_listed_without": {
-            de: "LAN-Sichtbarkeit ist deaktiviert: Andere Agents bleiben hier sichtbar, eigener Worker und Ertrag bleiben verborgen.",
-            en: "LAN visibility is off: other agents stay listed here, your own workers and earnings stay hidden."
+            de: "LAN-Sichtbarkeit ist deaktiviert: Andere Agents bleiben hier sichtbar; eigene Worker, Erträge und Energiewerte bleiben verborgen.",
+            en: "LAN visibility is off: other agents stay listed here; your own workers, earnings and energy values stay hidden."
         },
         "no_other_pc_agents_found_searching_the_local": {
             de: "Keine weiteren PC-Agents gefunden — die Suche im lokalen Netzwerk läuft.",
@@ -195,8 +196,22 @@ window.SolarMinerI18nCatalog = {
         },
         "shared_network": {de: "GEMEINSAMES NETZWERK", en: "SHARED NETWORK"},
         "show_this_agent_to_other_pc_agents_in_th": {
-            de: "Diesen Agenten anderen PC-Agents im selben Netzwerk anzeigen (Worker und Ertrag, schreibgeschützt)",
-            en: "Show this agent to other PC agents in the same network (workers and earnings, read-only)"
+            de: "Diesen Agenten anderen PC-Agents im selben Netzwerk anzeigen (Worker, Ertrag und Energiewerte)",
+            en: "Show this agent to other PC agents in the same network (workers, earnings and energy values)"
+        },
+        "lan_control": {de: "LAN-Steuerung", en: "LAN control"},
+        "view_only": {de: "nur Ansicht", en: "view only"},
+        "starting_remote_worker": {de: "{worker} wird gestartet …", en: "Starting {worker} …"},
+        "pausing_remote_worker": {de: "{worker} wird pausiert …", en: "Pausing {worker} …"},
+        "remote_worker_started": {de: "{worker} wurde gestartet.", en: "{worker} was started."},
+        "remote_worker_paused": {de: "{worker} wurde pausiert.", en: "{worker} was paused."},
+        "peer_worker_control_disabled": {de: "Die externe Steuerung ist auf diesem PC-Agent deaktiviert.", en: "External control is disabled on this PC agent."},
+        "peer_worker_unavailable": {de: "Der Remote-Worker ist nicht erreichbar.", en: "The remote worker is unavailable."},
+        "peer_worker_action_failed": {de: "Die Worker-Aktion wurde vom Remote-Agent nicht ausgeführt.", en: "The remote agent did not apply the worker action."},
+        "remote_worker_action_failed_error": {de: "Remote-Worker-Aktion fehlgeschlagen: {error}", en: "Remote worker action failed: {error}"},
+        "network_energy_uses_each_agents_tariff": {
+            de: "Summe dieses und {count} freigegebener PC-Agent(s). Kosten verwenden den jeweiligen lokalen Tarif und werden in die Anzeigewährung umgerechnet. Netzteil- und übrige Systemverluste können fehlen.",
+            en: "Total for this and {count} shared PC agent(s). Costs use each agent's local rate and are converted to the display currency. Power-supply and other system losses may be missing."
         },
         "visibility_in_the_network": {de: "SICHTBARKEIT IM NETZWERK", en: "VISIBILITY IN THE NETWORK"},
         "allow_the_node_to_control_this_device": {
@@ -288,7 +303,7 @@ window.SolarMinerI18nCatalog = {
         "available_sensor_readings_only": {de: "Nur verfügbare Sensorwerte", en: "Available sensor readings only"},
         "available_targets": {de: "Verfügbare Ziele", en: "Available targets"},
         "available_to_install": {de: "installierbar", en: "available to install"},
-        "available_to_node": {de: "Für Node freigegeben", en: "Available to Node"},
+        "available_to_node": {de: "Remote freigegeben", en: "Available remotely"},
         "available_workers": {de: "Freigegebene Worker", en: "Available workers"},
         "balanced": {de: "AUSGEWOGEN", en: "BALANCED"},
         "balanced_059ab8": {de: "Ausgewogen", en: "Balanced"},
@@ -1163,8 +1178,8 @@ window.SolarMinerI18nCatalog = {
         },
         "main_navigation": {de: "Hauptnavigation", en: "Main navigation"},
         "make_this_worker_available_to_the_node": {
-            de: "Diesen Worker für die Node freigeben",
-            en: "Make this worker available to the Node"
+            de: "Diesen Worker für Remote-Steuerung freigeben",
+            en: "Make this worker available for remote control"
         },
         "manage_gpu_safety_limits_and_power_values": {
             de: "GPU-Schutzgrenzen und Leistungswerte verwalten",
@@ -1590,7 +1605,10 @@ window.SolarMinerI18nCatalog = {
             en: "Optional: connect a SolarMiner Node for rules, PV surplus and automation."
         },
         "optional_linux": {de: "Optional · Linux", en: "Optional · Linux"},
-        "optional_name_for_this_pc": {de: "Optionaler Name für diesen PC", en: "Optional name for this PC"},
+        "defaults_to_the_node_name": {
+            de: "Standardmäßig der Node-Name; ohne Namen Solarminer-PC-Agent",
+            en: "Defaults to the Node name; without a name, Solarminer-PC-Agent"
+        },
         "optional_sharing": {de: "FREIWILLIGES TEILEN", en: "OPTIONAL SHARING"},
         "overview": {de: "Übersicht", en: "Overview"},
         "overview_cb2732": {de: "Übersicht", en: "Overview"},
@@ -1961,8 +1979,8 @@ window.SolarMinerI18nCatalog = {
         "session_history": {de: "SITZUNGSVERLAUF", en: "SESSION HISTORY"},
         "set_as_active_build": {de: "Als aktiven Build wählen", en: "Set as active build"},
         "set_centrally_whether_a_solarminer_node_may": {
-            de: "Lege zentral fest, ob ein SolarMiner Node diesen PC steuern darf und welche Worker dafür verfügbar sind.",
-            en: "Set centrally whether a SolarMiner Node may control this PC and which workers are available to it."
+            de: "Lege zentral fest, ob ein SolarMiner Node oder ein freigegebener PC-Agent diesen PC steuern darf und welche Worker dafür verfügbar sind.",
+            en: "Set centrally whether a SolarMiner Node or a shared PC agent may control this PC and which workers are available."
         },
         "set_power_limits": {de: "Leistungsgrenzen einstellen →", en: "Set power limits →"},
         "set_up": {de: "Einrichten", en: "Set up"},
@@ -2227,8 +2245,8 @@ window.SolarMinerI18nCatalog = {
             en: "The name may be at most 40 characters and must not contain control characters"
         },
         "the_node_can_start_pause_and_include_only_av": {
-            de: "Die Node kann nur freigegebene Worker starten, pausieren und in ihre Planung aufnehmen.",
-            en: "The Node can start, pause, and include only available workers in its planning."
+            de: "Node und freigegebene PC-Agents können nur freigegebene Worker starten oder pausieren; die Node darf sie zusätzlich in ihre Planung aufnehmen.",
+            en: "The Node and shared PC agents can start or pause only enabled workers; the Node may additionally include them in its planning."
         },
         "the_node_may_allocate_power_within_your_limi": {
             de: "Der Node darf Wattziele innerhalb deiner Grenzen verteilen. Ohne Regelung bleiben Start und Pause möglich.",
@@ -2421,8 +2439,8 @@ window.SolarMinerI18nCatalog = {
         "what_is_running_now": {de: "Was gerade arbeitet", en: "What is running now"},
         "what_may_the_node_mine": {de: "Was darf der Node minen?", en: "What may the Node mine?"},
         "when_you_turn_off_remote_control_no_solarmin": {
-            de: "Wenn du die Remote-Steuerung ausschaltest, kann kein SolarMiner Node diesen Agenten kontrollieren. Die Dev-Fee wechselt sofort zurück auf den Proxy-Tarif von 1 %.",
-            en: "When you turn off remote control, no SolarMiner Node can control this agent. The dev fee immediately returns to the 1% proxy tier."
+            de: "Wenn du die Remote-Steuerung ausschaltest, können weder SolarMiner Node noch andere PC-Agents diesen Agenten kontrollieren. Die Dev-Fee wechselt sofort zurück auf den Proxy-Tarif von 1 %.",
+            en: "When you turn off remote control, neither SolarMiner Node nor other PC agents can control this agent. The dev fee immediately returns to the 1% proxy tier."
         },
         "where_your_earnings_go": {de: "Wo dein Ertrag hingeht", en: "Where your earnings go"},
         "where_your_mining_yield_goes": {de: "Wo dein Mining-Ertrag hingeht", en: "Where your mining yield goes"},
@@ -2459,8 +2477,8 @@ window.SolarMinerI18nCatalog = {
         "worker_active": {de: "Worker aktiv", en: "Worker active"},
         "worker_is_active": {de: "Worker ist aktiv", en: "Worker is active"},
         "worker_made_available_to_the_node": {
-            de: "Worker für die Node freigegeben.",
-            en: "Worker made available to the Node."
+            de: "Worker für Remote-Steuerung freigegeben.",
+            en: "Worker made available for remote control."
         },
         "worker_must_contain_1_32_letters_digits_or": {
             de: "Worker muss 1–32 Zeichen aus Buchstaben, Zahlen, _ oder - enthalten",
@@ -2475,7 +2493,7 @@ window.SolarMinerI18nCatalog = {
         },
         "worker_started": {de: "{worker} wurde gestartet.", en: "{worker} started."},
         "worker_was_not_detected": {de: "Worker wurde nicht erkannt", en: "Worker was not detected"},
-        "workers_available_to_the_node": {de: "Für die Node verfügbare Worker", en: "Workers available to the Node"},
+        "workers_available_to_the_node": {de: "Remote verfügbare Worker", en: "Workers available remotely"},
         "working_devices": {de: "ARBEITENDE GERÄTE", en: "WORKING DEVICES"},
         "xmrig_developer_donation": {de: "XMRig Entwickler-Spende", en: "XMRig developer donation"},
         "xmrig_download_started": {de: "XMRig-Download gestartet.", en: "XMRig download started."},
@@ -3475,7 +3493,7 @@ window.SolarMinerI18nCatalog = {
         "Online": "Online",
         "Optional · Linux": "Optional · Linux",
         "Optional: SolarMiner Node verbinden für Regeln, PV-Überschuss und Automatisierung.": "Optional: connect a SolarMiner Node for rules, PV surplus and automation.",
-        "Optionaler Name für diesen PC": "Optional name for this PC",
+        "Standardmäßig der Node-Name; ohne Namen Solarminer-PC-Agent": "Defaults to the Node name; without a name, Solarminer-PC-Agent",
         "Ordne im Worker-Bereich mindestens ein Gerät zu, damit der Node automatisch regeln darf.": "Assign at least one device in Workers so the Node can control it automatically.",
         "Overview": "Overview",
         "PLATTFORMTIPPS": "PLATFORM TIPS",

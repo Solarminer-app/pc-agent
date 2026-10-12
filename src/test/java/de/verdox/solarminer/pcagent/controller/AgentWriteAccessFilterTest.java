@@ -112,13 +112,28 @@ class AgentWriteAccessFilterTest {
         assertThat(sharedResponse.getStatus()).isEqualTo(200);
         assertThat(sharedChain.getRequest()).isSameAs(shared);
 
-        // Sharing consent must never open the control side of the external namespace.
+        // Sharing alone must never open either Node control or peer worker control.
         MockHttpServletRequest pause = request("POST", "/api/agent/external/pause");
         MockHttpServletResponse pauseResponse = new MockHttpServletResponse();
         MockFilterChain pauseChain = new MockFilterChain();
         filter.doFilter(pause, pauseResponse, pauseChain);
         assertThat(pauseResponse.getStatus()).isEqualTo(403);
         assertThat(pauseChain.getRequest()).isNull();
+
+        MockHttpServletRequest peerStart = request("POST", "/api/agent/external/network-workers/gpu-0/start");
+        MockHttpServletResponse peerStartResponse = new MockHttpServletResponse();
+        MockFilterChain peerStartChain = new MockFilterChain();
+        filter.doFilter(peerStart, peerStartResponse, peerStartChain);
+        assertThat(peerStartResponse.getStatus()).isEqualTo(403);
+        assertThat(peerStartChain.getRequest()).isNull();
+
+        // Reusing the existing global external-control gate avoids another consent dialog.
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(
+                true, true, Map.of(), Map.of(), Map.of(), true));
+        MockHttpServletRequest allowedPeerStart = request("POST", "/api/agent/external/network-workers/gpu-0/start");
+        MockFilterChain allowedPeerStartChain = new MockFilterChain();
+        filter.doFilter(allowedPeerStart, new MockHttpServletResponse(), allowedPeerStartChain);
+        assertThat(allowedPeerStartChain.getRequest()).isSameAs(allowedPeerStart);
     }
 
     @Test

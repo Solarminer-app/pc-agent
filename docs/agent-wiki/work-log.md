@@ -1,5 +1,56 @@
 # PC-Agent work log
 
+## 2026-10-12 — Direct start/pause for LAN peer workers
+
+- The network dashboard now includes assigned stopped workers and offers immediate Start/Pause buttons for remote workers. Actions execute on the first click without a confirmation dialog and show localized progress/success/failure feedback.
+- No new consent was added: the target must already share its LAN snapshot, have global external control enabled and permit the individual worker. Older agents lack the additive device/control fields and remain view-only. The local agent proxies the command to `POST /api/agent/external/network-workers/{deviceId}/start|pause`; configuration and wallet writes remain unavailable.
+- German and English automation copy now explains that the existing remote-control switches cover both Node and shared PC-Agents. Verification: the complete JDK 21 suite passed (187 tests, zero failures/errors/skips); JavaScript syntax, closed-catalog i18n, literal scan, legacy-dashboard startup and both-locale render simulation passed.
+
+## 2026-10-12 — Network-wide consumption totals
+
+- The consent-gated read-only LAN snapshot now adds aggregate energy for today, seven days and 30 days plus active watt-hours/runtime/session count. It does not expose historical session or device records. Older peers remain compatible because the additive `energy` field is nullable when deserialized.
+- The overview energy card sums local and reachable shared-agent kWh, weights measurement coverage by measured/runtime seconds and converts every agent's locally configured electricity cost into the selected display currency before adding it. The local tariff editor continues to change only this agent.
+- German and English visibility copy now names energy values explicitly. Verification: focused `NetworkDashboardServiceTest` and `EnergyJournalServiceTest` passed; JavaScript syntax, closed-catalog i18n and literal scans passed.
+
+## 2026-10-12 — Worker default follows the Node label
+
+- New, unsaved wallet routes no longer prefill the generic worker name `pc`. The Wallets page reads the existing local identity contract and derives the worker name from the operator-defined PC-Agent/Node label. If that label is absent or cannot produce a valid pool worker, the exact fallback is `Solarminer-PC-Agent`.
+- The derived name follows the existing XMRig/SRBMiner contract (`[A-Za-z0-9_-]`, maximum 32 characters): unsupported characters become hyphens and accented Latin characters are folded where possible. Saved worker names remain untouched.
+- The field explanation is available in German and English through the closed frontend catalog. No external Node API, miner route format or persisted configuration was changed.
+- Verification: `node --check` for `wallets.js`, both frontend i18n checks, `git diff --check`, and the complete JDK 21 `sh gradlew test --offline --no-daemon` suite passed.
+
+## 2026-10-12 — Windows-X beendet den vollständigen Agent-Prozessbaum
+
+- Der Stable- und Beta-PowerShell-Launcher startet die Agent-JVM jetzt in einem
+  Windows Job Object mit `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Der Handle bleibt
+  bis zum Ende des Agenten offen; beendet Windows den Launcher beim Schließen
+  des Konsolenfensters über X, beendet der Kernel dadurch Agent, verwalteten
+  Stratum-Proxy, Miner und weitere Kindprozesse gemeinsam. Schlägt die
+  Job-Zuordnung fehl, wird die gerade gestartete JVM beendet und der Start
+  zweisprachig als Fehler gemeldet, statt einen ungeschützten Prozessbaum laufen
+  zu lassen. Grundlage sind Microsofts dokumentierte
+  [Job-Object-Prozessbaum-Vererbung](https://learn.microsoft.com/windows/win32/procthread/job-objects)
+  und
+  [`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`](https://learn.microsoft.com/windows/win32/api/winnt/ns-winnt-jobobject_basic_limit_information).
+- Die bestehende Recovery beim nächsten Start bleibt als zweite Schranke
+  erhalten: Sie verlangt zuerst eine positive Proxy-Service-Identität und
+  begrenzt die Prozessauswahl danach auf JARs im verwalteten Release-Verzeichnis.
+  Ein fremder Portinhaber wird nicht beendet.
+- `WindowsLauncherLifecycleTest` fixiert für beide Launcher die Reihenfolge
+  Job anlegen → JVM starten → zuordnen → warten → Handle schließen und verbietet
+  die frühere direkte JVM-Ausführung. Release- und Beta-Workflow parsen nun auch
+  den jeweils ausgelieferten Launcher vor der Veröffentlichung.
+- Der Bug-Backlog wurde vollständig gegengeprüft: BUG-001 ist durch die bereits
+  implementierte atomare SolarMiner-Standard-Auszahlungsroute und vorhandene
+  Monero-/Pearl-/GPU-Coin-Regressionstests behoben; BUG-002 war bereits
+  abgeschlossen. BUG-003 bleibt bis zur PID-/Port-Verifikation auf einem echten
+  Windows-Host formal `[~]`.
+- Verifikation: fokussierte `WindowsLauncherLifecycleTest` und
+  `MiningControllerValidationTest` mit JDK 21 grün. Neue Launcher-Ausgaben sind
+  Deutsch/Englisch; die vorhandene UI nutzt weiterhin ausschließlich den
+  geschlossenen zweisprachigen Katalog. Ein echter Windows-X-, Tray-Exit- und
+  Neustart-Smoke-Test bleibt erforderlich.
+
 ## 2026-10-12 — PC-Agent-Name speichert mit korrekter Rückmeldung
 
 - Die gemeinsame `postJson`-Hilfsfunktion wertete bislang ausschließlich die JSON-Antwort
@@ -71,7 +122,7 @@
 ## 2026-10-12 — LAN wallet-target import
 
 - The Wallets page can now list discovered peer PC-Agents and load a selected peer's payout targets. A target is applied to an individual local form only on the operator's explicit action and still requires the existing local **Save wallet** confirmation; the import never writes configuration automatically.
-- Wallets remain private by default. The source Agent must explicitly enable **Wallet-Ziele mit anderen PC-Agents im selben Netzwerk teilen** in Node-Automatisierung. The new external `GET /api/agent/external/wallet-targets` route is read-only, separately filtered by that consent, and is not included in the periodic worker/earnings network snapshot.
+- Wallets remain private by default. The source Agent must explicitly enable **Wallet-Ziele mit anderen PC-Agents im selben Netzwerk teilen** in Node-Automatisierung. The new external `GET /api/agent/external/wallet-targets` route is read-only, separately filtered by that consent, and is not included in the periodic worker/earnings/energy network snapshot.
 - Added German and English copy for the source consent, peer selection, import state and failures. Verification: `node --check` for Wallets and Automation, `node scripts/check-i18n.cjs` (1,239 keys, nine pages, both locales), `node scripts/scan-i18n-literals.cjs` (0), and focused `AgentWriteAccessFilterTest` passed with JDK 21. A two-host LAN/browser smoke test remains a rollout gate.
 
 ## 2026-10-12 — Live benchmark dashboard and freshness handling

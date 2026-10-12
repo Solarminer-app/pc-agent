@@ -146,7 +146,7 @@ public class AgentNetworkDiscoveryService {
         try {
             for (int tick = 0; ; tick++) {
                 // Identity heartbeats run regardless of the sharing consent: the consent hides
-                // worker/earnings data on the HTTP endpoint, never the machine itself.
+                    // worker/earnings/energy data on the HTTP endpoint, never the machine itself.
                 byte[] payload = payload();
                 for (InetAddress broadcast : broadcastAddresses()) {
                     try {

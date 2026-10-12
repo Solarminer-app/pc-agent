@@ -4,6 +4,7 @@
   const catalog = window.SolarMinerPoolCatalog;
   const t = window.SolarMinerI18n.t;
   let overview = null, busy = false, importedTargets = new Map(), loadingPeer = null, networkPeers = [];
+  let defaultWorkerName = 'Solarminer-PC-Agent';
   // Phase 5c: GPU/CPU device kind comes from the backend coin catalog (closed Coin enum).
   const coinRow = id => (window.SolarMinerCoinCatalog || []).find(row => row.id === id) || null;
   const isGpuCoin = id => coinRow(id) ? coinRow(id).device !== 'CPU' : ['pearl', 'ravencoin', 'ethereumclassic', 'decred', 'quantus'].includes(id);
@@ -19,6 +20,14 @@
   function endpoint(coin) { return `/api/agent/local/${coin.id}/configuration`; }
   function proxyUrl(coin) { return overview.proxy?.[`${coin.id}Url`] || ''; }
   function element(tag, className, text) { const node = document.createElement(tag); node.className = className || ''; if (text != null) node.textContent = text; return node; }
+  function workerNameFromIdentity(identity) {
+    const nodeName = typeof identity?.name === 'string' ? identity.name.trim() : '';
+    if (!nodeName) return 'Solarminer-PC-Agent';
+    // Pool workers share the strict ASCII/32-character contract used by XMRig and SRBMiner.
+    const workerName = nodeName.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '').slice(0, 32);
+    return workerName || 'Solarminer-PC-Agent';
+  }
 
   function field(label, control, hint) {
     const wrap = element('label', 'wallet-field');
@@ -52,8 +61,8 @@
     const pool = poolSelect(coin, configuration); pool.name = 'poolUrl';
     const wallet = document.createElement('input'); wallet.name = 'wallet'; wallet.required = true; wallet.autocomplete = 'off'; wallet.spellcheck = false;
     wallet.placeholder = `${coin.ticker}-Wallet`; wallet.value = configuration?.wallet || '';
-    const worker = document.createElement('input'); worker.name = 'worker'; worker.required = true; worker.maxLength = 32; worker.pattern = '[A-Za-z0-9_\\-]{1,32}'; worker.value = configuration?.worker || 'pc';
-    grid.append(field(t('pool_destination'), pool), field(`${coin.ticker}-Wallet`, wallet, t('your_payout_address')), field(t('worker'), worker, t('optional_name_for_this_pc')));
+    const worker = document.createElement('input'); worker.name = 'worker'; worker.required = true; worker.maxLength = 32; worker.pattern = '[A-Za-z0-9_\\-]{1,32}'; worker.value = configuration?.worker || defaultWorkerName;
+    grid.append(field(t('pool_destination'), pool), field(`${coin.ticker}-Wallet`, wallet, t('your_payout_address')), field(t('worker'), worker, t('defaults_to_the_node_name')));
     form.append(grid);
     const foot = element('div', 'wallet-card-actions');
     if (!proxyUrl(coin)) foot.append(element('small', 'notice-line warn', t('connect_the_solarminer_proxy_first')));
@@ -138,11 +147,14 @@
       if (seeded) { overview = seeded; render(); }
     }
     try {
-      const [nextOverview, network] = await Promise.all([
+      const [nextOverview, network, identity] = await Promise.all([
         window.SolarMinerUI.getJson('/api/agent/local/overview'),
-        window.SolarMinerUI.getJson('/api/agent/local/network/agents').catch(() => null)
+        window.SolarMinerUI.getJson('/api/agent/local/network/agents').catch(() => null),
+        window.SolarMinerUI.getJson('/api/agent/local/power-control/identity').catch(() => null)
       ]);
-      overview = nextOverview; networkPeers = network?.agents || []; render(); renderPeers(networkPeers);
+      overview = nextOverview; networkPeers = network?.agents || [];
+      defaultWorkerName = workerNameFromIdentity(identity);
+      render(); renderPeers(networkPeers);
       $('connection').className = 'badge online'; $('connection').textContent = t('agent_connected');
     } catch (error) {
       if (!overview) {
