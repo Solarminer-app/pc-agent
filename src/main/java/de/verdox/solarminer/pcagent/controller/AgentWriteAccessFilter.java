@@ -28,7 +28,10 @@ public class AgentWriteAccessFilter extends OncePerRequestFilter {
             EXTERNAL_API + "/identity",
             EXTERNAL_API + "/status",
             EXTERNAL_API + "/power-control",
-            EXTERNAL_API + "/telemetry"
+            EXTERNAL_API + "/telemetry",
+            // Forecasts are read-only monitoring data. They must remain visible when an
+            // operator disables remote miner control, just like status and power telemetry.
+            EXTERNAL_API + "/earnings"
     );
 
     private final AgentControlSettingsService controls;

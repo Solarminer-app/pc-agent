@@ -734,6 +734,43 @@ public class MiningController {
         return earningsForecastService.forecasts(miningService.getWorkerStats());
     }
 
+    /**
+     * Node-facing forecast with the fees the running Agent can actually account for. The
+     * original gross fields stay intact for older consumers; the additive net fields are only
+     * populated when the proxy fee route, pool fee and selected miner fee are all known.
+     */
+    public List<NodeEarningsForecast> nodeEarnings() {
+        java.util.Map<String, FeeTransparencyService.FeeOverview> fees = feeTransparencyService.overviewSnapshot().stream()
+                .collect(java.util.stream.Collectors.toMap(FeeTransparencyService.FeeOverview::coin,
+                        value -> value, (left, right) -> left));
+        return earnings().stream().map(forecast -> withKnownFees(forecast, fees.get(forecast.coin()))).toList();
+    }
+
+    static NodeEarningsForecast withKnownFees(MarketDataService.Forecast forecast,
+                                               FeeTransparencyService.FeeOverview fees) {
+        boolean complete = fees != null && fees.routeAvailable() && !fees.parts().isEmpty()
+                && fees.parts().stream().allMatch(FeeTransparencyService.FeePart::known);
+        double percentage = complete ? fees.parts().stream().mapToDouble(FeeTransparencyService.FeePart::percentage).sum() : 0;
+        double factor = Math.max(0, 1 - percentage / 100.0);
+        Double netCoins = complete ? forecast.coinsPerDay() * factor : null;
+        Double netUsd = complete ? forecast.usdPerDay() * factor : null;
+        return new NodeEarningsForecast(forecast.coin(), forecast.ticker(), forecast.available(),
+                forecast.unavailableReason(), forecast.hashrateHps(), forecast.networkHashrateHps(),
+                forecast.difficulty(), forecast.targetBlockSeconds(), forecast.blockReward(), forecast.priceUsd(),
+                forecast.coinsPerDay(), forecast.usdPerDay(), forecast.updatedAt(), forecast.stale(),
+                forecast.sources(), forecast.coinsPerDay(), forecast.usdPerDay(), netCoins, netUsd,
+                complete ? percentage : null, complete);
+    }
+
+    public record NodeEarningsForecast(String coin, String ticker, boolean available, String unavailableReason,
+                                       double hashrateHps, double networkHashrateHps, double difficulty,
+                                       double targetBlockSeconds, double blockReward, double priceUsd,
+                                       double coinsPerDay, double usdPerDay, java.time.Instant updatedAt,
+                                       boolean stale, List<String> sources,
+                                       double grossCoinsPerDay, double grossUsdPerDay,
+                                       Double netCoinsPerDay, Double netUsdPerDay,
+                                       Double knownFeePercent, boolean knownFeesComplete) { }
+
     @GetMapping("/market-prices")
     public java.util.Map<String, Double> marketPrices() {
         return walletSnapshotCache.prices();

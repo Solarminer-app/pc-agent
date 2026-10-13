@@ -99,8 +99,8 @@ public class ExternalAgentController {
     public MiningController.ProxyOverview proxy() { return mining.proxy(); }
 
     @GetMapping("/earnings")
-    public List<de.verdox.solarminer.pcagent.mining.economics.MarketDataService.Forecast> earnings() {
-        return mining.earnings();
+    public List<MiningController.NodeEarningsForecast> earnings() {
+        return mining.nodeEarnings();
     }
 
     /** Versioned economic-dispatch contract; all writes remain subject to the local opt-in gate. */

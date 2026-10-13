@@ -25,7 +25,8 @@ class AgentWriteAccessFilterTest {
                 "/api/agent/external/identity",
                 "/api/agent/external/status",
                 "/api/agent/external/power-control",
-                "/api/agent/external/telemetry")) {
+                "/api/agent/external/telemetry",
+                "/api/agent/external/earnings")) {
             MockHttpServletRequest read = request("GET", path);
             MockHttpServletResponse readResponse = new MockHttpServletResponse();
             MockFilterChain readChain = new MockFilterChain();
