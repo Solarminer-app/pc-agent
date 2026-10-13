@@ -1918,3 +1918,8 @@ Vorgehen / Andockpunkte für andere Agenten:
   Upload-Endpunkte liefern zuerst UPLOADING; Lese-Endpunkte zeigen nach Mutation bis zu einem
   Kollektor-Tick den alten Stand.
 - Status: unvercommitet (Owner-Freigabe steht aus).
+## 2026-10-13 — Node earnings monitoring and known-fee forecast
+
+- `GET /api/agent/external/earnings` is now part of the read-only monitoring allowlist, so disabling remote miner control no longer removes Node forecasts while status/power telemetry remain visible.
+- The external response keeps the existing gross fields and additively exposes gross and known-fee-net daily coin/USD values. Net values are withheld unless the proxy fee route and all pool/miner fee parts are resolved; rejected/stale shares, taxes and power cost remain outside the estimate.
+- Verification: JDK 21 `sh gradlew test --no-daemon` and `sh gradlew standaloneJar --no-daemon` passed, including the access-filter regression and known-fee mapping tests. The closed frontend i18n catalog, both-locale render simulation and unkeyed-literal scan passed. No live Kryptex credit or payout was created by this change.
