@@ -12,6 +12,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Set;
 
 /**
  * Keeps the local dashboard usable while preventing every LAN/API write when the operator has
@@ -23,6 +24,12 @@ public class AgentWriteAccessFilter extends OncePerRequestFilter {
     private static final String AGENT_API = "/api/agent/";
     private static final String LOCAL_API = AGENT_API + "local";
     private static final String EXTERNAL_API = AGENT_API + "external";
+    private static final Set<String> NODE_READ_ONLY_PATHS = Set.of(
+            EXTERNAL_API + "/identity",
+            EXTERNAL_API + "/status",
+            EXTERNAL_API + "/power-control",
+            EXTERNAL_API + "/telemetry"
+    );
 
     private final AgentControlSettingsService controls;
     private final de.verdox.solarminer.pcagent.mining.fee.FeeTierService feeTiers;
@@ -47,10 +54,10 @@ public class AgentWriteAccessFilter extends OncePerRequestFilter {
             // Any Node-facing call (steering or reading) is presence: the fee tier
             // machinery treats the agent as Node-attached while this stays fresh.
             feeTiers.recordNodeActivity();
-            // Discovery is read-only and must remain available when the operator disables
-            // remote control. Keep every other external endpoint behind the global gate.
+            // Monitoring is read-only and independent from permission to control miners. The
+            // Node still needs actual mining power and hardware telemetry for PV accounting.
             if ("GET".equalsIgnoreCase(request.getMethod())
-                    && path.equals(EXTERNAL_API + "/identity")) {
+                    && NODE_READ_ONLY_PATHS.contains(path)) {
                 filterChain.doFilter(request, response);
                 return;
             }
