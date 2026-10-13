@@ -1,5 +1,12 @@
 # PC-Agent work log
 
+## 2026-10-13 — Read-only Node-Telemetrie von Steuerfreigabe getrennt
+
+- `externalControlEnabled` sperrt weiterhin sämtliche Node-Schreibpfade, unterdrückt aber nicht mehr die read-only Routen `GET /identity`, `/status`, `/power-control` und `/telemetry`. Weitere Datenverträge wie Overview, Proxy und Earnings behalten ihr bisheriges Gate.
+- Der externe Mining-Status aggregiert alle lokalen CPU-/GPU-Worker unabhängig von globaler oder workerbezogener Steuerfreigabe. Dadurch kann der Node die tatsächliche Mining-Leistung für PV-Statistiken erfassen, ohne daraus eine Start-/Pause-/Leistungsberechtigung abzuleiten.
+- Keine neue UI-Kopie: Die vorhandenen DE/EN-Schalter bleiben Steuerungsfreigaben; ihr ausgeschalteter Zustand ist weiterhin im read-only Power-Status sichtbar. API- und Wiki-Vertrag wurden aktualisiert.
+- Verifikation: `AgentWriteAccessFilterTest`, `ExternalAgentControllerTest` und der neue `MiningServiceExternalStatsTest` erfolgreich; anschließend vollständige PC-Agent-Testsuite erfolgreich. Live-LAN-Probe bleibt offen.
+
 ## 2026-10-12 — Direct start/pause for LAN peer workers
 
 - The network dashboard now includes assigned stopped workers and offers immediate Start/Pause buttons for remote workers. Actions execute on the first click without a confirmation dialog and show localized progress/success/failure feedback.

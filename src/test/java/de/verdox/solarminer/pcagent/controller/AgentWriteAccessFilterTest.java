@@ -19,17 +19,23 @@ class AgentWriteAccessFilterTest {
     private final AgentWriteAccessFilter filter = new AgentWriteAccessFilter(controls, mock(FeeTierService.class));
 
     @Test
-    void disabledNodeControlAllowsDiscoveryIdentityButRejectsOtherExternalReadsAndWrites() throws Exception {
+    void disabledNodeControlAllowsReadOnlyMonitoringButRejectsOtherExternalReadsAndWrites() throws Exception {
         disabled();
-        MockHttpServletRequest identity = request("GET", "/api/agent/external/identity");
-        MockHttpServletResponse identityResponse = new MockHttpServletResponse();
-        MockFilterChain identityChain = new MockFilterChain();
-        filter.doFilter(identity, identityResponse, identityChain);
-        assertThat(identityResponse.getStatus()).isEqualTo(200);
-        assertThat(identityChain.getRequest()).isSameAs(identity);
+        for (String path : List.of(
+                "/api/agent/external/identity",
+                "/api/agent/external/status",
+                "/api/agent/external/power-control",
+                "/api/agent/external/telemetry")) {
+            MockHttpServletRequest read = request("GET", path);
+            MockHttpServletResponse readResponse = new MockHttpServletResponse();
+            MockFilterChain readChain = new MockFilterChain();
+            filter.doFilter(read, readResponse, readChain);
+            assertThat(readResponse.getStatus()).as(path).isEqualTo(200);
+            assertThat(readChain.getRequest()).as(path).isSameAs(read);
+        }
 
         for (RequestCase requestCase : List.of(
-                new RequestCase("GET", "/api/agent/external/status"),
+                new RequestCase("GET", "/api/agent/external/overview"),
                 new RequestCase("POST", "/api/agent/external/identity"),
                 new RequestCase("POST", "/api/agent/external/pause"),
                 new RequestCase("POST", "/api/agent/external/resume"),

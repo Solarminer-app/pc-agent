@@ -29,15 +29,20 @@ Controller source: [`MiningController`](../src/main/java/de/verdox/solarminer/pc
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/agent/external/identity` | Read-only Node discovery; remains available when external Node control is disabled. Every other external route is gated. |
-| `GET` | `/api/agent/external/status` | Node-visible CPU/GPU worker statistics. |
-| `GET` | `/api/agent/external/power-control` | Node-visible power range and applied target. |
-| `GET` | `/api/agent/external/{telemetry|overview|proxy|earnings}` | Node read contracts. |
+| `GET` | `/api/agent/external/identity` | Read-only Node discovery; remains available when external Node control is disabled. |
+| `GET` | `/api/agent/external/status` | Read-only statistics for every local CPU/GPU worker; remains available when external Node control is disabled so PV power accounting stays complete. |
+| `GET` | `/api/agent/external/power-control` | Read-only power state, including the disabled control flag; remains available when external Node control is disabled. |
+| `GET` | `/api/agent/external/telemetry` | Read-only host hardware telemetry; remains available when external Node control is disabled. |
+| `GET` | `/api/agent/external/{overview|proxy|earnings}` | Additional Node read contracts; gated together with external Node control. |
 | `POST` | `/api/agent/external/{pause|resume}` | Pause or resume externally assigned workers. |
 | `POST` | `/api/agent/external/power-target?watts=<watts>` | Apply the Node's PV-wide target. |
 | `POST` | `/api/agent/external/{proxy|referral|pool-configuration}` | Node-owned routing configuration. |
 | `POST` | `/api/agent/external/{monero|pearl}/configuration` | Node-owned miner configuration. |
 | `GET` / `POST` | `/api/agent/local/**` | Same-origin dashboard APIs for local status, settings, mining, telemetry, benchmarks and diagnostics. |
+
+`externalControlEnabled` authorizes state changes only. It does not suppress the read-only
+identity, mining status, power status or hardware telemetry needed by an already connected Node.
+All external POST routes remain denied while control is disabled.
 
 Dynamic GPU-Power-Regelung wird nur angeboten, nachdem ein Same-Value-Schreibtest und der anschließende Readback erfolgreich waren. NVIDIA verwendet die stabile GPU-UUID und `nvidia-smi -pl`. AMD verwendet bevorzugt AMD-SMI mit UUID/BDF; unter Linux steht zusätzlich der `amdgpu`-hwmon-Power-Cap über den stabilen PCI-BDF zur Verfügung. Jeder Zielwert bleibt innerhalb der Treiber- und Nutzergrenzen. Der Agent ändert weder Spannung noch Takt. Vor dem ersten Eingriff persistiert er die aktuellen Limits für Rollback, reguläres Beenden und Wiederherstellung beim nächsten Start nach einem Prozessabbruch.
 

@@ -32,11 +32,16 @@ class ExternalAgentControllerTest {
     }
 
     @Test
-    void disabledExternalControlRejectsReadsAndWritesBeforeControllerInvocation() throws Exception {
+    void disabledExternalControlAllowsMonitoringButRejectsWrites() throws Exception {
         MockMvc api = api(false);
-        api.perform(get("/api/agent/external/status")).andExpect(status().isForbidden());
+        api.perform(get("/api/agent/external/status")).andExpect(status().isOk());
+        api.perform(get("/api/agent/external/power-control")).andExpect(status().isOk());
+        api.perform(get("/api/agent/external/telemetry")).andExpect(status().isOk());
         api.perform(post("/api/agent/external/pause")).andExpect(status().isForbidden());
-        verifyNoInteractions(mining, power, telemetry, assessment);
+        verify(mining).getMiningStats();
+        verify(power).externalStatus();
+        verify(telemetry).telemetry();
+        verifyNoInteractions(assessment);
     }
 
     @Test

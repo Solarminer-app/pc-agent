@@ -514,9 +514,9 @@ public class MiningService {
     }
 
     public MinerStats getExternalStats() {
-        List<MinerStats.Worker> visible = controls.get().externalControlEnabled()
-                ? getExternallyVisibleWorkerStats() : List.of();
-        return getStatsFromWorkers(visible);
+        // Read-only Node monitoring covers every local worker so site power accounting stays
+        // complete. Global/per-worker external-control switches gate commands, not telemetry.
+        return getStatsFromWorkers(getWorkerStats());
     }
 
     public MinerStats getStats(List<LocalGpuPowerService.Gpu> discoveredGpus) {
