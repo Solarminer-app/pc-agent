@@ -7,6 +7,7 @@ import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
 import de.verdox.solarminer.pcagent.mining.MiningService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,6 +49,7 @@ public class EnergyJournalService {
     private final MiningService mining;
     private final LocalGpuPowerService gpus;
     private final MinerCatalogService catalog;
+    private final AgentControlSettingsService controls;
     private final Path directory;
     private final Map<String, ActiveSession> active = new LinkedHashMap<>();
     private volatile Settings settings;
@@ -55,15 +57,23 @@ public class EnergyJournalService {
     private volatile Overview overviewSnapshot;
     private Instant lastCheckpoint = Instant.EPOCH;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public EnergyJournalService(ObjectMapper json, MiningService mining, LocalGpuPowerService gpus,
-                                MinerCatalogService catalog,
+                                MinerCatalogService catalog, AgentControlSettingsService controls,
                                 @Value("${solarminer.agent.energy-directory:./solarminer-agent/energy}") String directory) {
         this.json = json;
         this.mining = mining;
         this.gpus = gpus;
         this.catalog = catalog;
+        this.controls = controls;
         this.directory = Path.of(directory).toAbsolutePath().normalize();
         this.settings = loadSettings();
+    }
+
+    /** Focused-test compatibility constructor. */
+    public EnergyJournalService(ObjectMapper json, MiningService mining, LocalGpuPowerService gpus,
+                                MinerCatalogService catalog, String directory) {
+        this(json, mining, gpus, catalog, null, directory);
     }
 
     @PostConstruct
@@ -102,7 +112,7 @@ public class EnergyJournalService {
             ActiveSession session = active.get(deviceId);
             MinerStats.Worker worker = running.get(deviceId);
             String coin = worker == null ? null : coin(worker.currentAlgorithm());
-            String software = coin == null ? null : software(coin);
+            String software = coin == null ? null : software(coin, deviceId);
             if (worker == null || !session.sameAssignment(coin, software, worker.currentAlgorithm())) {
                 active.remove(deviceId);
                 append(session.finish(session.lastSampleAt, worker == null ? "STOPPED" : "REASSIGNED"));
@@ -111,7 +121,7 @@ public class EnergyJournalService {
 
         for (MinerStats.Worker worker : running.values()) {
             String coin = coin(worker.currentAlgorithm());
-            String software = software(coin);
+            String software = software(coin, worker.deviceId());
             ActiveSession session = active.computeIfAbsent(worker.deviceId(), ignored -> ActiveSession.start(worker, coin, software, now));
             session.add(worker, now);
         }
@@ -182,9 +192,10 @@ public class EnergyJournalService {
                 runtimeSeconds == 0 ? 0 : Math.min(1, measuredSeconds / (double) runtimeSeconds));
     }
 
-    private String software(String coin) {
+    private String software(String coin, String deviceId) {
         MinerCatalogService.MinerOption selected = catalog.selected(coin);
-        return selected == null ? "unknown" : selected.id();
+        String fallback = selected == null ? "unknown" : selected.id();
+        return controls == null ? fallback : controls.get().minerFor(deviceId, fallback);
     }
 
     private static String coin(String algorithm) {

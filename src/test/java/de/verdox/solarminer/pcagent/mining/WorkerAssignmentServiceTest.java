@@ -7,6 +7,9 @@ import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.file.Path;
 
 import java.util.List;
 import java.util.Map;
@@ -25,6 +28,81 @@ import de.verdox.solarminer.pcagent.miner.MinerConfig;
 import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
 
 class WorkerAssignmentServiceTest {
+    @TempDir Path directory;
+
+    @Test
+    void assigningQuanPoolToOneGpuDoesNotChangeAnotherGpu() throws Exception {
+        var first = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "First GPU", 100, 250,
+                100, 250, 200, 150.0, "measured", true, null);
+        var second = new LocalGpuPowerService.Gpu("NVIDIA", 1, "GPU-b", "Second GPU", 100, 250,
+                100, 250, 200, 150.0, "measured", true, null);
+        AgentControlSettingsService controls = new AgentControlSettingsService(new ObjectMapper(),
+                directory.resolve("controls.json").toString());
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        when(power.discover()).thenReturn(List.of(first, second));
+        when(power.snapshot()).thenReturn(List.of(first, second));
+        MiningService mining = mock(MiningService.class);
+        when(mining.getStats(anyList())).thenReturn(MinerStats.DEFAULT);
+        MinerCatalogService catalog = mock(MinerCatalogService.class);
+        MinerCatalogService.MinerOption quan = new MinerCatalogService.MinerOption("quanpool-miner", "quantus",
+                "QuanPool Miner", "GPU", "QPoW", 2.0, "fee", "https://quanpool.com", List.of(), List.of(),
+                "https://quanpool.com", true, true, "READY", "", true, null);
+        when(catalog.options("quantus")).thenReturn(List.of(quan));
+        de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService quanMiner =
+                mock(de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService.class);
+        de.verdox.solarminer.pcagent.miner.MinerFactory factory = new de.verdox.solarminer.pcagent.miner.MinerFactory(
+                mock(de.verdox.solarminer.pcagent.xmr.XmrMinerService.class), mock(PearlMinerService.class),
+                mock(GpuCoinMinerService.class), power, quanMiner, catalog, controls);
+        WorkerAssignmentService service = new WorkerAssignmentService(controls, mining, power, catalog, factory,
+                mock(PayoutDefaultsService.class), mock(ProxyConfigurationService.class));
+
+        service.assign(first.deviceId(), new WorkerAssignmentService.Assignment("quantus", "quanpool-miner"));
+
+        assertEquals("quantus", controls.get().coinFor(first.deviceId()));
+        assertEquals("quanpool-miner", controls.get().minerFor(first.deviceId(), "srbminer-multi"));
+        assertEquals("none", controls.get().coinFor(second.deviceId()));
+        assertEquals("srbminer-multi", controls.get().minerFor(second.deviceId(), "srbminer-multi"));
+    }
+
+    @Test
+    void startsEachQuantusGpuWithItsOwnAssignedMiner() {
+        var first = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "First GPU", 100, 250,
+                100, 250, 200, 150.0, "measured", true, null);
+        var second = new LocalGpuPowerService.Gpu("NVIDIA", 1, "GPU-b", "Second GPU", 100, 250,
+                100, 250, 200, 150.0, "measured", true, null);
+        AgentControlSettingsService controls = new AgentControlSettingsService(new ObjectMapper(),
+                directory.resolve("routing-controls.json").toString());
+        org.junit.jupiter.api.Assertions.assertTrue(controls.setWorkerAssignment(first.deviceId(), "quantus", "quanpool-miner"));
+        org.junit.jupiter.api.Assertions.assertTrue(controls.setWorkerAssignment(second.deviceId(), "quantus", "srbminer-multi"));
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        when(power.discover()).thenReturn(List.of(first, second));
+        MinerCatalogService catalog = mock(MinerCatalogService.class);
+        MinerCatalogService.MinerOption defaultOption = mock(MinerCatalogService.MinerOption.class);
+        when(defaultOption.id()).thenReturn("srbminer-multi");
+        when(catalog.selected("quantus")).thenReturn(defaultOption);
+        GpuCoinMinerService srb = mock(GpuCoinMinerService.class);
+        when(srb.configuration("quantus")).thenReturn(new MinerConfig("stratum+tcp://pool:9854",
+                "stratum+tcp://127.0.0.1:3339", "wallet", "worker", "NVIDIA:1"));
+        when(srb.resumeGpu("quantus", "NVIDIA", 1)).thenReturn(true);
+        de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService quan =
+                mock(de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService.class);
+        when(quan.configuration()).thenReturn(new MinerConfig("stratum+tcp://pool:9854",
+                "stratum+tcp://127.0.0.1:3339", "wallet", "worker", "NVIDIA:0"));
+        when(quan.resumeGpu("NVIDIA", 0)).thenReturn(true);
+        de.verdox.solarminer.pcagent.miner.MinerFactory factory = new de.verdox.solarminer.pcagent.miner.MinerFactory(
+                mock(de.verdox.solarminer.pcagent.xmr.XmrMinerService.class), mock(PearlMinerService.class),
+                srb, power, quan, catalog, controls);
+        WorkerAssignmentService service = new WorkerAssignmentService(controls, mock(MiningService.class), power,
+                catalog, factory, mock(PayoutDefaultsService.class), mock(ProxyConfigurationService.class));
+
+        org.junit.jupiter.api.Assertions.assertTrue(service.start(first.deviceId()));
+        org.junit.jupiter.api.Assertions.assertTrue(service.start(second.deviceId()));
+
+        verify(quan).resumeGpu("NVIDIA", 0);
+        verify(srb).resumeGpu("quantus", "NVIDIA", 1);
+        verify(quan, never()).resumeGpu("NVIDIA", 1);
+        verify(srb, never()).resumeGpu("quantus", "NVIDIA", 0);
+    }
     @Test
     void startsAssignedGpuWithVerifiedHousePayoutWhenNoWalletWasConfigured() throws Exception {
         var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test GPU", 100, 250,
@@ -109,7 +187,7 @@ class WorkerAssignmentServiceTest {
         AtomicReference<AgentControlSettingsService.Settings> state = new AtomicReference<>(
                 new AgentControlSettingsService.Settings(true, false, Map.of(), Map.of("cpu", "none")));
         when(controls.get()).thenAnswer(ignored -> state.get());
-        when(controls.setWorkerCoin("cpu", "monero")).thenAnswer(ignored -> {
+        when(controls.setWorkerAssignment("cpu", "monero", "xmrig")).thenAnswer(ignored -> {
             state.set(new AgentControlSettingsService.Settings(true, false, Map.of(), Map.of("cpu", "monero")));
             return true;
         });
@@ -118,7 +196,6 @@ class WorkerAssignmentServiceTest {
                 "https://xmrig.com", false,
                 true, "READY", "", true, null);
         when(catalog.options("monero")).thenReturn(List.of(xmrig));
-        when(catalog.select("monero", "xmrig")).thenReturn(true);
         when(catalog.selected("monero")).thenReturn(xmrig);
         when(power.snapshot()).thenReturn(List.of());
         when(mining.getStats(anyList())).thenReturn(MinerStats.DEFAULT);
@@ -130,8 +207,8 @@ class WorkerAssignmentServiceTest {
 
         assertEquals("monero", result.coin());
         assertEquals("xmrig", result.minerSoftwareId());
-        verify(catalog).select("monero", "xmrig");
-        verify(controls).setWorkerCoin("cpu", "monero");
+        verify(catalog, never()).select("monero", "xmrig");
+        verify(controls).setWorkerAssignment("cpu", "monero", "xmrig");
         verify(mining, never()).stopExternalWorker("cpu");
     }
 

@@ -68,24 +68,30 @@ public class WorkerAssignmentService {
             throw new IllegalArgumentException("Coin passt nicht zur Hardware");
 
         String oldCoin = controls.get().coinFor(deviceId);
-        if (!oldCoin.equals(coin.id()) && !Coin.NONE.id().equals(oldCoin) && !mining.stopExternalWorker(deviceId))
+        Coin oldCoinValue = Coin.byIdOrNull(oldCoin);
+        String oldMinerId = oldCoinValue == null || oldCoinValue == Coin.NONE ? null
+                : miners.minerSoftwareForWorker(oldCoinValue, deviceId);
+        if ((!oldCoin.equals(coin.id()) || !java.util.Objects.equals(oldMinerId, request.minerSoftwareId()))
+                && !Coin.NONE.id().equals(oldCoin) && !mining.stopExternalWorker(deviceId))
             throw new IllegalStateException("Der laufende Worker konnte nicht angehalten werden");
 
+        MinerCatalogService.MinerOption selectedOption = null;
         if (coin != Coin.NONE) {
-            MinerCatalogService.MinerOption option = catalog.options(coin.id()).stream()
+            selectedOption = catalog.options(coin.id()).stream()
                     .filter(candidate -> candidate.id().equals(request.minerSoftwareId())).findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("Miner-Software unterstützt diesen Coin nicht"));
-            if (!option.installed() || !option.selectable())
+            if (!selectedOption.installed() || !selectedOption.selectable())
                 throw new IllegalArgumentException("Miner-Software ist nicht einsatzbereit");
-            if (!catalog.select(coin.id(), option.id())) throw new IOException("Miner-Auswahl konnte nicht gespeichert werden");
         }
 
-        if (!controls.setWorkerCoin(deviceId, coin.id())) throw new IOException("Worker-Zuweisung konnte nicht gespeichert werden");
+        if (!controls.setWorkerAssignment(deviceId, coin.id(), selectedOption == null ? null : selectedOption.id()))
+            throw new IOException("Worker-Zuweisung konnte nicht gespeichert werden");
         try {
-            synchronizeConfiguredDevices(oldCoin, coin.id());
+            synchronizeConfiguredDevices(oldCoinValue, oldMinerId, coin,
+                    selectedOption == null ? null : selectedOption.id());
         } catch (IOException | RuntimeException failure) {
-            controls.setWorkerCoin(deviceId, oldCoin);
-            synchronizeConfiguredDevices(coin.id(), oldCoin);
+            controls.setWorkerAssignment(deviceId, oldCoin, oldMinerId);
+            synchronizeConfiguredDevices(coin, selectedOption == null ? null : selectedOption.id(), oldCoinValue, oldMinerId);
             throw failure;
         }
         return workers().stream().filter(worker -> worker.deviceId().equals(deviceId)).findFirst().orElseThrow();
@@ -100,17 +106,13 @@ public class WorkerAssignmentService {
                     "CPU miner could not start. Check the miner console, installation and proxy fee route."));
             return true;
         }
-        GpuCoinMiner miner = miners.gpuMiner(coin);
-        ensureGpuDefault(coin, miner, hardware);
+        String minerId = miners.minerSoftwareForWorker(coin, deviceId);
+        GpuCoinMiner miner = miners.gpuMiner(coin, minerId);
+        ensureGpuDefault(coin, miner, hardware, assignedDevices(coin.id(), minerId));
         if (!miner.resumeGpu(hardware.vendor, hardware.index))
             throw new IllegalStateException(error(miner.lastError(),
                     "GPU miner could not start. Check its console, installation and proxy fee route."));
         return true;
-    }
-
-    private void ensureGpuDefault(Coin coin, GpuCoinMiner miner, Hardware hardware) {
-        String assigned = assignedDevices(coin.id());
-        ensureGpuDefault(coin, miner, hardware, assigned.isBlank() ? hardware.vendor + ":" + hardware.index : assigned);
     }
 
     private void ensureGpuDefault(Coin coin, GpuCoinMiner miner, Hardware hardware, String device) {
@@ -200,13 +202,16 @@ public class WorkerAssignmentService {
         String oldCoin = controls.get().coinFor(deviceId);
         if (oldCoin.equals(coin.id())) return true;
         if (!mining.stopExternalWorker(deviceId)) return false;
-        if (!controls.setWorkerCoin(deviceId, coin.id())) return false;
+        Coin old = Coin.byIdOrNull(oldCoin);
+        String oldMiner = old == null || old == Coin.NONE ? null : miners.minerSoftwareForWorker(old, deviceId);
+        String minerId = coin == Coin.NONE ? null : miners.minerSoftwareForWorker(coin, deviceId);
+        if (!controls.setWorkerAssignment(deviceId, coin.id(), minerId)) return false;
         try {
-            synchronizeConfiguredDevices(oldCoin, coin.id());
+            synchronizeConfiguredDevices(old, oldMiner, coin, minerId);
             return true;
         } catch (IOException | RuntimeException failure) {
-            controls.setWorkerCoin(deviceId, oldCoin);
-            try { synchronizeConfiguredDevices(coin.id(), oldCoin); } catch (IOException | RuntimeException ignored) { }
+            controls.setWorkerAssignment(deviceId, oldCoin, oldMiner);
+            try { synchronizeConfiguredDevices(coin, minerId); } catch (IOException | RuntimeException ignored) { }
             return false;
         }
     }
@@ -217,10 +222,12 @@ public class WorkerAssignmentService {
         String algorithm = coin == null || coin == Coin.NONE ? null : coin.assignmentAlgorithm();
         MinerStats.Worker live = stats.stream().filter(worker -> deviceId.equals(worker.deviceId())
                 && (algorithm == null || algorithm.equalsIgnoreCase(worker.currentAlgorithm()))).findFirst().orElse(null);
-        MinerCatalogService.MinerOption selected = coin == null || coin == Coin.NONE ? null : catalog.selected(coin.id());
-        String pool = pool(coin);
+        String selectedId = coin == null || coin == Coin.NONE ? null : miners.minerSoftwareForWorker(coin, deviceId);
+        MinerCatalogService.MinerOption selected = coin == null || coin == Coin.NONE ? null : catalog.options(coin.id()).stream()
+                .filter(option -> option.id().equals(selectedId)).findFirst().orElse(null);
+        String pool = pool(coin, selectedId);
         boolean configured = coin != null && (coin == Coin.NONE || coin.isCpu()
-                || miners.gpuMiner(coin).configured());
+                || miners.gpuMiner(coin, selectedId).configured());
         return new WorkerView(deviceId, type, model, vendor, index,
                 coin == null ? Coin.NONE.id() : coin.id(), coin == null ? Coin.NONE.displayName() : coin.displayName(), algorithm,
                 selected == null ? null : selected.id(), selected == null ? null : selected.name(),
@@ -228,13 +235,16 @@ public class WorkerAssignmentService {
                 controls.get().workerEnabled(deviceId), live == null ? MinerStats.MinerStatus.STOPPED : live.miningStatus(), live);
     }
 
-    private void synchronizeConfiguredDevices(String... changedCoins) throws IOException {
-        Set<String> affected = new HashSet<>(List.of(changedCoins));
-        for (String coinId : affected) {
-            Coin coin = Coin.byIdOrNull(coinId);
-            if (coin == null || !coin.isGpu()) continue;
-            GpuCoinMiner miner = miners.gpuMiner(coin);
-            String devices = assignedDevices(coin.id());
+    private void synchronizeConfiguredDevices(Object... changedAssignments) throws IOException {
+        Set<AssignmentKey> affected = new HashSet<>();
+        for (int i = 0; i + 1 < changedAssignments.length; i += 2) {
+            Coin coin = (Coin) changedAssignments[i];
+            String minerId = (String) changedAssignments[i + 1];
+            if (coin != null && coin.isGpu() && minerId != null) affected.add(new AssignmentKey(coin, minerId));
+        }
+        for (AssignmentKey assignment : affected) {
+            GpuCoinMiner miner = miners.gpuMiner(assignment.coin(), assignment.minerId());
+            String devices = assignedDevices(assignment.coin().id(), assignment.minerId());
             // Existing coin credentials remain available for a later reassignment. The legacy
             // coin configuration contract requires at least one GPU, so an empty local profile
             // is represented by workerCoins rather than an invalid empty miner configuration.
@@ -245,17 +255,20 @@ public class WorkerAssignmentService {
         }
     }
 
-    private String assignedDevices(String coinId) {
+    private String assignedDevices(String coinId, String minerId) {
         List<String> ids = new ArrayList<>();
         for (LocalGpuPowerService.Gpu gpu : gpuPower.discover()) {
-            if (coinId.equals(controls.get().coinFor(gpu.deviceId()))) ids.add(gpu.vendor() + ":" + gpu.index());
+            Coin coin = Coin.byIdOrNull(coinId);
+            if (coinId.equals(controls.get().coinFor(gpu.deviceId()))
+                    && minerId.equals(miners.minerSoftwareForWorker(coin, gpu.deviceId())))
+                ids.add(gpu.vendor() + ":" + gpu.index());
         }
         return String.join(",", ids);
     }
 
-    private String pool(Coin coin) {
+    private String pool(Coin coin, String minerId) {
         if (coin == null || !coin.isGpu()) return null;
-        MinerConfig config = miners.gpuMiner(coin).configuration();
+        MinerConfig config = miners.gpuMiner(coin, minerId).configuration();
         return config == null ? null : config.poolUrl();
     }
 
@@ -267,6 +280,7 @@ public class WorkerAssignmentService {
     }
 
     private record Hardware(String type, String vendor, Integer index) { }
+    private record AssignmentKey(Coin coin, String minerId) { }
     /** Worker setup deliberately has no remote-control flag; automation consent is centralized. */
     public record Assignment(String coin, String minerSoftwareId) { }
     public record WorkerView(String deviceId, String hardwareType, String hardwareModel, String vendor, Integer index,

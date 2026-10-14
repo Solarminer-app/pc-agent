@@ -4,6 +4,9 @@ import java.math.BigDecimal;
 
 /** Pool/chain-specific adapter for reading wallet balances. */
 public interface PoolBalanceProvider {
+    /** One wallet-specific pool read. Paid total is optional when a pool exposes only pending balance. */
+    record PoolAccount(BigDecimal pending, BigDecimal paidTotal) { }
+
     /** Stable provider key used in cache keys and diagnostics. */
     String id();
 
@@ -13,6 +16,14 @@ public interface PoolBalanceProvider {
     /** Reads the pool balance in native coin units; failures are reported as unavailable. */
     default BigDecimal balance(String coin, String poolUrl, String wallet) throws Exception {
         throw new UnsupportedOperationException(id() + " has no pool balance read");
+    }
+
+    /**
+     * Reads all pool-account values available through this adapter in one request. Providers
+     * with only a balance endpoint keep the legacy implementation and report no paid total.
+     */
+    default PoolAccount account(String coin, String poolUrl, String wallet) throws Exception {
+        return new PoolAccount(balance(coin, poolUrl, wallet), null);
     }
 
     /**

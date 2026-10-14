@@ -16,6 +16,7 @@
       const item = grouped.get(option.id) || {...option, coins: [], algorithms: [], variants: []};
       item.coins.push(option.coin); item.algorithms.push(option.algorithm); item.variants.push(option);
       item.installed ||= option.installed;
+      item.installable ||= option.installable;
       if (option.downloadStatus === 'DOWNLOADING') item.downloadStatus = option.downloadStatus;
       if (option.downloadStatus === 'UPDATE_REQUIRED') item.downloadStatus = option.downloadStatus;
       if (option.downloadDetail) item.downloadDetail = option.downloadDetail;
@@ -42,7 +43,7 @@
       const head = el('div', 'software-card__head');
       const identity = el('div'); identity.append(el('p', 'kicker', item.device), el('h3', '', item.name));
       const status = el('span', `pill ${item.installed ? 'tone-ok' : needsUpdate ? 'tone-warn' : item.selectable ? '' : 'tone-warn'}`,
-        item.downloadStatus === 'DOWNLOADING' ? 'installing_d0dbee' : needsUpdate ? 'update_required' : item.installed ? 'installed_ff9a99' : item.selectable ? 'installable' : 'not_integrated');
+        item.downloadStatus === 'DOWNLOADING' ? 'installing_d0dbee' : needsUpdate ? 'update_required' : item.installed ? 'installed_ff9a99' : item.installable ? 'installable' : 'not_integrated');
       head.append(identity, status); card.append(head);
       const supported = el('div', 'software-support');
       [...new Set(item.variants.map(entry => `${coinName(entry)} · ${entry.algorithm}`))]
@@ -62,9 +63,9 @@
       if (item.installed) {
         const workers = el('a', 'button primary', 'assign_workers'); workers.href = '/workers.html'; actions.append(workers);
         const remove = el('button', 'button subtle', 'uninstall'); remove.type = 'button'; remove.disabled = busy;
-        remove.addEventListener('click', () => mutate(`/api/agent/local/${item.coins[0]}/remove`, `${item.name} entfernen?`, 'software_removed'));
+        remove.addEventListener('click', () => mutate(`/api/agent/local/${item.coins[0]}/miners/${item.id}/remove`, `${item.name} entfernen?`, 'software_removed'));
         actions.append(remove);
-      } else if (item.selectable) {
+      } else if (item.installable) {
         const install = el('button', 'button primary', item.downloadStatus === 'DOWNLOADING' ? 'installation_in_progress' : needsUpdate ? 'update_srbminer' : 'install');
         install.type = 'button'; install.disabled = busy || item.downloadStatus === 'DOWNLOADING';
         install.addEventListener('click', () => mutate(`/api/agent/local/${item.coins[0]}/miners/${item.id}/download`, null,

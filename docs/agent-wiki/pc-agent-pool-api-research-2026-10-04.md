@@ -1,17 +1,27 @@
 # PC-Agent: weitere Pools mit öffentlicher Wallet-API
 
-Stand: 2026-10-04. Recherche, keine Aktivierung oder Produktionsfreigabe. Maßstab ist eine ohne Login/API-Schlüssel lesbare REST/JSON-Schnittstelle für **das einzelne Mining-Konto**: mindestens offenes Guthaben und tatsächlich ausgeführte Auszahlungen (Betrag, Zeit, idealerweise Transaktions-ID). Poolweite Zahlungen allein genügen nicht. Dokumentierte Endpunkte wurden geprüft; ein erfolgreicher eigener Share, Pool-Credit und eine Auszahlung wurden bei keinem neuen Kandidaten beobachtet.
+Stand: 2026-10-13. Recherche und QuanPool-Read-Integration, keine Produktionsfreigabe.
+Maßstab ist eine ohne Login/API-Schlüssel lesbare REST/JSON-Schnittstelle für **das einzelne
+Mining-Konto**: mindestens offenes Guthaben und tatsächlich ausgeführte Auszahlungen (Betrag,
+Zeit, idealerweise Transaktions-ID). Poolweite Zahlungen allein genügen nicht. Dokumentierte
+Endpunkte wurden geprüft; ein erfolgreicher eigener Share, Pool-Credit und eine Auszahlung
+wurden bei keinem neuen Kandidaten beobachtet.
 
 ## Ist-Zustand im Repository
 
 - `pc-agent/src/main/resources/static/mining.html` und `agent.js` bieten Kryptex-Regionen für XMR, PRL, RVN und ETC sowie eigene Pool-URLs an. RVN/ETC sind vorbereitete, nicht end-to-end freigegebene Pfade; siehe [RVN/ETC](rvn-etc-integration.md). PRL folgt dem [Pearl-Protokoll](../../../PEARL-INTEGRATION.md).
 - `WalletBalanceService` dispatcht jetzt über `PoolBalanceProvider` anhand der gespeicherten Pool-URL und der kanonischen Coin-ID. `KryptexPoolBalanceProvider` liest XMR, PRL, RVN, ETC und QTC über `pool.kryptex.com/{api-coin}/api/v1/miner/balance/{address}` und das Feld `total`; der Wallet-Streifen verwendet den vom Backend gelieferten Status statt einer eigenen Coin-Allowlist. DCR ist im Pool-Katalog Suprnova zugeordnet und bleibt bis zu einem eigenen Suprnova-Adapter `UNSUPPORTED_POOL`. Auszahlungshistorie wird weiterhin nicht angezeigt.
 - Pool-Gutschrift, geschätzter Ertrag, gesendete Auszahlung und On-Chain-Walletbestand sind getrennte Größen. Bei XMR kann eine öffentliche Chain-API den Wallet-Eingang wegen der Privatsphäre nicht einfach aus der Adresse herleiten.
+- `QuanPoolBalanceProvider` liest für eine gespeicherte QTC-QuanPool-Route
+  `/api/miner/mainnet/{address}`. Der Wallet-Snapshot führt jetzt optional `paidTotal` und
+  `paidTotalStatus`; der Streifen zeigt QuanPools kumulierte bestätigte Auszahlung getrennt
+  vom offenen Pool-Saldo und nimmt sie nicht in den aktuellen Gesamtwert auf.
 
 ## Kandidaten
 
 | Coin | Pool und belegte öffentliche Endpunkte | Eignung / offener Punkt |
 | --- | --- | --- |
+| QTC | **QuanPool:** Die offizielle Website verwendet `GET /api/miner/mainnet/{address}` für `balance.pending`, `balance.paid_total`, Worker und das Kontoleger. `payout_debit`-Einträge tragen Betrag, Payout-ID, Zeit und Status (`confirmed`, `failed`, sonst in flight); `/earnings` liefert Tageswerte. `/api/chains` veröffentlicht Global-/US-/Asia-Stratumziele und `/api/terms` Fee, Schwellen und Einheiten. | **Read-Adapter umgesetzt.** 1 QTC = 10^12 planck ist durch den offiziellen Frontendcode belegt. Die API ist öffentlich und wird vom Betreiber-Frontend verwendet, aber eine separat versionierte Stabilitätszusage wurde nicht gefunden. Reale Share-, Credit- und Payout-Evidenz sowie eine begrenzte History-UI bleiben offen. |
 | RVN, ETC | **2Miners:** `https://rvn.2miners.com/api/accounts/{wallet}` bzw. `https://etc.2miners.com/api/accounts/{wallet}`. Die [offizielle OpenAPI](https://apidoc.2miners.com/) nennt `stats.balance`, `stats.immature`, `stats.paid`, `payments[]` mit Betrag, Zeit und TX sowie Worker/Rewards; der eigene [RVN-Guide](https://rvn.2miners.com/help) und [ETC-Guide](https://etc.2miners.com/help) dokumentieren SRBMiner und `WALLET.RIG_ID` (RVN TCP 6060, ETC TCP 1010). | **Erste Wahl** für beide vorbereiteten GPU-Coins. `api/stats` von ETC lieferte am 2026-10-04 JSON. Wallet-spezifische Antwort, Einheiten/Skalierung, Paginierung und tatsächliche Credits/Payouts noch mit eigenen Test-Wallets verifizieren. Native RVN/ETC-Auszahlung wählen; optionale BTC/TON-Auszahlungen benötigen einen anderen Vertrag. |
 | XMR | **MoneroOcean:** Die [offizielle UI-Quelle](https://github.com/MoneroOcean/mo-pool-ui/blob/master/src/api.js) ruft `https://api.moneroocean.stream/miner/{address}/stats` und `/payments?page=0&limit=15` sowie `/block_payments` auf; die [Konstante der UI](https://github.com/MoneroOcean/mo-pool-ui/blob/master/src/constants.js) setzt genau diese API-Basis. | **Vollständiger Kandidat** für Wallet-Statistik und Auszahlungshistorie. Der Pool kann mehrere Algorithmen in XMR auszahlen; für den PC-Agent nur einen ausdrücklich passenden RandomX/XMR-Miningweg prüfen. Live-Walletantwort, Format, Worker-Login und Proxy-Kompatibilität noch testen. Die Web-Recherche konnte die API-Hostantwort nicht direkt abrufen. |
 | XMR | **HashVault:** [offizielle API-Doku](https://hashvault.pro/monero/api) nennt `https://api.hashvault.pro/v3/monero/wallet/{address}/stats` für Guthaben und Worker; die [Pool-Seite](https://hashvault.pro/monero/) nennt die öffentliche API. Die Pool-API antwortete am 2026-10-04 als JSON. | **Reservekandidat für Guthaben**. Ein öffentlich dokumentierter walletbezogener Endpoint für *Auszahlungshistorie* wurde nicht belegt; erst nach dessen Nachweis als vollständige Option anbieten. |
