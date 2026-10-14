@@ -1923,3 +1923,111 @@ Vorgehen / Andockpunkte für andere Agenten:
 - `GET /api/agent/external/earnings` is now part of the read-only monitoring allowlist, so disabling remote miner control no longer removes Node forecasts while status/power telemetry remain visible.
 - The external response keeps the existing gross fields and additively exposes gross and known-fee-net daily coin/USD values. Net values are withheld unless the proxy fee route and all pool/miner fee parts are resolved; rejected/stale shares, taxes and power cost remain outside the estimate.
 - Verification: JDK 21 `sh gradlew test --no-daemon` and `sh gradlew standaloneJar --no-daemon` passed, including the access-filter regression and known-fee mapping tests. The closed frontend i18n catalog, both-locale render simulation and unkeyed-literal scan passed. No live Kryptex credit or payout was created by this change.
+## 2026-10-13 — QuanPool Miner 6.4.0 für Quantus
+
+- Offizielle QuanPool-Seite und den real ausgelieferten Linux-x86-64-Build geprüft. Live-Header:
+  15.054.128 Byte; SHA-256 `b3663cc6e7acc0a006e5d3d8c03dbce85e7c6a67cb922412a32703c18a5c4c20`
+  stimmt mit der Seite überein. CLI, Non-TTY-Logs und `/hive-stats` wurden direkt erfasst; der
+  auf der Website genannte `gpu-list`-Befehl existiert in 6.4.0 nicht.
+- Eigenständigen, atomaren und größen-/hashgeprüften Installer sowie Quantus-only-Adapter mit
+  Proxy-Relay, Fee-/Versionsprüfung, Prozess-Exklusivität, Stop/Restart, redigierter Konsole und
+  Hive-Stats-Telemetrie ergänzt. QuanPool-Dateien und SRBMiner-Paket bleiben vollständig getrennt.
+- Geräteauswahl (später in derselben Beta-Arbeit korrigiert): Der erste Entwurf begrenzte den
+  Adapter wegen `--gpu-devices N` auf `NVIDIA:0`. Die nachfolgende UUID-Isolation hebt diese
+  unnötige Beschränkung auf; maßgeblich ist der Eintrag vom 2026-10-14 unten.
+- Katalogvertrag additiv um `installable` erweitert: Paket kann auf Linux x86-64 installiert
+  werden, bleibt aber `selectable=false`, bis NVIDIA-Start/Stop, SolarMiner-Proxy-Protokoll und
+  echte User-/House-/Referral-Share-Abrechnung belegt sind. Software- und Worker-UI werten diese
+  Zustände getrennt aus. Neue UI-/Status-Texte sind im geschlossenen DE/EN-Katalog enthalten;
+  externe Miner-Ausgabe bleibt bewusst unverändert.
+- Dauerhafte Verträge und offene Gates: `quantus-integration.md`; Vorschlag für schnelle neue
+  Miner über signierte Manifest-/Fixture-Pakete: `miner-onboarding-architecture.md`.
+- Verifikation: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test standaloneJar
+  --offline --no-daemon` grün (196 Tests), beide i18n-Audits und `git diff --check` grün.
+  Das Standalone-JAR initialisierte den vollständigen Spring-Kontext und Tomcat; der anschließende
+  Tray-Start scheiterte erwartungsgemäß auf dem headless Prüfhost an fehlendem X11. Reale
+  GPU-/Pool-Zertifizierung ist ausdrücklich noch offen und wird nicht als Support behauptet.
+
+## 2026-10-13 — QuanPool Pool-/Payout-Read für QTC
+
+- Offizielle Live-Verträge geprüft: `/api/chains` veröffentlicht die mainnet-Stratumziele
+  Global, US und Asia; `/api/terms` meldet aktuell 1% Poolgebühr und die planck-basierten
+  Auszahlungsschwellen. Der vom Betreiber ausgelieferte Frontendcode belegt `10^12` planck
+  pro QTC und liest `/api/miner/mainnet/{address}` ohne Login/API-Key.
+- QTC-Poolkatalog um `global.quanpool.com:9854`, `us.quanpool.com:9854` und
+  `asia.quanpool.com:9854` ergänzt. Neuer `QuanPoolBalanceProvider` erkennt ausschließlich
+  Quantus und echte QuanPool-Hosts, URL-kodiert die Adresse und liefert pending sowie
+  kumuliert paid in QTC. HTTP-/Schemafehler bleiben `UNAVAILABLE`; nur ein explizites
+  `seen=false` bedeutet bekannten Nullstand.
+- Generischen Pool-Account-Vertrag additiv um `paidTotal`/`paidTotalStatus` erweitert. Der
+  Wallet-Streifen zeigt QuanPools bestätigte Gesamtauszahlung separat und zählt historische
+  Auszahlungen nicht als aktuellen Vermögenswert. DE/EN-Texte wurden gemeinsam ergänzt.
+- Die Antwort enthält außerdem ein walletbezogenes Ledger mit `payout_debit`, Betrag,
+  Payout-ID, Zeit und Status. Eine chronologische History ist noch nicht im PC-Agent-UI-Vertrag;
+  die API ist vom offiziellen Frontend genutzt, aber nicht separat versioniert dokumentiert.
+- Verifikation: vollständige Java-21-Suite und `standaloneJar` grün (200 Tests, 0 Fehler;
+  darin `WalletBalanceServiceTest`: 7), beide i18n-Audits, JavaScript-Syntaxprüfung und
+  `git diff --check` grün. Keine fremde Wallet wurde abgefragt und kein echter Share/Credit/
+  Payout erzeugt; die Miner-Zuweisung bleibt deshalb gemäß Integrationsleitfaden gesperrt.
+
+## 2026-10-14 — QuanPool-Workerzuweisung auf dem Beta-Branch
+
+- Der installierte QuanPool Miner ist im Katalog direkt auswählbar und kann einem Quantus-Worker
+  zugewiesen werden. Ein zunächst ergänzter separater Laufzeitschalter wurde auf Owner-Hinweis
+  vollständig entfernt: Der `beta`-Branch ist bereits das Freigabe- und Test-Gate; erst nach
+  erfolgreicher Zertifizierung wird der Code auf den Release-Pfad übernommen.
+- Keine channel-spezifischen Argumente, Docker-Variablen oder Launcher-Sonderfälle. Die
+  Plattformgrenze Linux x86-64/NVIDIA bleibt; eine feste GPU-Indexgrenze gibt es nicht.
+- Der Pfad bleibt experimentell und ist keine Produktionsfreigabe. Die echten NVIDIA-, Proxy-,
+  Share- und Payout-Nachweise aus `quantus-integration.md` bleiben vor Release-Promotion offen.
+- Verifikation nach Entfernung des Gates: Java-21-Suite und `standaloneJar` erfolgreich
+  (200 Tests, 0 Fehler), beide DE/EN-i18n-Audits, JavaScript-Syntax, Installer-Syntax und
+  `git diff --check` grün.
+
+## 2026-10-14 — Beliebige NVIDIA-GPUs mit QuanPool Miner
+
+- Ursache der falschen `NVIDIA:0`-Sperre: QuanPools CLI kann mit `--gpu-devices N` nur die
+  ersten N für den Prozess sichtbaren Karten wählen. Das bedeutet nicht, dass SolarMiner auf
+  den globalen Index 0 beschränkt sein muss.
+- Der Adapter startet nun pro ausgewählter Karte einen eigenen Prozess und setzt dessen
+  `CUDA_VISIBLE_DEVICES` auf die stabile, durch `nvidia-smi` erkannte GPU-UUID. Der Miner sieht
+  dadurch genau diese Karte als sein internes Device 0. Beliebige NVIDIA-Indizes sowie mehrere
+  gleichzeitige Zuweisungen sind möglich, ohne von der CUDA-Reihenfolge abzuhängen.
+- Prozess, Relay, Metrikport, Temperatur, Shares, Konsole, Pause und Crash-Restart werden pro
+  GPU getrennt geführt. Physische Exklusivität verwendet weiterhin dieselbe UUID wie die
+  anderen Mineradapter.
+- Tests belegen UUID-Umgebungsisolation, beliebige/nicht fortlaufende Indizes, Mehrfachauswahl,
+  Duplikat- und AMD-Ablehnung. Ein echter Multi-GPU-Hosttest bleibt Teil der Beta-Zertifizierung.
+- Verifikation: Java-21-Suite und `standaloneJar` erfolgreich (204 Tests, 0 Fehler), beide
+  DE/EN-i18n-Audits, JavaScript-Syntax und `git diff --check` grün.
+
+## 2026-10-14 — Miner-Auswahl pro physischem Worker
+
+- Die Miner-Auswahl ist nicht länger nur ein Coin-Default. `AgentControlSettingsService`
+  persistiert additiv `workerMiners` neben `workerCoins`; ein explizit eingerichteter Worker
+  behält damit seine konkrete Software-ID. Alte Profile ohne dieses Feld fallen weiterhin auf
+  die bisherige Coin-Auswahl zurück und werden nicht ungültig.
+- `MinerFactory`, `MiningService`, `WorkerAssignmentService` und die alten GPU-Aktionsrouten
+  lösen Start, Pause, Node-Dispatch und Telemetrie jetzt über Gerät + Coin + Software-ID auf.
+  Zwei Quantus-GPUs können dadurch gleichzeitig QuanPool Miner beziehungsweise
+  SRBMiner-MULTI verwenden. Eine Zuweisung ändert nur den ausgewählten physischen Worker;
+  der andere Worker bleibt unverändert. Die Prozessregistrierung verhindert weiterhin, dass
+  zwei Adapter dieselbe GPU-UUID gleichzeitig beanspruchen.
+- QuanPool besitzt nun eine eigene Konfigurationsdatei unter
+  `solarminer-agent/quanpool/solarminer-quantus.json`; SRBMiner behält seine Quantus-Datei.
+  Ein Beta-Profil aus dem vorigen gemeinsamen Speicherformat wird übernommen, sofern seine
+  Geräteauswahl QuanPool-kompatibel ist. Beim Speichern einer Quantus-Wallet wird dieselbe
+  Route auf alle tatsächlich zugewiesenen Adapter verteilt, aber jeweils nur mit deren eigener
+  GPU-Teilmenge.
+- Energ Sessions zeichnen die wirkliche Worker-Miner-ID auf. Verwendet ein Coin gleichzeitig
+  Miner mit verschiedenen Entwicklergebühren, bleibt die coinweite Netto-Schätzung bewusst
+  unbekannt; die Gebühren werden nicht fälschlich addiert oder über alle Worker vereinheitlicht.
+  Die neue Diagnose ist im geschlossenen DE/EN-Katalog enthalten; sonst entstand keine neue
+  Bedienkopie. Externe Miner-Ausgabe bleibt wie dokumentiert unverändert.
+- Regressionstests belegen unabhängige Persistenz zweier Quantus-Worker, Adapter-Routing beim
+  Start, unveränderte Nachbar-GPUs, Legacy-Settings-Migration und korrekte Miner-ID im
+  Energiejournal. Verifikation: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test
+  standaloneJar --offline --no-daemon` erfolgreich (209 Tests, 0 Fehler/Skips),
+  `check-i18n.cjs` (1.269 Schlüssel, beide Locales), `scan-i18n-literals.cjs` (0) und
+  `git diff --check` grün. Reale gemischte Multi-GPU-Ausführung bleibt Teil der Beta-
+  Hardwarezertifizierung; es gibt weiterhin keinen zusätzlichen Runtime-Beta-Schalter.

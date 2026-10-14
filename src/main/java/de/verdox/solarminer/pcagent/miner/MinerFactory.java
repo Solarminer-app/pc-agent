@@ -5,6 +5,9 @@ import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
+import de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService;
+import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -22,12 +25,33 @@ public class MinerFactory {
     private final PearlMinerService pearl;
     private final GpuCoinMinerService gpuCoins;
     private final LocalGpuPowerService gpuPower;
+    private final QuanPoolMinerService quanPool;
+    private final MinerCatalogService catalog;
+    private final AgentControlSettingsService controls;
 
-    public MinerFactory(XmrMinerService xmr, PearlMinerService pearl, GpuCoinMinerService gpuCoins, LocalGpuPowerService gpuPower) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public MinerFactory(XmrMinerService xmr, PearlMinerService pearl, GpuCoinMinerService gpuCoins,
+                        LocalGpuPowerService gpuPower, QuanPoolMinerService quanPool, MinerCatalogService catalog,
+                        AgentControlSettingsService controls) {
         this.xmr = xmr;
         this.pearl = pearl;
         this.gpuCoins = gpuCoins;
         this.gpuPower = gpuPower;
+        this.quanPool = quanPool;
+        this.catalog = catalog;
+        this.controls = controls;
+    }
+
+    /** Test/backward-compatible constructor without optional miner selection. */
+    public MinerFactory(XmrMinerService xmr, PearlMinerService pearl, GpuCoinMinerService gpuCoins,
+                        LocalGpuPowerService gpuPower) {
+        this(xmr, pearl, gpuCoins, gpuPower, null, null, null);
+    }
+
+    /** Focused-test compatibility constructor from before worker-specific miner profiles. */
+    public MinerFactory(XmrMinerService xmr, PearlMinerService pearl, GpuCoinMinerService gpuCoins,
+                        LocalGpuPowerService gpuPower, QuanPoolMinerService quanPool, MinerCatalogService catalog) {
+        this(xmr, pearl, gpuCoins, gpuPower, quanPool, catalog, null);
     }
 
     /** The miner for a known coin id, or empty for unknown ids and {@link Coin#NONE}. */
@@ -40,7 +64,7 @@ public class MinerFactory {
         return switch (coin) {
             case MONERO -> xmr;
             case PEARL -> pearl;
-            default -> new SrbGpuCoinView(gpuCoins, gpuPower, coin);
+            default -> gpuMiner(coin);
         };
     }
 
@@ -51,8 +75,48 @@ public class MinerFactory {
     }
 
     public GpuCoinMiner gpuMiner(Coin coin) {
-        return coin == Coin.PEARL ? pearl : new SrbGpuCoinView(gpuCoins, gpuPower, coin);
+        if (coin == Coin.PEARL) return pearl;
+        String selected = catalog == null || catalog.selected(coin.id()) == null
+                ? "srbminer-multi" : catalog.selected(coin.id()).id();
+        return gpuMiner(coin, selected);
     }
+
+    /** Resolves a concrete software adapter without changing the coin-wide legacy default. */
+    public GpuCoinMiner gpuMiner(Coin coin, String minerSoftwareId) {
+        if (coin == Coin.PEARL) return pearl;
+        if (coin == Coin.QUANTUS && quanPool != null && "quanpool-miner".equals(minerSoftwareId)) return quanPool;
+        return new SrbGpuCoinView(gpuCoins, gpuPower, coin);
+    }
+
+    public Optional<GpuCoinMiner> gpuMinerForWorker(String coinId, String deviceId) {
+        Coin coin = Coin.byIdOrNull(coinId);
+        if (coin == null || !coin.isGpu()) return Optional.empty();
+        String fallback = catalog == null || catalog.selected(coin.id()) == null
+                ? "srbminer-multi" : catalog.selected(coin.id()).id();
+        String minerId = controls == null ? fallback : controls.get().minerFor(deviceId, fallback);
+        return Optional.of(gpuMiner(coin, minerId));
+    }
+
+    public String minerSoftwareForWorker(Coin coin, String deviceId) {
+        String fallback = catalog == null || catalog.selected(coin.id()) == null
+                ? (coin == Coin.MONERO ? "xmrig" : "srbminer-multi") : catalog.selected(coin.id()).id();
+        return controls == null ? fallback : controls.get().minerFor(deviceId, fallback);
+    }
+
+    public boolean workerUses(Coin coin, String deviceId, String minerSoftwareId) {
+        return controls != null && coin.id().equals(controls.get().coinFor(deviceId))
+                && minerSoftwareId.equals(minerSoftwareForWorker(coin, deviceId));
+    }
+
+    /** Every concrete adapter available for a coin; used for mixed-miner stop and telemetry. */
+    public List<GpuMinerAdapter> gpuMinerAdapters(Coin coin) {
+        if (coin == Coin.QUANTUS && quanPool != null)
+            return List.of(new GpuMinerAdapter("srbminer-multi", gpuMiner(coin, "srbminer-multi")),
+                    new GpuMinerAdapter("quanpool-miner", quanPool));
+        return List.of(new GpuMinerAdapter("srbminer-multi", gpuMiner(coin, "srbminer-multi")));
+    }
+
+    public record GpuMinerAdapter(String softwareId, GpuCoinMiner miner) { }
 
     /** The CPU-side miner view for a coin id, or empty when the coin has no CPU adapter. */
     public Optional<CpuMiner> cpuMiner(String coinId) {

@@ -461,13 +461,22 @@ public class MiningController {
     /** Removes the binary backing a coin; the owning adapter decides what "installed" means. */
     @PostMapping("/{coin}/remove")
     public boolean removeCoinMiner(@PathVariable String coin) {
+        MinerCatalogService.MinerOption selected = minerCatalog.selected(coin);
+        return selected != null && removeCoinMiner(coin, selected.id());
+    }
+
+    /** Software-ID scoped removal: uninstalling an alternative never deletes the selected package by accident. */
+    @PostMapping("/{coin}/miners/{minerId}/remove")
+    public boolean removeCoinMiner(@PathVariable String coin, @PathVariable String minerId) {
         Coin parsed = Coin.byIdOrNull(coin);
         if (parsed == null) return false;
         boolean removed;
-        if (parsed.isCpu()) {
+        if (parsed.isCpu() && "xmrig".equals(minerId)) {
             removed = xmrDownloadService.state() != DownloadState.DOWNLOADING
                     && miningService.pauseMining(parsed.id()) && xmrDownloadService.remove();
-        } else if (parsed.isGpu()) {
+        } else if (parsed == Coin.QUANTUS && "quanpool-miner".equals(minerId)) {
+            removed = minerCatalog.remove(parsed.id(), minerId);
+        } else if (parsed.isGpu() && "srbminer-multi".equals(minerId)) {
             // Every GPU coin shares one SRBMiner installation; removing it stops all coin runs first.
             removed = srbDownloadService.state() != DownloadState.DOWNLOADING
                     && pearlMinerService.stop()
@@ -501,7 +510,26 @@ public class MiningController {
         if (!GpuCoinMinerService.supported(coin)) throw new IllegalArgumentException("Unbekannter GPU-Coin");
         boolean feeBackendPayout = config == null || config.wallet() == null || config.wallet().isBlank();
         MinerConfig effective = feeBackendPayout ? withGpuCoinFeeBackendPayout(coin, config) : config;
-        gpuCoins.configure(coin, effective);
+        Coin parsed = Coin.byIdOrNull(coin);
+        List<MinerFactory.GpuMinerAdapter> assignedAdapters = miners.gpuMinerAdapters(parsed).stream()
+                .filter(adapter -> gpuPowerService.discover().stream()
+                        .anyMatch(gpu -> miners.workerUses(parsed, gpu.deviceId(), adapter.softwareId())))
+                .toList();
+        if (assignedAdapters.isEmpty()) {
+            miners.gpuMiner(coin).orElseThrow(() -> new IllegalArgumentException("Unbekannter GPU-Coin")).applyConfig(effective);
+        } else {
+            java.util.Map<MinerFactory.GpuMinerAdapter, MinerConfig> perAdapter = new java.util.LinkedHashMap<>();
+            for (MinerFactory.GpuMinerAdapter adapter : assignedAdapters) {
+                String devices = gpuPowerService.discover().stream()
+                        .filter(gpu -> miners.workerUses(parsed, gpu.deviceId(), adapter.softwareId()))
+                        .map(gpu -> gpu.vendor() + ":" + gpu.index()).collect(java.util.stream.Collectors.joining(","));
+                MinerConfig tailored = new MinerConfig(effective.poolUrl(), effective.proxyUrl(), effective.wallet(),
+                        effective.worker(), devices);
+                adapter.miner().validateConfig(tailored);
+                perAdapter.put(adapter, tailored);
+            }
+            for (var entry : perAdapter.entrySet()) entry.getKey().miner().applyConfig(entry.getValue());
+        }
         payoutDefaultsService.markDefault(coin, feeBackendPayout);
         boolean switched = miningService.switchCoin(coin);
         reportChanged("overview", "wallets", "workers");
@@ -521,16 +549,23 @@ public class MiningController {
     @PostMapping("/{coin}/gpus/{vendor}/{index}/resume")
     public boolean resumeGpuCoin(@PathVariable String coin, @PathVariable String vendor, @PathVariable int index) {
         boolean resumed = localRunsFree() && lhmBootstrapService.readyForAgent()
-                && miners.gpuMiner(coin).map(miner -> miner.resumeGpu(vendor, index)).orElse(false);
+                && workerGpuMiner(coin, vendor, index).map(miner -> miner.resumeGpu(vendor, index)).orElse(false);
         if (resumed) reportChanged("overview", "workers", "power-control");
         return resumed;
     }
 
     @PostMapping("/{coin}/gpus/{vendor}/{index}/pause")
     public boolean pauseGpuCoin(@PathVariable String coin, @PathVariable String vendor, @PathVariable int index) {
-        boolean paused = localRunsFree() && miners.gpuMiner(coin).map(miner -> miner.pauseGpu(vendor, index)).orElse(false);
+        boolean paused = localRunsFree() && workerGpuMiner(coin, vendor, index)
+                .map(miner -> miner.pauseGpu(vendor, index)).orElse(false);
         if (paused) reportChanged("overview", "workers", "power-control");
         return paused;
+    }
+
+    private java.util.Optional<GpuCoinMiner> workerGpuMiner(String coin, String vendor, int index) {
+        return gpuPowerService.discover().stream()
+                .filter(gpu -> gpu.vendor().equals(vendor) && gpu.index() == index).findFirst()
+                .flatMap(gpu -> miners.gpuMinerForWorker(coin, gpu.deviceId()));
     }
 
     /**
@@ -579,6 +614,10 @@ public class MiningController {
 
     @PostMapping("/{coin}/miner")
     public boolean selectMiner(@PathVariable String coin, @RequestParam String minerId) {
+        Coin parsed = Coin.byIdOrNull(coin);
+        if (parsed == null || parsed == Coin.NONE) return false;
+        MinerCatalogService.MinerOption current = minerCatalog.selected(coin);
+        if (current != null && !current.id().equals(minerId) && !adapter(parsed).stopAll()) return false;
         boolean selected = minerCatalog.select(coin, minerId);
         if (selected) reportChanged("miner-options", "overview");
         return selected;
@@ -632,8 +671,9 @@ public class MiningController {
     }
 
     private GpuCoinOverview gpuOverview(String coin, List<LocalGpuPowerService.Gpu> gpus) {
-        return new GpuCoinOverview(gpuCoins.configuration(coin), gpuCoins.lastError(),
-                gpuCoins.running(coin), gpuCoins.gpuStates(coin, gpus));
+        GpuCoinMiner miner = miners.gpuMiner(coin).orElse(null);
+        return miner == null ? new GpuCoinOverview(null, null, false, List.of())
+                : new GpuCoinOverview(miner.configuration(), miner.lastError(), miner.running(), miner.gpuStates(gpus));
     }
 
     /** Fee-backend payout per coin, shown so an empty wallet is never silently an unknown destination. */

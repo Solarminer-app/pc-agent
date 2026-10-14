@@ -31,16 +31,21 @@ public class WalletBalanceService {
 
     private Balance balance(Target target) {
         if (target.wallet() == null || target.wallet().isBlank())
-            return new Balance(target.coin(), null, null, "NOT_CONFIGURED", "NOT_CONFIGURED");
+            return new Balance(target.coin(), null, null, null,
+                    "NOT_CONFIGURED", "NOT_CONFIGURED", "NOT_CONFIGURED");
 
         PoolBalanceProvider provider = providers.stream()
                 .filter(candidate -> candidate.supports(target.poolUrl(), target.coin()))
                 .findFirst().orElse(null);
-        BigDecimal poolBalance = provider == null ? null : cached(
+        PoolBalanceProvider.PoolAccount account = provider == null ? null : cachedAccount(
                 "pool:" + provider.id() + ":" + target.coin() + ":" + target.wallet().trim(),
-                () -> provider.balance(target.coin(), target.poolUrl(), target.wallet().trim()));
+                () -> provider.account(target.coin(), target.poolUrl(), target.wallet().trim()));
+        BigDecimal poolBalance = account == null ? null : account.pending();
+        BigDecimal paidTotal = account == null ? null : account.paidTotal();
         String poolStatus = provider == null ? "UNSUPPORTED_POOL"
                 : poolBalance == null ? "UNAVAILABLE" : "AVAILABLE";
+        String paidTotalStatus = provider == null ? "UNSUPPORTED_POOL"
+                : account == null ? "UNAVAILABLE" : paidTotal == null ? "NOT_SUPPORTED" : "AVAILABLE";
 
         // Phase 4: on-chain reads are a provider capability, not a coin branch — a coin
         // with a chain balance plugs in as another PoolBalanceProvider (Pearl example).
@@ -52,7 +57,21 @@ public class WalletBalanceService {
                 () -> chainProvider.onChainBalance(target.coin(), target.wallet().trim()));
         String onChainStatus = chainProvider == null ? "NOT_SUPPORTED"
                 : onChainBalance == null ? "UNAVAILABLE" : "AVAILABLE";
-        return new Balance(target.coin(), poolBalance, onChainBalance, poolStatus, onChainStatus);
+        return new Balance(target.coin(), poolBalance, paidTotal, onChainBalance,
+                poolStatus, paidTotalStatus, onChainStatus);
+    }
+
+    private PoolBalanceProvider.PoolAccount cachedAccount(String key, AccountRead read) {
+        CachedAccount previous = accountCache.get(key);
+        if (previous != null && Instant.now().isBefore(previous.expiresAt())) return previous.account();
+        try {
+            PoolBalanceProvider.PoolAccount account = read.get();
+            accountCache.put(key, new CachedAccount(account, Instant.now().plus(CACHE_TIME)));
+            return account;
+        } catch (Exception ignored) {
+            accountCache.put(key, new CachedAccount(null, Instant.now().plusSeconds(15)));
+            return null;
+        }
     }
 
     private BigDecimal cached(String key, BalanceRead read) {
@@ -78,9 +97,12 @@ public class WalletBalanceService {
         return PearlChainBalanceProvider.parsePearlBalance(json);
     }
 
+    private final Map<String, CachedAccount> accountCache = new ConcurrentHashMap<>();
+    @FunctionalInterface private interface AccountRead { PoolBalanceProvider.PoolAccount get() throws Exception; }
+    private record CachedAccount(PoolBalanceProvider.PoolAccount account, Instant expiresAt) { }
     @FunctionalInterface private interface BalanceRead { BigDecimal get() throws Exception; }
     private record CachedBalance(BigDecimal amount, Instant expiresAt) { }
     public record Target(String coin, String poolUrl, String wallet) { }
-    public record Balance(String coin, BigDecimal poolBalance, BigDecimal onChainBalance,
-                          String poolStatus, String onChainStatus) { }
+    public record Balance(String coin, BigDecimal poolBalance, BigDecimal paidTotal, BigDecimal onChainBalance,
+                          String poolStatus, String paidTotalStatus, String onChainStatus) { }
 }

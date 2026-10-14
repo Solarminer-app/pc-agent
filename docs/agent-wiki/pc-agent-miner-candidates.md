@@ -1,6 +1,6 @@
 # PC-Agent miner candidates
 
-Research status: **candidate assessment only**, checked 2026-10-05. A listed binary is not enabled, downloaded or represented as a supported SolarMiner mining route. Any adoption must follow the workspace new-coin guide, the relevant coin integration record and the PC-Agent extension contract.
+Research status updated 2026-10-13. A listed binary is not a supported SolarMiner mining route unless its row and integration record explicitly say that the live certification gates passed. Any adoption must follow the workspace new-coin guide, the relevant coin integration record and the PC-Agent extension contract.
 
 ## Selection infrastructure
 
@@ -8,7 +8,9 @@ Research status: **candidate assessment only**, checked 2026-10-05. A listed bin
 
 Adding an actual implementation still requires its own process/API adapter and official downloader with pinned release metadata, size and SHA-256 verification. Before it is selectable in a working route, connect the adapter to the lifecycle/power/proxy/fee gates, process registry, console, per-worker stats and integration tests. Do not add an advertised option merely because its executable can be downloaded.
 
-Entries marked `selectable=false` are intentionally visible as a researched alternative but cannot be selected, installed or started. This is the required state before an adapter has passed the integration guide; it avoids a download button that looks like mining support.
+Entries marked `selectable=false` are intentionally visible but cannot be assigned or started.
+An independently implemented package may still be `installable=true` so a controlled hardware
+certification can be performed without making an unverified worker option generally selectable.
 
 The API also supports an explicit software installation at `POST /api/agent/local/{coin}/miners/{minerId}/download`. Installations are therefore independent by miner ID; selecting a coin changes only that coin's active installed miner and never deletes another miner binary. Shared packages such as SRBMiner remain one installed software package used by its compatible coins.
 
@@ -26,6 +28,7 @@ The API also supports an explicit software installation at `POST /api/agent/loca
 | ETC | TeamRedMiner | AMD GPU / ETCHash | 0.75% Polaris, 1% other GPU (Ethash table) | Candidate for AMD only. Its ETCHash mode/stratum behavior and fee switching must be tested through the SolarMiner proxy. |
 | ETC | lolMiner | AMD and NVIDIA / Ethash/Etchash | upstream release material reports 0.7–1%; confirm exact version at adoption | Candidate worth a separate verification spike because it covers AMD and NVIDIA, but its proprietary release and API/process contract need review. |
 | QTC | SRBMiner-MULTI (prepared, blocked) | GPU / QPoW (Poseidon2) | 2.5% per Kryptex guide | Existing shared package and generic GPU adapter path are wired, but selection stays disabled until SolarMiner supplies a house wallet and accepted user/house/referral shares are proven. Kryptex's live fee display and guide differ; pool fee estimate is intentionally unknown. |
+| QTC | QuanPool Miner 6.4.0 (selectable on Beta) | Linux x86-64, any detected NVIDIA GPU / QPoW (Poseidon2) | 2% reported by the pinned binary and current pool page | Dedicated checksum-pinned installer, lifecycle, console and `/hive-stats` parser are implemented. QuanPool's official global/US/Asia Stratum targets and public wallet balance/paid-total API are integrated. Each assigned NVIDIA card gets an independent process isolated through its stable driver UUID, so arbitrary indices and multiple workers do not depend on CUDA enumeration order. Real NVIDIA, proxy protocol and share-accounting gates remain open before release promotion; see the Quantus record. |
 
 Primary sources: [XMRig donation source](https://github.com/xmrig/xmrig/blob/master/src/donate.h), [SRBMiner algorithms and fees](https://github.com/doktor83/SRBMiner-Multi/blob/master/README.md), [TeamRedMiner algorithms/API](https://github.com/todxx/teamredminer/blob/master/USAGE.txt), [TeamRedMiner fee table](https://github.com/todxx/teamredminer), [lolMiner official releases](https://github.com/Lolliedieb/lolMiner-releases), [PrimeAI Pearl Miner](https://github.com/PrimeAI-Foundation/Pearl-Miner).
 
@@ -37,3 +40,6 @@ QTC sources and current integration gates are recorded in [the Quantus integrati
 2. Evaluate TeamRedMiner for AMD RVN/ETC first: it is narrowly scoped, documents KAWPOW/ETCHash and exposes a read-only API. Do not expose it to users until an adapter proves stats, graceful stop, proxy compatibility and accepted user/house/referrer shares.
 3. Evaluate lolMiner separately for mixed AMD/NVIDIA ETC only after validating its current signed release, fee value and API. Do not infer RVN support from an Ethash/Etchash result.
 4. Treat alternative Pearl miners as a dedicated Pearl-record update, not a generic download addition.
+5. Use the [fast miner onboarding design](miner-onboarding-architecture.md) to turn the next
+   conventional CLI + JSON-API miner into a signed manifest/fixture package instead of another
+   bespoke controller branch.

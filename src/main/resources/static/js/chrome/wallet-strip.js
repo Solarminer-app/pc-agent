@@ -46,6 +46,8 @@
       const amount = balance.poolBalance ?? null;
       items.append(chip(wallet.symbol, t('coin_in_pool', {coin: wallet.name}), amount, wallet.ticker,
         status, 'pool_balance_before_payout'));
+      if (balance.paidTotalStatus === 'AVAILABLE') items.append(chip(wallet.symbol, 'total_paid_by_pool',
+        balance.paidTotal, wallet.ticker, balance.paidTotalStatus, 'confirmed_pool_payouts'));
       if (wallet.coin === 'pearl') items.append(chip(wallet.symbol, 'pearl_at_address', balance.onChainBalance,
         'PRL', balance.onChainStatus || 'UNAVAILABLE', 'already_paid_balance'));
     }

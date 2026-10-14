@@ -86,6 +86,22 @@
         return key.replace('SRBMiner on ', 'SRBMiner auf ').replace(' exited (code ', ' beendet (Code ');
       if (key.startsWith('SRBMiner on ') && key.includes(' could not be started: '))
         return key.replace('SRBMiner on ', 'SRBMiner auf ').replace(' could not be started: ', ' konnte nicht gestartet werden: ');
+      if (key.startsWith('Could not start QuanPool Miner: '))
+        return `QuanPool Miner konnte nicht gestartet werden: ${s(key.slice('Could not start QuanPool Miner: '.length))}`;
+      if (key.startsWith('Another miner already controls '))
+        return `Ein anderer Miner steuert bereits ${key.slice('Another miner already controls '.length)}`;
+      if (key.startsWith('NVIDIA:') && key.endsWith(' is not configured or was not detected'))
+        return `${key.slice(0, key.indexOf(' '))} ist nicht konfiguriert oder wurde nicht erkannt`;
+      if (key.startsWith('Could not fully remove QuanPool Miner: '))
+        return `QuanPool Miner konnte nicht vollständig entfernt werden: ${s(key.slice('Could not fully remove QuanPool Miner: '.length))}`;
+      if (key.startsWith('QuanPool Miner exited (code '))
+        return key.replace('QuanPool Miner exited (code ', 'QuanPool Miner beendet (Code ');
+      if (key.startsWith('QuanPool miner download returned HTTP '))
+        return `QuanPool-Miner-Download meldet HTTP ${key.slice('QuanPool miner download returned HTTP '.length)}`;
+      if (key.startsWith('Unexpected QuanPool miner metrics version '))
+        return `Unerwartete QuanPool-Miner-Metrikversion ${key.slice('Unexpected QuanPool miner metrics version '.length)}`;
+      if (key.startsWith('Unexpected QuanPool miner developer fee '))
+        return `Unerwartete QuanPool-Miner-Entwicklergebühr ${key.slice('Unexpected QuanPool miner developer fee '.length)}`;
       if (key.startsWith('No XMRig archive for ')) return `Kein XMRig-Archiv für ${key.slice('No XMRig archive for '.length)}`;
       if (key.startsWith('No SRBMiner asset for ')) return `Keine SRBMiner-Release-Datei für ${key.slice('No SRBMiner asset for '.length)}`;
       if (key.startsWith('GitHub release API returned HTTP ')) return `GitHub-Release-API meldet HTTP ${key.slice('GitHub release API returned HTTP '.length)}`;

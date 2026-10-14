@@ -30,7 +30,7 @@ public final class MinerProcessRegistry {
     }
 
     private static boolean isMiner(ProcessHandle handle) {
-        return matches(handle, "xmrig") || matches(handle, "srbminer");
+        return matches(handle, "xmrig") || matches(handle, "srbminer") || matches(handle, "quanpool");
     }
 
     private static boolean matchesExecutable(String value, String miner) {
@@ -39,6 +39,7 @@ public final class MinerProcessRegistry {
         return switch (miner) {
             case "xmrig" -> name.equals("xmrig") || name.equals("xmrig.exe");
             case "srbminer" -> name.equals("srbminer-multi") || name.equals("srbminer-multi.exe");
+            case "quanpool" -> name.equals("quanpool-miner") || name.matches("quanpool-miner-[0-9.]+(?:-linux-x86_64)?");
             default -> false;
         };
     }
@@ -56,7 +57,7 @@ public final class MinerProcessRegistry {
         GPU_COIN_DEVICES.put(process.pid(), deviceId);
     }
     public static boolean gpuCoinUsesDevice(String deviceId) {
-        return running("srbminer").stream().filter(MinerProcessRegistry::managedGpuCoin)
+        return runningMiners().stream().filter(MinerProcessRegistry::managedGpuCoin)
                 .anyMatch(handle -> deviceId.equals(GPU_COIN_DEVICES.get(handle.pid())) || !GPU_COIN_DEVICES.containsKey(handle.pid()));
     }
     public static void unregisterGpuCoin(Process process) {

@@ -1,6 +1,8 @@
 package de.verdox.solarminer.pcagent.mining;
 
 import de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService;
+import de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolDownloadService;
+import de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
 import de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService;
@@ -27,6 +29,8 @@ public class MinerCatalogService {
     private final SrbDownloadService srb;
     private final XmrMinerService xmrMiner;
     private final PearlMinerService pearlMiner;
+    private final QuanPoolDownloadService quanPool;
+    private final QuanPoolMinerService quanPoolMiner;
     private final Path selectionFile;
     private final Map<String, String> selections = new ConcurrentHashMap<>();
     private final Map<String, BooleanSupplier> installers;
@@ -39,17 +43,31 @@ public class MinerCatalogService {
     private volatile boolean xmrigInstalled;
     private volatile boolean srbInstalled;
     private volatile boolean srbUpdateRequired;
+    private volatile boolean quanPoolInstalled;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public MinerCatalogService(XmrDownloadService xmrig, SrbDownloadService srb,
                                XmrMinerService xmrMiner, PearlMinerService pearlMiner,
+                               QuanPoolDownloadService quanPool, QuanPoolMinerService quanPoolMiner,
                                @Value("${solarminer.agent.miner-selection-file:./solarminer-agent/miner-selections.properties}") String selectionPath) {
         this.xmrig = xmrig;
         this.srb = srb;
         this.xmrMiner = xmrMiner;
         this.pearlMiner = pearlMiner;
+        this.quanPool = quanPool;
+        this.quanPoolMiner = quanPoolMiner;
         this.selectionFile = Path.of(selectionPath).toAbsolutePath().normalize();
-        this.installers = Map.of("xmrig", xmrig::retry, "srbminer-multi", srb::retry);
+        java.util.Map<String, BooleanSupplier> registered = new java.util.HashMap<>();
+        registered.put("xmrig", xmrig::retry); registered.put("srbminer-multi", srb::retry);
+        if (quanPool != null) registered.put("quanpool-miner", quanPool::retry);
+        this.installers = Map.copyOf(registered);
         loadSelections();
+    }
+
+    /** Test/backward-compatible constructor for contexts that do not instantiate the optional adapter. */
+    public MinerCatalogService(XmrDownloadService xmrig, SrbDownloadService srb,
+                               XmrMinerService xmrMiner, PearlMinerService pearlMiner, String selectionPath) {
+        this(xmrig, srb, xmrMiner, pearlMiner, null, null, selectionPath);
     }
 
     /** Metadata is API data so future installers can be added without teaching the UI coin-specific facts. */
@@ -57,7 +75,7 @@ public class MinerCatalogService {
                               Double developerFeePercent, String developerFeeLabel, String developerFeeSource,
                               List<String> advantages, List<String> disadvantages,
                               String projectUrl, boolean experimental, boolean installed,
-                              String downloadStatus, String downloadDetail, boolean selectable,
+                              String downloadStatus, String downloadDetail, boolean installable, boolean selectable,
                               String unavailableReason) {
         /** Static catalog definitions carry no display name; {@code state} resolves it from the coin id. */
         public MinerOption(String id, String coin, String name, String device, String algorithm,
@@ -68,7 +86,18 @@ public class MinerCatalogService {
                     String unavailableReason) {
             this(id, coin, null, name, device, algorithm, developerFeePercent, developerFeeLabel, developerFeeSource,
                     advantages, disadvantages,
-                    projectUrl, experimental, installed, downloadStatus, downloadDetail, selectable, unavailableReason);
+                    projectUrl, experimental, installed, downloadStatus, downloadDetail, selectable, selectable, unavailableReason);
+        }
+
+        public MinerOption(String id, String coin, String name, String device, String algorithm,
+                           Double developerFeePercent, String developerFeeLabel, String developerFeeSource,
+                           List<String> advantages, List<String> disadvantages,
+                           String projectUrl, boolean experimental, boolean installed,
+                           String downloadStatus, String downloadDetail, boolean installable, boolean selectable,
+                           String unavailableReason) {
+            this(id, coin, null, name, device, algorithm, developerFeePercent, developerFeeLabel, developerFeeSource,
+                    advantages, disadvantages, projectUrl, experimental, installed, downloadStatus, downloadDetail,
+                    installable, selectable, unavailableReason);
         }
     }
 
@@ -108,7 +137,7 @@ public class MinerCatalogService {
     /** Installs an explicitly requested software ID. Other installed miners are not changed or removed. */
     public boolean download(String coin, String minerId) {
         MinerOption option = options(coin).stream().filter(candidate -> candidate.id().equals(minerId)).findFirst().orElse(null);
-        BooleanSupplier installer = option == null || !option.selectable() ? null : installers.get(option.id());
+        BooleanSupplier installer = option == null || !option.installable() ? null : installers.get(option.id());
         boolean started = installer != null && installer.getAsBoolean();
         if (started) refreshInstallState();
         return started;
@@ -118,6 +147,17 @@ public class MinerCatalogService {
     public boolean downloadSelected(String coin) {
         MinerOption selected = selected(coin);
         return selected != null && download(coin, selected.id());
+    }
+
+    /** QuanPool owns an independent installation and must never remove the shared SRBMiner package. */
+    public boolean remove(String coin, String minerId) {
+        MinerOption option = options(coin).stream().filter(candidate -> candidate.id().equals(minerId)).findFirst().orElse(null);
+        if (option == null || !"quanpool-miner".equals(option.id()) || quanPool == null || quanPoolMiner == null
+                || quanPool.state() == de.verdox.solarminer.pcagent.coin.DownloadState.DOWNLOADING)
+            return false;
+        boolean removed = quanPoolMiner.stopAll() && quanPool.remove();
+        if (removed) refreshInstallState();
+        return removed;
     }
 
     /**
@@ -158,6 +198,11 @@ public class MinerCatalogService {
                         List.of("Kryptex QTC pool support", "NVIDIA and AMD RDNA GPU path"),
                         List.of("2.5% miner fee", "SolarMiner QTC fee route and accepted-share credits are not yet verified"), "https://github.com/doktor83/SRBMiner-Multi", true,
                         false, null, null, true, null),
+                new MinerOption("quanpool-miner", de.verdox.solarminer.pcagent.coin.Coin.QUANTUS.id(), "QuanPool Miner", "NVIDIA GPU · Linux x86-64", "QPoW (Poseidon2)", 2.0,
+                        "QuanPool Miner developer fee", "https://quanpool.com/",
+                        List.of("Optimized native CUDA engine", "Stable NVIDIA GPU selection by driver UUID", "HiveOS-compatible JSON metrics"),
+                        List.of("Closed binary with a 2% developer fee", "Real SolarMiner fee-share accounting is still pending"),
+                        "https://quanpool.com/", true, false, null, null, true, true, null),
                 new MinerOption("teamredminer", de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN.id(), "TeamRedMiner", "AMD GPU", "KAWPOW", 2.0,
                         "TeamRedMiner Entwicklergebühr", "https://github.com/todxx/teamredminer",
                         List.of("Auf AMD-GPUs spezialisiert", "Dokumentierte lokale API"),
@@ -174,12 +219,16 @@ public class MinerCatalogService {
 
     private MinerOption state(MinerOption definition) {
         boolean xmr = definition.id().equals("xmrig");
+        boolean quan = definition.id().equals("quanpool-miner");
         // Snapshot flags only (audit R5): the filesystem probe lives in refreshInstallState().
-        boolean installed = xmr ? xmrigInstalled : srbInstalled;
-        String downloadStatus = xmr ? xmrig.status() : srbUpdateRequired ? "UPDATE_REQUIRED" : srb.status();
+        boolean installed = xmr ? xmrigInstalled : quan ? quanPoolInstalled : srbInstalled;
+        String downloadStatus = xmr ? xmrig.status() : quan ? quanPool == null ? "NOT_INTEGRATED" : quanPool.status()
+                : srbUpdateRequired ? "UPDATE_REQUIRED" : srb.status();
         // The UI owns the localized update explanation. Do not expose an untranslated
         // backend detail string for this expected migration state.
-        String downloadDetail = xmr ? xmrig.detail() : srbUpdateRequired ? "" : srb.detail();
+        String downloadDetail = xmr ? xmrig.detail() : quan ? quanPool == null ? "Not technically integrated yet" : quanPool.detail()
+                : srbUpdateRequired ? "" : srb.detail();
+        boolean platformSupported = !quan || quanPool != null && quanPoolPlatformSupported();
         return new MinerOption(definition.id(), definition.coin(),
                 java.util.Optional.ofNullable(de.verdox.solarminer.pcagent.coin.Coin.byIdOrNull(definition.coin()))
                         .map(de.verdox.solarminer.pcagent.coin.Coin::displayName).orElse(definition.coin()),
@@ -187,7 +236,8 @@ public class MinerCatalogService {
                 definition.developerFeePercent(), definition.developerFeeLabel(), definition.developerFeeSource(),
                 definition.advantages(), definition.disadvantages(), definition.projectUrl(),
                 definition.experimental(), installed, downloadStatus, downloadDetail,
-                definition.selectable(), definition.unavailableReason());
+                definition.installable() && platformSupported, definition.selectable() && platformSupported,
+                platformSupported ? definition.unavailableReason() : "QuanPool Miner 6.4.0 is available only for Linux x86-64");
     }
 
     /**
@@ -200,7 +250,14 @@ public class MinerCatalogService {
             xmrigInstalled = xmrMiner.binaryAvailable();
             srbInstalled = pearlMiner.binaryAvailable();
             srbUpdateRequired = !srbInstalled && pearlMiner.binaryPresent();
+            quanPoolInstalled = quanPool != null && quanPool.binaryAvailable();
         } catch (RuntimeException ignored) { /* keep the previous observation */ }
+    }
+
+    private static boolean quanPoolPlatformSupported() {
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        String arch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT);
+        return os.contains("linux") && (arch.equals("amd64") || arch.equals("x86_64"));
     }
 
     /** Scheduler entry point: the probe runs on a virtual thread to keep the shared scheduler free. */

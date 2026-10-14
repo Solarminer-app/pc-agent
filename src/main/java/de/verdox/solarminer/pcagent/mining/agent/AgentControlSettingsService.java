@@ -31,32 +31,39 @@ public class AgentControlSettingsService {
     public record Settings(boolean dynamicPowerScalingEnabled, boolean externalControlEnabled,
                            Map<String, Boolean> workerExternalControl, Map<String, String> workerCoins,
                            Map<String, String> workerCoinPolicies, Boolean networkSharingEnabled,
-                           Boolean walletTargetSharingEnabled) {
+                           Boolean walletTargetSharingEnabled, Map<String, String> workerMiners) {
         public Settings {
             workerExternalControl = workerExternalControl == null ? Map.of() : Map.copyOf(workerExternalControl);
             workerCoins = workerCoins == null ? null : Map.copyOf(workerCoins);
             workerCoinPolicies = workerCoinPolicies == null ? Map.of() : Map.copyOf(workerCoinPolicies);
+            workerMiners = workerMiners == null ? Map.of() : Map.copyOf(workerMiners);
         }
 
         public Settings(boolean scaling, boolean external, Map<String, Boolean> workers) {
-            this(scaling, external, workers, null, Map.of(), null, null);
+            this(scaling, external, workers, null, Map.of(), null, null, Map.of());
         }
 
         /** Kept for persisted pre-economic-plan settings and existing API callers. */
         public Settings(boolean scaling, boolean external, Map<String, Boolean> workers, Map<String, String> coins) {
-            this(scaling, external, workers, coins, Map.of(), null, null);
+            this(scaling, external, workers, coins, Map.of(), null, null, Map.of());
         }
 
         /** Pre-network-sharing arity; a missing flag means "keep the persisted value". */
         public Settings(boolean scaling, boolean external, Map<String, Boolean> workers, Map<String, String> coins,
                         Map<String, String> policies) {
-            this(scaling, external, workers, coins, policies, null, null);
+            this(scaling, external, workers, coins, policies, null, null, Map.of());
         }
 
         /** Pre-wallet-target-sharing arity; a missing flag keeps the persisted setting. */
         public Settings(boolean scaling, boolean external, Map<String, Boolean> workers, Map<String, String> coins,
                         Map<String, String> policies, Boolean networkSharing) {
-            this(scaling, external, workers, coins, policies, networkSharing, null);
+            this(scaling, external, workers, coins, policies, networkSharing, null, Map.of());
+        }
+
+        /** Pre-worker-miner arity retained for persisted/API compatibility. */
+        public Settings(boolean scaling, boolean external, Map<String, Boolean> workers, Map<String, String> coins,
+                        Map<String, String> policies, Boolean networkSharing, Boolean walletSharing) {
+            this(scaling, external, workers, coins, policies, networkSharing, walletSharing, Map.of());
         }
 
         /** LAN visibility is on by default; only an explicit false opts this agent out. */
@@ -74,6 +81,11 @@ public class AgentControlSettingsService {
                     ? (WorkerIds.isCpu(workerId) ? Coin.MONERO.id() : Coin.PEARL.id())
                     : workerCoins.getOrDefault(workerId, WorkerIds.isCpu(workerId)
                             ? Coin.NONE.id() : workerCoins.getOrDefault(WorkerIds.WILDCARD, Coin.NONE.id()));
+        }
+
+        /** A missing entry intentionally falls back to the coin-wide legacy/default selection. */
+        public String minerFor(String workerId, String fallback) {
+            return workerMiners.getOrDefault(workerId, fallback);
         }
 
         public Settings(boolean dynamicPowerScalingEnabled, boolean externalControlEnabled) {
@@ -114,7 +126,8 @@ public class AgentControlSettingsService {
                 value.workerExternalControl(), value.workerCoins() == null ? settings.workerCoins() : Map.copyOf(value.workerCoins()),
                 value.workerCoinPolicies() == null ? settings.workerCoinPolicies() : Map.copyOf(value.workerCoinPolicies()),
                 value.networkSharingEnabled() == null ? settings.networkSharingEnabled() : value.networkSharingEnabled(),
-                value.walletTargetSharingEnabled() == null ? settings.walletTargetSharingEnabled() : value.walletTargetSharingEnabled());
+                value.walletTargetSharingEnabled() == null ? settings.walletTargetSharingEnabled() : value.walletTargetSharingEnabled(),
+                settings.workerMiners());
         if (!persist(value)) return false;
         settings = value;
         Runnable listener = feeTierListener;
@@ -129,7 +142,9 @@ public class AgentControlSettingsService {
         Map<String, Boolean> next = new java.util.HashMap<>(settings.workerExternalControl());
         if (enabled) next.remove(workerId);
         else next.put(workerId, false);
-        return update(new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(), next, settings.workerCoins(), settings.workerCoinPolicies()));
+        return update(new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(), next,
+                settings.workerCoins(), settings.workerCoinPolicies(), settings.networkSharingEnabled(),
+                settings.walletTargetSharingEnabled(), settings.workerMiners()));
     }
 
     public synchronized boolean setWorkerCoin(String workerId, String coin) {
@@ -142,7 +157,28 @@ public class AgentControlSettingsService {
                 ? Map.of(WorkerIds.CPU, settings.coinFor(WorkerIds.CPU), WorkerIds.WILDCARD, Coin.PEARL.id())
                 : settings.workerCoins());
         next.put(workerId, coin);
-        return update(new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(), settings.workerExternalControl(), next, settings.workerCoinPolicies()));
+        return update(new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(),
+                settings.workerExternalControl(), next, settings.workerCoinPolicies(), settings.networkSharingEnabled(),
+                settings.walletTargetSharingEnabled(), settings.workerMiners()));
+    }
+
+    /** Persists the coin and concrete miner as one worker profile update. */
+    public synchronized boolean setWorkerAssignment(String workerId, String coin, String minerSoftwareId) {
+        Coin parsed = Coin.byIdOrNull(coin);
+        if (parsed == null || !parsed.assignableTo(WorkerIds.isCpu(workerId))) return false;
+        Map<String, String> coins = new java.util.HashMap<>(settings.workerCoins() == null
+                ? Map.of(WorkerIds.CPU, settings.coinFor(WorkerIds.CPU), WorkerIds.WILDCARD, Coin.PEARL.id())
+                : settings.workerCoins());
+        Map<String, String> miners = new java.util.HashMap<>(settings.workerMiners());
+        coins.put(workerId, coin);
+        if (parsed == Coin.NONE || minerSoftwareId == null || minerSoftwareId.isBlank()) miners.remove(workerId);
+        else miners.put(workerId, minerSoftwareId);
+        Settings next = new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(),
+                settings.workerExternalControl(), coins, settings.workerCoinPolicies(), settings.networkSharingEnabled(),
+                settings.walletTargetSharingEnabled(), miners);
+        if (!persist(next)) return false;
+        settings = next;
+        return true;
     }
 
     public synchronized boolean setWorkerCoinPolicy(String workerId, String policy) {
@@ -152,7 +188,8 @@ public class AgentControlSettingsService {
         if (WorkerCoinPolicy.FIXED.name().equals(policy)) next.remove(workerId);
         else next.put(workerId, policy);
         return update(new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(),
-                settings.workerExternalControl(), settings.workerCoins(), next));
+                settings.workerExternalControl(), settings.workerCoins(), next, settings.networkSharingEnabled(),
+                settings.walletTargetSharingEnabled(), settings.workerMiners()));
     }
 
     /**
@@ -164,7 +201,7 @@ public class AgentControlSettingsService {
         } catch (Exception ignored) {
             // A first installation participates in the read-only LAN dashboard by default.
             // Existing explicit opt-outs are retained by the normal JSON load path above.
-            return new Settings(true, false, Map.of(), Map.of(), Map.of(), true, false);
+            return new Settings(true, false, Map.of(), Map.of(), Map.of(), true, false, Map.of());
         }
     }
 

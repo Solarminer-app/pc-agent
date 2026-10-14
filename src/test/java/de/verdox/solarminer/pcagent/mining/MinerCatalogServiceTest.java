@@ -4,6 +4,8 @@ import de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
 import de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService;
+import de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolDownloadService;
+import de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -74,5 +76,33 @@ class MinerCatalogServiceTest {
         assertFalse(pearl.installed());
         assertEquals("UPDATE_REQUIRED", pearl.downloadStatus());
         assertTrue(pearl.downloadDetail().isBlank());
+    }
+
+    @Test
+    void exposesQuanPoolAsAnIndependentSelectableQuantusMinerOnBeta() {
+        XmrDownloadService xmrig = mock(XmrDownloadService.class);
+        SrbDownloadService srb = mock(SrbDownloadService.class);
+        XmrMinerService xmrMiner = mock(XmrMinerService.class);
+        PearlMinerService pearlMiner = mock(PearlMinerService.class);
+        QuanPoolDownloadService quanPool = mock(QuanPoolDownloadService.class);
+        QuanPoolMinerService quanPoolMiner = mock(QuanPoolMinerService.class);
+        when(quanPool.binaryAvailable()).thenReturn(true);
+        when(quanPool.status()).thenReturn("READY");
+        when(quanPool.retry()).thenReturn(true);
+
+        MinerCatalogService catalog = new MinerCatalogService(xmrig, srb, xmrMiner, pearlMiner,
+                quanPool, quanPoolMiner, directory.resolve("selections.properties").toString());
+        catalog.refreshInstallState();
+
+        MinerCatalogService.MinerOption option = catalog.options("quantus").stream()
+                .filter(candidate -> candidate.id().equals("quanpool-miner")).findFirst().orElseThrow();
+        assertTrue(option.installed());
+        assertTrue(option.installable());
+        assertTrue(option.selectable());
+        assertEquals(2.0, option.developerFeePercent());
+        assertTrue(catalog.select("quantus", "quanpool-miner"));
+        assertEquals("quanpool-miner", catalog.selected("quantus").id());
+        assertTrue(catalog.download("quantus", "quanpool-miner"));
+        verify(quanPool).retry();
     }
 }

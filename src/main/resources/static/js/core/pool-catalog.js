@@ -12,6 +12,9 @@
     ravencoin: kryptex('rvn', 7031, false),
     ethereumclassic: kryptex('etc', 7033, false),
     quantus: [
+      {value: 'stratum+tcp://global.quanpool.com:9854', name: 'QuanPool', region: 'europe', feePercent: 1},
+      {value: 'stratum+tcp://us.quanpool.com:9854', name: 'QuanPool', region: 'north_america', feePercent: 1},
+      {value: 'stratum+tcp://asia.quanpool.com:9854', name: 'QuanPool', region: 'asia', feePercent: 1},
       {value: 'stratum+tcp://qtc.kryptex.network:7049', name: 'Kryptex', region: 'Global', feePercent: 3},
       {value: 'stratum+tcp://qtc-eu.kryptex.network:7049', name: 'Kryptex', region: 'europe', feePercent: 3},
       {value: 'stratum+tcp://qtc-us.kryptex.network:7049', name: 'Kryptex', region: 'north_america', feePercent: 3},

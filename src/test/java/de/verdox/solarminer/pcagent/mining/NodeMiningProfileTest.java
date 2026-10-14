@@ -65,6 +65,19 @@ class NodeMiningProfileTest {
         assertFalse(controls.setWorkerCoin("GPU-a", "monero"));
     }
 
+    @Test void persistsMinerSoftwarePerWorkerAndOldSettingsUpdatesPreserveIt() {
+        var controls = controls();
+        assertTrue(controls.setWorkerAssignment("GPU-a", "quantus", "quanpool-miner"));
+        assertTrue(controls.setWorkerAssignment("GPU-b", "quantus", "srbminer-multi"));
+        assertTrue(controls.update(new AgentControlSettingsService.Settings(true, true, Map.of())));
+
+        var reloaded = controls();
+        assertEquals("quanpool-miner", reloaded.get().minerFor("GPU-a", "srbminer-multi"));
+        assertEquals("srbminer-multi", reloaded.get().minerFor("GPU-b", "quanpool-miner"));
+        assertEquals("quantus", reloaded.get().coinFor("GPU-a"));
+        assertEquals("quantus", reloaded.get().coinFor("GPU-b"));
+    }
+
     @Test void economicCoinSelectionRequiresAndPersistsExplicitLocalOptIn() {
         var controls = controls();
         assertEquals("FIXED", controls.get().coinPolicyFor("GPU-a"));

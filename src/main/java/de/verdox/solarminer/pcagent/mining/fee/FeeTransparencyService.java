@@ -6,6 +6,7 @@ import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
 import de.verdox.solarminer.pcagent.xmr.XmrConfigService;
 import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
+import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -27,22 +28,34 @@ public class FeeTransparencyService {
     private final ReferralConfigurationService referral;
     private final FeeTierService feeTiers;
     private final MinerCatalogService minerCatalog;
+    private final AgentControlSettingsService controls;
     private final XmrConfigService xmr;
     private final PearlMinerService pearl;
     private final GpuCoinMinerService gpuCoins;
     private final int apiPort;
     private final de.verdox.solarminer.pcagent.mining.proxy.ProxyFeeClient feeClient;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public FeeTransparencyService(ObjectMapper mapper, ProxyConfigurationService proxy,
                                   ReferralConfigurationService referral, FeeTierService feeTiers,
                                   MinerCatalogService minerCatalog,
                                   XmrConfigService xmr,
                                   PearlMinerService pearl, GpuCoinMinerService gpuCoins,
+                                  AgentControlSettingsService controls,
                                   @Value("${solarminer.agent.proxy.api-port:8090}") int apiPort) {
         this.mapper = mapper; this.proxy = proxy; this.referral = referral; this.feeTiers = feeTiers;
         this.minerCatalog = minerCatalog; this.xmr = xmr; this.pearl = pearl;
+        this.controls = controls;
         this.gpuCoins = gpuCoins; this.apiPort = apiPort;
         this.feeClient = new de.verdox.solarminer.pcagent.mining.proxy.ProxyFeeClient(mapper);
+    }
+
+    /** Focused-test compatibility constructor. */
+    public FeeTransparencyService(ObjectMapper mapper, ProxyConfigurationService proxy,
+                                  ReferralConfigurationService referral, FeeTierService feeTiers,
+                                  MinerCatalogService minerCatalog, XmrConfigService xmr,
+                                  PearlMinerService pearl, GpuCoinMinerService gpuCoins, int apiPort) {
+        this(mapper, proxy, referral, feeTiers, minerCatalog, xmr, pearl, gpuCoins, null, apiPort);
     }
 
     public List<FeeOverview> overview() {
@@ -161,16 +174,38 @@ public class FeeTransparencyService {
                     "Pool fee varies between published guide and live page; verify before estimating")
                 : poolFee(pool);
         parts.add(new FeePart("POOL", poolFee.label, poolFee.percentage, poolFee.known, poolFee.source));
-        // The miner dev-fee has exactly one source: the selected catalog entry's developerFee fields.
-        MinerCatalogService.MinerOption selectedMiner = minerCatalog.selected(coin);
+        MinerCatalogService.MinerOption selectedMiner = effectiveMinerOption(coin);
+        boolean mixedMiners = selectedMiner == null && assignedMinerIds(coin).size() > 1;
         FeeReference minerFee = selectedMiner == null
-                ? new FeeReference("Miner-Katalogeintrag fehlt", 0, false,
-                    "Kein Miner im Katalog ausgewählt; Entwicklergebühr kann nicht bestimmt werden")
+                ? mixedMiners
+                    ? new FeeReference("Miner fee differs by worker", 0, false,
+                        "Worker use different mining software; a coin-wide net estimate would be misleading")
+                    : new FeeReference("Miner-Katalogeintrag fehlt", 0, false,
+                        "Kein Miner im Katalog ausgewählt; Entwicklergebühr kann nicht bestimmt werden")
                 : new FeeReference(selectedMiner.developerFeeLabel(),
                     selectedMiner.developerFeePercent() == null ? 0 : selectedMiner.developerFeePercent(),
                     selectedMiner.developerFeePercent() != null, selectedMiner.developerFeeSource());
         parts.add(new FeePart("MINER", minerFee.label, minerFee.percentage, minerFee.known, minerFee.source));
         return new FeeOverview(coin, referral.get(), feeTiers.effectiveTier(), routeAvailable, parts);
+    }
+
+    private MinerCatalogService.MinerOption effectiveMinerOption(String coin) {
+        java.util.Set<String> assigned = assignedMinerIds(coin);
+        if (assigned.size() > 1) return null;
+        String id = assigned.isEmpty() ? null : assigned.iterator().next();
+        if (id == null) return minerCatalog.selected(coin);
+        return minerCatalog.options(coin).stream().filter(option -> option.id().equals(id)).findFirst().orElse(null);
+    }
+
+    private java.util.Set<String> assignedMinerIds(String coin) {
+        if (controls == null || controls.get().workerCoins() == null) return java.util.Set.of();
+        MinerCatalogService.MinerOption fallback = minerCatalog.selected(coin);
+        String fallbackId = fallback == null ? "unknown" : fallback.id();
+        return controls.get().workerCoins().entrySet().stream()
+                .filter(entry -> coin.equals(entry.getValue()))
+                .filter(entry -> !de.verdox.solarminer.pcagent.coin.WorkerIds.WILDCARD.equals(entry.getKey()))
+                .map(entry -> controls.get().minerFor(entry.getKey(), fallbackId))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     private String poolFor(String coin) {

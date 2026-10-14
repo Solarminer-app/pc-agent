@@ -59,11 +59,20 @@ public final class MinerLogDiagnostics {
             new Rule("xmrig",
                     Pattern.compile("(?i)(can'?t|cannot) connect to pool|failed to init pool connection"),
                     Category.POOL_CONNECTION,
-                    "Diagnosis: XMRig could not reach the pool. Check the SolarMiner proxy, the pool address and the network."));
+                    "Diagnosis: XMRig could not reach the pool. Check the SolarMiner proxy, the pool address and the network."),
+            new Rule("quanpool",
+                    Pattern.compile("(?i)(unsupported[_ ]ptx|cuda.{0,40}(error|failed)|no cuda devices)"),
+                    Category.GPU_DRIVER_FAILURE,
+                    "Diagnosis: QuanPool Miner could not initialize CUDA. Check the NVIDIA driver and the miner's supported-GPU matrix."),
+            new Rule("quanpool",
+                    Pattern.compile("(?i)(failed to connect|connection refused|reconnecting|timed out)"),
+                    Category.POOL_CONNECTION,
+                    "Diagnosis: QuanPool Miner could not reach the pool. Check the SolarMiner proxy and the network."));
 
     /** Miner families the classifier knows; adapters pass their own family id at start. */
     public static final String SRBMINER = "srbminer";
     public static final String XMRIG = "xmrig";
+    public static final String QUANPOOL = "quanpool";
 
     public static Optional<Diagnosis> classify(String minerFamily, String line) {
         if (minerFamily == null || line == null || line.isBlank()) return Optional.empty();

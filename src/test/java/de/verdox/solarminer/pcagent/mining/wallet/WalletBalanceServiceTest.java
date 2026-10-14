@@ -32,4 +32,39 @@ class WalletBalanceServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> WalletBalanceService.parsePearlBalance(mapper.readTree("{}")));
     }
+
+    @Test
+    void convertsQuanPoolPendingAndPaidPlanckToQtc() throws Exception {
+        var response = mapper.readTree("""
+                {"seen":true,"balance":{"pending":"110000000000","paid_total":"2250000000000"}}
+                """);
+        PoolBalanceProvider.PoolAccount account = QuanPoolBalanceProvider.parseAccount(response);
+        assertEquals(new BigDecimal("0.11"), account.pending());
+        assertEquals(new BigDecimal("2.25"), account.paidTotal());
+    }
+
+    @Test
+    void treatsValidUnseenQuanPoolAddressAsKnownZero() throws Exception {
+        PoolBalanceProvider.PoolAccount account = QuanPoolBalanceProvider.parseAccount(
+                mapper.readTree("{\"seen\":false}"));
+        assertEquals(BigDecimal.ZERO, account.pending());
+        assertEquals(BigDecimal.ZERO, account.paidTotal());
+    }
+
+    @Test
+    void rejectsIncompleteOrFractionalQuanPoolPlanckValues() throws Exception {
+        assertThrows(IllegalArgumentException.class,
+                () -> QuanPoolBalanceProvider.parseAccount(mapper.readTree("{\"balance\":{}}")));
+        assertThrows(IllegalArgumentException.class,
+                () -> QuanPoolBalanceProvider.parseAccount(mapper.readTree(
+                        "{\"seen\":true,\"balance\":{\"pending\":\"0.5\",\"paid_total\":\"0\"}}")));
+    }
+
+    @Test
+    void recognizesOnlyQuantusOnQuanPoolHosts() {
+        QuanPoolBalanceProvider provider = new QuanPoolBalanceProvider(mapper);
+        assertEquals(true, provider.supports("stratum+tcp://global.quanpool.com:9854", "quantus"));
+        assertEquals(false, provider.supports("stratum+tcp://evilquanpool.com:9854", "quantus"));
+        assertEquals(false, provider.supports("stratum+tcp://global.quanpool.com:9854", "pearl"));
+    }
 }
