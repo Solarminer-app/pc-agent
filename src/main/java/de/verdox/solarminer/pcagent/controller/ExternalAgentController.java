@@ -1,6 +1,7 @@
 package de.verdox.solarminer.pcagent.controller;
 
 import de.verdox.solarminer.pcagent.dto.MinerStats;
+import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.lowlevel.sensor.HardwareTelemetryService;
 import de.verdox.solarminer.pcagent.mining.agent.NodeAssessmentService;
 import de.verdox.solarminer.pcagent.mining.economics.EconomicPlanningService;
@@ -147,6 +148,15 @@ public class ExternalAgentController {
     @PostMapping("/pearl/configuration")
     public boolean pearl(@RequestBody MinerConfig request) throws IOException {
         return mining.setPearlConfiguration(request);
+    }
+
+    /** Node route for the Agent's generic GPU adapters; the owning adapter validates the config. */
+    @PostMapping("/gpu-coin/{coin}/configuration")
+    public boolean gpuCoin(@org.springframework.web.bind.annotation.PathVariable String coin,
+                           @RequestBody MinerConfig request) throws IOException {
+        Coin parsed = Coin.byIdOrNull(coin);
+        if (parsed == null || !parsed.isGpu()) return false;
+        return mining.setCoinConfiguration(coin, request);
     }
 
     @PostMapping("/node-assessment")
