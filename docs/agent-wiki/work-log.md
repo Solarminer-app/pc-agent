@@ -2162,3 +2162,14 @@ Vorgehen / Andockpunkte für andere Agenten:
   work visible during transitions without changing the sweep API or adding UI copy.
 - Verification: `node --check src/main/resources/static/js/pages/benchmarks.js`,
   both i18n checks, and `git diff --check` passed.
+
+## 2026-10-15 — Configure Java time support in efficiency store test
+
+- CI failed `GpuEfficiencyStoreTest` on its first `store.save(stable)`: the test
+  supplied a bare Jackson `ObjectMapper`, which cannot serialize the profile's
+  `Instant` timestamp. Production receives Spring's configured mapper.
+- The test now uses `findAndRegisterModules()`, matching the repository's other
+  persistence tests and exercising the intended profile serialization path.
+- Verification: the CI stack trace identifies the failure at line 28 before
+  assertions. Local Gradle execution remains blocked by the environment's
+  wildcard-IP detection failure; `git diff --check` passed.

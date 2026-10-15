@@ -17,7 +17,8 @@ class GpuEfficiencyStoreTest {
 
     @Test
     void failedAttemptRemainsVisibleWithoutReplacingStableProfile() {
-        var store = new GpuEfficiencyStore(new ObjectMapper(), tempDir.resolve("profiles.json").toString());
+        var store = new GpuEfficiencyStore(new ObjectMapper().findAndRegisterModules(),
+                tempDir.resolve("profiles.json").toString());
         var stable = new GpuEfficiencyStore.Profile("GPU-1", "RTX 2080", "quantus", "QPoW",
                 180, 100_000d, 175d, 571.4d, Instant.parse("2026-10-14T10:00:00Z"), List.of());
         var failed = new GpuEfficiencyStore.Profile("GPU-1", "RTX 2080", "quantus", "QPoW",
