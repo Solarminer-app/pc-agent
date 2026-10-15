@@ -2135,6 +2135,22 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Added a focused regression test for an NVIDIA driver write failure after the
   capability probe succeeds. Execution is not recorded yet.
 
+## 2026-10-15 — Replace per-GPU min/max controls with one power limit
+
+- `/hardware.html` now exposes a single per-GPU Power Limit slider constrained
+  to the live driver minimum and maximum. The API requires an integral watt
+  value and validates it again against the current driver's bounds.
+- Persisted legacy `{minimumWatts, maximumWatts}` entries migrate by retaining
+  only their previous maximum. The former minimum no longer constrains local
+  mining or the Node's GPU budget; the hardware driver's minimum remains the
+  safety floor. Miner starts apply the configured cap directly.
+- Manual settings survive service shutdown/recovery as configured caps, while
+  temporary benchmark/dispatch writes restore to the configured value. Existing
+  GPU status wire fields remain stable; `userMinPowerLimitWatts` is now the
+  driver minimum for compatibility.
+- Updated the PV power-control architecture record to match the single-cap
+  contract. German/English UI copy uses the closed catalog.
+
 ## 2026-10-15 — Keep efficiency sweep progress visible between runs
 
 - The benchmarks page rendered full cards only for `RUNNING` sweep runs. When the

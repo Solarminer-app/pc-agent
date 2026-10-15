@@ -18,7 +18,7 @@ function notice(message, error = false, kind = 'action') {
     box.textContent = i18n.t(message);
 }
 
-function rangeControl(gpu, enabled) {
+function rangeControl(gpu) {
     const wrap = node('div'), control = node('div', 'dual-range');
     const track = node('div', 'dual-range-track'), selected = node('div', 'dual-range-selected');
     track.append(selected);
@@ -28,7 +28,7 @@ function rangeControl(gpu, enabled) {
     limit.max = String(gpu.driverMaxPowerLimitWatts);
     limit.step = '1';
     limit.className = 'dual-range-input';
-    limit.disabled = !enabled;
+    limit.disabled = false;
     limit.value = String(gpu.userMaxPowerLimitWatts);
     limit.setAttribute('aria-label', gpu.model + ': ' + i18n.t('gpu_power_limit'));
     const values = node('div', 'dual-range-values'), actions = node('div', 'hardware-actions');
@@ -69,7 +69,7 @@ function rangeControl(gpu, enabled) {
     });
     save.addEventListener('click', async () => {
         const value = drafts.get(gpu.deviceId);
-        if (!value || saving) return;
+        if (value == null || saving) return;
         saving = true;
         save.disabled = reset.disabled = limit.disabled = true;
         try {
@@ -100,7 +100,7 @@ function rangeControl(gpu, enabled) {
             notice(i18n.s(error.message), true);
         } finally {
             saving = false;
-            limit.disabled = !enabled;
+            limit.disabled = false;
             save.disabled = reset.disabled = !drafts.has(gpu.deviceId);
             window.SolarMinerLive.refresh('power-control');
         }
@@ -170,8 +170,7 @@ function render(data) {
         }
         const stats = node('div', 'hardware-gpu-stats');
         stats.append(node('span', '', i18n.t('driver_min_max_w', {min: fmt(gpu.driverMinPowerLimitWatts), max: fmt(gpu.driverMaxPowerLimitWatts)})), node('span', '', i18n.t('limit_watts_w', {watts: gpu.currentPowerLimitWatts ?? '—'})), node('span', '', i18n.t('draw_watts', {watts: gpu.currentUsageWatts == null ? '—' : fmt(gpu.currentUsageWatts) + ' W'})));
-        card.append(stats, rangeControl(gpu, data.dynamicPowerScalingEnabled));
-        if (!data.dynamicPowerScalingEnabled) card.append(node('p', 'muted', 'dynamic_power_control_is_disabled_enable_it'));
+        card.append(stats, rangeControl(gpu));
         const details = node('details', 'hardware-identity');
         details.append(node('summary', '', 'device_identity'), node('p', 'hardware-id', gpu.deviceId));
         card.append(details);

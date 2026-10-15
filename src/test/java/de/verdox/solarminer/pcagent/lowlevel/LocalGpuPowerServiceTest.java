@@ -37,7 +37,7 @@ class LocalGpuPowerServiceTest {
         NvidiaRunner runner = new NvidiaRunner(Map.of("GPU-one", 220));
         LocalGpuPowerService service = service(runner);
         LocalGpuPowerService.Gpu gpu = service.discover().getFirst();
-        assertTrue(service.updateUserPowerLimit("GPU-one", 180));
+        assertTrue(service.updateUserPowerLimit("GPU-one", 180).success());
 
         assertEquals(180, runner.limits.get("GPU-one"));
         assertEquals(180, service.refresh().getFirst().currentPowerLimitWatts());
@@ -52,7 +52,7 @@ class LocalGpuPowerServiceTest {
         service.discover();
         runner.denyWrites = true;
 
-        LocalGpuPowerService.UserLimitResult result = service.updateUserPowerLimit("GPU-one", 180);
+        LocalGpuPowerService.PowerLimitUpdateResult result = service.updateUserPowerLimit("GPU-one", 180);
 
         assertFalse(result.success());
         assertEquals("gpu_power_limit_driver_rejected", result.message());

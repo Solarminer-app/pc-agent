@@ -232,17 +232,17 @@ public class LocalGpuPowerService {
         return known;
     }
 
-    public synchronized UserLimitResult updateUserPowerLimit(String id, int watts) {
+    public synchronized PowerLimitUpdateResult updateUserPowerLimit(String id, int watts) {
         Gpu gpu = discover().stream().filter(g -> g.deviceId().equals(id)).findFirst().orElse(null);
-        if (gpu == null) return new UserLimitResult(false, "gpu_not_found", null);
+        if (gpu == null) return new PowerLimitUpdateResult(false, "gpu_not_found", null);
         if (!gpu.supportsDynamicPowerScaling())
-            return new UserLimitResult(false, "gpu_power_control_unavailable", gpu.regulationError());
+            return new PowerLimitUpdateResult(false, "gpu_power_control_unavailable", gpu.regulationError());
         if (watts < gpu.driverMinWatts() || watts > gpu.driverMaxWatts())
-            return new UserLimitResult(false, "gpu_power_limits_outside_driver_range",
+            return new PowerLimitUpdateResult(false, "gpu_power_limits_outside_driver_range",
                     gpu.driverMinWatts() + "–" + gpu.driverMaxWatts() + " W");
         Map<String, Integer> next = new HashMap<>(userPowerLimits);
         next.put(id, watts);
-        if (!save(limitsFile, next)) return new UserLimitResult(false, "gpu_power_limits_save_failed", null);
+        if (!save(limitsFile, next)) return new PowerLimitUpdateResult(false, "gpu_power_limits_save_failed", null);
         Map<String, Integer> previous = userPowerLimits;
         userPowerLimits = Map.copyOf(next);
         discoveredAt = 0;
@@ -252,25 +252,44 @@ public class LocalGpuPowerService {
             userPowerLimits = previous;
             save(limitsFile, previous);
             discoveredAt = 0;
-            return new UserLimitResult(false, "gpu_power_limit_readback_unavailable", null);
+            return new PowerLimitUpdateResult(false, "gpu_power_limit_readback_unavailable", null);
+        }
+        if (!updated.supportsDynamicPowerScaling()) {
+            userPowerLimits = previous;
+            save(limitsFile, previous);
+            discoveredAt = 0;
+            return new PowerLimitUpdateResult(false, "gpu_power_control_unavailable", updated.regulationError());
+        }
+        if (watts < updated.driverMinWatts() || watts > updated.driverMaxWatts()) {
+            userPowerLimits = previous;
+            save(limitsFile, previous);
+            discoveredAt = 0;
+            return new PowerLimitUpdateResult(false, "gpu_power_limits_outside_driver_range",
+                    updated.driverMinWatts() + "–" + updated.driverMaxWatts() + " W");
         }
         if (watts != current && !setTotalPowerTarget(watts, List.of(updated))) {
             String detail = Objects.toString(lastPowerTargetError, "Treiber hat die Änderung nicht bestätigt");
             userPowerLimits = previous;
             save(limitsFile, previous);
+            updateRecoveryTarget(id, updated.vendor(), previous.getOrDefault(id, current));
             discoveredAt = 0;
-            return new UserLimitResult(false, "gpu_power_limit_driver_rejected", detail);
+            return new PowerLimitUpdateResult(false, "gpu_power_limit_driver_rejected", detail);
+        }
+        if (!updateRecoveryTarget(id, updated.vendor(), watts)) {
+            if (watts != current) restore(List.of(updated), Map.of(id, current));
+            userPowerLimits = previous;
+            save(limitsFile, previous);
+            updateRecoveryTarget(id, updated.vendor(), previous.getOrDefault(id, current));
+            discoveredAt = 0;
+            return new PowerLimitUpdateResult(false, "gpu_power_limits_save_failed", null);
         }
         refresh();
-        return new UserLimitResult(true, null, null);
+        return new PowerLimitUpdateResult(true, null, null);
     }
 
-    public record UserLimitResult(boolean success, String message, String detail) { }
+    public record PowerLimitUpdateResult(boolean success, String message, String detail) { }
 
-    /**
-     * Applies the saved per-GPU range before a miner starts. Manual starts do not have a
-     * global power budget, so without this clamp the driver can retain an older, higher cap.
-     */
+    /** Applies the saved per-GPU power limit before a miner starts. */
     public synchronized boolean enforceConfiguredPowerLimit(Gpu requested) {
         Gpu gpu = refresh().stream().filter(candidate -> candidate.deviceId().equals(requested.deviceId()))
                 .findFirst().orElse(null);
@@ -340,7 +359,9 @@ public class LocalGpuPowerService {
         boolean changed = false;
         List<String> added = new ArrayList<>();
         for (Gpu card : cards) if (!originalLimits.containsKey(card.deviceId())) {
-            int value = before.get(card.deviceId());
+            // A manually configured cap is durable. Temporary benchmark/dispatch writes
+            // restore to that cap when the Agent exits or recovers after a crash.
+            int value = userPowerLimits.getOrDefault(card.deviceId(), before.get(card.deviceId()));
             originalLimits.put(card.deviceId(), value);
             recovery.put(card.deviceId(), new Recovery(card.vendor(), value));
             added.add(card.deviceId());
@@ -348,6 +369,18 @@ public class LocalGpuPowerService {
         }
         if (!changed || save(recoveryFile, recovery)) return true;
         added.forEach(id -> { originalLimits.remove(id); recovery.remove(id); });
+        return false;
+    }
+
+    private boolean updateRecoveryTarget(String id, String vendor, int watts) {
+        if (!originalLimits.containsKey(id)) return true;
+        Recovery previous = recovery.put(id, new Recovery(vendor, watts));
+        Integer previousLimit = originalLimits.put(id, watts);
+        Recovery previousStartup = startupRecovery.containsKey(id) ? startupRecovery.put(id, new Recovery(vendor, watts)) : null;
+        if (save(recoveryFile, recovery)) return true;
+        if (previous == null) recovery.remove(id); else recovery.put(id, previous);
+        if (previousLimit == null) originalLimits.remove(id); else originalLimits.put(id, previousLimit);
+        if (previousStartup != null) startupRecovery.put(id, previousStartup);
         return false;
     }
 

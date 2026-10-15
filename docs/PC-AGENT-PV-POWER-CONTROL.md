@@ -31,14 +31,14 @@ CPU-Undervolting und CPU-Übertakten sind nicht Teil dieses Features. Diese Eins
 
 Bei GPUs steuert der Agent ausschließlich unterstützte Power-Limits. Er verändert weder Spannung noch GPU-Takt. Vor dem Anwenden eines Limits muss er für jede GPU die aktuellen Fähigkeiten und zulässigen Grenzen über den passenden Treiber-/Herstellerpfad ermitteln. Es werden keine universellen Watt-Schrittweiten angenommen.
 
-Der Nutzer erhält im PC-Agent eine eigene GPU-Einstellung mit Minimum und Maximum pro Karte. Diese Grenzen sind Schutzkorridore für den SolarMiner-Betrieb und dürfen die aktuellen Treiber-/Hardwaregrenzen nur weiter einschränken:
+Der Nutzer stellt pro GPU genau ein Power-Limit ein. Es ist die Obergrenze für die Karte; reale Leistungsaufnahme kann darunter liegen. Die Treibergrenzen bleiben die einzige auswählbare Range:
 
 ```text
-effektives Minimum = max(Treiber-Minimum, Nutzer-Minimum)
-effektives Maximum = min(Treiber-Maximum, Nutzer-Maximum)
+zulässiges Power-Limit = Treiber-Minimum … Treiber-Maximum
+konfiguriertes Power-Limit = ganzzahliger Wert innerhalb der zulässigen Grenzen
 ```
 
-Der Nutzer kann damit zum Beispiel verhindern, dass eine Karte oberhalb eines persönlich gewählten Power-Limits betrieben wird. Werte außerhalb der vom Treiber gemeldeten Spezifikationen dürfen weder im UI auswählbar sein noch durch API-Aufrufe angewendet werden.
+Der Agent setzt das konfigurierte Limit direkt am Treiber. Ein globales Node-Wattziel darf das aktive Limit im laufenden Betrieb innerhalb der offiziellen Treibergrenzen und des konfigurierten GPU-Maximums weiter absenken. Werte außerhalb der vom Treiber gemeldeten Spezifikationen dürfen weder im UI auswählbar sein noch durch API-Aufrufe angewendet werden.
 
 Der Agent muss:
 
@@ -50,17 +50,17 @@ Der Agent muss:
 6. GPU-Einstellungen anhand einer stabilen Gerätekennung speichern, nicht ausschließlich anhand eines veränderlichen Index wie „GPU 0“;
 7. beim Start und nach Änderungen an Hardware oder Treiber gespeicherte Werte erneut validieren.
 
-Wo die Plattform das zuverlässig unterstützt, stellt der Agent beim Beenden oder Herunterfahren den ursprünglichen Power-Limit-Zustand wieder her. Die Oberfläche zeigt den vom Treiber tatsächlich gesetzten Wert an.
+Ein manuell gespeichertes Power-Limit bleibt als GPU-Konfiguration erhalten und wird beim Miner-Start erneut angewendet. Temporäre Änderungen eines Benchmarks werden auf dieses konfigurierte Limit zurückgesetzt. Die Oberfläche unterscheidet das konfigurierte Power-Limit von der aktuellen Leistungsaufnahme.
 
 Software kann keine absolute Schadensfreiheit bei Defekten, Kühlungsproblemen oder fehlerhaften Treibern garantieren. Der Schutz dieses Features beruht daher auf enger Begrenzung auf gemeldete Treiberwerte, Nutzerlimits, Verifikation und einem sicheren Fehlerzustand; Spannung und Takt bleiben unangetastet.
 
 ## GPU-UI
 
-Für jede erkannte und unterstützte GPU zeigt die Mining-Ansicht:
+Für jede erkannte und unterstützte GPU zeigt `/hardware.html`:
 
 - Modellname und stabile Gerätekennung (mit Index nur als ergänzender Anzeige),
 - vom Treiber gemeldete minimale und maximale Leistungsgrenze,
-- einstellbare Nutzer-Minimum- und Nutzer-Maximum-Schieberegler innerhalb dieser Grenzen,
+- genau einen Schieberegler für das GPU-Power-Limit innerhalb der Treibergrenzen,
 - aktuelles Power-Limit und aktuelle Leistungsaufnahme, jeweils soweit verfügbar,
 - ob Werte direkt gemessen oder geschätzt werden,
 - Regelungsstatus und verständliche Fehlermeldung, wenn die GPU nur Start/Stop unterstützt.
@@ -87,7 +87,7 @@ Der Agent-Endpunkt sollte einen zusammengefassten Bereich für den Node sowie di
       "model": "GPU model from driver",
       "driverMinPowerLimitWatts": 100,
       "driverMaxPowerLimitWatts": 350,
-      "userMinPowerLimitWatts": 140,
+      "userMinPowerLimitWatts": 100,
       "userMaxPowerLimitWatts": 280,
       "currentPowerLimitWatts": 220,
       "currentUsageWatts": 211,
@@ -99,6 +99,8 @@ Der Agent-Endpunkt sollte einen zusammengefassten Bereich für den Node sowie di
 
 Die Feldnamen sind ein Vorschlag und müssen mit den bestehenden Node-/Agent-DTOs abgestimmt werden. Nicht unterstützte Werte werden explizit als nicht verfügbar dargestellt. Der zusammengefasste Bereich berücksichtigt nur aktuell verfügbare und regelbare Ressourcen samt ihren effektiven Nutzer-/Treibergrenzen.
 
+Im bestehenden DTO bleibt `userMinPowerLimitWatts` aus Rückwärtskompatibilität erhalten und entspricht künftig dem Treiber-Minimum; es ist keine Nutzereinstellung mehr. `userMaxPowerLimitWatts` ist das gespeicherte einzelne GPU-Power-Limit.
+
 ## Bestehende Systeme und Rückwärtskompatibilität
 
 Der PC-Agent besitzt bereits interne CPU-/GPU-Zielwerte und liefert Worker-Statistiken. Diese interne Verteilung kann schrittweise hinter dem einfachen Wattziel-Vertrag gekapselt werden. Der Node nutzt weiterhin seine vorhandenen Miner-Power-Target-Mechanismen und muss für CPU/GPU-Details keine neue Regelungslogik erhalten.
@@ -109,7 +111,7 @@ Andere Miner behalten ihr jeweiliges Regelungsverhalten. Ein Agent ohne Range-En
 
 1. PC-Agent-Vertrag für unterstützte Range, Wattziel und angewendeten Zustand festlegen.
 2. GPU-Treiberadapter ergänzen, die Fähigkeiten und akzeptierte Power-Limits pro Plattform verlässlich abfragen und setzen.
-3. Nutzergrenzen pro stabiler GPU-Kennung persistieren und im Agent-UI editierbar machen.
+3. Ein einzelnes GPU-Power-Limit pro stabiler Gerätekennung persistieren und im Agent-UI editierbar machen; alte Min/Max-Dateien auf ihr bisheriges Maximum migrieren.
 4. PV-Wattziel im Agenten auf CPU-Miner und GPUs verteilen; Unterschreiten pausiert, Überschreiten wird begrenzt.
 5. Node nur um Abfrage des Agent-Bereichs und Nutzung des bestehenden Wattziel-Pfads ergänzen.
 6. Fehlerfälle, Treiber-/Hardwarewechsel, ungültige gespeicherte Grenzen und Agent-Neustart abdecken.
@@ -117,7 +119,7 @@ Andere Miner behalten ihr jeweiliges Regelungsverhalten. Ein Agent ohne Range-En
 ## Verifikation vor Freigabe
 
 - Treibergrenzen und echte Schrittweiten für jede unterstützte GPU-/OS-/Treiber-Kombination nachweisen.
-- Ziele unter Minimum, innerhalb der Range und oberhalb Maximum prüfen.
+- Power-Limits unterhalb, innerhalb und oberhalb der Treibergrenzen prüfen; nicht ganzzahlige Eingaben ablehnen.
 - Sicherstellen, dass Werte außerhalb der Treibergrenzen weder über UI noch API angewendet werden.
 - Ablehnung und Nichterreichbarkeit der Treiber-API, fehlende Rechte, Agent-Neustart und Gerätewechsel prüfen.
 - Tatsächlichen Power-Limit-Sollwert getrennt von realer Leistungsaufnahme darstellen und verifizieren.

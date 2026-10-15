@@ -203,7 +203,7 @@ public class AgentPowerController {
         JsonNode wattsNode = request == null ? null : request.get("watts");
         if (wattsNode == null || !wattsNode.isIntegralNumber() || !wattsNode.canConvertToInt())
             return ResponseEntity.badRequest().body(Map.of("message", "gpu_power_limit_value_must_be_integer"));
-        LocalGpuPowerService.UserLimitResult result;
+        LocalGpuPowerService.PowerLimitUpdateResult result;
         try {
             int watts = wattsNode.intValue();
             result = benchmarks.withExternalControl(() -> gpus.updateUserPowerLimit(deviceId, watts));
