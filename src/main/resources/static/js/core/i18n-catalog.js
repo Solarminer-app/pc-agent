@@ -2209,6 +2209,42 @@ window.SolarMinerI18nCatalog = {
             de: "Die Treiber haben diese Grenzen abgelehnt. Der Entwurf bleibt zum Prüfen erhalten.",
             en: "The drivers rejected these limits. Your draft is retained for review."
         },
+        "gpu_not_found": {de: "GPU wurde nicht gefunden.", en: "GPU was not found."},
+        "gpu_power_limit": {de: "GPU-Leistungsgrenze", en: "GPU power limit"},
+        "gpu_power_limit_value_must_be_integer": {
+            de: "Das Power-Limit muss als ganze Wattzahl angegeben werden.",
+            en: "The power limit must be a whole number of watts."
+        },
+        "driver_power_range": {
+            de: "Treiberbereich {min}–{max} W",
+            en: "Driver range {min}–{max} W"
+        },
+        "power_limit_watts": {de: "Power-Limit {watts} W", en: "Power limit {watts} W"},
+        "power_limit_saved": {de: "Power-Limit gespeichert.", en: "Power limit saved."},
+        "gpu_power_limit_saved": {
+            de: "{gpu}: Power-Limit auf {watts} W gesetzt.",
+            en: "{gpu}: power limit set to {watts} W."
+        },
+        "gpu_power_control_unavailable": {
+            de: "Power-Limit-Steuerung ist für diese GPU nicht verfügbar.",
+            en: "Power-limit control is unavailable for this GPU."
+        },
+        "gpu_power_limits_outside_driver_range": {
+            de: "Die Grenzen liegen außerhalb des Treiberbereichs:",
+            en: "The limits are outside the driver range:"
+        },
+        "gpu_power_limits_save_failed": {
+            de: "Die Leistungsgrenzen konnten nicht gespeichert werden.",
+            en: "The power limits could not be saved."
+        },
+        "gpu_power_limit_readback_unavailable": {
+            de: "Das aktuelle Power-Limit konnte nach dem Speichern nicht gelesen werden.",
+            en: "The current power limit could not be read after saving."
+        },
+        "gpu_power_limit_driver_rejected": {
+            de: "Der Treiber hat die Power-Limit-Änderung abgelehnt:",
+            en: "The driver rejected the power-limit change:"
+        },
         "the_included_proxy_is_running_on_this_pc": {
             de: "Der enthaltene Proxy läuft auf diesem PC.",
             en: "The included proxy is running on this PC."

@@ -2121,3 +2121,28 @@ Vorgehen / Andockpunkte für andere Agenten:
   unavailable in this environment because Gradle cannot determine a usable
   wildcard IP. Both i18n scripts passed (1,274 keys, 9 pages, German and
   English; no unkeyed browser literals).
+
+## 2026-10-15 — Surface Linux GPU power-limit rejection details
+
+- The Hardware UI replaced every failed limits response with the same generic
+  driver-rejection text. The backend's `setUserLimits` also returned only a
+  boolean, discarding the write/readback error from `nvidia-smi` or Linux AMD
+  sysfs.
+- Added a structured limits-update result with localized reason keys and the
+  underlying driver detail. The UI now shows the specific reason while keeping
+  the draft in place; failed writes still roll back the saved user range and
+  restore the original live cap.
+- Added a focused regression test for an NVIDIA driver write failure after the
+  capability probe succeeds. Execution is not recorded yet.
+
+## 2026-10-15 — Keep efficiency sweep progress visible between runs
+
+- The benchmarks page rendered full cards only for `RUNNING` sweep runs. When the
+  queue temporarily contained only dependency-blocked `QUEUED` work (for example,
+  sibling GPUs waiting for a reference curve), its waiting group was collapsed by
+  default and the active sweep appeared to have lost its progress display.
+- The waiting group now opens automatically whenever there is no currently running
+  run, including when an operator had previously collapsed it. This leaves queued
+  work visible during transitions without changing the sweep API or adding UI copy.
+- Verification: `node --check src/main/resources/static/js/pages/benchmarks.js`,
+  both i18n checks, and `git diff --check` passed.

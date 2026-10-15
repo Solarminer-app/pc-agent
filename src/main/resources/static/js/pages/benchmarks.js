@@ -344,7 +344,11 @@ function renderSweepRuns(runs) {
     for (const run of runs.filter(r => r.status === 'RUNNING')) root.append(liveRunCard(run, statusLabel));
     const waiting = runs.filter(r => r.status === 'QUEUED');
     const finished = runs.filter(r => isTerminal(r.status));
-    if (waiting.length) root.append(runGroup(t('waiting_runs_count', {count: waiting.length}), waiting, statusLabel, false));
+    // A dependency can leave every remaining run queued while the sweep is still active
+    // (for example, sibling GPUs wait for their reference curve). Keep that work visible
+    // instead of showing an empty progress area until another run becomes RUNNING.
+    const hasRunningRun = runs.some(r => r.status === 'RUNNING');
+    if (waiting.length) root.append(runGroup(t('waiting_runs_count', {count: waiting.length}), waiting, statusLabel, false, !hasRunningRun));
     if (finished.length) root.append(runGroup(t('completed_runs_count', {count: finished.length}), finished, statusLabel, true));
 }
 
@@ -387,10 +391,10 @@ function liveRunCard(run, statusLabel) {
     return card;
 }
 
-function runGroup(label, runs, statusLabel, defaultOpen) {
+function runGroup(label, runs, statusLabel, defaultOpen, forceOpen = false) {
     const group = make('details', 'sweep-run-group');
     const key = label.replace(/\(\d+\)/, '');
-    group.open = openSweepGroups.has(key) ? openSweepGroups.get(key) : defaultOpen;
+    group.open = forceOpen || (openSweepGroups.has(key) ? openSweepGroups.get(key) : defaultOpen);
     group.addEventListener('toggle', () => openSweepGroups.set(key, group.open));
     group.append(make('summary', '', label));
     const rows = make('div', 'sweep-run-rows');

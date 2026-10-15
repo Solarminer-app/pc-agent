@@ -37,12 +37,27 @@ class LocalGpuPowerServiceTest {
         NvidiaRunner runner = new NvidiaRunner(Map.of("GPU-one", 220));
         LocalGpuPowerService service = service(runner);
         LocalGpuPowerService.Gpu gpu = service.discover().getFirst();
-        assertTrue(service.setUserLimits("GPU-one", 100, 180));
+        assertTrue(service.updateUserPowerLimit("GPU-one", 180));
 
         assertEquals(180, runner.limits.get("GPU-one"));
         assertEquals(180, service.refresh().getFirst().currentPowerLimitWatts());
         assertTrue(runner.commands.contains(List.of("nvidia-smi", "-i", "GPU-one", "-pl", "180")));
-        assertTrue(service.enforceUserLimits(gpu));
+        assertTrue(service.enforceConfiguredPowerLimit(gpu));
+    }
+
+    @Test
+    void userLimitFailureReportsTheDriverReasonAndKeepsPreviousLimits() {
+        NvidiaRunner runner = new NvidiaRunner(Map.of("GPU-one", 220));
+        LocalGpuPowerService service = service(runner);
+        service.discover();
+        runner.denyWrites = true;
+
+        LocalGpuPowerService.UserLimitResult result = service.updateUserPowerLimit("GPU-one", 180);
+
+        assertFalse(result.success());
+        assertEquals("gpu_power_limit_driver_rejected", result.message());
+        assertTrue(result.detail().contains("Insufficient Permissions"));
+        assertEquals(220, runner.limits.get("GPU-one"));
     }
 
     @Test

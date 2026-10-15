@@ -22,19 +22,15 @@ function rangeControl(gpu, enabled) {
     const wrap = node('div'), control = node('div', 'dual-range');
     const track = node('div', 'dual-range-track'), selected = node('div', 'dual-range-selected');
     track.append(selected);
-    const min = document.createElement('input'), max = document.createElement('input');
-    for (const input of [min, max]) {
-        input.type = 'range';
-        input.min = String(gpu.driverMinPowerLimitWatts);
-        input.max = String(gpu.driverMaxPowerLimitWatts);
-        input.step = '1';
-        input.className = 'dual-range-input';
-        input.disabled = !enabled;
-    }
-    min.value = String(gpu.userMinPowerLimitWatts);
-    max.value = String(gpu.userMaxPowerLimitWatts);
-    min.setAttribute('aria-label', gpu.model + ': ' + i18n.t('minimum_solarminer_power'));
-    max.setAttribute('aria-label', gpu.model + ': ' + i18n.t('maximum_solarminer_power'));
+    const limit = document.createElement('input');
+    limit.type = 'range';
+    limit.min = String(gpu.driverMinPowerLimitWatts);
+    limit.max = String(gpu.driverMaxPowerLimitWatts);
+    limit.step = '1';
+    limit.className = 'dual-range-input';
+    limit.disabled = !enabled;
+    limit.value = String(gpu.userMaxPowerLimitWatts);
+    limit.setAttribute('aria-label', gpu.model + ': ' + i18n.t('gpu_power_limit'));
     const values = node('div', 'dual-range-values'), actions = node('div', 'hardware-actions');
     const save = node('button', 'button primary', 'apply_limits');
     save.type = 'button';
@@ -42,66 +38,75 @@ function rangeControl(gpu, enabled) {
     const reset = node('button', 'button subtle', 'discard');
     reset.type = 'button';
     reset.disabled = true;
-    const state = node('small', '', 'saved_limits_moving_the_sliders_does_not_app');
+    const state = node('small', '', 'power_limit_saved');
     const draw = () => {
-        if (+min.value > +max.value) {
-            if (document.activeElement === min) max.value = min.value; else min.value = max.value;
-        }
-        const span = +min.max - +min.min;
-        selected.style.left = (span ? 100 * (+min.value - +min.min) / span : 0) + '%';
-        selected.style.right = (span ? 100 - 100 * (+max.value - +max.min) / span : 0) + '%';
-        values.replaceChildren(node('span', '', i18n.t('min_watts_w', {watts: fmt(min.value)})), node('strong', '', fmt(min.value) + '–' + fmt(max.value) + ' W'), node('span', '', i18n.t('max_watts_w', {watts: fmt(max.value)})));
+        const minimum = Number(limit.min), maximum = Number(limit.max);
+        const value = Math.min(maximum, Math.max(minimum, Math.round(Number(limit.value) || minimum)));
+        limit.value = String(value);
+        const span = maximum - minimum;
+        const position = span ? 100 * (value - minimum) / span : 100;
+        selected.style.left = '0%';
+        selected.style.right = (100 - position) + '%';
+        const rangeLabel = node('span');
+        rangeLabel.textContent = i18n.t('driver_power_range', {min: fmt(minimum), max: fmt(maximum)});
+        const valueLabel = node('strong');
+        valueLabel.textContent = i18n.t('power_limit_watts', {watts: fmt(value)});
+        values.replaceChildren(rangeLabel, valueLabel);
     };
     const edit = () => {
         draw();
-        const dirty = +min.value !== gpu.userMinPowerLimitWatts || +max.value !== gpu.userMaxPowerLimitWatts;
-        if (dirty) drafts.set(gpu.deviceId, {
-            minimumWatts: +min.value,
-            maximumWatts: +max.value
-        }); else drafts.delete(gpu.deviceId);
+        const dirty = Number(limit.value) !== gpu.userMaxPowerLimitWatts;
+        if (dirty) drafts.set(gpu.deviceId, Number(limit.value)); else drafts.delete(gpu.deviceId);
         save.disabled = reset.disabled = !dirty;
         state.classList.toggle('hardware-draft', dirty);
-        state.textContent = i18n.t(dirty ? 'not_applied_yet' : 'saved_limits_moving_the_sliders_does_not_app');
+        state.textContent = i18n.t(dirty ? 'not_applied_yet' : 'power_limit_saved');
     };
-    for (const input of [min, max]) input.addEventListener('input', edit);
+    limit.addEventListener('input', edit);
     reset.addEventListener('click', () => {
         drafts.delete(gpu.deviceId);
-        min.value = gpu.userMinPowerLimitWatts;
-        max.value = gpu.userMaxPowerLimitWatts;
+        limit.value = gpu.userMaxPowerLimitWatts;
         edit();
     });
     save.addEventListener('click', async () => {
         const value = drafts.get(gpu.deviceId);
         if (!value || saving) return;
         saving = true;
-        save.disabled = reset.disabled = min.disabled = max.disabled = true;
+        save.disabled = reset.disabled = limit.disabled = true;
         try {
             const response = await fetch('/api/agent/local/power-control/gpus/' + encodeURIComponent(gpu.deviceId) + '/limits', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(value)
+                body: JSON.stringify({watts: value})
             });
-            if (!response.ok) throw new Error('the_drivers_rejected_these_limits_your_draft');
+            if (!response.ok) {
+                const failure = await response.json().catch(() => null);
+                if (failure?.message?.startsWith('gpu_power_') || failure?.message === 'gpu_not_found') {
+                    const detail = failure.detail ? ` ${i18n.s(failure.detail)}` : '';
+                    throw new Error(`${i18n.t(failure.message)}${detail}`);
+                }
+                throw new Error('the_drivers_rejected_these_limits_your_draft');
+            }
             // Loading plan P4: the POST answer is the new GpuStatus — apply it directly
             // instead of waiting for the next push, then re-read the page view once.
             const saved = await response.json();
             drafts.delete(gpu.deviceId);
             Object.assign(gpu, saved);
+            limit.value = String(gpu.userMaxPowerLimitWatts);
             state.classList.remove('hardware-draft');
-            state.textContent = i18n.t('power_limits_saved');
-            notice(i18n.t('gpu_power_limits_saved', {gpu: gpu.model}));
+            state.textContent = i18n.t('power_limit_saved');
+            notice(i18n.t('gpu_power_limit_saved', {gpu: gpu.model, watts: fmt(gpu.userMaxPowerLimitWatts)}));
             save.blur();
         } catch (error) {
             notice(i18n.s(error.message), true);
         } finally {
             saving = false;
-            min.disabled = max.disabled = !enabled;
+            limit.disabled = !enabled;
             save.disabled = reset.disabled = !drafts.has(gpu.deviceId);
             window.SolarMinerLive.refresh('power-control');
         }
     });
     draw();
-    control.append(track, min, max, values);
+    control.append(track, limit, values);
     actions.append(save, reset, state);
     wrap.append(control, actions);
     return wrap;

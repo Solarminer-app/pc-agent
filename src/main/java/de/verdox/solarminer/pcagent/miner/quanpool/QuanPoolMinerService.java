@@ -192,7 +192,7 @@ public class QuanPoolMinerService extends AbstractMinerEngine implements GpuCoin
         WorkerRunState state = runs.computeIfAbsent(key, ignored -> new WorkerRunState(Coin.QUANTUS.id(), gpu,
                 MinerConsoleService.gpuConsoleId(Coin.QUANTUS, vendor, index), "Waiting for a pool job"));
         if (state.running()) return true;
-        if (!power.enforceUserLimits(gpu)) return fail(state, "Treiber bestätigte den Power-Cap nicht");
+        if (!power.enforceConfiguredPowerLimit(gpu)) return fail(state, "Treiber bestätigte den Power-Cap nicht");
         refreshDefaultPayout();
         MinerConfig config = effectiveConfig();
         if (config == null || !proxy.matches(config.proxyUrl(), Coin.QUANTUS.id())

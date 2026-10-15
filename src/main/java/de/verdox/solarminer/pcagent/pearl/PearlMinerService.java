@@ -277,7 +277,7 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
         WorkerRunState run = runs.computeIfAbsent(key, ignored ->
                 new WorkerRunState(Coin.PEARL.id(), gpu, workerConsoleId(gpu), "Miner nicht gestartet"));
         if (run.running()) return true;
-        if (!gpuPowerService.enforceUserLimits(gpu)) return fail(run, "Treiber bestätigte den Power-Cap nicht");
+        if (!gpuPowerService.enforceConfiguredPowerLimit(gpu)) return fail(run, "Treiber bestätigte den Power-Cap nicht");
         if (MinerProcessRegistry.gpuCoinUsesDevice(gpu.deviceId()))
             return fail(run, "This GPU is already mining RVN or ETC; pause that GPU worker first");
         if (hasExternalMiner()) {

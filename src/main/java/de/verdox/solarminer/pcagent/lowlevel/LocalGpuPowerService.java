@@ -38,7 +38,8 @@ public class LocalGpuPowerService {
     private final CommandRunner commands;
     private volatile List<Gpu> cached = List.of();
     private volatile long discoveredAt;
-    private volatile Map<String, UserLimits> userLimits;
+    private volatile String lastPowerTargetError;
+    private volatile Map<String, Integer> userPowerLimits;
     private volatile Map<String, Integer> applied = Map.of();
     private final Map<String, Integer> originalLimits = new LinkedHashMap<>();
     private final Map<String, Capability> capabilities = new HashMap<>();
@@ -51,7 +52,6 @@ public class LocalGpuPowerService {
     public record Gpu(String vendor, int index, String deviceId, String model, int driverMinWatts, int driverMaxWatts,
                       int minWatts, int maxWatts, Integer currentPowerLimitWatts, Double currentWatts,
                       String usageMeasurement, boolean supportsDynamicPowerScaling, String regulationError) { }
-    public record UserLimits(int minimumWatts, int maximumWatts) { }
 
     @Autowired
     public LocalGpuPowerService(ObjectMapper json, @Value("${solarminer.agent.gpu-power-settings-file:./solarminer-agent/gpu-power-limits.json}") String path) {
@@ -68,7 +68,7 @@ public class LocalGpuPowerService {
         this.recoveryFile = limitsFile.resolveSibling("gpu-power-recovery.json");
         this.drmRoot = drmRoot;
         this.commands = runner == null ? this::runProcess : runner;
-        this.userLimits = load(limitsFile, new TypeReference<Map<String, UserLimits>>() { });
+        this.userPowerLimits = loadPowerLimits(limitsFile);
         this.recovery = new LinkedHashMap<>(load(recoveryFile, new TypeReference<Map<String, Recovery>>() { }));
         this.startupRecovery = new LinkedHashMap<>(recovery);
     }
@@ -202,9 +202,10 @@ public class LocalGpuPowerService {
     private void addCard(List<Gpu> cards, String vendor, int index, String id, String model,
                          int driverMin, int driverMax, Integer current, Double draw) {
         boolean readable = !id.isBlank() && driverMin > 0 && driverMax >= driverMin && current != null;
-        UserLimits saved = userLimits.get(id);
-        int min = readable ? Math.max(driverMin, saved == null ? driverMin : saved.minimumWatts()) : 0;
-        int max = readable ? Math.min(driverMax, saved == null ? driverMax : saved.maximumWatts()) : 0;
+        Integer saved = userPowerLimits.get(id);
+        int min = readable ? driverMin : 0;
+        int defaultLimit = current == null ? driverMax : current;
+        int max = readable ? Math.max(driverMin, Math.min(driverMax, saved == null ? defaultLimit : saved)) : 0;
         boolean valid = readable && min <= max;
         Capability capability = valid ? writableCapability(vendor, id, current) : null;
         cards.add(new Gpu(vendor, index, id, model, driverMin, driverMax, min, max, current, draw,
@@ -231,47 +232,53 @@ public class LocalGpuPowerService {
         return known;
     }
 
-    public synchronized boolean setUserLimits(String id, int minimumWatts, int maximumWatts) {
+    public synchronized UserLimitResult updateUserPowerLimit(String id, int watts) {
         Gpu gpu = discover().stream().filter(g -> g.deviceId().equals(id)).findFirst().orElse(null);
-        if (gpu == null || !gpu.supportsDynamicPowerScaling() || minimumWatts < gpu.driverMinWatts()
-                || maximumWatts > gpu.driverMaxWatts() || minimumWatts > maximumWatts) return false;
-        Map<String, UserLimits> next = new HashMap<>(userLimits);
-        next.put(id, new UserLimits(minimumWatts, maximumWatts));
-        if (!save(limitsFile, next)) return false;
-        Map<String, UserLimits> previous = userLimits;
-        userLimits = Map.copyOf(next);
+        if (gpu == null) return new UserLimitResult(false, "gpu_not_found", null);
+        if (!gpu.supportsDynamicPowerScaling())
+            return new UserLimitResult(false, "gpu_power_control_unavailable", gpu.regulationError());
+        if (watts < gpu.driverMinWatts() || watts > gpu.driverMaxWatts())
+            return new UserLimitResult(false, "gpu_power_limits_outside_driver_range",
+                    gpu.driverMinWatts() + "–" + gpu.driverMaxWatts() + " W");
+        Map<String, Integer> next = new HashMap<>(userPowerLimits);
+        next.put(id, watts);
+        if (!save(limitsFile, next)) return new UserLimitResult(false, "gpu_power_limits_save_failed", null);
+        Map<String, Integer> previous = userPowerLimits;
+        userPowerLimits = Map.copyOf(next);
         discoveredAt = 0;
         Gpu updated = refresh().stream().filter(candidate -> candidate.deviceId().equals(id)).findFirst().orElse(null);
         Integer current = updated == null ? null : updated.currentPowerLimitWatts();
         if (updated == null || current == null) {
-            userLimits = previous;
+            userPowerLimits = previous;
             save(limitsFile, previous);
             discoveredAt = 0;
-            return false;
+            return new UserLimitResult(false, "gpu_power_limit_readback_unavailable", null);
         }
-        int target = Math.max(updated.minWatts(), Math.min(updated.maxWatts(), current));
-        if (target != current && !setTotalPowerTarget(target, List.of(updated))) {
-            userLimits = previous;
+        if (watts != current && !setTotalPowerTarget(watts, List.of(updated))) {
+            String detail = Objects.toString(lastPowerTargetError, "Treiber hat die Änderung nicht bestätigt");
+            userPowerLimits = previous;
             save(limitsFile, previous);
             discoveredAt = 0;
-            return false;
+            return new UserLimitResult(false, "gpu_power_limit_driver_rejected", detail);
         }
         refresh();
-        return true;
+        return new UserLimitResult(true, null, null);
     }
+
+    public record UserLimitResult(boolean success, String message, String detail) { }
 
     /**
      * Applies the saved per-GPU range before a miner starts. Manual starts do not have a
      * global power budget, so without this clamp the driver can retain an older, higher cap.
      */
-    public synchronized boolean enforceUserLimits(Gpu requested) {
+    public synchronized boolean enforceConfiguredPowerLimit(Gpu requested) {
         Gpu gpu = refresh().stream().filter(candidate -> candidate.deviceId().equals(requested.deviceId()))
                 .findFirst().orElse(null);
         if (gpu == null) return false;
         if (!gpu.supportsDynamicPowerScaling()) return true;
         Integer current = gpu.currentPowerLimitWatts();
         if (current == null) return false;
-        int target = Math.max(gpu.minWatts(), Math.min(gpu.maxWatts(), current));
+        int target = gpu.maxWatts();
         return target == current || setTotalPowerTarget(target, List.of(gpu));
     }
 
@@ -281,22 +288,35 @@ public class LocalGpuPowerService {
 
     /** Applies a multi-GPU transaction; every modified card is rolled back from its live snapshot on failure. */
     public synchronized boolean setTotalPowerTarget(long watts, List<Gpu> requested) {
+        lastPowerTargetError = null;
         discoveredAt = 0;
         Map<String, Gpu> now = new HashMap<>();
         discover().forEach(g -> now.put(g.deviceId(), g));
         List<Gpu> cards = requested.stream().map(g -> now.get(g.deviceId())).filter(Objects::nonNull).toList();
         if (cards.size() != requested.size() || cards.isEmpty()
                 || cards.stream().map(Gpu::deviceId).distinct().count() != cards.size()
-                || cards.stream().anyMatch(g -> !g.supportsDynamicPowerScaling())) return false;
+                || cards.stream().anyMatch(g -> !g.supportsDynamicPowerScaling())) {
+            lastPowerTargetError = "GPU fehlt oder Power-Limit-Steuerung ist nicht verfügbar";
+            return false;
+        }
         long min = cards.stream().mapToLong(Gpu::minWatts).sum(), max = cards.stream().mapToLong(Gpu::maxWatts).sum();
-        if (watts < min || watts > max) return false;
+        if (watts < min || watts > max) {
+            lastPowerTargetError = "Zielwert liegt außerhalb der erlaubten Grenzen von " + min + "–" + max + " W";
+            return false;
+        }
         List<Integer> targets = distribute(watts, cards, min, max);
         Map<String, Integer> before = new LinkedHashMap<>();
         for (Gpu card : cards) {
-            if (card.currentPowerLimitWatts() == null) return false;
+            if (card.currentPowerLimitWatts() == null) {
+                lastPowerTargetError = "Aktuelles Power-Limit konnte nicht gelesen werden";
+                return false;
+            }
             before.put(card.deviceId(), card.currentPowerLimitWatts());
         }
-        if (!rememberOriginals(cards, before)) return false;
+        if (!rememberOriginals(cards, before)) {
+            lastPowerTargetError = "Ausgangsgrenzen konnten nicht für die Wiederherstellung gespeichert werden";
+            return false;
+        }
         try {
             for (int i = 0; i < cards.size(); i++) setAndVerify(cards.get(i), targets.get(i));
             Map<String, Integer> next = new HashMap<>(applied);
@@ -306,6 +326,7 @@ public class LocalGpuPowerService {
             return true;
         } catch (IOException | InterruptedException e) {
             interrupted(e);
+            lastPowerTargetError = Objects.toString(e.getMessage(), "Treiberfehler ohne Details");
             if (!restore(cards, before)) {
                 for (Gpu card : cards)
                     startupRecovery.put(card.deviceId(), new Recovery(card.vendor(), before.get(card.deviceId())));
@@ -454,6 +475,22 @@ public class LocalGpuPowerService {
     private <T> Map<String, T> load(Path path, TypeReference<Map<String, T>> type) {
         try { return Map.copyOf(json.readValue(Files.readString(path), type)); }
         catch (Exception ignored) { return Map.of(); }
+    }
+
+    /** Reads the single-cap format and migrates legacy {minimumWatts, maximumWatts} entries. */
+    private Map<String, Integer> loadPowerLimits(Path path) {
+        try {
+            JsonNode root = json.readTree(Files.readString(path));
+            if (root == null || !root.isObject()) return Map.of();
+            Map<String, Integer> limits = new LinkedHashMap<>();
+            root.fields().forEachRemaining(entry -> {
+                JsonNode value = entry.getValue();
+                if (value.isIntegralNumber()) limits.put(entry.getKey(), value.intValue());
+                else if (value.isObject() && value.path("maximumWatts").canConvertToInt())
+                    limits.put(entry.getKey(), value.path("maximumWatts").intValue());
+            });
+            return Map.copyOf(limits);
+        } catch (Exception ignored) { return Map.of(); }
     }
 
     private boolean save(Path path, Object value) {

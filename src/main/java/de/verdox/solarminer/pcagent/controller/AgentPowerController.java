@@ -1,5 +1,6 @@
 package de.verdox.solarminer.pcagent.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import de.verdox.solarminer.pcagent.mining.MiningService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentIdentityService;
@@ -7,11 +8,13 @@ import de.verdox.solarminer.pcagent.mining.measurement.BenchmarkSessionService;
 import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.time.Instant;
 
 /** Stable LAN contract for PV controllers. It intentionally hides CPU/GPU allocation details. */
@@ -196,22 +199,24 @@ public class AgentPowerController {
     }
 
     @PostMapping("/gpus/{deviceId}/limits")
-    public GpuStatus limits(@PathVariable String deviceId, @RequestBody UserLimits request) {
-        if (request == null)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "GPU-Leistungsgrenzen fehlen");
-        boolean applied;
+    public ResponseEntity<?> limits(@PathVariable String deviceId, @RequestBody JsonNode request) {
+        JsonNode wattsNode = request == null ? null : request.get("watts");
+        if (wattsNode == null || !wattsNode.isIntegralNumber() || !wattsNode.canConvertToInt())
+            return ResponseEntity.badRequest().body(Map.of("message", "gpu_power_limit_value_must_be_integer"));
+        LocalGpuPowerService.UserLimitResult result;
         try {
-            applied = benchmarks.withExternalControl(() -> gpus.setUserLimits(deviceId, request.minimumWatts(), request.maximumWatts()));
+            int watts = wattsNode.intValue();
+            result = benchmarks.withExternalControl(() -> gpus.updateUserPowerLimit(deviceId, watts));
         } catch (BenchmarkSessionService.BenchmarkRunningException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "GPU-Leistungsgrenzen können während eines Messlaufs nicht geändert werden");
         }
-        if (!applied)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "GPU-Leistungsgrenzen konnten nicht gespeichert oder vom Treiber verifiziert werden");
+        if (!result.success())
+            return ResponseEntity.badRequest().body(Map.of("message", result.message(),
+                    "detail", Objects.toString(result.detail(), "")));
         reportChanged("power-control", "overview");
-        return status().gpus().stream().filter(g -> g.deviceId().equals(deviceId)).findFirst().orElseThrow();
+        return ResponseEntity.ok(status().gpus().stream().filter(g -> g.deviceId().equals(deviceId)).findFirst().orElseThrow());
     }
 
-    public record UserLimits(int minimumWatts, int maximumWatts) { }
     /** {@code name} is the operator label and stays null when unset; {@code model} is the fixed product identity. */
     public record Identity(String kind, int powerControlProtocolVersion, String model, String name) { }
     public record IdentityName(String name) { }
