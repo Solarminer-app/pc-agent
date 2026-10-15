@@ -26,6 +26,13 @@ The AMD, Intel and NVIDIA compose overlays add hardware access only and retain
 the base profile's host networking. `docker-compose.pc-agent.standalone.yml`
 is a legacy filename alias with the same host-network behaviour.
 
+For Linux sensor access, the optional `docker-compose.pc-agent.sensors.yml`
+overlay bind-mounts host hwmon and powercap classes read-only. Add it with
+`-f docker-compose.pc-agent.sensors.yml` only when those paths exist on the
+host. The class entries may point into `/sys/devices`; check that their targets
+are visible and readable in the running container. RAPL measures CPU-package
+energy, not whole-PC input power. Missing sensors remain unavailable.
+
 ## Discovery scope
 
 `AgentNetworkDiscoveryService` sends `SOLARMINER_AGENT_DISCOVER_V1` heartbeats

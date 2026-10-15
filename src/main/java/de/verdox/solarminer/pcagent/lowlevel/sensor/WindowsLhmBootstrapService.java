@@ -3,6 +3,8 @@ package de.verdox.solarminer.pcagent.lowlevel.sensor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -64,6 +66,11 @@ public class WindowsLhmBootstrapService {
 
     public boolean retryStart() {
         return beginStart(false);
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void startWithAgent() {
+        retryStart();
     }
 
     public boolean restartWithElevation() {

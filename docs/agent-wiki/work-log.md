@@ -2245,3 +2245,9 @@ Vorgehen / Andockpunkte für andere Agenten:
   unkeyed literals), and `git diff --check` passed. `compileJava` could not
   start because the Gradle wrapper cache under `/home/lukas/.gradle` is
   read-only; tests not run.
+## 2026-10-15 — Start Windows sensors and separate additional PC power readings
+
+- `WindowsLhmBootstrapService` now starts on Agent application readiness. It first reuses a responsive existing LHM JSON API; otherwise it starts the managed executable through the existing Windows UAC flow. A missing CPU sensor now clears the last cached CPU reading.
+- Telemetry exposes individual `otherPowerReadings` for motherboard, RAM, PSU and chipset sensor readings. The CPU/GPU partial sum is named `system.cpu_gpu_power` with `system.total_power` retained as a compatibility alias; the German and English UI shows separate PC component readings. These values are not summed or persisted as a worker because sensor domains may overlap and neither LHM nor Linux hwmon guarantees wall-power measurement.
+- Linux reads available `hwmon` power sensors. The optional `docker-compose.pc-agent.sensors.yml` binds host hwmon/powercap classes read-only where they exist; symlink target visibility and host permissions remain deployment-dependent.
+- Verification: offline `compileJava`, focused `HardwareTelemetryServiceTest`, `WindowsLhmBootstrapServiceTest` and `LinuxSensorReaderTest`, `check-i18n.cjs`, `scan-i18n-literals.cjs` and Docker Compose config passed. Host probe found no readable power sensor files; the visible RAPL `energy_uj` returned permission denied. Physical Windows UAC and Linux/Docker sensor output remain unverified on actual target hardware.

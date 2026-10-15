@@ -57,11 +57,24 @@ function render(data) {
     card.append(head, meter(draw, max, 'power'), values);
     devices.append(card);
   });
+  const otherPower = data.otherPowerReadings || [];
+  const systemCard = el('article', 'telemetry-device system-device');
+  const systemHead = el('div', 'telemetry-device-head');
+  systemHead.append(el('span', 'device-kind', i18n.t('pc_components')), el('strong', '', i18n.t('other_power_sensors')));
+  systemCard.append(systemHead);
+  if (otherPower.length) {
+    for (const reading of otherPower) {
+      const row = el('div', 'telemetry-device-values');
+      row.append(el('span', '', reading.sensorKey), el('strong', '', `${fmt(reading.watts)} W`));
+      systemCard.append(row);
+    }
+  } else systemCard.append(el('p', 'empty', i18n.t('no_separate_system_power_sensor')));
+  devices.append(systemCard);
   if (!names.length) devices.append(el('p', 'empty', i18n.t('no_gpus_were_detected')));
-  const total = data.metrics?.['system.total_power'];
+  const total = data.metrics?.['system.cpu_gpu_power'];
   text('total-power', total?.available ? `${fmt(total.value)} W` : '—');
   text('power-quality', total?.available ? i18n.s(total.source) : i18n.t('power_measurement_unavailable'));
-  const metrics = Object.entries(data.metrics || {});
+  const metrics = Object.entries(data.metrics || {}).filter(([key]) => key !== 'system.total_power');
   const available = metrics.filter(([, value]) => value.available).length;
   text('sensor-count', String(available));
   text('sensor-summary', i18n.t('available_of_total_readings_available', {available, total: metrics.length}));
@@ -109,7 +122,7 @@ window.SolarMinerLive.start();
 function renderMetricList(data) {
   const query = $('sensor-search').value.trim().toLowerCase(), onlyAvailable = $('sensor-available').checked;
   const list = $('telemetry-list'); list.replaceChildren();
-  for (const [key, metric] of Object.entries(data.metrics || {}).filter(([key, metric]) => (!onlyAvailable || metric.available) && [key, metric.unit, metric.source].join(' ').toLowerCase().includes(query))) {
+  for (const [key, metric] of Object.entries(data.metrics || {}).filter(([key, metric]) => key !== 'system.total_power' && (!onlyAvailable || metric.available) && [key, metric.unit, metric.source].join(' ').toLowerCase().includes(query))) {
     const row = el('div', `metric${metric.available ? '' : ' unavailable'}`);
     const value = metric.available ? formatMetric(metric.value, metric.unit) : i18n.t('unavailable_2a5d2c');
     const exactBytes = metric.available && (metric.unit === 'B' || metric.unit === 'B/s')

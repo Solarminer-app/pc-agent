@@ -138,6 +138,8 @@ public class WindowsLhmSensorReader implements HardwareSensorReader {
     }
 
     private void parseLhmJson(JsonNode rootNode) {
+        cachedWatts = -1.0;
+        cachedTemp = -1.0;
         JsonNode cpuNode = findNodeByNameOrType(rootNode, hardwareIdentityService.getProcessor());
         if (cpuNode != null) {
             JsonNode tempCategory = findNodeByNameOrType(cpuNode, "Temperatures");

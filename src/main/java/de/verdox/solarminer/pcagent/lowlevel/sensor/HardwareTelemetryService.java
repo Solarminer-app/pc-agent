@@ -68,7 +68,7 @@ public class HardwareTelemetryService {
 
     private Snapshot emptySnapshot() {
         return new Snapshot(Instant.EPOCH, System.getProperty("os.name", "unknown"),
-                System.getProperty("os.arch", "unknown"), null, List.of(), List.of(), Map.of(), Map.of(),
+                System.getProperty("os.arch", "unknown"), null, List.of(), List.of(), Map.of(), List.of(), Map.of(),
                 isWindows() ? lhmBootstrap.status() : "not-required",
                 isWindows() ? lhmBootstrap.detail() : "Linux kernel sensor interfaces are used.");
     }
@@ -95,14 +95,18 @@ public class HardwareTelemetryService {
 
         if (isLinux()) addLinuxHwmon(metrics);
         if (isLinux()) addLinuxGpuTemperatures(metrics);
+        List<OtherPowerReading> otherPowerReadings = otherPowerReadings(metrics);
         double cpuWatts = sensorReader.getCpuPowerWatts();
         double gpuWatts = gpuPowerTotal(metrics, gpus);
         int powerComponents = (Double.isFinite(cpuWatts) && cpuWatts > 0 ? 1 : 0)
                 + (Double.isFinite(gpuWatts) && gpuWatts > 0 ? 1 : 0);
         double totalWatts = (Double.isFinite(cpuWatts) && cpuWatts > 0 ? cpuWatts : 0)
                 + (Double.isFinite(gpuWatts) && gpuWatts > 0 ? gpuWatts : 0);
-        add(metrics, "system.total_power", powerComponents == 0 ? Double.NaN : totalWatts,
-                "W", "CPU package + GPU board readings; partial if a device has no power sensor", false);
+        add(metrics, "system.cpu_gpu_power", powerComponents == 0 ? Double.NaN : totalWatts,
+                "W", "CPU package + GPU board readings; excludes other PC components", false);
+        // Preserve the former local API key for older LAN consumers; its source still
+        // makes clear that this is a partial device sum, not wall input power.
+        metrics.put("system.total_power", metrics.get("system.cpu_gpu_power"));
         OperatingSystemMXBean os = ManagementFactory.getPlatformMXBean(OperatingSystemMXBean.class);
         if (os != null) {
             double load = os.getCpuLoad();
@@ -124,7 +128,25 @@ public class HardwareTelemetryService {
         return new Snapshot(Instant.now(), System.getProperty("os.name", "unknown"),
                 System.getProperty("os.arch", "unknown"), hardwareIdentity.getProcessor(),
                 mergeGpuNames(hardwareIdentity.getGraphicsCards(), gpus), gpus,
-                metrics, sources, lhmStatus, lhmDetail);
+                metrics, otherPowerReadings, sources, lhmStatus, lhmDetail);
+    }
+
+    /** Individual non-worker sensors. These readings may overlap, so they are never summed. */
+    static List<OtherPowerReading> otherPowerReadings(Map<String, Metric> metrics) {
+        return metrics.entrySet().stream()
+                .filter(entry -> entry.getKey().startsWith("hardware.") || entry.getKey().startsWith("hwmon."))
+                .filter(entry -> "W".equals(entry.getValue().unit()) && entry.getValue().available())
+                .filter(entry -> {
+                    String key = entry.getKey().toLowerCase(Locale.ROOT);
+                    return !isGpuName(key) && !key.contains("cpu") && !key.contains("processor")
+                            && !key.contains("rapl") && !key.contains("core") && !key.contains("package")
+                            && (key.contains("mainboard") || key.contains("motherboard")
+                            || key.contains("dram") || key.contains("memory") || key.contains("psu")
+                            || key.contains("power_supply") || key.contains("chipset") || key.contains("pch"));
+                })
+                .map(entry -> new OtherPowerReading(entry.getKey(), entry.getValue().value(),
+                        entry.getValue().source()))
+                .toList();
     }
 
     private static List<String> mergeGpuNames(List<String> oshiNames, List<LocalGpuPowerService.Gpu> detected) {
@@ -317,7 +339,9 @@ public class HardwareTelemetryService {
     private static boolean isWindows() { return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win"); }
 
     public record Metric(Double value, String unit, String source, boolean available, boolean directMeasurement) { }
+    public record OtherPowerReading(String sensorKey, Double watts, String source) { }
     public record Snapshot(Instant collectedAt, String platform, String architecture, String cpuName,
                            List<String> gpuNames, List<LocalGpuPowerService.Gpu> gpus, Map<String, Metric> metrics,
-                           Map<String, String> sources, String sensorServiceStatus, String sensorServiceDetail) { }
+                           List<OtherPowerReading> otherPowerReadings, Map<String, String> sources,
+                           String sensorServiceStatus, String sensorServiceDetail) { }
 }

@@ -17,6 +17,10 @@
 // data-i18n-aria-label; the German text inside the markup is only the no-JS fallback.
 window.SolarMinerI18nCatalog = {
     frontend: {
+        "cpu_gpu_power": {de: "CPU + GPU LEISTUNG", en: "CPU + GPU POWER"},
+        "pc_components": {de: "PC-KOMPONENTEN", en: "PC COMPONENTS"},
+        "other_power_sensors": {de: "Weitere Leistungswerte", en: "Other power readings"},
+        "no_separate_system_power_sensor": {de: "Kein separater Leistungswert für weitere PC-Komponenten verfügbar", en: "No separate power reading for other PC components is available"},
         "0_available": {de: "0 verfügbar", en: "0 available"},
         "0_installed": {de: "0 installiert", en: "0 installed"},
         "1_pool_fee": {de: "· 1 % Poolgebühr", en: "· 1% pool fee"},
@@ -2595,6 +2599,7 @@ window.SolarMinerI18nCatalog = {
         "your_workspace": {de: "Dein Arbeitsbereich", en: "Your workspace"},
     },
     agentEnglishToGerman: {
+        "CPU package + GPU board readings; excludes other PC components": "CPU-Paket und GPU-Platinenwerte; weitere PC-Komponenten sind nicht enthalten",
         "Diagnosis: this GPU cannot run the selected algorithm with the installed miner build; the miner has no working kernel for this GPU architecture. Check the miner's supported-GPU matrix, update the miner, or exclude this coin for this card in the benchmark selection.": "Diagnose: Diese GPU kann den gewählten Algorithmus mit dem installierten Miner-Build nicht ausführen; der Miner hat keinen funktionierenden Kernel für diese GPU-Architektur. Prüfe die unterstützten GPUs des Miners, aktualisiere den Miner oder wähle diesen Coin in der Benchmark-Auswahl für diese Karte ab.",
         "Diagnosis: the GPU driver rejected the miner's CUDA/OpenCL context. Reinstall or update the GPU driver, then retry.": "Diagnose: Der GPU-Treiber hat den CUDA-/OpenCL-Kontext des Miners abgelehnt. Installiere oder aktualisiere den GPU-Treiber und versuche es erneut.",
         "Diagnosis: the miner could not reach the pool. Check the SolarMiner proxy, the pool address and the network.": "Diagnose: Der Miner hat den Pool nicht erreicht. Prüfe SolarMiner-Proxy, Pool-Adresse und Netzwerk.",
