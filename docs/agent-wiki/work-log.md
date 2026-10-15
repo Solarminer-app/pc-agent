@@ -2176,12 +2176,13 @@ Vorgehen / Andockpunkte für andere Agenten:
 
 ## 2026-10-15 — Keep completed sweep curves visible during later GPU runs
 
-- After an individual GPU run completed, its per-power measurements moved into
-  a collapsed row even when other GPUs were still being measured. This made the
-  curve appear to disappear before the overall sweep finished.
-- Completed-run groups and their curve rows now stay expanded while the sweep is
-  active. The explanation is localized in both supported UI languages; completed
-  history can still collapse after the overall sweep ends.
+- After an individual GPU run completed or failed, its per-power measurements
+  moved into a collapsed row even when other GPUs were still being measured.
+  This hid the ticked-off watt-step history before the overall sweep finished.
+- Finished-run groups and rows with step history now stay expanded while the
+  sweep is active, including failed and partial attempts. The explanation is
+  localized in both supported UI languages; history can collapse after the whole
+  sweep ends.
 - Verification: `node --check src/main/resources/static/js/pages/benchmarks.js`,
   `check-i18n.cjs` (1,286 keys, both locales), `scan-i18n-literals.cjs` (0
   unkeyed literals), and `git diff --check` passed.

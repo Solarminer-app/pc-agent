@@ -340,7 +340,7 @@ function renderSweepRuns(runs, sweepRunning) {
     const statusLabel = {QUEUED: 'planned', RUNNING: 'running', COMPLETE: 'complete', FAILED: 'failed', SKIPPED: 'skipped', CANCELLED: 'cancelled'};
     const isTerminal = status => status === 'COMPLETE' || status === 'FAILED' || status === 'SKIPPED' || status === 'CANCELLED';
     // Only live runs get a full card. Queued and finished runs stay in compact groups;
-    // completed curves expand while the sweep is active so their measured limits remain visible.
+    // finished step histories expand while the sweep is active so measured limits remain visible.
     for (const run of runs.filter(r => r.status === 'RUNNING')) root.append(liveRunCard(run, statusLabel));
     const waiting = runs.filter(r => r.status === 'QUEUED');
     const finished = runs.filter(r => isTerminal(r.status));
@@ -392,21 +392,23 @@ function liveRunCard(run, statusLabel) {
     return card;
 }
 
-function runGroup(label, runs, statusLabel, defaultOpen, forceOpen = false, expandCompleted = false) {
+function runGroup(label, runs, statusLabel, defaultOpen, forceOpen = false, expandFinishedHistory = false) {
     const group = make('details', 'sweep-run-group');
     const key = label.replace(/\(\d+\)/, '');
     group.open = forceOpen || (openSweepGroups.has(key) ? openSweepGroups.get(key) : defaultOpen);
     group.addEventListener('toggle', () => openSweepGroups.set(key, group.open));
     group.append(make('summary', '', label));
     const rows = make('div', 'sweep-run-rows');
-    for (const run of runs) rows.append(runRow(run, statusLabel, expandCompleted));
+    for (const run of runs) rows.append(runRow(run, statusLabel, expandFinishedHistory));
     group.append(rows);
     return group;
 }
 
-function runRow(run, statusLabel, expandCompleted) {
+function runRow(run, statusLabel, expandFinishedHistory) {
     const row = make('details', 'sweep-run-row');
-    row.open = (run.status === 'COMPLETE' && expandCompleted) || openSweepRows.has(run.id);
+    const terminal = run.status === 'COMPLETE' || run.status === 'FAILED'
+        || run.status === 'SKIPPED' || run.status === 'CANCELLED';
+    row.open = (terminal && (run.steps || []).length > 0 && expandFinishedHistory) || openSweepRows.has(run.id);
     row.addEventListener('toggle', () => {
         if (row.open) openSweepRows.add(run.id); else openSweepRows.delete(run.id);
     });
