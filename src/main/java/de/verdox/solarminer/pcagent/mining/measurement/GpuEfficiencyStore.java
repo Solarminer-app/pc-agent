@@ -39,7 +39,13 @@ public class GpuEfficiencyStore {
 
     public synchronized void save(Profile profile) {
         Map<String, Profile> next = new LinkedHashMap<>(profiles);
-        next.put(key(profile.deviceId(), profile.algorithm()), profile);
+        String profileKey = key(profile.deviceId(), profile.algorithm());
+        // Keep failed attempts as history without replacing the latest usable profile
+        // consumed by economic planning through find(deviceId, algorithm).
+        String storageKey = profile.bestStableWatts() == null
+                ? profileKey + "|attempt|" + profile.testedAt()
+                : profileKey;
+        next.put(storageKey, profile);
         if (!write(next)) throw new IllegalStateException("Efficiency profiles could not be persisted");
         profiles = Map.copyOf(next);
     }

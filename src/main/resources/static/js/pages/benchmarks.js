@@ -360,7 +360,8 @@ function runPlanLine(run) {
         const step = completed.get(limit);
         if (!step) return `${limit} W ○`;
         const measurement = step.medianHashrateHs ? ` · ${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W` : '';
-        return `${limit} W ${step.stable ? '✓' : '✗'}${measurement}`;
+        const reason = step.note ? ` — ${s(step.note)}` : '';
+        return `${limit} W ${step.stable ? '✓' : '✗'}${measurement}${reason}`;
     }).join('  ·  ');
 }
 

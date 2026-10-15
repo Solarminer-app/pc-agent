@@ -477,7 +477,6 @@ public class EfficiencySweepService {
                     target.gpu().deviceId(), target.gpu().model(), target.coin(), target.algorithm(),
                     best.limitWatts(), best.medianHashrateHs(), best.avgPowerWatts(),
                     best.medianHashrateHs() / best.avgPowerWatts(), Instant.now(), List.copyOf(steps));
-            if (!guard.cancelRequested()) store.save(profile);
             sweepLog(target, label + (guard.cancelRequested() ? ": bisher bester Messwert " : ": bester stabiler Wert ")
                     + best.limitWatts() + " W ("
                     + formatRate(best.medianHashrateHs()) + ", " + Math.round(best.medianHashrateHs() / best.avgPowerWatts()) + " H/J)");
@@ -491,6 +490,10 @@ public class EfficiencySweepService {
                         target.coin(), target.algorithm(), null, null, null, null, Instant.now(), List.copyOf(steps));
             finishRun(target, guard.cancelRequested() ? SweepRunState.CANCELLED : SweepRunState.FAILED, guard.cancelRequested() ? "Abgebrochen" : "Kein stabiler Wert gefunden");
         }
+        // Keep failed profiles too: their per-step notes and telemetry are the operator's
+        // primary evidence when no stable power limit was found. Cancelled partial runs remain
+        // session-local and do not replace the last completed profile.
+        if (profile != null && !guard.cancelRequested()) store.save(profile);
         return profile;
     }
 

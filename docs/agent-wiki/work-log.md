@@ -2102,3 +2102,22 @@ Vorgehen / Andockpunkte für andere Agenten:
   Gradle test run could not initialize in
   this Linux execution environment because it cannot determine a usable
   wildcard IP. Native RTX 2080 Windows verification remains outstanding.
+## 2026-10-15 — Persist no-stable efficiency sweep results
+
+- The sweep built a profile with completed step results and failure notes when
+  no stable limit was found, but only called `GpuEfficiencyStore.save` in the
+  stable-result branch. The results page reads that store, so failed curves
+  disappeared after the run.
+- Completed no-stable runs now persist their full profile and step history;
+  cancelled partial runs remain session-local and do not replace a prior
+  completed profile. Failed attempts use history keys separate from the
+  canonical stable-profile key, so economic planning can still find the last
+  usable profile while the profile UI shows each attempt and its failure note.
+  Completed-run rows also render the step's failure note; previously they only
+  showed a cross and omitted the reason. Existing localized backend-note
+  mappings are reused. Added a store regression test for retaining both
+  records and preserving the stable lookup.
+- Verification: `git diff --check` passed; focused Gradle execution remains
+  unavailable in this environment because Gradle cannot determine a usable
+  wildcard IP. Both i18n scripts passed (1,274 keys, 9 pages, German and
+  English; no unkeyed browser literals).
