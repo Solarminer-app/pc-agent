@@ -19,9 +19,9 @@ class GpuEfficiencyStoreTest {
     void failedAttemptRemainsVisibleWithoutReplacingStableProfile() {
         var store = new GpuEfficiencyStore(new ObjectMapper().findAndRegisterModules(),
                 tempDir.resolve("profiles.json").toString());
-        var stable = new GpuEfficiencyStore.Profile("GPU-1", "RTX 2080", "quantus", "QPoW",
+        var stable = new GpuEfficiencyStore.Profile("GPU-1", "RTX 2080", "quantus", "QPoW (Poseidon2)",
                 180, 100_000d, 175d, 571.4d, Instant.parse("2026-10-14T10:00:00Z"), List.of());
-        var failed = new GpuEfficiencyStore.Profile("GPU-1", "RTX 2080", "quantus", "QPoW",
+        var failed = new GpuEfficiencyStore.Profile("GPU-1", "RTX 2080", "quantus", "QPoW (Poseidon2)",
                 null, null, null, null, Instant.parse("2026-10-15T10:00:00Z"),
                 List.of(new GpuEfficiencyStore.StepResult(160, null, null, null, false,
                         "Treiber hat die Leistungsgrenze nicht bestätigt")));
@@ -29,7 +29,8 @@ class GpuEfficiencyStoreTest {
         store.save(stable);
         store.save(failed);
 
-        assertEquals(stable, store.find("GPU-1", "QPoW"));
+        assertEquals(stable, store.find("GPU-1", "QPoW (Poseidon2)"));
+        assertEquals(stable, store.find("GPU-1", "quantus"));
         assertEquals(2, store.all().size());
         assertNull(store.all().stream().filter(profile -> profile.testedAt().equals(failed.testedAt()))
                 .findFirst().orElseThrow().bestStableWatts());

@@ -9,7 +9,7 @@
   };
   const groups = [
     ['operation', [['/', 'dashboard', 'home'], ['/mining.html', 'miner_software', 'mining'], ['/wallets.html', 'wallets', 'wallet'], ['/workers.html', 'worker', 'worker'], ['/automation.html', 'node_automation', 'automation']]],
-    ['optimization', [['/hardware.html', 'power_limits', 'hardware'], ['/benchmarks.html', 'benchmarks', 'benchmarks']]],
+    ['optimization', [['/hardware.html', 'power_limits', 'hardware'], ['/benchmarks.html', 'benchmarks', 'benchmarks'], ['/coin-hopping.html', 'coin_hopping_title', 'hopping']]],
     ['system', [['/telemetry.html', 'sensors_7d5114', 'telemetry'], ['/proxy.html', 'connection_5fbdf2', 'proxy']]]
   ];
   const paths = {
@@ -20,6 +20,7 @@
     automation: 'M12 3v3m0 12v3M4.2 6.2l2.1 2.1m11.4 7.4 2.1 2.1M3 12h3m12 0h3M4.2 17.8l2.1-2.1m11.4-7.4 2.1-2.1M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z',
     hardware: 'M4 7h16M4 17h16M9 4v6m6 4v6',
     benchmarks: 'M5 20V11m7 9V4m7 16v-6',
+    hopping: 'M4 7h15l-3-3m3 3-3 3M20 17H5l3-3m-3 3 3 3',
     telemetry: 'M3 12h4l3-7 4 14 3-7h4',
     proxy: 'M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4'
   };

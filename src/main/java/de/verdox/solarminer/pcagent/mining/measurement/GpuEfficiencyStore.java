@@ -65,7 +65,14 @@ public class GpuEfficiencyStore {
     }
 
     public Profile find(String deviceId, String algorithm) {
-        return profiles.get(key(deviceId, algorithm));
+        Profile direct = profiles.get(key(deviceId, algorithm));
+        if (direct != null) return direct;
+        de.verdox.solarminer.pcagent.coin.Coin coin = de.verdox.solarminer.pcagent.coin.Coin.byAlgorithm(algorithm).orElse(null);
+        if (coin == null) return null;
+        return profiles.values().stream()
+                .filter(profile -> profile.bestStableWatts() != null && deviceId.equals(profile.deviceId())
+                        && coin.matchesAlgorithm(profile.algorithm()))
+                .max(java.util.Comparator.comparing(Profile::testedAt)).orElse(null);
     }
 
     private Map<String, Profile> load() {

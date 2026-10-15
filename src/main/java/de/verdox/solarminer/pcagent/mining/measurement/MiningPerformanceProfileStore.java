@@ -34,8 +34,16 @@ public class MiningPerformanceProfileStore {
         return workerId + "|" + coin + "|" + algorithm.toLowerCase(java.util.Locale.ROOT);
     }
 
+    public static String key(String workerId, String coin, String algorithm, Integer targetWatts) {
+        return key(workerId, coin, algorithm) + (targetWatts != null && targetWatts > 0 ? "|" + targetWatts : "");
+    }
+
     public Profile find(String workerId, String coin, String algorithm) {
-        return profiles.get(key(workerId, coin, algorithm));
+        return profiles.values().stream()
+                .filter(profile -> workerId.equals(profile.workerId()) && coin.equals(profile.coin())
+                        && de.verdox.solarminer.pcagent.coin.Coin.byAlgorithm(algorithm)
+                        .map(value -> value.matchesAlgorithm(profile.algorithm())).orElse(false))
+                .max(java.util.Comparator.comparing(Profile::measuredAt)).orElse(null);
     }
 
     public List<Profile> all() {
@@ -53,7 +61,7 @@ public class MiningPerformanceProfileStore {
 
     public synchronized void save(Profile profile) {
         Map<String, Profile> next = new LinkedHashMap<>(profiles);
-        next.put(key(profile.workerId(), profile.coin(), profile.algorithm()), profile);
+        next.put(key(profile.workerId(), profile.coin(), profile.algorithm(), profile.powerTargetWatts()), profile);
         if (!write(next)) throw new IllegalStateException("Performance profile could not be persisted");
         profiles = Map.copyOf(next);
     }
@@ -74,6 +82,7 @@ public class MiningPerformanceProfileStore {
     }
 
     public record Profile(String workerId, String hardwareType, String hardwareModel, String coin, String algorithm,
-                          double hashrateHps, long powerWatts, int observations, Instant measuredAt, String source) { }
+                          double hashrateHps, long powerWatts, int observations, Instant measuredAt, String source,
+                          Integer powerTargetWatts) { }
     public record StorageStatus(String file, boolean exists, int profiles, String loadError) { }
 }

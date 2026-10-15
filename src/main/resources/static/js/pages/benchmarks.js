@@ -14,12 +14,23 @@ let lastUploadStatus = '';
 let sharePromptShown = false;
 let sharingKnown = false;
 let savedBenchmarkSignature = null;
+let savedBenchmarkRequest = null;
+let sweepProfileRequest = null;
+let previousBenchmarkRunning = null;
+let previousSweepRunning = null;
 
-async function renderSavedBenchmarks() {
+function renderSavedBenchmarks() {
+    if (savedBenchmarkRequest) return savedBenchmarkRequest;
+    savedBenchmarkRequest = loadSavedBenchmarks().finally(() => { savedBenchmarkRequest = null; });
+    return savedBenchmarkRequest;
+}
+
+async function loadSavedBenchmarks() {
     try {
         const response = await fetch('/api/agent/local/benchmarks/profiles', {cache: 'no-store'});
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const profiles = await response.json();
+        $('overview-profiles').textContent = new Intl.NumberFormat(window.SolarMinerI18n.locale).format(profiles.length);
         const signature = JSON.stringify(profiles);
         if (signature === savedBenchmarkSignature) return;
         savedBenchmarkSignature = signature;
@@ -33,10 +44,11 @@ async function renderSavedBenchmarks() {
             const card = make('article', 'worker-card');
             card.append(make('strong', '', `${profile.hardwareModel} · ${profile.coin} · ${profile.algorithm}`),
                 make('p', 'muted', t('hardware_count_samples', {hardware: profile.hardwareType, count: profile.observations})),
-                make('p', '', `${t('hashrate')}: ${fmtRate(profile.hashrateHps)} · ${t('power_4606f4')}: ${profile.powerWatts} W · ${t('efficiency')}: ${window.SolarMinerMeasurements.efficiency(profile.hashrateHps, profile.powerWatts)}`));
+                make('p', '', `${t('hashrate')}: ${fmtRate(profile.hashrateHps)} · ${t('power_4606f4')}: ${profile.powerWatts} W · ${t('energy_per_hash')}: ${window.SolarMinerMeasurements.efficiency(profile.hashrateHps, profile.powerWatts)}`));
             root.append(card);
         }
     } catch (e) {
+        savedBenchmarkSignature = null;
         $('saved-benchmarks').replaceChildren(make('p', 'empty', t('could_not_load_saved_benchmark_profiles', {error: s(e.message)})));
     }
 }
@@ -61,6 +73,13 @@ function notice(text, error = false, kind = 'action') {
 
 function fmtRate(v) {
     return window.SolarMinerMeasurements.hashrate(v);
+}
+
+function benchmarkPhase(phase) {
+    const progress = String(phase || '').match(/^(.*?) · (\d+)\/(\d+) Messpunkte$/);
+    return progress ? t('benchmark_sample_progress', {
+        phase: s(progress[1]), samples: progress[2], required: progress[3]
+    }) : s(phase);
 }
 
 async function comparison(row) {
@@ -103,7 +122,7 @@ async function renderResults(results, running = false, phase = '') {
     renderChart(results, running);
     if (!results?.length) {
         root.append(make('p', 'empty', running
-            ? t('phase_waiting_for_the_first_valid_hashrate_s', {phase: s(phase || 'benchmark_running')})
+            ? t('phase_waiting_for_the_first_valid_hashrate_s', {phase: benchmarkPhase(phase || 'benchmark_running')})
             : !phase || phase === 'Idle' ? t('no_measurement_yet_choose_a_mode_above') : t('no_valid_mining_readings_recorded_check_that')));
         return;
     }
@@ -112,7 +131,7 @@ async function renderResults(results, running = false, phase = '') {
         const card = make('article', 'worker-card');
         const info = make('div', '');
         info.append(make('strong', '', `${row.hardwareModel} · ${row.algorithm}`), make('p', 'muted', t('hardware_count_samples', {hardware: row.hardwareType, count: row.observations})));
-        info.append(make('p', '', `${t('hashrate')}: ${fmtRate(row.hashrateHs)} · ${t('power_4606f4')}: ${row.powerWatts > 0 ? new Intl.NumberFormat(window.SolarMinerI18n.locale, {maximumFractionDigits: 0}).format(row.powerWatts) + ' W' : t('unavailable_6d094b')} · ${t('efficiency')}: ${window.SolarMinerMeasurements.efficiency(row.hashrateHs, row.powerWatts)}`));
+        info.append(make('p', '', `${t('hashrate')}: ${fmtRate(row.hashrateHs)} · ${t('power_4606f4')}: ${row.powerWatts > 0 ? new Intl.NumberFormat(window.SolarMinerI18n.locale, {maximumFractionDigits: 0}).format(row.powerWatts) + ' W' : t('unavailable_6d094b')} · ${t('energy_per_hash')}: ${window.SolarMinerMeasurements.efficiency(row.hashrateHs, row.powerWatts)}`));
         card.append(info);
         root.append(card);
         const peer = running ? null : await comparisons[index];
@@ -127,14 +146,16 @@ async function renderResults(results, running = false, phase = '') {
 }
 
 function applyBenchmarkState(state, meta = {}) {
-    renderSavedBenchmarks();
+    $('overview-benchmark').textContent = state.running ? t('running') : t('ready');
+    if (previousBenchmarkRunning === true && !state.running) renderSavedBenchmarks();
+    previousBenchmarkRunning = state.running;
     if ($('notice').dataset.kind === 'connection') $('notice').hidden = true;
     $('connection').className = `badge ${meta.stale ? 'offline' : 'online'}`;
     $('connection').textContent = meta.stale ? t('connecting') : t('agent_connected');
     $('benchmark-updated').textContent = meta.at
         ? t('benchmark_updated_at', {time: new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {hour: '2-digit', minute: '2-digit', second: '2-digit'}).format(meta.at)})
         : '';
-    $('run-state').textContent = !state.phase || state.phase === 'Idle' ? t('ready') : s(state.phase);
+    $('run-state').textContent = !state.phase || state.phase === 'Idle' ? t('ready') : benchmarkPhase(state.phase);
     $('cancel').hidden = !state.running;
     $('progress-wrap').hidden = !state.running;
     $('run-live').disabled = $('run-installed').disabled = state.running || actionBusy;
@@ -143,7 +164,7 @@ function applyBenchmarkState(state, meta = {}) {
         $('retry-upload').hidden = true;
     }
     if (state.running) {
-        $('phase').textContent = t('phase_step_step_total', {phase: s(state.phase), step: state.phaseIndex, total: state.phaseCount});
+        $('phase').textContent = t('phase_step_step_total', {phase: benchmarkPhase(state.phase), step: state.phaseIndex, total: state.phaseCount});
         const count = state.phase.match(/·\s*(\d+)\/(\d+)\s*Messpunkte/);
         if (count) {
             $('progress').max = Number(count[2]);
@@ -158,7 +179,7 @@ function applyBenchmarkState(state, meta = {}) {
         lastRenderRunning = state.running;
         renderResults(state.results, state.running, state.phase);
     } else if (!state.running && state.phase !== 'Idle' && !state.results?.length) {
-        $('results').replaceChildren(make('p', 'empty', s(state.phase)));
+        $('results').replaceChildren(make('p', 'empty', benchmarkPhase(state.phase)));
         lastResults = signature;
     }
     if (!state.running) window.SolarMinerLive.refresh('benchmark-upload');
@@ -308,6 +329,8 @@ $('refresh').addEventListener('click', () => {
     window.SolarMinerLive.refresh('benchmarks');
     window.SolarMinerLive.refresh('efficiency');
     window.SolarMinerLive.refresh('benchmark-upload');
+    renderSavedBenchmarks();
+    renderProfiles();
 });
 function sharingSummary() { $('sharing-summary').textContent = t($('sharing').checked ? 'enabled_cfd095' : 'disabled_139955'); }
 $('sharing').addEventListener('change', async () => {
@@ -330,6 +353,9 @@ fetch('/api/agent/local/benchmarks/sharing').then(async response => {
 });
 
 function applySweepState(state) {
+        $('overview-sweep').textContent = state.running ? t('running') : t('ready');
+        if (previousSweepRunning === true && !state.running) renderProfiles();
+        previousSweepRunning = state.running;
         $('sweep-state').textContent = state.running ? t('running') : (!state.phase || state.phase === 'Idle' ? t('ready') : s(state.phase));
         $('sweep-cancel').hidden = !state.running;
         $('sweep-progress-wrap').hidden = !state.running;
@@ -348,7 +374,6 @@ function applySweepState(state) {
                 ? t('calculating_eta') : t('approximate_time_remaining_time', {time: formatDuration(state.secondsRemaining)});
         }
         renderSweepRuns(state.runs || [], state.running);
-        renderProfiles();
 }
 
 let lastProfileSignature = null;
@@ -468,11 +493,18 @@ function runRow(run, statusLabel, expandFinishedHistory) {
     return row;
 }
 
-async function renderProfiles() {
+function renderProfiles() {
+    if (sweepProfileRequest) return sweepProfileRequest;
+    sweepProfileRequest = loadProfiles().finally(() => { sweepProfileRequest = null; });
+    return sweepProfileRequest;
+}
+
+async function loadProfiles() {
     try {
         const response = await fetch('/api/agent/local/efficiency/profiles', {cache: 'no-store'});
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const profiles = await response.json();
+        $('overview-efficiency').textContent = new Intl.NumberFormat(window.SolarMinerI18n.locale).format(profiles.length);
         const signature = JSON.stringify(profiles);
         if (signature === lastProfileSignature) return;
         lastProfileSignature = signature;
@@ -500,6 +532,7 @@ async function renderProfiles() {
             root.append(card);
         }
     } catch (e) {
+        lastProfileSignature = null;
         $('sweep-results').replaceChildren(make('p', 'empty', t('could_not_load_efficiency_profiles', {error: s(e.message)})));
     }
 }

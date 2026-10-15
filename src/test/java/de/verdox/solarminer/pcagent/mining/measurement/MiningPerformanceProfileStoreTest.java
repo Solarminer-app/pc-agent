@@ -18,12 +18,16 @@ class MiningPerformanceProfileStoreTest {
         var mapper = new ObjectMapper().findAndRegisterModules();
         var store = new MiningPerformanceProfileStore(mapper, file.toString());
         var saved = new MiningPerformanceProfileStore.Profile("GPU-1", "GPU", "Example", "ravencoin", "kawpow",
-                31_000_000d, 180, 12, Instant.parse("2026-10-09T10:00:00Z"), "BENCHMARK");
+                31_000_000d, 180, 12, Instant.parse("2026-10-09T10:00:00Z"), "BENCHMARK", 200);
         store.save(saved);
+        var otherTarget = new MiningPerformanceProfileStore.Profile("GPU-1", "GPU", "Example", "ravencoin", "kawpow",
+                29_000_000d, 150, 12, Instant.parse("2026-10-10T10:00:00Z"), "LIVE", 160);
+        store.save(otherTarget);
 
-        var restored = new MiningPerformanceProfileStore(mapper, file.toString())
-                .find("GPU-1", "ravencoin", "KAWPOW");
+        var restarted = new MiningPerformanceProfileStore(mapper, file.toString());
+        var restored = restarted.find("GPU-1", "ravencoin", "KAWPOW");
         assertNotNull(restored);
-        assertEquals(saved, restored);
+        assertEquals(otherTarget, restored);
+        assertEquals(2, restarted.all().size());
     }
 }

@@ -261,9 +261,18 @@ public class BenchmarkSessionService {
                 error = "Could not fully restore miner state: " + Objects.toString(restoreFailure.getMessage(), "unknown error");
             }
             List<MinerStats.Worker> captured = aggregateWorkers(observations);
-            persistPerformanceProfiles(observations);
-            sharing.reportManualResults(captured);
-            guard.end();
+            try {
+                persistPerformanceProfiles(observations);
+            } catch (RuntimeException persistenceFailure) {
+                error = "Could not save local benchmark profiles";
+            }
+            try {
+                sharing.reportManualResults(captured);
+            } catch (RuntimeException sharingFailure) {
+                if (error == null) error = "Could not prepare benchmark sharing";
+            } finally {
+                guard.end();
+            }
             Session old = session;
             String result = error != null ? "Error: " + error : guard.cancelRequested() ? "Cancelled; previous miner state restored"
                     : "Complete; previous miner state restored" + (skipped.isEmpty() ? "" : "; skipped: " + String.join(", ", skipped));
@@ -370,7 +379,10 @@ public class BenchmarkSessionService {
                     String workerKey = key(worker);
                     if (!expected.contains(workerKey) || !isMining(worker)) continue;
                     observedMining.add(workerKey);
-                    if (hasValidHashrate(worker)) observations.computeIfAbsent(workerKey, ignored -> new ArrayList<>()).add(worker);
+                    if (hasValidHashrate(worker)) {
+                        List<MinerStats.Worker> samples = observations.computeIfAbsent(workerKey, ignored -> new ArrayList<>());
+                        if (samples.size() < REQUIRED_SAMPLES_PER_WORKER) samples.add(worker);
+                    }
                 }
                 for (String workerKey : expected) {
                     if (observations.getOrDefault(workerKey, List.of()).size() < REQUIRED_SAMPLES_PER_WORKER
@@ -461,6 +473,8 @@ public class BenchmarkSessionService {
         for (List<MinerStats.Worker> values : observations.values()) {
             if (values.size() < REQUIRED_SAMPLES_PER_WORKER) continue;
             MinerStats.Worker worker = values.getFirst();
+            // A changed cap during LIVE measurement must not blend two operating points.
+            if (values.stream().anyMatch(value -> value.powerTargetWatts() != worker.powerTargetWatts())) continue;
             String coin = coinForAlgorithm(worker.currentAlgorithm());
             if (coin == null || worker.deviceId() == null || worker.deviceId().isBlank()) continue;
             double[] rates = values.stream().mapToDouble(value -> value.terahashPerSecond() * 1_000_000_000_000d).toArray();
@@ -469,7 +483,8 @@ public class BenchmarkSessionService {
                     .filter(value -> value > 0).average().orElse(0));
             if (!(hashrate > 0) || watts <= 0) continue;
             performanceProfiles.save(new MiningPerformanceProfileStore.Profile(worker.deviceId(), worker.hardwareType(),
-                    worker.hardwareModel(), coin, worker.currentAlgorithm(), hashrate, watts, values.size(), measuredAt, "BENCHMARK"));
+                    worker.hardwareModel(), coin, worker.currentAlgorithm(), hashrate, watts, values.size(), measuredAt, "BENCHMARK",
+                    worker.powerTargetWatts() > 0 ? Math.toIntExact(worker.powerTargetWatts()) : null));
         }
     }
 

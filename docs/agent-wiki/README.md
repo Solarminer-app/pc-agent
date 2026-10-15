@@ -31,6 +31,7 @@ Start with [pc-agent.md](pc-agent.md) — the ownership map for the source tree.
 | [frontend-i18n.md](frontend-i18n.md) | German/English catalog contract and verification |
 | [../KNOWN_BUGS.md](../KNOWN_BUGS.md) | Prioritized PC-Agent defect backlog; agents check it after scoping their assigned work when capacity permits |
 | [Economic dispatch (C10)](economic-dispatch.md) | Node capability/short-lived-plan boundary and cold-start policy |
+| [Local coin hopping](coin-hopping.md) | GPU sweep profiles, USD/kWh comparison, local consent and switch gates |
 | [MINER-INTEGRATION-GUIDE.md](../../MINER-INTEGRATION-GUIDE.md) | Adding a miner to an existing coin |
 | [pc-agent-miner-candidates.md](pc-agent-miner-candidates.md) | Miner candidate backlog |
 | [quantus-integration.md](quantus-integration.md) | QuanPool miner contract, implementation and live certification gates |

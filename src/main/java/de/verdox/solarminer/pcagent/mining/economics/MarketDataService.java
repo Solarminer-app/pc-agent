@@ -192,6 +192,13 @@ public class MarketDataService {
                 hashrate(workers, coin.algorithm()), snapshots.get(coin.coin()))).toList();
     }
 
+    /** Forecast from a measured local profile, using the same cached network data as the UI. */
+    public Forecast forecastForProfile(String coinId, double hashrateHps) {
+        CoinDefinition definition = COINS.stream().filter(coin -> coin.coin().equals(coinId)).findFirst().orElse(null);
+        if (definition == null || !Double.isFinite(hashrateHps) || hashrateHps <= 0) return null;
+        return forecast(definition.coin(), definition.ticker(), hashrateHps, snapshots.get(coinId));
+    }
+
     private static double hashrate(List<MinerStats.Worker> workers, String algorithm) {
         double value = workers.stream()
                 .filter(worker -> algorithm.equalsIgnoreCase(worker.currentAlgorithm()))

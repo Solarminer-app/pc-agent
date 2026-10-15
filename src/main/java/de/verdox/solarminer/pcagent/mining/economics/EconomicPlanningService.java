@@ -12,6 +12,7 @@ import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.mining.measurement.GpuEfficiencyStore;
 import de.verdox.solarminer.pcagent.mining.measurement.BenchmarkSessionService;
 import de.verdox.solarminer.pcagent.mining.measurement.MiningPerformanceProfileStore;
+import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -44,6 +45,7 @@ public class EconomicPlanningService {
     private final WorkerAssignmentService assignments;
     /** REST audit R1: fee-route readiness for the read model comes from the health snapshot. */
     private final de.verdox.solarminer.pcagent.mining.proxy.ProxyHealthService proxyHealth;
+    private final LocalRunLock runLock;
     private final ScheduledExecutorService expiryExecutor = Executors.newSingleThreadScheduledExecutor(
             runnable -> Thread.ofPlatform().name("pc-agent-economic-plan-expiry").daemon(true).unstarted(runnable));
     private volatile AppliedPlan lastPlan;
@@ -53,7 +55,8 @@ public class EconomicPlanningService {
                                    ProxyConfigurationService proxy,
                                    GpuEfficiencyStore efficiencyProfiles, MiningPerformanceProfileStore benchmarkProfiles,
                                    WorkerAssignmentService assignments,
-                                   de.verdox.solarminer.pcagent.mining.proxy.ProxyHealthService proxyHealth) {
+                                   de.verdox.solarminer.pcagent.mining.proxy.ProxyHealthService proxyHealth,
+                                   LocalRunLock runLock) {
         this.controls = controls;
         this.mining = mining;
         this.gpus = gpus;
@@ -63,6 +66,7 @@ public class EconomicPlanningService {
         this.benchmarkProfiles = benchmarkProfiles;
         this.assignments = assignments;
         this.proxyHealth = proxyHealth;
+        this.runLock = runLock;
     }
 
     public Capabilities capabilities() {
@@ -79,7 +83,10 @@ public class EconomicPlanningService {
     private WorkerCapability worker(String id, String type, String model, List<String> coins, List<MinerStats.Worker> live) {
         String selectedCoin = controls.get().coinFor(id);
         MinerStats.Worker observed = live.stream().filter(value -> id.equals(value.deviceId()))
-                .filter(value -> algorithm(selectedCoin).equalsIgnoreCase(value.currentAlgorithm()))
+                .filter(value -> {
+                    Coin assigned = Coin.byIdOrNull(selectedCoin);
+                    return assigned != null && assigned.matchesAlgorithm(value.currentAlgorithm());
+                })
                 .filter(value -> value.miningStatus() == MinerStats.MinerStatus.MINING)
                 .findFirst().orElse(null);
         List<CoinCapability> candidates = coins.stream().map(coin -> {
@@ -115,6 +122,15 @@ public class EconomicPlanningService {
 
     /** Applies only a plan that is locally opted-in and fully measured; it never accepts credentials. */
     public synchronized PlanResult apply(PlanRequest request) {
+        if (!runLock.tryBegin("economic-plan")) return PlanResult.rejected("coin_hopping_measurement_or_plan_active");
+        try {
+            return applyLocked(request);
+        } finally {
+            runLock.end();
+        }
+    }
+
+    private PlanResult applyLocked(PlanRequest request) {
         if (request == null || request.planId() == null || request.planId().isBlank() || request.assignments() == null)
             return PlanResult.rejected("Plan ist unvollständig");
         if (request.validForSeconds() < 30 || request.validForSeconds() > Duration.ofMinutes(30).toSeconds())

@@ -32,6 +32,7 @@ public enum Coin {
         for (Coin coin : values()) {
             ids.put(coin.id, coin);
             if (coin.algorithm != null) algorithms.put(coin.algorithm, coin);
+            if (coin.displayAlgorithm != null) algorithms.put(coin.displayAlgorithm.toLowerCase(Locale.ROOT), coin);
             for (String alias : coin.algorithmAliases) algorithms.put(alias, coin);
         }
         BY_ALGORITHM = Map.copyOf(algorithms);

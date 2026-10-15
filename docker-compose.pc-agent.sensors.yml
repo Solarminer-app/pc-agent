@@ -1,0 +1,9 @@
+# Optional Linux sensor overlay. Use only when these host paths exist.
+# Class entries are symlinks into /sys/devices; the container must also expose
+# their targets. Values remain unavailable if the kernel/permissions hide them.
+services:
+  pc-agent:
+    volumes:
+      - /sys/class/hwmon:/sys/class/hwmon:ro
+      - /sys/class/powercap:/sys/class/powercap:ro
+      - /sys/devices/virtual/powercap:/sys/devices/virtual/powercap:ro

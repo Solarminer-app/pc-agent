@@ -2251,3 +2251,35 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Telemetry exposes individual `otherPowerReadings` for motherboard, RAM, PSU and chipset sensor readings. The CPU/GPU partial sum is named `system.cpu_gpu_power` with `system.total_power` retained as a compatibility alias; the German and English UI shows separate PC component readings. These values are not summed or persisted as a worker because sensor domains may overlap and neither LHM nor Linux hwmon guarantees wall-power measurement.
 - Linux reads available `hwmon` power sensors. The optional `docker-compose.pc-agent.sensors.yml` binds host hwmon/powercap classes read-only where they exist; symlink target visibility and host permissions remain deployment-dependent.
 - Verification: offline `compileJava`, focused `HardwareTelemetryServiceTest`, `WindowsLhmBootstrapServiceTest` and `LinuxSensorReaderTest`, `check-i18n.cjs`, `scan-i18n-literals.cjs` and Docker Compose config passed. Host probe found no readable power sensor files; the visible RAPL `energy_uj` returned permission denied. Physical Windows UAC and Linux/Docker sensor output remain unverified on actual target hardware.
+## 2026-10-16 — Benchmark profile reliability, dashboard and local coin hopping
+
+- Benchmark finalization now releases the measurement lock even when local
+  profile persistence or sharing preparation fails; the session reports the
+  failure. Parallel GPU batches cap observations at the required twelve per
+  worker. Sweep profile lookup resolves historical algorithm display aliases
+  (including Quantus QPoW) against canonical coin IDs.
+- The benchmark page loads saved profiles at startup, after run completion and
+  on manual refresh, with one in-flight request per store. It adds a run/profile
+  overview and a measured USD/kWh comparison. Static and dynamic copy and the
+  new controls are present in both German and English.
+- Local coin hopping is opt-in per GPU and exact measured power target. It uses
+  the existing Currency Service cache, rejects stale/invalid market and profile
+  data, and requires a ready route and an actively mining worker. Ten-minute
+  evaluations require a 5% gain and a 30-minute cooldown; the shared run lock
+  excludes benchmarks, sweeps, and Node economic-plan writes. See
+  [coin-hopping.md](coin-hopping.md) for the full contract and limitations.
+- Verification: `compileJava` and focused `CoinHoppingServiceTest`,
+  `GpuEfficiencyStoreTest`, `BenchmarkSessionServiceTest` and
+  `EconomicPlanningServiceTest` passed on JDK 21. The full suite compiled and
+  ran 214 tests, with one failure in the unrelated existing
+  `QuanPoolStatsTest.resolvesEveryConfiguredNvidiaWorkerWithoutAssumingContiguousIndices`
+  (expected GPU indices `[2, 7]`, received `[0]`). `node --check`, both i18n
+  scripts (1,332 keys, zero unkeyed literals), and `git diff --check` passed.
+  A real GPU/pool validation of the switch and payout ranking remains open.
+
+## 2026-10-16 — Coin hopping uses ordinary mining measurements and has its own page
+
+- Ordinary GPU mining now records a local operating point after twelve consistent five-second samples with a positive hashrate, measured watts and unchanged reported power target. Manual benchmark profiles also retain their target; the store keeps separate targets instead of overwriting one coin's previous measurement. Existing profiles without a target remain readable but cannot be used for an exact-target hop.
+- Coin hopping ranks the newest valid measured point per coin at the requested target, regardless of whether it came from a sweep, manual benchmark or ordinary mining. The hop cooldown (1–1440 minutes) and minimum forecast gain (0.1–100%) are local settings, migrated from the earlier 30-minute/5% defaults. A mismatch between selected and driver power limits defers automatic switching.
+- `/coin-hopping.html` is the dedicated UI and sidebar destination. It lists attempted/successful hops and a persisted modelled-gross USD/coin comparison with the best fixed coin across the same accounted intervals and estimated energy use. The ledger uses active energy-journal sessions, breaks continuity after startup and settings changes, never backfills missing market/miner intervals and does not represent pool payouts or fees. The benchmark page now links to the new page.
+- Focused tests cover mixed sweep/live candidates, target-specific profile persistence, passive operating-point collection, action persistence and the fixed-coin counterfactual on equal estimated energy. JDK 21 focused tests passed. The full suite ran 221 tests with one existing unrelated failure in `QuanPoolStatsTest.resolvesEveryConfiguredNvidiaWorkerWithoutAssumingContiguousIndices`. Both frontend i18n checks passed (1,370 keys, 10 pages, zero unkeyed literals), as did JavaScript syntax and `git diff --check`; real GPU and pool accounting remain unverified.
