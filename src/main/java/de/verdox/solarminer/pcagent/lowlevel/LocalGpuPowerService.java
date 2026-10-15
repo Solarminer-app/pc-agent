@@ -238,9 +238,41 @@ public class LocalGpuPowerService {
         Map<String, UserLimits> next = new HashMap<>(userLimits);
         next.put(id, new UserLimits(minimumWatts, maximumWatts));
         if (!save(limitsFile, next)) return false;
+        Map<String, UserLimits> previous = userLimits;
         userLimits = Map.copyOf(next);
         discoveredAt = 0;
+        Gpu updated = refresh().stream().filter(candidate -> candidate.deviceId().equals(id)).findFirst().orElse(null);
+        Integer current = updated == null ? null : updated.currentPowerLimitWatts();
+        if (updated == null || current == null) {
+            userLimits = previous;
+            save(limitsFile, previous);
+            discoveredAt = 0;
+            return false;
+        }
+        int target = Math.max(updated.minWatts(), Math.min(updated.maxWatts(), current));
+        if (target != current && !setTotalPowerTarget(target, List.of(updated))) {
+            userLimits = previous;
+            save(limitsFile, previous);
+            discoveredAt = 0;
+            return false;
+        }
+        refresh();
         return true;
+    }
+
+    /**
+     * Applies the saved per-GPU range before a miner starts. Manual starts do not have a
+     * global power budget, so without this clamp the driver can retain an older, higher cap.
+     */
+    public synchronized boolean enforceUserLimits(Gpu requested) {
+        Gpu gpu = refresh().stream().filter(candidate -> candidate.deviceId().equals(requested.deviceId()))
+                .findFirst().orElse(null);
+        if (gpu == null) return false;
+        if (!gpu.supportsDynamicPowerScaling()) return true;
+        Integer current = gpu.currentPowerLimitWatts();
+        if (current == null) return false;
+        int target = Math.max(gpu.minWatts(), Math.min(gpu.maxWatts(), current));
+        return target == current || setTotalPowerTarget(target, List.of(gpu));
     }
 
     public int appliedTarget(Gpu gpu) {

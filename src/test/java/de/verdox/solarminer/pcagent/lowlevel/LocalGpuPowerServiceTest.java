@@ -33,6 +33,19 @@ class LocalGpuPowerServiceTest {
     }
 
     @Test
+    void applyingUserMaximumImmediatelyLowersTheLiveDriverCap() {
+        NvidiaRunner runner = new NvidiaRunner(Map.of("GPU-one", 220));
+        LocalGpuPowerService service = service(runner);
+        LocalGpuPowerService.Gpu gpu = service.discover().getFirst();
+        assertTrue(service.setUserLimits("GPU-one", 100, 180));
+
+        assertEquals(180, runner.limits.get("GPU-one"));
+        assertEquals(180, service.refresh().getFirst().currentPowerLimitWatts());
+        assertTrue(runner.commands.contains(List.of("nvidia-smi", "-i", "GPU-one", "-pl", "180")));
+        assertTrue(service.enforceUserLimits(gpu));
+    }
+
+    @Test
     void readableNvidiaCardWithoutWritePermissionIsNotAdvertisedAsControllable() {
         NvidiaRunner runner = new NvidiaRunner(Map.of("GPU-one", 250));
         runner.denyWrites = true;

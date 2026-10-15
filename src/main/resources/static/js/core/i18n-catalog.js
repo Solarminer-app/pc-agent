@@ -396,8 +396,8 @@ window.SolarMinerI18nCatalog = {
         },
         "choose_hardware": {de: "Hardware wählen", en: "Choose hardware"},
         "choose_how_much_power_your_gpus_may_use_unde": {
-            de: "Lege fest, wie viel Leistung deine GPUs im geregelten Betrieb nutzen dürfen. Treibergrenzen geben den verfügbaren Bereich vor. Änderungen werden erst mit „Grenzen anwenden“ gespeichert.",
-            en: "Choose how much power your GPUs may use under dynamic control. Driver limits define the available range. Changes are saved only when you apply them."
+            de: "Lege den zulässigen Leistungsbereich deiner GPUs fest. Treibergrenzen geben den verfügbaren Bereich vor. Beim Anwenden wird das aktuelle Treiberlimit sofort an diesen Bereich angepasst; beim nächsten Miner-Start wird die Grenze erneut geprüft.",
+            en: "Choose the allowed power range for your GPUs. Driver limits define the available range. Applying the range immediately adjusts the current driver limit; the limit is checked again at the next miner start."
         },
         "choose_kryptex_with_your_own_etc_wallet_or_c": {
             de: "Wähle Kryptex mit eigener ETC-Wallet oder bestätige das SolarMiner-Standardziel. Die Fee-Route muss vor dem Start freigeschaltet sein.",
@@ -939,6 +939,10 @@ window.SolarMinerI18nCatalog = {
         "gpu_miner_paused": {de: "GPU-Miner pausiert", en: "GPU miner paused"},
         "gpu_mining": {de: "GPU Mining", en: "GPU mining"},
         "gpu_power_limits_are_missing": {de: "GPU-Leistungsgrenzen fehlen", en: "GPU power limits are missing"},
+        "gpu_power_limits_could_not_be_saved_or_driver_v": {
+            de: "GPU-Leistungsgrenzen konnten nicht gespeichert oder vom Treiber verifiziert werden",
+            en: "GPU power limits could not be saved or verified by the driver"
+        },
         "gpu_power_limits_are_outside_the_current_dri": {
             de: "GPU-Leistungsgrenzen liegen außerhalb der aktuellen Treibergrenzen",
             en: "GPU power limits are outside the current driver range"
@@ -2709,6 +2713,7 @@ window.SolarMinerI18nCatalog = {
         "Node-Steuerung ist während eines Benchmarks vorübergehend gesperrt": "Node control is temporarily locked during a benchmark",
         "Externe Steuerung wurde lokal deaktiviert": "External control was disabled locally",
         "GPU-Leistungsgrenzen fehlen": "GPU power limits are missing",
+        "GPU-Leistungsgrenzen konnten nicht gespeichert oder vom Treiber verifiziert werden": "GPU power limits could not be saved or verified by the driver",
         "GPU-Leistungsgrenzen können während eines Messlaufs nicht geändert werden": "GPU power limits cannot be changed during a benchmark run",
         "GPU-Leistungsgrenzen liegen außerhalb der aktuellen Treibergrenzen": "GPU power limits are outside the current driver range",
         "Effizienzkurven wurden nicht hochgeladen: Teilen ist deaktiviert.": "Efficiency curves were not uploaded: sharing is disabled.",

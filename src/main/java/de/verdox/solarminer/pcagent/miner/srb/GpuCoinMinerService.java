@@ -239,6 +239,7 @@ public class GpuCoinMinerService extends AbstractSrbMinerEngine {
                 new WorkerRunState(coin, gpu,
                         MinerConsoleService.gpuConsoleId(Coin.byIdOrNull(coin), vendor, index), "Noch nicht gestartet"));
         if (run.running()) return true;
+        if (!power.enforceUserLimits(gpu)) return fail(run, "Treiber bestätigte den Power-Cap nicht");
         refreshDefaultPayout(coin);
         MinerConfig config = effectiveConfig(coin);
         if (config == null || !proxy.matches(config.proxyUrl(), coin) || !proxy.miningReady(coin)

@@ -206,7 +206,7 @@ public class AgentPowerController {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "GPU-Leistungsgrenzen können während eines Messlaufs nicht geändert werden");
         }
         if (!applied)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "GPU-Leistungsgrenzen liegen außerhalb der aktuellen Treibergrenzen");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "GPU-Leistungsgrenzen konnten nicht gespeichert oder vom Treiber verifiziert werden");
         reportChanged("power-control", "overview");
         return status().gpus().stream().filter(g -> g.deviceId().equals(deviceId)).findFirst().orElseThrow();
     }

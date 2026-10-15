@@ -2084,3 +2084,21 @@ Vorgehen / Andockpunkte für andere Agenten:
   determine a usable wildcard IP in this execution environment (also with
   IPv4-preference enabled); source-level test added, native Windows probe
   unavailable.
+## 2026-10-15 — Apply saved GPU bounds before manual miner start
+
+- Diagnosis from the RTX 2080 report: the Hardware page saved per-GPU minimum
+  and maximum bounds, but manual `resumeMining` started the adapter without
+  applying those saved bounds. A previous 220 W driver cap therefore remained
+  active after saving a 180 W maximum. Applying new bounds now immediately
+  clamps the live driver limit; the page says the limits are checked again at
+  the next miner start.
+- Every GPU adapter now asks `LocalGpuPowerService` to clamp the live driver cap
+  into that GPU's saved [minimum, maximum] range before starting. The service
+  reads fresh driver state and verifies any changed cap through readback; it
+  leaves already-in-range targets untouched. This covers worker, coin, local
+  and Node start paths, and preserves a global budget that is already in range.
+- Regression coverage verifies a 220 W NVIDIA mock cap is written and read back
+  as 180 W when the bounds are applied, and the start path rechecks them. The
+  Gradle test run could not initialize in
+  this Linux execution environment because it cannot determine a usable
+  wildcard IP. Native RTX 2080 Windows verification remains outstanding.
