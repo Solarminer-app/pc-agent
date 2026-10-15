@@ -2227,3 +2227,21 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Verification: `node --check src/main/resources/static/js/pages/benchmarks.js`,
   `check-i18n.cjs` (1,293 keys, both locales), `scan-i18n-literals.cjs` (0
   unkeyed literals), and `git diff --check` passed; automated tests not run.
+## 2026-10-15 — Diagnose empty saved measurement lists
+
+- Saved benchmark and efficiency-profile views now fetch their stores directly
+  on page load instead of waiting for an SSE status event. API failures are
+  shown instead of silently leaving the lists blank.
+- Empty lists now show the absolute configured file path, whether it exists,
+  loaded profile count, and any JSON load error. Missing files remain a normal
+  empty state; malformed/unreadable files are reported distinctly.
+- This provides direct evidence on the user's running installation about which
+  data directory it reads. Existing completed efficiency runs persist a profile
+  unless cancelled; successful profiles are keyed by device and algorithm, so a
+  later successful run replaces that key. Benchmark profiles require 12 valid
+  observations plus known device/coin and nonzero hashrate/power.
+- Verification: `node --check src/main/resources/static/js/pages/benchmarks.js`,
+  `check-i18n.cjs` (1,298 keys, both locales), `scan-i18n-literals.cjs` (0
+  unkeyed literals), and `git diff --check` passed. `compileJava` could not
+  start because the Gradle wrapper cache under `/home/lukas/.gradle` is
+  read-only; tests not run.

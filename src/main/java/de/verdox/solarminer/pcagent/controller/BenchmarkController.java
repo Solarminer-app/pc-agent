@@ -34,6 +34,9 @@ public class BenchmarkController {
     @GetMapping("/profiles")
     public List<MiningPerformanceProfileStore.Profile> profiles() { return profiles.all(); }
 
+    @GetMapping("/profiles/storage")
+    public MiningPerformanceProfileStore.StorageStatus profileStorage() { return profiles.storageStatus(); }
+
     @GetMapping("/match")
     public Map<String, Object> comparison(@RequestParam String hardwareType,
                                           @RequestParam String hardwareModel, @RequestParam String algorithm) {

@@ -60,4 +60,7 @@ public class EfficiencySweepController {
     public List<GpuEfficiencyStore.Profile> profiles() {
         return sweep.profiles();
     }
+
+    @GetMapping("/profiles/storage")
+    public GpuEfficiencyStore.StorageStatus profileStorage() { return sweep.profileStorageStatus(); }
 }

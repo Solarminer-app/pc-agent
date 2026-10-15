@@ -18,7 +18,7 @@ let savedBenchmarkSignature = null;
 async function renderSavedBenchmarks() {
     try {
         const response = await fetch('/api/agent/local/benchmarks/profiles', {cache: 'no-store'});
-        if (!response.ok) return;
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const profiles = await response.json();
         const signature = JSON.stringify(profiles);
         if (signature === savedBenchmarkSignature) return;
@@ -26,6 +26,7 @@ async function renderSavedBenchmarks() {
         const root = $('saved-benchmarks'); root.replaceChildren();
         if (!profiles.length) {
             root.append(make('p', 'empty', t('no_saved_local_benchmark_profiles_yet')));
+            await appendStorageDiagnostic(root, '/api/agent/local/benchmarks/profiles/storage');
             return;
         }
         for (const profile of profiles) {
@@ -35,7 +36,20 @@ async function renderSavedBenchmarks() {
                 make('p', '', `${t('hashrate')}: ${fmtRate(profile.hashrateHps)} · ${t('power_4606f4')}: ${profile.powerWatts} W · ${t('efficiency')}: ${window.SolarMinerMeasurements.efficiency(profile.hashrateHps, profile.powerWatts)}`));
             root.append(card);
         }
-    } catch (e) { /* Retain the last locally rendered profiles while the API recovers. */ }
+    } catch (e) {
+        $('saved-benchmarks').replaceChildren(make('p', 'empty', t('could_not_load_saved_benchmark_profiles', {error: s(e.message)})));
+    }
+}
+
+async function appendStorageDiagnostic(root, endpoint) {
+    const response = await fetch(endpoint, {cache: 'no-store'});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const status = await response.json();
+    root.append(make('p', 'muted', t('profile_storage_diagnostic', {
+        file: status.file,
+        state: status.loadError || (status.exists ? t('file_readable') : t('file_not_created_yet')),
+        count: status.profiles
+    })));
 }
 
 function notice(text, error = false, kind = 'action') {
@@ -457,7 +471,7 @@ function runRow(run, statusLabel, expandFinishedHistory) {
 async function renderProfiles() {
     try {
         const response = await fetch('/api/agent/local/efficiency/profiles', {cache: 'no-store'});
-        if (!response.ok) return;
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const profiles = await response.json();
         const signature = JSON.stringify(profiles);
         if (signature === lastProfileSignature) return;
@@ -466,6 +480,7 @@ async function renderProfiles() {
         root.replaceChildren();
         if (!profiles.length) {
             root.append(make('p', 'empty', t('no_efficiency_profile_yet_start_a_test_to_fi')));
+            await appendStorageDiagnostic(root, '/api/agent/local/efficiency/profiles/storage');
             return;
         }
         for (const profile of profiles) {
@@ -485,7 +500,7 @@ async function renderProfiles() {
             root.append(card);
         }
     } catch (e) {
-        // Profiles remain hidden until the local store is reachable again.
+        $('sweep-results').replaceChildren(make('p', 'empty', t('could_not_load_efficiency_profiles', {error: s(e.message)})));
     }
 }
 
@@ -575,4 +590,8 @@ window.SolarMinerLive.channel('efficiency', {endpoint: '/api/agent/local/efficie
     .subscribe(state => { if (state) applySweepState(state); });
 window.SolarMinerLive.channel('benchmark-upload', {endpoint: '/api/agent/local/benchmarks/sharing/upload-status', maxAgeMs: 8000})
     .subscribe(applyUploadStatus);
+// Load durable local data directly at page startup; it must not depend on an SSE
+// status update arriving first.
+renderSavedBenchmarks();
+renderProfiles();
 window.SolarMinerLive.start();

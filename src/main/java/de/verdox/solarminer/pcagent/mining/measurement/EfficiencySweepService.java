@@ -183,6 +183,8 @@ public class EfficiencySweepService {
         return store.all();
     }
 
+    public GpuEfficiencyStore.StorageStatus profileStorageStatus() { return store.storageStatus(); }
+
     /**
      * Coins with a saved configuration and a usable SRBMiner, restricted to driver-verified GPUs.
      * A coin the operator never configured is still measured against the fee-backend house

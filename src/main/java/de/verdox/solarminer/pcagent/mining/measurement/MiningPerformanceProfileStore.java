@@ -21,6 +21,7 @@ public class MiningPerformanceProfileStore {
     private final ObjectMapper json;
     private final Path file;
     private volatile Map<String, Profile> profiles;
+    private volatile String loadError;
 
     public MiningPerformanceProfileStore(ObjectMapper json,
                                          @Value("${solarminer.agent.performance-profiles-file:./solarminer-agent/performance-profiles.json}") String path) {
@@ -46,6 +47,10 @@ public class MiningPerformanceProfileStore {
         return List.copyOf(values);
     }
 
+    public StorageStatus storageStatus() {
+        return new StorageStatus(file.toString(), Files.isRegularFile(file), profiles.size(), loadError);
+    }
+
     public synchronized void save(Profile profile) {
         Map<String, Profile> next = new LinkedHashMap<>(profiles);
         next.put(key(profile.workerId(), profile.coin(), profile.algorithm()), profile);
@@ -56,7 +61,10 @@ public class MiningPerformanceProfileStore {
     private Map<String, Profile> load() {
         try {
             return Map.copyOf(json.readValue(Files.readString(file), new TypeReference<Map<String, Profile>>() { }));
-        } catch (Exception ignored) {
+        } catch (java.nio.file.NoSuchFileException missing) {
+            return Map.of();
+        } catch (Exception error) {
+            loadError = error.getClass().getSimpleName() + ": " + java.util.Objects.toString(error.getMessage(), "");
             return Map.of();
         }
     }
@@ -67,4 +75,5 @@ public class MiningPerformanceProfileStore {
 
     public record Profile(String workerId, String hardwareType, String hardwareModel, String coin, String algorithm,
                           double hashrateHps, long powerWatts, int observations, Instant measuredAt, String source) { }
+    public record StorageStatus(String file, boolean exists, int profiles, String loadError) { }
 }

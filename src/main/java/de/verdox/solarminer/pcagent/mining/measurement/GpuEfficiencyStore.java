@@ -25,6 +25,7 @@ public class GpuEfficiencyStore {
     private final ObjectMapper json;
     private final Path file;
     private volatile Map<String, Profile> profiles;
+    private volatile String loadError;
 
     public GpuEfficiencyStore(ObjectMapper json,
                               @Value("${solarminer.agent.gpu-efficiency-file:./solarminer-agent/gpu-efficiency-profiles.json}") String path) {
@@ -59,6 +60,10 @@ public class GpuEfficiencyStore {
         return List.copyOf(values);
     }
 
+    public StorageStatus storageStatus() {
+        return new StorageStatus(file.toString(), Files.isRegularFile(file), profiles.size(), loadError);
+    }
+
     public Profile find(String deviceId, String algorithm) {
         return profiles.get(key(deviceId, algorithm));
     }
@@ -67,7 +72,10 @@ public class GpuEfficiencyStore {
         try {
             return Map.copyOf(json.readValue(Files.readString(file), new TypeReference<Map<String, Profile>>() {
             }));
-        } catch (Exception e) {
+        } catch (java.nio.file.NoSuchFileException missing) {
+            return Map.of();
+        } catch (Exception error) {
+            loadError = error.getClass().getSimpleName() + ": " + java.util.Objects.toString(error.getMessage(), "");
             return Map.of();
         }
     }
@@ -80,6 +88,8 @@ public class GpuEfficiencyStore {
                           Integer bestStableWatts, Double bestHashrateHs, Double bestPowerWatts,
                           Double bestHashesPerWatt, Instant testedAt, List<StepResult> steps) {
     }
+
+    public record StorageStatus(String file, boolean exists, int profiles, String loadError) { }
 
     public record StepResult(int limitWatts, Double medianHashrateHs, Double avgPowerWatts,
                              Double maxTemperatureC, boolean stable, String note) {
