@@ -2186,6 +2186,23 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Verification: `node --check src/main/resources/static/js/pages/benchmarks.js`,
   `check-i18n.cjs` (1,286 keys, both locales), `scan-i18n-literals.cjs` (0
   unkeyed literals), and `git diff --check` passed.
+
+## 2026-10-15 — Continue descending power curves after unstable steps
+
+- A single unstable reference step previously ended that GPU's full descending
+  curve. Ordinary miner/hashrate/share instability now gets a five-second stop
+  interval and the sweep continues at the next lower cap. Driver-rejected cap
+  writes still stop that GPU's curve because the requested operating point was
+  not applied.
+- When a step trips the temperature ceiling, the miner is stopped and the sweep
+  waits until the GPU cools at least 3 °C below the threshold, for up to two
+  minutes, before attempting the lower cap. Missing temperature telemetry, a
+  cooldown timeout, or cancellation stops that GPU's remaining curve. Ascending
+  sibling validation still stops at its first unstable point so it never raises
+  power after a failed validation.
+- UI copy and status contracts are unchanged; existing per-step diagnoses remain
+  visible. `git diff --check` passed; runtime GPU cooldown behavior still needs a
+  hardware sweep to confirm against the Windows driver and the card's sensor cadence.
 ## 2026-10-15 — Show locally saved benchmark profiles
 
 - The benchmark page previously rendered only the current in-memory session. Once

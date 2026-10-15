@@ -44,8 +44,9 @@ import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
  * <ul>
  *   <li>Only driver-verified power limits are written (read-back check inside
  *       {@link LocalGpuPowerService}); driver and persisted user limits are never undercut.</li>
- *   <li>Every sample checks the GPU temperature; exceeding the configured ceiling aborts the
- *       step immediately and keeps the last stable limit.</li>
+ *   <li>Every sample checks the GPU temperature; exceeding the configured ceiling aborts that
+ *       step immediately. The GPU is stopped and must cool below a safety margin before the
+ *       sweep may try the next lower limit.</li>
  *   <li>A step counts as stable only while the miner process stays alive, keeps hashing with a
  *       valid pool connection and does not exceed the rejected-share ratio.</li>
  *   <li>After the run — including cancellation or failure — the previous power limits and the
@@ -57,6 +58,10 @@ public class EfficiencySweepService {
     /** Five-second samples; twelve points cover at least one minute of steady-state mining per step. */
     static final int SAMPLES_PER_STEP = 12;
     static final long SAMPLE_INTERVAL_MILLIS = 5_000;
+    private static final long UNSTABLE_RETRY_PAUSE_MILLIS = 5_000;
+    private static final long TEMPERATURE_COOLDOWN_TIMEOUT_MILLIS = 120_000;
+    private static final long TEMPERATURE_COOLDOWN_POLL_MILLIS = 2_000;
+    private static final double TEMPERATURE_COOLDOWN_MARGIN_C = 3.0;
     private static final long ESTIMATED_STARTUP_SECONDS = 45;
     private final MinerFactory miners;
     private final LocalGpuPowerService power;
@@ -466,7 +471,11 @@ public class EfficiencySweepService {
             sweepLog(target, label + " @ " + limit + " W: " + (step.stable()
                     ? "stabil, " + formatRate(step.medianHashrateHs()) + " · " + Math.round(step.avgPowerWatts()) + " W"
                     : "instabil (" + step.note() + ")"));
-            if (!step.stable() && mode == SweepMode.FULL) break;
+            if (!step.stable()) {
+                // Validation walks upward from the reference value; an unstable result
+                // there must not unlock a still higher power target on the same GPU.
+                if (mode != SweepMode.FULL || !mayContinueAfterUnstableStep(target, step)) break;
+            }
             if (step.stable() && (best == null || step.medianHashrateHs() / step.avgPowerWatts() > best.medianHashrateHs() / best.avgPowerWatts()))
                 best = step;
             if (step.stable() && mode == SweepMode.VALIDATION) break;
@@ -495,6 +504,43 @@ public class EfficiencySweepService {
         // session-local and do not replace the last completed profile.
         if (profile != null && !guard.cancelRequested()) store.save(profile);
         return profile;
+    }
+
+    /** Continue a descending reference curve after recoverable instability, with thermal guards. */
+    private boolean mayContinueAfterUnstableStep(Target target, GpuEfficiencyStore.StepResult step) {
+        if (guard.cancelRequested()) return false;
+        if (step.note() != null && step.note().startsWith("GPU-Temperatur nicht lesbar")) return false;
+        if (step.maxTemperatureC() != null && step.maxTemperatureC() > maxTemperatureC)
+            return waitForTemperatureCooldown(target);
+        return waitBeforeLowerPowerRetry();
+    }
+
+    /** Do not run again until the stopped GPU is at least 3 °C below the trip threshold. */
+    private boolean waitForTemperatureCooldown(Target target) {
+        Instant deadline = Instant.now().plusMillis(TEMPERATURE_COOLDOWN_TIMEOUT_MILLIS);
+        double restartBelow = maxTemperatureC - TEMPERATURE_COOLDOWN_MARGIN_C;
+        while (!guard.cancelRequested() && Instant.now().isBefore(deadline)) {
+            Double temperature = power.readTemperatureC(target.gpu());
+            if (temperature == null) return false;
+            if (temperature <= restartBelow) return true;
+            if (!pauseForCooldown(TEMPERATURE_COOLDOWN_POLL_MILLIS)) return false;
+        }
+        return false;
+    }
+
+    private boolean waitBeforeLowerPowerRetry() {
+        return !guard.cancelRequested() && pauseForCooldown(UNSTABLE_RETRY_PAUSE_MILLIS)
+                && !guard.cancelRequested();
+    }
+
+    private boolean pauseForCooldown(long millis) {
+        try {
+            Thread.sleep(millis);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     private void applyOverride(Target target) {
