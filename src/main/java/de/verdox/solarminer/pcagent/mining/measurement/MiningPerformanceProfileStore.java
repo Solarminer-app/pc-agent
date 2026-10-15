@@ -12,6 +12,8 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Durable local benchmark evidence for economic dispatch; contains no pool credentials or identity. */
 @Service
@@ -33,6 +35,15 @@ public class MiningPerformanceProfileStore {
 
     public Profile find(String workerId, String coin, String algorithm) {
         return profiles.get(key(workerId, coin, algorithm));
+    }
+
+    public List<Profile> all() {
+        List<Profile> values = new ArrayList<>(profiles.values());
+        values.sort((a, b) -> {
+            int byModel = a.hardwareModel().compareToIgnoreCase(b.hardwareModel());
+            return byModel != 0 ? byModel : a.algorithm().compareToIgnoreCase(b.algorithm());
+        });
+        return List.copyOf(values);
     }
 
     public synchronized void save(Profile profile) {

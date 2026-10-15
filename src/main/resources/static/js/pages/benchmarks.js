@@ -13,6 +13,30 @@ let lastRenderRunning = null;
 let lastUploadStatus = '';
 let sharePromptShown = false;
 let sharingKnown = false;
+let savedBenchmarkSignature = null;
+
+async function renderSavedBenchmarks() {
+    try {
+        const response = await fetch('/api/agent/local/benchmarks/profiles', {cache: 'no-store'});
+        if (!response.ok) return;
+        const profiles = await response.json();
+        const signature = JSON.stringify(profiles);
+        if (signature === savedBenchmarkSignature) return;
+        savedBenchmarkSignature = signature;
+        const root = $('saved-benchmarks'); root.replaceChildren();
+        if (!profiles.length) {
+            root.append(make('p', 'empty', t('no_saved_local_benchmark_profiles_yet')));
+            return;
+        }
+        for (const profile of profiles) {
+            const card = make('article', 'worker-card');
+            card.append(make('strong', '', `${profile.hardwareModel} · ${profile.coin} · ${profile.algorithm}`),
+                make('p', 'muted', t('hardware_count_samples', {hardware: profile.hardwareType, count: profile.observations})),
+                make('p', '', `${t('hashrate')}: ${fmtRate(profile.hashrateHps)} · ${t('power_4606f4')}: ${profile.powerWatts} W · ${t('efficiency')}: ${window.SolarMinerMeasurements.efficiency(profile.hashrateHps, profile.powerWatts)}`));
+            root.append(card);
+        }
+    } catch (e) { /* Retain the last locally rendered profiles while the API recovers. */ }
+}
 
 function notice(text, error = false, kind = 'action') {
     const e = $('notice');
@@ -89,6 +113,7 @@ async function renderResults(results, running = false, phase = '') {
 }
 
 function applyBenchmarkState(state, meta = {}) {
+    renderSavedBenchmarks();
     if ($('notice').dataset.kind === 'connection') $('notice').hidden = true;
     $('connection').className = `badge ${meta.stale ? 'offline' : 'online'}`;
     $('connection').textContent = meta.stale ? t('connecting') : t('agent_connected');
@@ -451,6 +476,8 @@ async function renderProfiles() {
             if (profile.bestStableWatts != null) {
                 info.append(make('p', '', t('best_stable_value_watts_w_hashrate_power_w_e', {watts: profile.bestStableWatts, hashrate: fmtRate(profile.bestHashrateHs), power: Math.round(profile.bestPowerWatts), efficiency: window.SolarMinerMeasurements.efficiency(profile.bestHashrateHs, profile.bestPowerWatts)})));
             } else info.append(make('p', '', t('no_stable_power_limit_found')));
+            const chart = efficiencyChart(profile);
+            if (chart) info.append(chart);
             const steps = (profile.steps || []).map(step =>
                 `${step.limitWatts} W ${step.stable ? '✓' : '✗'}${step.medianHashrateHs ? ` (${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W)` : ''}${step.note ? ` — ${s(step.note)}` : ''}`).join(' · ');
             if (steps) info.append(make('p', 'muted', steps));
@@ -460,6 +487,57 @@ async function renderProfiles() {
     } catch (e) {
         // Profiles remain hidden until the local store is reachable again.
     }
+}
+
+function efficiencyChart(profile) {
+    const points = (profile.steps || []).filter(step => Number(step.avgPowerWatts) > 0 && Number(step.medianHashrateHs) > 0)
+        .map(step => ({power: Number(step.avgPowerWatts), rate: Number(step.medianHashrateHs), stable: Boolean(step.stable)}));
+    if (!points.length) return null;
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 640 300');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', t('efficiency_curve_for_hardware', {hardware: profile.model, algorithm: profile.algorithm}));
+    svg.classList.add('efficiency-curve');
+    const add = (tag, attrs, text) => {
+        const node = document.createElementNS(ns, tag);
+        for (const [key, value] of Object.entries(attrs || {})) node.setAttribute(key, String(value));
+        if (text != null) node.textContent = text;
+        svg.append(node); return node;
+    };
+    const left = 76, right = 612, top = 24, bottom = 238;
+    const xs = points.map(p => p.power), ys = points.map(p => p.rate);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    const xPad = (maxX - minX) * 0.08 || Math.max(1, maxX * 0.08);
+    const yPad = (maxY - minY) * 0.12 || Math.max(1, maxY * 0.08);
+    const x0 = minX - xPad, x1 = maxX + xPad, y0 = Math.max(0, minY - yPad), y1 = maxY + yPad;
+    const x = v => left + (v - x0) / (x1 - x0) * (right - left);
+    const y = v => bottom - (v - y0) / (y1 - y0) * (bottom - top);
+    for (let i = 0; i <= 4; i++) {
+        const gy = top + i * (bottom - top) / 4;
+        add('line', {x1:left, y1:gy, x2:right, y2:gy, stroke:'#ffffff20'});
+        add('text', {x:left - 9, y:gy + 4, fill:'currentColor', 'font-size':11, 'text-anchor':'end'}, fmtRate(y1 - i * (y1-y0)/4));
+        const gx = left + i * (right - left) / 4;
+        add('line', {x1:gx, y1:top, x2:gx, y2:bottom, stroke:'#ffffff12'});
+        add('text', {x:gx, y:bottom + 19, fill:'currentColor', 'font-size':11, 'text-anchor':'middle'}, `${Math.round(x0 + i * (x1-x0)/4)} W`);
+    }
+    add('line', {x1:left, y1:bottom, x2:right, y2:bottom, stroke:'#9aadc3'});
+    add('line', {x1:left, y1:top, x2:left, y2:bottom, stroke:'#9aadc3'});
+    add('text', {x:(left+right)/2, y:286, fill:'currentColor', 'font-size':12, 'text-anchor':'middle'}, t('power_consumption_watts'));
+    const yLabel = add('text', {x:16, y:(top+bottom)/2, fill:'currentColor', 'font-size':12, 'text-anchor':'middle', transform:`rotate(-90 16 ${(top+bottom)/2})`}, t('hashrate'));
+    const ordered = [...points].sort((a,b) => a.power-b.power);
+    add('polyline', {points:ordered.map(p => `${x(p.power)},${y(p.rate)}`).join(' '), fill:'none', stroke:'#83bfff', 'stroke-width':3, 'stroke-linejoin':'round'});
+    for (const point of points) {
+        const circle = add('circle', {cx:x(point.power), cy:y(point.rate), r:point.stable ? 5 : 4, fill:point.stable ? '#8ee4b4' : '#efaa8b', stroke:'#111b2b', 'stroke-width':2});
+        const title = document.createElementNS(ns, 'title');
+        title.textContent = `${Math.round(point.power)} W · ${fmtRate(point.rate)} · ${t(point.stable ? 'stable' : 'unstable')}`;
+        circle.append(title);
+    }
+    if (profile.bestStableWatts != null && profile.bestHashrateHs > 0) {
+        add('circle', {cx:x(profile.bestPowerWatts || profile.bestStableWatts), cy:y(profile.bestHashrateHs), r:9, fill:'none', stroke:'#f6c26e', 'stroke-width':3});
+        add('text', {x:right, y:top + 13, fill:'#f6c26e', 'font-size':11, 'text-anchor':'end'}, t('sweet_spot'));
+    }
+    return svg;
 }
 
 async function startSweep(mode = 'restart') {

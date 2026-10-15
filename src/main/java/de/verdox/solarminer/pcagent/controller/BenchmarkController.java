@@ -2,6 +2,7 @@ package de.verdox.solarminer.pcagent.controller;
 
 import de.verdox.solarminer.pcagent.mining.measurement.BenchmarkSessionService;
 import de.verdox.solarminer.pcagent.mining.measurement.BenchmarkSharingService;
+import de.verdox.solarminer.pcagent.mining.measurement.MiningPerformanceProfileStore;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -15,18 +16,23 @@ public class BenchmarkController {
     private final BenchmarkSessionService sessions;
     private final BenchmarkSharingService sharing;
     private final AgentStatusService status;
+    private final MiningPerformanceProfileStore profiles;
 
     public BenchmarkController(BenchmarkSessionService sessions, BenchmarkSharingService sharing,
-                               AgentStatusService status) {
+                               AgentStatusService status, MiningPerformanceProfileStore profiles) {
         this.sessions = sessions;
         this.sharing = sharing;
         this.status = status;
+        this.profiles = profiles;
     }
 
     @GetMapping
     public BenchmarkSessionService.Session status() {
         return sessions.status();
     }
+
+    @GetMapping("/profiles")
+    public List<MiningPerformanceProfileStore.Profile> profiles() { return profiles.all(); }
 
     @GetMapping("/match")
     public Map<String, Object> comparison(@RequestParam String hardwareType,

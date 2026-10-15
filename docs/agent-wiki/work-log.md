@@ -2186,3 +2186,27 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Verification: `node --check src/main/resources/static/js/pages/benchmarks.js`,
   `check-i18n.cjs` (1,286 keys, both locales), `scan-i18n-literals.cjs` (0
   unkeyed literals), and `git diff --check` passed.
+## 2026-10-15 — Show locally saved benchmark profiles
+
+- The benchmark page previously rendered only the current in-memory session. Once
+  a run was over or the agent restarted, `/benchmarks` returned an idle session
+  with no results, so the UI showed “no measurements yet” despite durable
+  per-worker profile JSON existing on disk. Added a read-only local profiles
+  endpoint and a separately rendered saved-profile list; efficiency profiles
+  continue to use their existing local endpoint and are shown alongside run
+  history.
+- Added German and English catalog entries for the new heading and empty state.
+- Verification: reviewed the API/store/UI data fields and both locale entries;
+  automated tests were not run.
+
+## 2026-10-15 — Plot efficiency curves and sweetspots
+
+- Saved efficiency profiles now render an SVG curve with power consumption on
+  the X axis and hashrate on the Y axis. Stable and unstable measurements use
+  distinct markers; the recorded best stable profile is outlined and labeled as
+  the sweet spot. Point values remain available in the existing step history.
+- Axis labels, graph accessibility name, point stability labels and sweetspot
+  label are localized in German and English.
+- Verification: `node --check src/main/resources/static/js/pages/benchmarks.js`,
+  `check-i18n.cjs` (1,293 keys, both locales), `scan-i18n-literals.cjs` (0
+  unkeyed literals), and `git diff --check` passed; automated tests not run.

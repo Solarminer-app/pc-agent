@@ -1915,6 +1915,13 @@ window.SolarMinerI18nCatalog = {
         "save_locally": {de: "Lokal speichern", en: "Save locally"},
         "save_wallet": {de: "Wallet speichern", en: "Save wallet"},
         "saved_efficiency_profiles": {de: "Gespeicherte Effizienzprofile", en: "Saved efficiency profiles"},
+        "saved_local_benchmark_profiles": {de: "Gespeicherte lokale Benchmark-Profile", en: "Saved local benchmark profiles"},
+        "no_saved_local_benchmark_profiles_yet": {de: "Noch keine lokalen Benchmark-Profile gespeichert.", en: "No local benchmark profiles have been saved yet."},
+        "efficiency_curve_for_hardware": {de: "Effizienzkurve für {hardware}, {algorithm}", en: "Efficiency curve for {hardware}, {algorithm}"},
+        "power_consumption_watts": {de: "Stromverbrauch (Watt)", en: "Power consumption (watts)"},
+        "sweet_spot": {de: "Sweetspot", en: "Sweet spot"},
+        "stable": {de: "stabil", en: "stable"},
+        "unstable": {de: "instabil", en: "unstable"},
         "saved_limits_moving_the_sliders_does_not_app": {
             de: "Gespeicherte Grenzen. Verschieben ändert noch nichts.",
             en: "Saved limits. Moving the sliders does not apply changes."
