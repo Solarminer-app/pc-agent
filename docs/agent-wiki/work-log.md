@@ -1,5 +1,10 @@
 # PC-Agent work log
 
+## 2026-10-14 — QTC forecast input alignment
+
+- The Agent's existing gross QTC forecast consumes the Currency Service network snapshot. Its producer now pairs QTCScan's 24-hour estimated network hashrate with the average block interval from that same window, avoiding the prior mix of a short-window rate and nominal target interval.
+- The Agent API/UI contract is unchanged; its estimate remains before pool/miner fees when unknown and does not guarantee pool credits. The Currency Service owns the parser correction and test. No Agent code or mining route changed.
+
 ## 2026-10-13 — Read-only Node-Telemetrie von Steuerfreigabe getrennt
 
 - `externalControlEnabled` sperrt weiterhin sämtliche Node-Schreibpfade, unterdrückt aber nicht mehr die read-only Routen `GET /identity`, `/status`, `/power-control` und `/telemetry`. Weitere Datenverträge wie Overview, Proxy und Earnings behalten ihr bisheriges Gate.
@@ -2031,3 +2036,19 @@ Vorgehen / Andockpunkte für andere Agenten:
   `check-i18n.cjs` (1.269 Schlüssel, beide Locales), `scan-i18n-literals.cjs` (0) und
   `git diff --check` grün. Reale gemischte Multi-GPU-Ausführung bleibt Teil der Beta-
   Hardwarezertifizierung; es gibt weiterhin keinen zusätzlichen Runtime-Beta-Schalter.
+## 2026-10-15 — Efficiency sweep tolerates delayed worker registration
+
+- Root cause of the reported immediate "no stable profile" result: `measureStep`
+  treated `findWorker(...) == null` as an instant miner failure, even though the
+  configured startup grace only covered a present worker reporting zero hashrate.
+  A freshly restarted SRBMiner can briefly have no worker row in the adapter while
+  its process/API state is still initializing, so the sweep stopped before using
+  the four-minute grace period.
+- Missing worker rows now remain in the normal sample loop (temperature safety
+  checks continue); expiry of the existing startup grace reports a specific,
+  localized diagnosis. An explicit `ERROR` worker still fails immediately.
+- German and English text were added to the closed catalog and dynamic status
+  translations. Both i18n checks passed (1,270 keys; zero unkeyed display
+  literals). The Java suite could not start: Gradle attempted to create its
+  wrapper lock under the read-only `/home/lukas/.gradle` directory. `git
+  diff --check` passed after recording this entry.

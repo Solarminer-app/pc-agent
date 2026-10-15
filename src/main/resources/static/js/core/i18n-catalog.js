@@ -1251,6 +1251,10 @@ window.SolarMinerI18nCatalog = {
             de: "Miner liefert trotz Pool-Jobs keine Hashrate",
             en: "Miner reports no hashrate despite pool jobs"
         },
+        "miner_worker_not_reported_within_startup_grace": {
+            de: "Miner-Worker wird noch nicht gemeldet; keine Hashrate innerhalb der Startwartezeit",
+            en: "Miner worker has not appeared; no hashrate was reported within the startup grace period"
+        },
         "miner_running": {de: "Miner läuft", en: "Miner running"},
         "miner_sections": {de: "Miner-Bereiche", en: "Miner sections"},
         "miner_software": {de: "Miner-Software", en: "Miner software"},
@@ -2710,6 +2714,7 @@ window.SolarMinerI18nCatalog = {
         "Miner-Prozess ausgefallen": "Miner process exited",
         "GPU-Temperatur nicht lesbar; Sicherheitshalber abgebrochen": "GPU temperature unavailable; cancelled for safety",
         "Miner liefert trotz Pool-Jobs keine Hashrate": "Miner reports no hashrate despite pool jobs",
+        "Miner-Worker wird noch nicht gemeldet; keine Hashrate innerhalb der Startwartezeit": "Miner worker has not appeared; no hashrate was reported within the startup grace period",
         "Keine gültigen Messpunkte": "No valid samples",
         "Kein stabiler Wert gefunden": "No stable value found",
         "Power-Cap nicht verfügbar": "Power cap unavailable",

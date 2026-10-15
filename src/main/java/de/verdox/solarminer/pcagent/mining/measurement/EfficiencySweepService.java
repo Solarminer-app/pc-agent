@@ -557,7 +557,7 @@ public class EfficiencySweepService {
                 return new GpuEfficiencyStore.StepResult(limit, null, null, null, false, "Unterbrochen");
             }
             worker = findWorker(target);
-            if (worker == null || worker.miningStatus() == MinerStats.MinerStatus.ERROR) {
+            if (worker != null && worker.miningStatus() == MinerStats.MinerStatus.ERROR) {
                 String diagnosis = diagnosisFor(target);
                 return new GpuEfficiencyStore.StepResult(limit, null, null, null, false,
                         diagnosis != null ? diagnosis : "Miner-Prozess ausgefallen");
@@ -569,14 +569,16 @@ public class EfficiencySweepService {
             if (maxTemp > maxTemperatureC)
                 return new GpuEfficiencyStore.StepResult(limit, null, null, maxTemp, false,
                         "GPU wurde " + Math.round(maxTemp) + " °C heiß; Grenze über dem Schwellwert von " + Math.round(maxTemperatureC) + " °C");
-            if (worker.miningStatus() == MinerStats.MinerStatus.MINING
+            if (worker != null && worker.miningStatus() == MinerStats.MinerStatus.MINING
                     && Double.isFinite(worker.terahashPerSecond()) && worker.terahashPerSecond() > 0
                     && Double.isFinite(worker.approximatedPowerUsageWatts()) && worker.approximatedPowerUsageWatts() > 0) {
                 rates.add(worker.terahashPerSecond() * 1_000_000_000_000d);
                 watts.add((double) worker.approximatedPowerUsageWatts());
             } else if (!Instant.now().isBefore(startupDeadline)) {
                 return new GpuEfficiencyStore.StepResult(limit, null, null, maxTemp == Double.NEGATIVE_INFINITY ? null : maxTemp,
-                        false, "Miner liefert trotz Pool-Jobs keine Hashrate");
+                        false, worker == null
+                                ? "Miner-Worker wird noch nicht gemeldet; keine Hashrate innerhalb der Startwartezeit"
+                                : "Miner liefert trotz Pool-Jobs keine Hashrate");
             }
             updateRun(target, SweepRunState.RUNNING, limit, completedSteps, rates.size(),
                     target.gpu().model() + " · " + target.algorithm() + " · " + limit + " W");

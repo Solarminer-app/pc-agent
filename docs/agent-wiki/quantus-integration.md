@@ -49,6 +49,16 @@ certification** (2026-10-14).
   API stability document was found. Parser fixtures therefore fail closed when the schema or
   integer planck units change.
 
+## Gross earnings estimate
+
+`MarketDataService` receives QTC network inputs through the Currency Service and applies
+the same gross network-share model used for the other coins. As of 2026-10-14, the producer
+pairs QTCScan's 24-hour estimated network hashrate with the observed average block interval
+from the same 24-hour window. The estimate excludes pool/miner fees unless those are separately
+known, and it is not a promise of pool credit; payout variance and uptime can move actual
+rewards away from the projection. The producer correction affects this Agent through the
+existing HTTP snapshot contract; no QTC miner or pool behavior changed.
+
 The website still mentions a `gpu-list` command, but the shipped 6.4.0 CLI does not expose
 that subcommand. The adapter is pinned to the binary's observed `serve --help` contract,
 not that stale instruction.
