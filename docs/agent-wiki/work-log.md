@@ -2173,3 +2173,15 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Verification: the CI stack trace identifies the failure at line 28 before
   assertions. Local Gradle execution remains blocked by the environment's
   wildcard-IP detection failure; `git diff --check` passed.
+
+## 2026-10-15 — Keep completed sweep curves visible during later GPU runs
+
+- After an individual GPU run completed, its per-power measurements moved into
+  a collapsed row even when other GPUs were still being measured. This made the
+  curve appear to disappear before the overall sweep finished.
+- Completed-run groups and their curve rows now stay expanded while the sweep is
+  active. The explanation is localized in both supported UI languages; completed
+  history can still collapse after the overall sweep ends.
+- Verification: `node --check src/main/resources/static/js/pages/benchmarks.js`,
+  `check-i18n.cjs` (1,286 keys, both locales), `scan-i18n-literals.cjs` (0
+  unkeyed literals), and `git diff --check` passed.

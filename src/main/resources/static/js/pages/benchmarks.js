@@ -308,7 +308,7 @@ function applySweepState(state) {
             $('sweep-remaining').textContent = state.secondsRemaining == null
                 ? t('calculating_eta') : t('approximate_time_remaining_time', {time: formatDuration(state.secondsRemaining)});
         }
-        renderSweepRuns(state.runs || []);
+        renderSweepRuns(state.runs || [], state.running);
         renderProfiles();
 }
 
@@ -329,8 +329,8 @@ function formatDuration(seconds) {
     return `${rest} s`;
 }
 
-function renderSweepRuns(runs) {
-    const signature = JSON.stringify(runs);
+function renderSweepRuns(runs, sweepRunning) {
+    const signature = JSON.stringify({runs, sweepRunning});
     if (signature === lastSweepRunSignature) return;
     lastSweepRunSignature = signature;
     const root = $('sweep-runs');
@@ -339,8 +339,8 @@ function renderSweepRuns(runs) {
     if (!runs.length) return;
     const statusLabel = {QUEUED: 'planned', RUNNING: 'running', COMPLETE: 'complete', FAILED: 'failed', SKIPPED: 'skipped', CANCELLED: 'cancelled'};
     const isTerminal = status => status === 'COMPLETE' || status === 'FAILED' || status === 'SKIPPED' || status === 'CANCELLED';
-    // Only live runs get a full card; queued and finished runs collapse into compact
-    // disclosure rows so a long plan never buries the run that is actually measuring.
+    // Only live runs get a full card. Queued and finished runs stay in compact groups;
+    // completed curves expand while the sweep is active so their measured limits remain visible.
     for (const run of runs.filter(r => r.status === 'RUNNING')) root.append(liveRunCard(run, statusLabel));
     const waiting = runs.filter(r => r.status === 'QUEUED');
     const finished = runs.filter(r => isTerminal(r.status));
@@ -349,7 +349,8 @@ function renderSweepRuns(runs) {
     // instead of showing an empty progress area until another run becomes RUNNING.
     const hasRunningRun = runs.some(r => r.status === 'RUNNING');
     if (waiting.length) root.append(runGroup(t('waiting_runs_count', {count: waiting.length}), waiting, statusLabel, false, !hasRunningRun));
-    if (finished.length) root.append(runGroup(t('completed_runs_count', {count: finished.length}), finished, statusLabel, true));
+    if (finished.length) root.append(runGroup(t('completed_runs_count', {count: finished.length}), finished, statusLabel,
+        true, sweepRunning, sweepRunning));
 }
 
 function runIdentity(run) {
@@ -391,21 +392,21 @@ function liveRunCard(run, statusLabel) {
     return card;
 }
 
-function runGroup(label, runs, statusLabel, defaultOpen, forceOpen = false) {
+function runGroup(label, runs, statusLabel, defaultOpen, forceOpen = false, expandCompleted = false) {
     const group = make('details', 'sweep-run-group');
     const key = label.replace(/\(\d+\)/, '');
     group.open = forceOpen || (openSweepGroups.has(key) ? openSweepGroups.get(key) : defaultOpen);
     group.addEventListener('toggle', () => openSweepGroups.set(key, group.open));
     group.append(make('summary', '', label));
     const rows = make('div', 'sweep-run-rows');
-    for (const run of runs) rows.append(runRow(run, statusLabel));
+    for (const run of runs) rows.append(runRow(run, statusLabel, expandCompleted));
     group.append(rows);
     return group;
 }
 
-function runRow(run, statusLabel) {
+function runRow(run, statusLabel, expandCompleted) {
     const row = make('details', 'sweep-run-row');
-    row.open = openSweepRows.has(run.id);
+    row.open = (run.status === 'COMPLETE' && expandCompleted) || openSweepRows.has(run.id);
     row.addEventListener('toggle', () => {
         if (row.open) openSweepRows.add(run.id); else openSweepRows.delete(run.id);
     });
