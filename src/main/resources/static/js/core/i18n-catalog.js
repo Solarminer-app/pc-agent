@@ -2442,6 +2442,18 @@ window.SolarMinerI18nCatalog = {
             de: "{watts} W · {samples}/{required} Messpunkte",
             en: "{watts} W · {samples}/{required} samples"
         },
+        "power_limit_sample_progress": {
+            de: "Fortschritt der aktuellen Power-Limit-Messung",
+            en: "Current power-limit measurement progress"
+        },
+        "collecting_power_limit_samples": {
+            de: "Messung läuft: {samples} von {required} Messpunkten gesammelt (5 Sekunden Abstand).",
+            en: "Measurement active: collected {samples} of {required} samples (5 seconds apart)."
+        },
+        "waiting_for_first_power_limit_sample": {
+            de: "Warte auf den ersten gültigen Messpunkt. Der Miner kann bis zu 4 Minuten zum Starten brauchen.",
+            en: "Waiting for the first valid sample. The miner may take up to 4 minutes to start."
+        },
         "what_is_running_now": {de: "Was gerade arbeitet", en: "What is running now"},
         "what_may_the_node_mine": {de: "Was darf der Node minen?", en: "What may the Node mine?"},
         "when_you_turn_off_remote_control_no_solarmin": {

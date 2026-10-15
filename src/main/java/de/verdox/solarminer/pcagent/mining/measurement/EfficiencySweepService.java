@@ -600,11 +600,19 @@ public class EfficiencySweepService {
         // snapshot captured when the sweep started.
         LocalGpuPowerService.Gpu fresh = power.discover().stream()
                 .filter(gpu -> gpu.deviceId().equals(target.gpu().deviceId())).findFirst().orElse(target.gpu());
+        Coin coin = Coin.byIdOrNull(target.coin());
         List<MinerStats.Worker> workers = miners.gpuMiner(Coin.byIdOrNull(target.coin())).workerStats(List.of(fresh));
         return workers.stream()
-                .filter(w -> Objects.equals(w.deviceId(), target.gpu().deviceId())
-                        && Objects.equals(w.currentAlgorithm(), target.algorithm()))
+                // target.algorithm is the adapter's display label (e.g. "QPoW (Poseidon2)"),
+                // while worker telemetry uses Coin.algorithm() ("quantus"). Match the
+                // worker's canonical coin identity instead of comparing those two formats.
+                .filter(w -> matchesTargetWorker(target, coin, w.deviceId(), w.currentAlgorithm()))
                 .findFirst().orElse(null);
+    }
+
+    static boolean matchesTargetWorker(Target target, Coin coin, String deviceId, String algorithm) {
+        return coin != null && Objects.equals(deviceId, target.gpu().deviceId())
+                && coin.matchesAlgorithm(algorithm);
     }
 
     private boolean startMiner(Target target) {

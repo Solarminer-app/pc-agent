@@ -371,6 +371,15 @@ function liveRunCard(run, statusLabel) {
     if (run.detail) info.append(make('p', '', s(run.detail)));
     info.append(make('p', 'muted', t('watts_w_samples_required_samples',
         {watts: run.limitWatts ?? '—', samples: run.samples, required: run.samplesRequired})));
+    const sampleProgress = document.createElement('progress');
+    sampleProgress.className = 'sweep-sample-progress';
+    sampleProgress.max = Math.max(1, Number(run.samplesRequired) || 1);
+    sampleProgress.value = Math.min(sampleProgress.max, Math.max(0, Number(run.samples) || 0));
+    sampleProgress.setAttribute('aria-label', t('power_limit_sample_progress'));
+    info.append(sampleProgress);
+    info.append(make('p', 'muted sweep-sample-stage', Number(run.samples) > 0
+        ? t('collecting_power_limit_samples', {samples: run.samples, required: run.samplesRequired})
+        : t('waiting_for_first_power_limit_sample')));
     const steps = runPlanLine(run);
     if (steps) info.append(make('p', 'muted', steps));
     card.append(info, make('span', 'tag ready', t(statusLabel[run.status] || run.status)));

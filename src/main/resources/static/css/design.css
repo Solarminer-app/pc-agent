@@ -1934,3 +1934,4 @@ th[aria-sort=descending] .table-sort::after {
     margin-top: 3px;
     overflow-wrap: anywhere
 }
+.sweep-sample-progress{display:block;width:min(100%,520px);height:12px;margin:10px 0 6px;accent-color:#f6c26e}.sweep-sample-stage{font-size:12px;line-height:1.5}

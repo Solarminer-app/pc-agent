@@ -2052,3 +2052,35 @@ Vorgehen / Andockpunkte für andere Agenten:
   literals). The Java suite could not start: Gradle attempted to create its
   wrapper lock under the read-only `/home/lukas/.gradle` directory. `git
   diff --check` passed after recording this entry.
+## 2026-10-15 — Expose live power-limit sample progress
+
+- The sweep API already publishes the active GPU, power cap, sample count,
+  required sample count and current phase, but the active card rendered only a
+  compact text counter. It now includes an accessible progress bar and explicit
+  stage guidance: waiting for the first valid sample (miner startup can take
+  up to four minutes) or collecting samples at five-second intervals.
+- Added both German and English catalog entries. No API contract changed.
+- Verification: `node --check src/main/resources/static/js/pages/benchmarks.js`,
+  `check-i18n.cjs` (1,273 keys, both locales), `scan-i18n-literals.cjs` (0)
+  and `git diff --check` passed.
+## 2026-10-15 — Quantus sweep matched the display algorithm, not telemetry ID
+
+- Diagnosis: sweep targets used the adapter display label `QPoW (Poseidon2)`,
+  while Quantus worker telemetry reports the canonical algorithm ID `quantus`.
+  `findWorker` required an exact string match, so it never found a live Quantus
+  worker and the startup grace eventually produced an unstable step despite the
+  normal worker view showing hashrate. Lookup now validates the device ID and
+  resolves the worker algorithm through the closed `Coin` identity mapping.
+- A regression test covers the display-label/canonical-ID mismatch and rejects
+  a different device or coin algorithm.
+- Windows power-control path review: NVIDIA uses `nvidia-smi -i <GPU UUID> -pl
+  <watts>`, then reads `power.limit` back and refuses a target differing by
+  more than 1 W. The Windows launcher starts the Agent only with an
+  Administrator token. Existing simulated power-service tests exercise the
+  write/readback path, but this Linux workspace cannot establish whether the
+  user's Windows driver accepted this run's changed targets. A native Windows
+  changed-value write/readback remains required for live confirmation.
+- Verification: focused Gradle tests could not start because Gradle cannot
+  determine a usable wildcard IP in this execution environment (also with
+  IPv4-preference enabled); source-level test added, native Windows probe
+  unavailable.

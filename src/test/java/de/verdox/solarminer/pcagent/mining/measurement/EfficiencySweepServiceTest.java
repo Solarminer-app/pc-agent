@@ -2,6 +2,7 @@ package de.verdox.solarminer.pcagent.mining.measurement;
 
 import de.verdox.solarminer.pcagent.coin.SweepMode;
 import de.verdox.solarminer.pcagent.coin.SweepRunState;
+import de.verdox.solarminer.pcagent.coin.Coin;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -150,6 +151,15 @@ class EfficiencySweepServiceTest {
     @Test
     void storeKeySeparatesDevicesAndAlgorithms() {
         assertEquals("GPU-abc|kawpow", GpuEfficiencyStore.key("GPU-abc", "kawpow"));
+    }
+
+    @Test
+    void workerLookupMatchesCanonicalQuantusTelemetryAgainstDisplayAlgorithm() {
+        var target = targetForCoin("one", "quantus", "QPoW (Poseidon2)");
+
+        assertTrue(EfficiencySweepService.matchesTargetWorker(target, Coin.QUANTUS, "one", "quantus"));
+        assertFalse(EfficiencySweepService.matchesTargetWorker(target, Coin.QUANTUS, "two", "quantus"));
+        assertFalse(EfficiencySweepService.matchesTargetWorker(target, Coin.QUANTUS, "one", "etchash"));
     }
 
     @Test
