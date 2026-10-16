@@ -315,6 +315,7 @@ public class EfficiencySweepService {
             boolean minersStopped = true;
             for (Target target : targets) minersStopped = stopMiner(target) && minersStopped;
             if (!minersStopped) error = appendError(error, "Konnte nicht alle Sweep-Miner anhalten");
+            power.clearSweepPowerTargets(targetDeviceIds);
             if (!power.restorePowerLimits(limitsBefore))
                 error = appendError(error, "Konnte Leistungsgrenzen nicht vollständig wiederherstellen");
             try {
@@ -458,7 +459,7 @@ public class EfficiencySweepService {
         for (int limit : limits) {
             if (guard.cancelRequested()) break;
             updateRun(target, SweepRunState.RUNNING, limit, steps, 0, label + " · " + limit + " W");
-            if (!power.setTotalPowerTarget(limit, List.of(target.gpu()))) {
+            if (!power.setSweepPowerTarget(limit, target.gpu())) {
                 steps.add(new GpuEfficiencyStore.StepResult(limit, null, null, null, false,
                         "Leistungsgrenze wurde nicht vom Treiber bestätigt; Schritt übersprungen"));
                 updateRun(target, SweepRunState.RUNNING, limit, steps, SAMPLES_PER_STEP,

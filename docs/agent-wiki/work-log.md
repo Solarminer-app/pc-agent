@@ -1,5 +1,11 @@
 # PC-Agent work log
 
+## 2026-10-16 — Sweep power target bleibt beim Minerstart erhalten
+
+- Reproduzierbarer Codepfad für die Live-Beobachtung „220 W angefordert, 240 W Verbrauch“: Der Effizienz-Sweep schrieb das Testlimit, danach setzte `GpuCoinMinerService.startGpu` beim Start über `enforceConfiguredPowerLimit` wieder das gespeicherte GPU-Limit. Die Messung lief dadurch unter dem falschen Cap, obwohl der Fortschritt weiterhin das angeforderte Target zeigte.
+- Sweep-Targets werden jetzt während der Messung pro Gerät temporär gepinnt. Die Startprüfung erhält diesen Wert und bestätigt ihn erneut bei Bedarf. Nach dem Stoppen aller Sweep-Miner wird der Pin vor der Wiederherstellung der Ausgangslimits entfernt.
+- Keine neue UI-Kopie und kein API-Vertrag geändert; bestehende DE/EN-Texte bleiben unverändert. Hardware-Smoke-Test am LAN-Agent und Treiber-Readback für 220 W stehen noch aus. Tests wurden in diesem Schritt nicht ausgeführt.
+
 ## 2026-10-14 — QTC forecast input alignment
 
 - The Agent's existing gross QTC forecast consumes the Currency Service network snapshot. Its producer now pairs QTCScan's 24-hour estimated network hashrate with the average block interval from that same window, avoiding the prior mix of a short-window rate and nominal target interval.

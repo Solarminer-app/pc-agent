@@ -47,6 +47,8 @@ public class LocalGpuPowerService {
         this.ownerSettings = ownerSettings;
     }
     private volatile Map<String, Integer> applied = Map.of();
+    /** Temporary per-device caps owned by an efficiency sweep, preserved across miner startup. */
+    private final Map<String, Integer> sweepPowerTargets = new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<String, Integer> originalLimits = new LinkedHashMap<>();
     private final Map<String, Capability> capabilities = new HashMap<>();
     private final Map<String, Recovery> recovery;
@@ -303,10 +305,25 @@ public class LocalGpuPowerService {
         if (!gpu.supportsDynamicPowerScaling()) return true;
         Integer current = gpu.currentPowerLimitWatts();
         if (current == null) return false;
+        Integer sweepTarget = sweepPowerTargets.get(gpu.deviceId());
+        if (sweepTarget != null)
+            return Objects.equals(current, sweepTarget) || setTotalPowerTarget(sweepTarget, List.of(gpu));
         if (ownerSettings != null && !"MANUAL".equals(ownerSettings.get().powerModeFor(gpu.deviceId())))
             return current >= gpu.minWatts() && current <= gpu.maxWatts();
         int target = gpu.maxWatts();
         return target == current || setTotalPowerTarget(target, List.of(gpu));
+    }
+
+    /** Sets and pins one temporary sweep cap so miner startup cannot replace it with the saved cap. */
+    public synchronized boolean setSweepPowerTarget(long watts, Gpu gpu) {
+        if (!setTotalPowerTarget(watts, List.of(gpu))) return false;
+        sweepPowerTargets.put(gpu.deviceId(), Math.toIntExact(watts));
+        return true;
+    }
+
+    /** Releases temporary sweep caps after sweep miners have stopped and before limits are restored. */
+    public void clearSweepPowerTargets(java.util.Collection<String> deviceIds) {
+        deviceIds.forEach(sweepPowerTargets::remove);
     }
 
     public int appliedTarget(Gpu gpu) {
