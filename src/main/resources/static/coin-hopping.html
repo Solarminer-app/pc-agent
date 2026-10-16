@@ -14,6 +14,7 @@
     <script src="/js/core/components.js?v=20261012-benchmark-live-dashboard" defer></script>
     <script src="/js/chrome/proxy-gate.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/chrome/fee-tier-badge.js?v=20261012-benchmark-live-dashboard" defer></script>
+    <script src="/js/chrome/wallet-strip.js?v=20261016-global-wallet-strip" defer></script>
     <script src="/js/chrome/workspace.js?v=20261016-coin-hopping-page" defer></script>
     <script src="/js/pages/coin-hopping.js?v=20261016-coin-hopping-page" defer></script>
 </head>
@@ -23,6 +24,7 @@
         <nav class="nav"><a href="/" data-i18n="overview">Übersicht</a><a href="/mining.html" data-i18n="mining">Mining</a><a href="/benchmarks.html" data-i18n="benchmarks">Benchmarks</a><a class="selected" href="/coin-hopping.html" data-i18n="coin_hopping_title">Coin Hopping</a><a href="/hardware.html" data-i18n="hardware">Hardware</a><a href="/telemetry.html" data-i18n="telemetry">Telemetrie</a><a href="/proxy.html" data-i18n="proxy">Proxy</a></nav>
         <div class="top-actions"><span id="connection" class="badge" data-i18n="connecting">Verbinde …</span><button id="refresh" class="button subtle" type="button" data-i18n="refresh">Aktualisieren</button></div>
     </header>
+    <section id="wallet-strip" class="wallet-strip" aria-label="Wallet-Kontostände" data-i18n-aria-label="wallet_balances"></section>
     <main>
         <div class="page-title"><div><p class="kicker" data-i18n="coin_hopping_kicker">AUTOMATISCHE COIN-WAHL</p><h1 data-i18n="coin_hopping_title">Coin Hopping</h1><p data-i18n="coin_hopping_page_intro">Der PC-Agent wählt Coin und Power Target gemeinsam aus gemessenen Betriebspunkten und aktuellen Netzwerkkursen. Ziel ist maximaler prognostizierter Bruttoertrag pro kWh. Die Beträge sind keine Pool-Auszahlungen.</p></div></div>
         <section class="panel hopping-panel">

@@ -8,13 +8,16 @@ const make = (tag, className, value) => {
     if (value != null) node.textContent = value;
     return node;
 };
-const money = value => new Intl.NumberFormat(locale(), {style: 'currency', currency: 'USD', maximumFractionDigits: 4}).format(value);
+const preferences = window.SolarMinerPreferences;
+const money = value => preferences.moneyFromUsd(value);
 const number = (value, digits = 4) => new Intl.NumberFormat(locale(), {maximumFractionDigits: digits}).format(value);
 const date = value => new Intl.DateTimeFormat(locale(), {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(value));
 const rate = value => window.SolarMinerUI.hashrate(value);
 let settings = null;
 let devices = new Map();
 let requestId = 0;
+let latestCandidates = [];
+let latestOutcome = null;
 
 function notice(message, error = false) {
     const node = $('hopping-notice');
@@ -73,7 +76,9 @@ async function refresh() {
         $('connection').className = 'badge online';
         $('connection').textContent = t('agent_connected');
         $('hopping-updated').textContent = t('benchmark_updated_at', {time: new Intl.DateTimeFormat(locale(), {hour: '2-digit', minute: '2-digit', second: '2-digit'}).format(new Date())});
-        renderCandidates(view.candidates || [], view.lastOutcome);
+        latestCandidates = view.candidates || [];
+        latestOutcome = view.lastOutcome;
+        renderCandidates(latestCandidates, latestOutcome);
         renderSummary(view.summary);
     } catch (error) {
         if (id !== requestId) return;
@@ -190,3 +195,5 @@ async function start() {
 }
 start().catch(error => { $('hopping-detail').textContent = s(error.message); });
 setInterval(refresh, 60_000);
+
+document.addEventListener('solarminer:preferences-changed', () => renderCandidates(latestCandidates, latestOutcome));
