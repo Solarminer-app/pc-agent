@@ -35,6 +35,10 @@
   const coinRow = id => (window.SolarMinerCoinCatalog || []).find(row => row.id === id) || null;
   const coinTicker = id => id === 'none' ? 'unassigned' : (coinRow(id)?.ticker || id);
   const coinAlgorithm = id => coinRow(id)?.algorithm || '';
+  const runningCoin = worker => {
+    const algorithm = String(worker.telemetry?.currentAlgorithm || '').toLowerCase();
+    return (window.SolarMinerCoinCatalog || []).find(row => String(row.algorithm || '').toLowerCase() === algorithm)?.id || null;
+  };
 
   function filtered() {
     return workers.filter(worker => {
@@ -108,8 +112,18 @@
     }},
     {label: 'assignment', key: 'coinName', width: '18%', render: worker => {
       const wrap = ui.element('div');
+      if (worker.status === 'MINING' && worker.telemetry) {
+        const actualCoin = runningCoin(worker);
+        wrap.append(ui.element('strong', '', worker.telemetry.workerDisplayName || `${actualCoin ? coinTicker(actualCoin) : t('worker_active')}`));
+        wrap.append(ui.element('span', 'cell-sub', t('currently_running_algorithm', {algorithm: worker.telemetry.currentAlgorithm || '—'})));
+        if (actualCoin && actualCoin !== worker.coin)
+          wrap.append(ui.element('span', 'cell-sub', t('configured_assignment_coin', {coin: worker.coin === 'none' ? t('unassigned_4cfcb8') : worker.coinName})));
+        else
+          wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? t('free_capacity') : `${worker.configured ? worker.poolUrl ? t('pool_configured') : t('default_route') : t('solarminer_default_payout_will_be_checked_at')}`));
+      } else {
       wrap.append(ui.element('strong', '', worker.coin === 'none' ? t('unassigned_4cfcb8') : `${worker.coinName} · ${worker.minerSoftwareName || t('no_miner')}`));
       wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? t('free_capacity') : `${worker.algorithm} · ${worker.configured ? worker.poolUrl ? t('pool_configured') : t('default_route') : t('solarminer_default_payout_will_be_checked_at')}`));
+      }
       if (worker.coin !== 'none') {
         const labels = {MANUAL: 'worker_mode_manual', EFFICIENCY: 'worker_mode_efficiency',
           REVENUE_PER_KWH: 'worker_mode_revenue', COIN_REVENUE_PER_KWH: 'worker_mode_coin_revenue'};
@@ -128,16 +142,20 @@
       const wrap = ui.element('div', 'row-actions');
       const configure = ui.element('button', 'button subtle', worker.coin === 'none' ? 'set_up' : 'change'); configure.type = 'button'; configure.disabled = !catalogReady || pendingWorkers.has(worker.deviceId);
       configure.addEventListener('click', event => { event.stopPropagation(); openEditor(worker); }); wrap.append(configure);
-      if (worker.coin !== 'none') {
-        const miner = miners.find(candidate => candidate.coin === worker.coin && candidate.id === worker.minerSoftwareId);
+      const running = worker.status === 'MINING';
+      const actualCoin = running ? runningCoin(worker) : null;
+      const controlCoin = actualCoin || worker.coin;
+      if (running || worker.coin !== 'none') {
+        const actualMinerId = actualCoin ? miners.find(candidate => candidate.coin === actualCoin)?.id : worker.minerSoftwareId;
+        const miner = miners.find(candidate => candidate.coin === controlCoin && candidate.id === actualMinerId);
         if (miner?.downloadStatus === 'UPDATE_REQUIRED') {
           const update = ui.element('button', 'button primary', 'update_srbminer'); update.type = 'button';
           update.disabled = pendingWorkers.has(worker.deviceId);
           update.addEventListener('click', event => { event.stopPropagation(); updateMiner(worker, miner); }); wrap.append(update);
           return wrap;
         }
-        const running = worker.status === 'MINING'; const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, running ? 'pause' : 'start');
-        toggle.type = 'button'; toggle.disabled = pendingWorkers.has(worker.deviceId) || !worker.minerInstalled;
+        const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, running ? 'pause' : 'start');
+        toggle.type = 'button'; toggle.disabled = pendingWorkers.has(worker.deviceId) || (!running && (worker.coin === 'none' || !worker.minerInstalled));
         toggle.addEventListener('click', event => { event.stopPropagation(); action(worker, running ? 'pause' : 'start'); }); wrap.append(toggle);
       }
       return wrap;
@@ -208,9 +226,10 @@
   }
 
   function workerConsoleId(worker) {
-    if (worker.coin === 'none') return null;
+    const coin = worker.status === 'MINING' ? runningCoin(worker) || worker.coin : worker.coin;
+    if (coin === 'none') return null;
     if (worker.hardwareType === 'CPU') return worker.coin;
-    return `${worker.coin}-${worker.vendor}-${worker.index}`;
+    return `${coin}-${worker.vendor}-${worker.index}`;
   }
 
   function stopConsolePolling() {

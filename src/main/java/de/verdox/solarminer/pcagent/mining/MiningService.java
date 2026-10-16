@@ -287,8 +287,20 @@ public class MiningService {
                 desiredCpuPowerTarget = 0;
                 return true;
             }
-            return gpuPowerService.discover().stream().filter(g -> g.deviceId().equals(deviceId)).findFirst()
-                    .map(g -> stopGpuForCoin(controls.get().coinFor(deviceId), g.vendor(), g.index())).orElse(false);
+            LocalGpuPowerService.Gpu gpu = gpuPowerService.discover().stream()
+                    .filter(card -> card.deviceId().equals(deviceId)).findFirst().orElse(null);
+            if (gpu == null) return false;
+            boolean foundRunningProcess = false;
+            boolean stopped = true;
+            for (Coin coin : Coin.gpuCoins()) for (MinerFactory.GpuMinerAdapter adapter : adapters(coin)) {
+                if (!adapter.miner().runningGpuDeviceIds().contains(deviceId)) continue;
+                foundRunningProcess = true;
+                stopped = adapter.miner().stopGpu(gpu.vendor(), gpu.index()) && stopped;
+            }
+            // Preserve the existing assigned-worker stop behavior when no managed process was
+            // discovered; the runtime-first path handles a process on a different coin/miner.
+            return foundRunningProcess ? stopped
+                    : stopGpuForCoin(controls.get().coinFor(deviceId), gpu.vendor(), gpu.index());
         });
     }
 

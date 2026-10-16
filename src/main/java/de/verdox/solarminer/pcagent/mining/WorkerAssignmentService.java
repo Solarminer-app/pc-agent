@@ -230,8 +230,12 @@ public class WorkerAssignmentService {
                             List<MinerStats.Worker> stats) {
         Coin coin = Coin.byIdOrNull(controls.get().coinFor(deviceId));
         String algorithm = coin == null || coin == Coin.NONE ? null : coin.assignmentAlgorithm();
+        // Runtime ownership is authoritative for occupancy and telemetry. The saved assignment
+        // remains the configuration target and may legitimately differ from a running process.
         MinerStats.Worker live = stats.stream().filter(worker -> deviceId.equals(worker.deviceId())
-                && (algorithm == null || algorithm.equalsIgnoreCase(worker.currentAlgorithm()))).findFirst().orElse(null);
+                && worker.miningStatus() == MinerStats.MinerStatus.MINING).findFirst()
+                .orElseGet(() -> stats.stream().filter(worker -> deviceId.equals(worker.deviceId())
+                        && (algorithm == null || algorithm.equalsIgnoreCase(worker.currentAlgorithm()))).findFirst().orElse(null));
         String selectedId = coin == null || coin == Coin.NONE ? null : miners.minerSoftwareForWorker(coin, deviceId);
         MinerCatalogService.MinerOption selected = coin == null || coin == Coin.NONE ? null : catalog.options(coin.id()).stream()
                 .filter(option -> option.id().equals(selectedId)).findFirst().orElse(null);

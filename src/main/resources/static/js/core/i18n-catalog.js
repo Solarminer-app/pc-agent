@@ -2661,6 +2661,8 @@ window.SolarMinerI18nCatalog = {
         "worker": {de: "Worker", en: "Worker"},
         "worker_action_failed": {de: "Worker-Aktion fehlgeschlagen:", en: "Worker action failed:"},
         "worker_active": {de: "Worker aktiv", en: "Worker active"},
+        "currently_running_algorithm": {de: "Läuft aktuell · {algorithm}", en: "Currently running · {algorithm}"},
+        "configured_assignment_coin": {de: "Zuweisung: {coin}", en: "Configured assignment: {coin}"},
         "worker_is_active": {de: "Worker ist aktiv", en: "Worker is active"},
         "worker_made_available_to_the_node": {
             de: "Worker für Remote-Steuerung freigegeben.",

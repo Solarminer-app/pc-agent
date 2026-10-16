@@ -1,5 +1,11 @@
 # PC-Agent work log
 
+## 2026-10-16 — GPU-Worker-Ansicht folgt dem laufenden Miner
+
+- Die Workers-Ansicht filterte Telemetrie anhand des gespeicherten Coin-Assignments. Ein laufender GPU-Prozess mit abweichender Coin-Zuordnung wurde dadurch als `STOPPED` ohne Live-Daten dargestellt, obwohl sein Miner-Adapter bereits Hashrate und Verbrauch meldete.
+- Die Read-Model-Zuordnung priorisiert nun den tatsächlich laufenden Prozess pro Gerät. Die Zeile zeigt dessen Miner-Namen und Algorithmus, während ein abweichender gespeicherter Assignment-Coin zusätzlich als Konfiguration sichtbar bleibt. Pause-Aktionen stoppen zuerst den tatsächlich laufenden Adapter für diese GPU und fallen nur bei keinem gefundenen Prozess auf die alte Assignment-Route zurück.
+- Neue Browsertexte haben DE/EN-Katalogeinträge. API-Erweiterung war nicht nötig; bestehende WorkerView- und Telemetrie-Verträge bleiben kompatibel. Tests wurden nicht ausgeführt.
+
 ## 2026-10-16 — Sweep power target bleibt beim Minerstart erhalten
 
 - Reproduzierbarer Codepfad für die Live-Beobachtung „220 W angefordert, 240 W Verbrauch“: Der Effizienz-Sweep schrieb das Testlimit, danach setzte `GpuCoinMinerService.startGpu` beim Start über `enforceConfiguredPowerLimit` wieder das gespeicherte GPU-Limit. Die Messung lief dadurch unter dem falschen Cap, obwohl der Fortschritt weiterhin das angeforderte Target zeigte.
