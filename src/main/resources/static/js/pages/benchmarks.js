@@ -16,20 +16,25 @@ let sharingKnown = false;
 let savedBenchmarkSignature = null;
 let measurementRequest = null;
 let measurementSnapshot = null;
+let measurementRevision = 0;
 let previousBenchmarkRunning = null;
 let previousSweepRunning = null;
 
 function invalidateMeasurements() {
+    measurementRevision++;
     measurementSnapshot = null;
+    measurementRequest = null;
 }
 
 function readMeasurements() {
     if (measurementSnapshot) return Promise.resolve(measurementSnapshot);
     if (measurementRequest) return measurementRequest;
-    measurementRequest = fetch('/api/agent/local/measurements/profiles', {cache: 'no-store'})
+    const revision = measurementRevision;
+    const request = fetch('/api/agent/local/measurements/profiles', {cache: 'no-store'})
         .then(response => { if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json(); })
-        .then(snapshot => { measurementSnapshot = snapshot; return snapshot; })
-        .finally(() => { measurementRequest = null; });
+        .then(snapshot => { if (revision === measurementRevision) measurementSnapshot = snapshot; return snapshot; })
+        .finally(() => { if (measurementRequest === request) measurementRequest = null; });
+    measurementRequest = request;
     return measurementRequest;
 }
 
@@ -38,8 +43,10 @@ function renderSavedBenchmarks() {
 }
 
 async function loadSavedBenchmarks() {
+    const revision = measurementRevision;
     try {
         const snapshot = await readMeasurements();
+        if (revision !== measurementRevision) return;
         const profiles = snapshot.benchmarks || [];
         $('overview-profiles').textContent = new Intl.NumberFormat(window.SolarMinerI18n.locale).format(profiles.length);
         const signature = JSON.stringify(profiles);
@@ -64,6 +71,7 @@ async function loadSavedBenchmarks() {
             root.append(card);
         }
     } catch (e) {
+        if (revision !== measurementRevision) return;
         savedBenchmarkSignature = null;
         $('saved-benchmarks').replaceChildren(make('p', 'empty', t('could_not_load_saved_benchmark_profiles', {error: s(e.message)})));
     }
@@ -604,8 +612,10 @@ function renderProfiles() {
 }
 
 async function loadProfiles() {
+    const revision = measurementRevision;
     try {
         const snapshot = await readMeasurements();
+        if (revision !== measurementRevision) return;
         const profiles = snapshot.sweeps || [];
         $('overview-efficiency').textContent = new Intl.NumberFormat(window.SolarMinerI18n.locale).format(profiles.length);
         const signature = JSON.stringify(profiles);
@@ -635,6 +645,7 @@ async function loadProfiles() {
             root.append(card);
         }
     } catch (e) {
+        if (revision !== measurementRevision) return;
         lastProfileSignature = null;
         $('sweep-results').replaceChildren(make('p', 'empty', t('could_not_load_efficiency_profiles', {error: s(e.message)})));
     }
