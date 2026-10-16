@@ -116,3 +116,6 @@
 .sweep-chart-tabs button:focus-visible{outline:2px solid #9fe9ba;outline-offset:2px}
 .measurement-origin{display:inline-block;margin-bottom:10px;padding:5px 8px;border-radius:5px;background:#294a42;color:#b6ebd0;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
 .measurement-target{color:#a6d9e2;font-size:12px;font-weight:650;margin:6px 0}
+.benchmark-hero-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:22px}
+.benchmark-hero-actions .button{text-decoration:none}
+#measurement-library,#benchmark-run,#sweep-studio{scroll-margin-top:24px}
