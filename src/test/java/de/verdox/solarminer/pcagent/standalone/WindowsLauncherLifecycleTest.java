@@ -17,6 +17,26 @@ class WindowsLauncherLifecycleTest {
         assertProcessTreeGuard("start-agent-beta.ps1");
     }
 
+    @Test
+    void elevatedLaunchersDoNotRequestElevationAgainForDefender() throws IOException {
+        for (String launcher : new String[]{"start-agent.ps1", "start-agent-beta.ps1"}) {
+            String script = Files.readString(Path.of("standalone", launcher));
+            assertTrue(script.contains("IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"), launcher);
+            assertTrue(script.contains("Add-MpPreference -ExclusionPath $installDir"), launcher);
+            assertFalse(script.contains("-Verb RunAs"), launcher);
+        }
+    }
+
+    @Test
+    void elevatedInstallerStartsLauncherWithoutAnotherRunAs() throws IOException {
+        String script = Files.readString(Path.of("standalone", "install-windows.ps1"));
+        assertTrue(script.contains("IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"));
+        assertTrue(script.contains("Start-Process -FilePath $launcher\n"));
+        assertTrue(script.contains("Start-Process -FilePath $launcher -Verb RunAs"));
+        assertTrue(script.indexOf("IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)")
+                < script.indexOf("Start-Process -FilePath $launcher\n"));
+    }
+
     private static void assertProcessTreeGuard(String launcher) throws IOException {
         String script = Files.readString(Path.of("standalone", launcher));
         int create = script.lastIndexOf("[SolarMinerProcessJob]::CreateKillOnClose()");

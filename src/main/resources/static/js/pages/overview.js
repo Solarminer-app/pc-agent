@@ -8,6 +8,7 @@
   const preferences = window.SolarMinerPreferences;
   let overview, telemetry, settings, assessment, energy, agentUi = null, energyError = null, uiRequested = false;
   let networkAgents = null;
+  let benchmarkRunning = false, sweepRunning = false;
   const pendingNetworkWorkers = new Set();
   let networkActionMessage = '', networkActionError = false;
   let savedAt = null, fresh = true;
@@ -64,7 +65,8 @@
     const localRows = ui.operatingRows(ui.workerRows(data, telemetry)).map(row => {
       const forecast = (data.earnings || []).find(item => item.coin === row.coin && item.available);
       const usdPerDay = ui.workerUsdPerDay(row.hashrateHps, forecast);
-      return {...row, agent: agentName || t('this_pc_agent'), local: true, usdPerDay,
+      return {...row, status: row.status === 'MINING' && (benchmarkRunning || sweepRunning) ? 'BENCHMARKING' : row.status,
+        agent: agentName || t('this_pc_agent'), local: true, usdPerDay,
         revenuePerKwh: ui.revenuePerKwh(usdPerDay, row.watts)};
     });
     const remoteRows = (networkAgents?.agents || []).filter(agent => !agent.own && agent.reachable)
@@ -75,11 +77,37 @@
         const rawForecast = (agent.earnings || []).find(item => item.coin === coin);
         const forecast = rawForecast ? {...rawForecast, available: rawForecast.available !== false} : null;
         const usdPerDay = ui.workerUsdPerDay(Number(row.hashrateHps), forecast);
-        return {...row, coin, agent: agent.name || t('pc_agent'), agentId: agent.agentId,
+        return {...row, coin, status: row.status === 'MINING' && row.benchmarking === true ? 'BENCHMARKING' : row.status,
+          agent: agent.name || t('pc_agent'), agentId: agent.agentId,
+          dashboardUrl: peerDashboardUrl(agent),
           local: false, controlEnabled: Boolean(agent.controlEnabled), usdPerDay,
           revenuePerKwh: ui.revenuePerKwh(usdPerDay, Number(row.watts))};
       }));
     return [...localRows, ...remoteRows];
+  }
+
+  function peerDashboardUrl(agent) {
+    const host = String(agent.host || '');
+    const port = Number(agent.dashboardPort);
+    if (!/^[a-zA-Z0-9.:-]+$/.test(host) || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+    const address = host.includes(':') ? `[${host}]` : host;
+    try {
+      const url = new URL(`http://${address}:${port}/`);
+      return url.protocol === 'http:' ? url.href : null;
+    } catch (_) { return null; }
+  }
+
+  function workerNameCell(row) {
+    const name = ui.shortWorkerName(row);
+    if (!row.dashboardUrl) return ui.cellLines(name, `${row.hardwareType || '—'} · ${row.hardwareModel || row.algorithm || '—'}`);
+    const cell = ui.cellLines('', `${row.hardwareType || '—'} · ${row.hardwareModel || row.algorithm || '—'}`);
+    const link = document.createElement('a');
+    link.className = 'worker-dashboard-link';
+    link.textContent = name;
+    link.href = row.dashboardUrl;
+    link.setAttribute('aria-label', t('open_worker_agent_dashboard', {worker: name, agent: row.agent}));
+    cell.querySelector('strong').replaceWith(link);
+    return cell;
   }
 
   function renderDashboardWorkers(data) {
@@ -87,7 +115,7 @@
     const kpis = $('network-worker-kpis');
     const note = $('network-workers-note');
     const rows = dashboardWorkers(data);
-    const activeRows = rows.filter(row => row.status === 'MINING' || row.status === 'ERROR');
+    const activeRows = rows.filter(row => row.status === 'MINING' || row.status === 'BENCHMARKING' || row.status === 'ERROR');
     const totalWatts = activeRows.reduce((sum, row) => sum + (Number(row.watts) || 0), 0);
     const totalUsdPerDay = activeRows.reduce((sum, row) => sum + (Number(row.usdPerDay) || 0), 0);
     const efficiencies = activeRows.map(row => row.revenuePerKwh).filter(Number.isFinite);
@@ -100,7 +128,7 @@
       ui.metric({label: 'average_earnings_per_kwh', value: ui.moneyPerKwh(averageRevenuePerKwh), detail: t('average_of_workers_with_data')}));
     root.replaceChildren(ui.table({
       columns: [
-        {label: 'worker', render: row => ui.cellLines(ui.shortWorkerName(row), `${row.hardwareType || '—'} · ${row.hardwareModel || row.algorithm || '—'}`)},
+        {label: 'worker', render: workerNameCell},
         {label: 'pc_agent', render: row => ui.cellLines(row.agent, row.local ? t('this_pc')
           : t(row.controlEnabled ? 'lan_control' : 'view_only'))},
         {label: 'status', render: row => ui.statusPill(row.status)},
@@ -110,7 +138,7 @@
         {label: 'earnings_per_kwh', align: 'right', render: row => ui.moneyPerKwh(row.revenuePerKwh)},
         {label: 'action', align: 'right', render: row => {
           if (row.local) return null;
-          const active = row.status === 'MINING' || row.status === 'ERROR';
+          const active = row.status === 'MINING' || row.status === 'BENCHMARKING' || row.status === 'ERROR';
           const key = `${row.agentId}:${row.deviceId}`;
           const button = ui.element('button', `button ${active ? 'subtle' : 'primary'}`, active ? 'pause' : 'start');
           button.type = 'button';
@@ -276,10 +304,22 @@
   window.SolarMinerLive.channel('ui', {endpoint: '/api/agent/local/status/ui', maxAgeMs: 30000, transport: 'rest', initial: false})
     .subscribe((data, meta) => { agentUi = meta.error ? null : data; if (overview) renderAlerts(agentUi); });
   window.SolarMinerLive.channel('network-agents',
-    {endpoint: '/api/agent/local/network/agents', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
+    {endpoint: '/api/agent/local/network/agents', maxAgeMs: 10000, transport: 'rest', pollMs: 5000})
     .subscribe((data, meta) => {
       networkAgents = meta.error ? null : data;
       if (overview) { renderDashboardWorkers(overview); renderEnergy(); }
+    });
+  window.SolarMinerLive.channel('benchmarks',
+    {endpoint: '/api/agent/local/benchmarks', maxAgeMs: 8000, persist: false})
+    .subscribe((data, meta) => {
+      benchmarkRunning = !meta.error && !meta.stale && data?.running === true;
+      if (overview) renderDashboardWorkers(overview);
+    });
+  window.SolarMinerLive.channel('efficiency',
+    {endpoint: '/api/agent/local/efficiency', maxAgeMs: 8000, persist: false})
+    .subscribe((data, meta) => {
+      sweepRunning = !meta.error && !meta.stale && data?.running === true;
+      if (overview) renderDashboardWorkers(overview);
     });
 
   // ------------------------------------------------------------------ agent identity

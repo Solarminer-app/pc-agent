@@ -37,7 +37,7 @@ class WorkerPowerModeServiceTest {
         MiningPerformanceProfileStore benchmarks = new MiningPerformanceProfileStore(json, directory.resolve("bench.json").toString());
         benchmarks.save(new MiningPerformanceProfileStore.Profile("GPU-a", "GPU", "Test", "pearl", "PearlHash",
                 160.0, 160, 12, Instant.now(), "BENCHMARK", 160));
-        WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus, sweeps, benchmarks);
+        WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus, sweeps, benchmarks, 80);
 
         assertEquals(160, modes.select("GPU-a", "pearl").watts());
         when(gpus.setTotalPowerTarget(160, List.of(card))).thenReturn(true);
@@ -56,7 +56,7 @@ class WorkerPowerModeServiceTest {
                 80, 250, 100, 220, 200, 150.0, "measured", true, null)));
         WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus,
                 new GpuEfficiencyStore(json, directory.resolve("empty-sweeps.json").toString()),
-                new MiningPerformanceProfileStore(json, directory.resolve("empty-bench.json").toString()));
+                new MiningPerformanceProfileStore(json, directory.resolve("empty-bench.json").toString()), 80);
         assertEquals("power_mode_no_measured_point", modes.selectForMode("GPU-a", "pearl", "EFFICIENCY").error());
         verify(gpus, never()).setTotalPowerTarget(anyLong(), anyList());
     }
@@ -71,9 +71,38 @@ class WorkerPowerModeServiceTest {
         benchmarks.save(new MiningPerformanceProfileStore.Profile("cpu", "CPU", "Test CPU", "monero", "RandomX",
                 140.0, 200, 12, Instant.now(), "BENCHMARK", 200));
         WorkerPowerModeService modes = new WorkerPowerModeService(controls, mock(LocalGpuPowerService.class),
-                new GpuEfficiencyStore(json, directory.resolve("cpu-sweeps.json").toString()), benchmarks);
+                new GpuEfficiencyStore(json, directory.resolve("cpu-sweeps.json").toString()), benchmarks, 80);
 
         assertEquals(100, modes.selectForMode("cpu", "monero", "EFFICIENCY").watts());
         assertEquals("power_mode_requires_gpu_coin", modes.selectForMode("cpu", "monero", "COIN_REVENUE_PER_KWH").error());
+    }
+
+    @Test
+    void maximumHashrateChoosesFastestCoolStablePointAndRequiresLiveTemperature() {
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        AgentControlSettingsService controls = new AgentControlSettingsService(json, directory.resolve("max-control.json").toString());
+        LocalGpuPowerService gpus = mock(LocalGpuPowerService.class);
+        LocalGpuPowerService.Gpu card = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test", 80, 250,
+                100, 220, 200, 150.0, "measured", true, null);
+        when(gpus.discover()).thenReturn(List.of(card));
+        when(gpus.readTemperatureC(card)).thenReturn(45.0);
+        GpuEfficiencyStore sweeps = new GpuEfficiencyStore(json, directory.resolve("max-sweeps.json").toString());
+        sweeps.save(new GpuEfficiencyStore.Profile("GPU-a", "Test", "pearl", "PearlHash", 150, 120.0,
+                150.0, 0.8, Instant.now(), List.of(
+                new GpuEfficiencyStore.StepResult(120, 100.0, 120.0, 60.0, true, null),
+                new GpuEfficiencyStore.StepResult(170, 145.0, 170.0, 76.0, true, null),
+                new GpuEfficiencyStore.StepResult(200, 180.0, 200.0, 82.0, true, null),
+                new GpuEfficiencyStore.StepResult(210, 190.0, 210.0, 70.0, false, null))));
+        WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus, sweeps,
+                new MiningPerformanceProfileStore(json, directory.resolve("max-bench.json").toString()), 80);
+
+        assertEquals(170, modes.selectForMode("GPU-a", "pearl", "MAX_HASHRATE").watts());
+        when(gpus.readTemperatureC(card)).thenReturn(70.0);
+        assertEquals("power_mode_temperature_unavailable_or_high",
+                modes.selectForMode("GPU-a", "pearl", "MAX_HASHRATE").error());
+        when(gpus.readTemperatureC(card)).thenReturn(null);
+        assertEquals("power_mode_temperature_unavailable_or_high",
+                modes.selectForMode("GPU-a", "pearl", "MAX_HASHRATE").error());
+        assertEquals("power_mode_requires_gpu", modes.selectForMode("cpu", "monero", "MAX_HASHRATE").error());
     }
 }

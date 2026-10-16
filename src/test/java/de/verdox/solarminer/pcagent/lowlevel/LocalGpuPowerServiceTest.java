@@ -25,11 +25,24 @@ class LocalGpuPowerServiceTest {
         LocalGpuPowerService.Gpu gpu = service.discover().getFirst();
 
         assertTrue(gpu.supportsDynamicPowerScaling());
+        assertEquals(260, gpu.driverDefaultWatts());
         assertNull(gpu.regulationError());
         assertTrue(runner.commands.contains(List.of("nvidia-smi", "-i", "GPU-one", "-pl", "250")));
         assertTrue(service.setTotalPowerTarget(180, List.of(gpu)));
         assertEquals(180, runner.limits.get("GPU-one"));
         assertEquals(180, service.discover().getFirst().currentPowerLimitWatts());
+        assertEquals(260, service.discover().getFirst().driverDefaultWatts());
+    }
+
+    @Test
+    void olderNvidiaDriverWithoutDefaultQueryKeepsTheGpuAvailable() {
+        NvidiaRunner runner = new NvidiaRunner(Map.of("GPU-one", 250));
+        runner.supportsDefaultQuery = false;
+
+        LocalGpuPowerService.Gpu gpu = service(runner).discover().getFirst();
+
+        assertTrue(gpu.supportsDynamicPowerScaling());
+        assertNull(gpu.driverDefaultWatts());
     }
 
     @Test
@@ -95,6 +108,7 @@ class LocalGpuPowerServiceTest {
         assertEquals("Radeon Test", gpu.model());
         assertEquals(80, gpu.driverMinWatts());
         assertEquals(250, gpu.driverMaxWatts());
+        assertEquals(210, gpu.driverDefaultWatts());
         assertTrue(gpu.supportsDynamicPowerScaling());
         assertTrue(service.setTotalPowerTarget(170, List.of(gpu)));
         assertEquals(170, runner.limit);
@@ -126,6 +140,7 @@ class LocalGpuPowerServiceTest {
         Files.writeString(hwmon.resolve("power1_cap_min"), "80000000\n");
         Files.writeString(hwmon.resolve("power1_cap_max"), "250000000\n");
         Files.writeString(hwmon.resolve("power1_cap"), "200000000\n");
+        Files.writeString(hwmon.resolve("power1_cap_default"), "220000000\n");
         Files.writeString(hwmon.resolve("power1_average"), "123500000\n");
         Files.writeString(hwmon.resolve("temp1_input"), "62500\n");
         Files.createDirectories(drm.resolve("card0"));
@@ -138,6 +153,7 @@ class LocalGpuPowerServiceTest {
         assertEquals("0000:03:00.0", gpu.deviceId());
         assertTrue(gpu.supportsDynamicPowerScaling());
         assertEquals(123.5, gpu.currentWatts());
+        assertEquals(220, gpu.driverDefaultWatts());
         assertTrue(service.setTotalPowerTarget(150, List.of(gpu)));
         assertEquals("150000000", Files.readString(hwmon.resolve("power1_cap")));
         assertEquals(62.5, service.readTemperatureC(gpu));
@@ -151,6 +167,7 @@ class LocalGpuPowerServiceTest {
         private final Map<String, Integer> limits = new LinkedHashMap<>();
         private final List<List<String>> commands = new ArrayList<>();
         private boolean denyWrites;
+        private boolean supportsDefaultQuery = true;
         private String failChangedWriteFor;
 
         private NvidiaRunner(Map<String, Integer> initial) { limits.putAll(initial); }
@@ -159,10 +176,13 @@ class LocalGpuPowerServiceTest {
             commands.add(List.copyOf(command));
             if (!"nvidia-smi".equals(command.getFirst())) throw new IOException("missing tool");
             if (command.stream().anyMatch(value -> value.startsWith("--query-gpu=index"))) {
+                boolean withDefault = command.stream().anyMatch(value -> value.contains("power.default_limit"));
+                if (withDefault && !supportsDefaultQuery) throw new IOException("Unknown Field");
                 StringBuilder result = new StringBuilder();
                 int index = 0;
                 for (Map.Entry<String, Integer> entry : limits.entrySet())
                     result.append(index++).append(", ").append(entry.getKey()).append(", Test GPU, 100, 300, ")
+                            .append(withDefault ? "260, " : "")
                             .append(entry.getValue()).append(", 120\n");
                 return result.toString();
             }
@@ -185,7 +205,7 @@ class LocalGpuPowerServiceTest {
         @Override public String run(List<String> command) throws IOException {
             if (!"amd-smi".equals(command.getFirst())) throw new IOException("missing tool");
             if (command.contains("list")) return "{\"gpu_data\":[{\"gpu\":0,\"bdf\":\"0000:03:00.0\",\"uuid\":\"11111111-2222-3333-4444-555555555555\"}]}";
-            if (command.contains("static")) return "{\"gpu_data\":[{\"gpu\":0,\"asic\":{\"market_name\":\"Radeon Test\"},\"limit\":{\"min_power_cap\":\"80 W\",\"max_power_cap\":\"250 W\",\"power_cap\":\"" + limit + " W\"}}]}";
+            if (command.contains("static")) return "{\"gpu_data\":[{\"gpu\":0,\"asic\":{\"market_name\":\"Radeon Test\"},\"limit\":{\"min_power_cap\":\"80 W\",\"max_power_cap\":\"250 W\",\"default_power_cap\":\"210 W\",\"power_cap\":\"" + limit + " W\"}}]}";
             if (command.contains("metric")) return "{\"gpu_data\":[{\"gpu\":0,\"power\":{\"current_socket_power\":\"123 W\"},\"temperature\":{\"hotspot_temperature\":\"62.5 C\"}}]}";
             if (command.contains("set")) {
                 limit = Integer.parseInt(command.get(command.indexOf("--power-cap") + 1));

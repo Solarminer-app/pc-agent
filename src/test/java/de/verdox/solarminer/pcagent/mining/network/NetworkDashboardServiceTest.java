@@ -78,6 +78,21 @@ class NetworkDashboardServiceTest {
         assertEquals("gpu-0", row.deviceId());
         assertTrue(row.controlAllowed());
         assertEquals(0, row.hashrateHps());
+        assertEquals(false, NetworkDashboardService.assignedWorkerRows(List.of(stopped), true)
+                .getFirst().benchmarking());
+    }
+
+    @Test
+    void activeRemoteWorkerCarriesBenchmarkState() {
+        WorkerAssignmentService.WorkerView mining = new WorkerAssignmentService.WorkerView(
+                "gpu-0", "GPU", "RTX 3070", "NVIDIA", 0, "ravencoin", "Ravencoin",
+                "kawpow", "srbminer", "SRBMiner", true, true, "pool.example", true,
+                MinerStats.MinerStatus.MINING, null);
+
+        assertEquals(true, NetworkDashboardService.assignedWorkerRows(List.of(mining), true)
+                .getFirst().benchmarking());
+        assertEquals(false, NetworkDashboardService.assignedWorkerRows(List.of(mining), false)
+                .getFirst().benchmarking());
     }
 
     @Test

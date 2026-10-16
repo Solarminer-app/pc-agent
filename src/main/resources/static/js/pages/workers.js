@@ -125,7 +125,7 @@
       wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? t('free_capacity') : `${worker.algorithm} · ${worker.configured ? worker.poolUrl ? t('pool_configured') : t('default_route') : t('solarminer_default_payout_will_be_checked_at')}`));
       }
       if (worker.coin !== 'none') {
-        const labels = {MANUAL: 'worker_mode_manual', EFFICIENCY: 'worker_mode_efficiency',
+        const labels = {MANUAL: 'worker_mode_manual', EFFICIENCY: 'worker_mode_efficiency', MAX_HASHRATE: 'worker_mode_max_hashrate',
           REVENUE_PER_KWH: 'worker_mode_revenue', COIN_REVENUE_PER_KWH: 'worker_mode_coin_revenue'};
         wrap.append(ui.element('span', 'cell-sub', t(labels[worker.powerMode] || labels.MANUAL)));
       }
@@ -218,6 +218,7 @@
     coinSelect.value = worker.coin; populateMinerSelect(worker.coin, worker.minerSoftwareId);
     $('worker-power-mode').value = worker.powerMode || 'MANUAL';
     $('worker-power-mode').querySelector('[value="COIN_REVENUE_PER_KWH"]').disabled = worker.hardwareType === 'CPU';
+    $('worker-power-mode').querySelector('[value="MAX_HASHRATE"]').disabled = worker.hardwareType === 'CPU';
     updatePoolSummary(worker.coin, worker.poolUrl, worker.configured);
     coinSelect.onchange = () => { populateMinerSelect(coinSelect.value, null); updatePoolSummary(coinSelect.value, null, false);
       if (coinSelect.value === 'none') $('worker-power-mode').value = 'MANUAL'; };
@@ -384,10 +385,11 @@
   // Worker run state stays live over SSE. The energy journal and miner catalog are REST
   // snapshots; they change slowly or after an explicit action.
   function load() {
-    window.SolarMinerLive.refresh('workers');
+    const workerRefresh = window.SolarMinerLive.refresh('workers');
     window.SolarMinerLive.refresh('energy');
     loadMinerCatalog();
     loadCoinCatalog();
+    return workerRefresh;
   }
 
   async function loadCoinCatalog() {
@@ -410,8 +412,8 @@
   window.SolarMinerLive.channel('workers', {endpoint: '/api/agent/local/workers', maxAgeMs: 8000})
     .subscribe((list, meta) => {
       if (list) {
-        // Skip inventory churn while a modal owns the screen (same rule as the old poll gate).
-        if ($('worker-editor').open || $('worker-console').open) return;
+        // Modal controls keep their own selection. Live worker rows must still update while
+        // the editor or console is open, otherwise an active miner can appear stale indefinitely.
         workers = list;
         $('connection').className = 'badge online'; $('connection').textContent = t('agent_connected');
         render();

@@ -89,13 +89,13 @@ public class WorkerController {
     }
 
     private WorkerAssignmentService.WorkerView savePowerMode(String deviceId, PowerModeRequest request) {
-        if (request == null || !java.util.Set.of("MANUAL", "EFFICIENCY", "REVENUE_PER_KWH", "COIN_REVENUE_PER_KWH").contains(request.mode()))
+        if (request == null || !java.util.Set.of("MANUAL", "EFFICIENCY", "MAX_HASHRATE", "REVENUE_PER_KWH", "COIN_REVENUE_PER_KWH").contains(request.mode()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "power_mode_invalid");
         WorkerAssignmentService.WorkerView worker = workers.workers().stream()
                 .filter(value -> deviceId.equals(value.deviceId())).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "gpu_not_found"));
         if (!"MANUAL".equals(request.mode())) {
-            if ("CPU".equals(worker.hardwareType()) && "COIN_REVENUE_PER_KWH".equals(request.mode()))
+            if ("CPU".equals(worker.hardwareType()) && ("COIN_REVENUE_PER_KWH".equals(request.mode()) || "MAX_HASHRATE".equals(request.mode())))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "power_mode_requires_gpu");
             boolean revenueMode = "REVENUE_PER_KWH".equals(request.mode())
                     || "COIN_REVENUE_PER_KWH".equals(request.mode());

@@ -21,7 +21,9 @@ function notice(message, error = false, kind = 'action') {
 function rangeControl(gpu) {
     const wrap = node('div'), control = node('div', 'dual-range');
     const track = node('div', 'dual-range-track'), selected = node('div', 'dual-range-selected');
-    track.append(selected);
+    const marker = node('span', 'dual-range-default-marker');
+    marker.setAttribute('aria-hidden', 'true');
+    track.append(selected, marker);
     const limit = document.createElement('input');
     limit.type = 'range';
     limit.min = String(gpu.driverMinPowerLimitWatts);
@@ -45,13 +47,30 @@ function rangeControl(gpu) {
         limit.value = String(value);
         const span = maximum - minimum;
         const position = span ? 100 * (value - minimum) / span : 100;
+        const driverDefault = Number(gpu.driverDefaultPowerLimitWatts);
+        const hasDefault = gpu.driverDefaultPowerLimitWatts != null && Number.isFinite(driverDefault)
+            && driverDefault >= minimum && driverDefault <= maximum;
         selected.style.left = '0%';
         selected.style.right = (100 - position) + '%';
+        selected.hidden = hasDefault;
+        marker.hidden = !hasDefault;
+        if (hasDefault) {
+            const standardPosition = span ? 100 * (driverDefault - minimum) / span : 100;
+            track.style.background = `linear-gradient(to right, #4a9c75 0%, #4a9c75 ${standardPosition}%, #b85f62 ${standardPosition}%, #b85f62 100%)`;
+            marker.style.left = `${standardPosition}%`;
+            marker.title = i18n.t('driver_default_power_limit', {watts: fmt(driverDefault)});
+            limit.setAttribute('aria-valuetext', `${i18n.t('power_limit_watts', {watts: fmt(value)})}; ${marker.title}`);
+        } else {
+            track.style.background = '';
+            limit.setAttribute('aria-valuetext', i18n.t('power_limit_watts', {watts: fmt(value)}));
+        }
         const rangeLabel = node('span');
         rangeLabel.textContent = i18n.t('driver_power_range', {min: fmt(minimum), max: fmt(maximum)});
+        const defaultLabel = node('span');
+        defaultLabel.textContent = hasDefault ? marker.title : i18n.t('driver_default_unavailable');
         const valueLabel = node('strong');
         valueLabel.textContent = i18n.t('power_limit_watts', {watts: fmt(value)});
-        values.replaceChildren(rangeLabel, valueLabel);
+        values.replaceChildren(rangeLabel, defaultLabel, valueLabel);
     };
     const edit = () => {
         draw();

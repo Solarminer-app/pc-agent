@@ -28,4 +28,10 @@ try {
     Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath "$launcher.download"
 }
 
-Start-Process -FilePath $launcher -Verb RunAs
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process -FilePath $launcher
+} else {
+    Start-Process -FilePath $launcher -Verb RunAs
+}

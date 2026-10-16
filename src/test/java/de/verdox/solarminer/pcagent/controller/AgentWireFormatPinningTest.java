@@ -94,6 +94,10 @@ class AgentWireFormatPinningTest {
                 "driverMaxPowerLimitWatts", "userMinPowerLimitWatts", "userMaxPowerLimitWatts",
                 "currentPowerLimitWatts", "currentUsageWatts", "usageMeasurement",
                 "supportsDynamicPowerScaling", "regulationError", "externalControlEnabled"));
+        AgentPowerController.GpuStatus localGpu = new AgentPowerController.GpuStatus("gpu-0", "NVIDIA", 0,
+                "RTX 3070", 0, 350, 60, 140, 120, 110.0, "measured", true, null, false, 220);
+        assertEquals(220, mapper.readTree(mapper.writeValueAsString(localGpu))
+                .path("driverDefaultPowerLimitWatts").asInt());
 
         AgentPowerController.Identity identity = new AgentPowerController.Identity("pc-agent", 2, "PC", null);
         assertFieldNames(mapper.readTree(mapper.writeValueAsString(identity)),

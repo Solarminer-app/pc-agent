@@ -1205,16 +1205,76 @@ th[aria-sort=descending] .table-sort::after {
 
 .wallet-forms {
     display: grid;
-    gap: 10px;
-    margin-top: 14px
+    gap: 7px;
+    margin-top: 10px
 }
 
 .wallet-card {
-    padding: 17px
+    padding: 0;
+    overflow: hidden
 }
 
-.wallet-card > .panel-head {
-    margin-bottom: 12px
+.wallet-card-disclosure > summary,
+.wallet-import-disclosure > summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 52px;
+    padding: 9px 14px;
+    cursor: pointer;
+    list-style: none
+}
+
+.wallet-card-disclosure > summary::-webkit-details-marker,
+.wallet-import-disclosure > summary::-webkit-details-marker {
+    display: none
+}
+
+.wallet-card-title,
+.wallet-import-disclosure summary > span:first-child {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    margin-right: auto
+}
+
+.wallet-card-title .kicker {
+    margin: 0;
+    font-size: 9px
+}
+
+.wallet-card-title strong {
+    font-size: 14px;
+    font-weight: 600
+}
+
+.wallet-disclosure-icon {
+    color: var(--muted);
+    font-size: 16px;
+    transition: transform .15s ease
+}
+
+.wallet-card-disclosure[open] > summary .wallet-disclosure-icon,
+.wallet-import-disclosure[open] > summary .wallet-disclosure-icon {
+    transform: rotate(180deg)
+}
+
+.wallet-import-disclosure > summary {
+    min-height: 44px;
+    padding: 0;
+}
+
+.wallet-import-disclosure > summary .kicker {
+    margin: 0;
+}
+
+.wallet-import-disclosure > summary strong {
+    font-size: 14px;
+    font-weight: 600
+}
+
+.wallet-import-content {
+    padding-top: 8px
 }
 
 .wallet-card h2 {
@@ -1223,20 +1283,21 @@ th[aria-sort=descending] .table-sort::after {
 
 .wallet-fields {
     display: grid;
-    grid-template-columns:1.35fr 1.35fr .7fr;
-    gap: 10px
+    grid-template-columns:1.3fr 1.3fr .7fr;
+    gap: 8px;
+    padding: 2px 14px 10px
 }
 
 .wallet-field {
     display: grid;
-    gap: 5px;
+    gap: 3px;
     min-width: 0
 }
 
 .wallet-field input, .wallet-field select {
     width: 100%;
     min-width: 0;
-    padding: 9px 10px;
+    padding: 7px 9px;
     border: 1px solid #485b72;
     border-radius: 8px;
     background: #0d1722;
@@ -1254,7 +1315,8 @@ th[aria-sort=descending] .table-sort::after {
     justify-content: flex-end;
     align-items: center;
     gap: 10px;
-    margin-top: 12px
+    margin: 0;
+    padding: 0 14px 12px
 }
 
 .wallet-card-actions .notice-line {
@@ -1901,7 +1963,8 @@ th[aria-sort=descending] .table-sort::after {
 }
 
 .wallet-import {
-    margin: 0 0 20px
+    margin: 0 0 12px;
+    padding: 11px 14px
 }
 
 .wallet-import .panel-head {

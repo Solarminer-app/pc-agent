@@ -53,17 +53,18 @@
     const configuration = configFor(coin);
     const form = element('form', 'panel wallet-card');
     form.dataset.coin = coin.id;
-    const head = element('div', 'panel-head');
-    const copy = element('div'); copy.append(element('p', 'kicker', `${coin.device} · ${coin.algorithm}`), element('h2', '', `${coin.name} · ${coin.ticker}`));
-    head.append(copy, element('span', `pill ${configuration?.wallet ? 'tone-ok' : 'tone-warn'}`, t(configuration?.wallet ? 'wallet_saved' : 'wallet_missing')));
-    form.append(head);
+    const disclosure = document.createElement('details'); disclosure.className = 'wallet-card-disclosure';
+    const summary = document.createElement('summary');
+    const copy = element('span', 'wallet-card-title'); copy.append(element('small', 'kicker', `${coin.device} · ${coin.algorithm}`), element('strong', '', `${coin.name} · ${coin.ticker}`));
+    summary.append(copy, element('span', `pill ${configuration?.wallet ? 'tone-ok' : 'tone-warn'}`, t(configuration?.wallet ? 'wallet_saved' : 'wallet_missing')), element('span', 'wallet-disclosure-icon', '⌄'));
+    disclosure.append(summary);
     const grid = element('div', 'wallet-fields');
     const pool = poolSelect(coin, configuration); pool.name = 'poolUrl';
     const wallet = document.createElement('input'); wallet.name = 'wallet'; wallet.required = true; wallet.autocomplete = 'off'; wallet.spellcheck = false;
     wallet.placeholder = `${coin.ticker}-Wallet`; wallet.value = configuration?.wallet || '';
     const worker = document.createElement('input'); worker.name = 'worker'; worker.required = true; worker.maxLength = 32; worker.pattern = '[A-Za-z0-9_\\-]{1,32}'; worker.value = configuration?.worker || defaultWorkerName;
     grid.append(field(t('pool_destination'), pool), field(`${coin.ticker}-Wallet`, wallet, t('your_payout_address')), field(t('worker'), worker, t('defaults_to_the_node_name')));
-    form.append(grid);
+    disclosure.append(grid);
     const foot = element('div', 'wallet-card-actions');
     if (!proxyUrl(coin)) foot.append(element('small', 'notice-line warn', t('connect_the_solarminer_proxy_first')));
     const save = element('button', 'button primary', t('save_wallet')); save.type = 'submit'; save.disabled = !proxyUrl(coin);
@@ -78,7 +79,7 @@
       });
       foot.append(apply);
     }
-    foot.append(save); form.append(foot);
+    foot.append(save); disclosure.append(foot); form.append(disclosure);
     form.addEventListener('submit', event => saveWallet(event, coin, configuration));
     return form;
   }
@@ -103,7 +104,14 @@
     finally { busy = false; form.querySelector('button[type=submit]').disabled = !proxyUrl(coin); }
   }
   function render() {
-    const forms = $('wallet-forms'); forms.replaceChildren(...(overview.coins || []).map(card));
+    const forms = $('wallet-forms');
+    const expanded = new Set([...forms.querySelectorAll('.wallet-card-disclosure[open]')].map(node => node.closest('.wallet-card')?.dataset.coin));
+    const next = (overview.coins || []).map(coin => {
+      const form = card(coin);
+      if (expanded.has(coin.id)) form.querySelector('.wallet-card-disclosure').open = true;
+      return form;
+    });
+    forms.replaceChildren(...next);
   }
   function renderPeers(peers = []) {
     const target = $('wallet-import-peers'); target.replaceChildren();

@@ -29,6 +29,10 @@ remains. The assigned task always takes precedence.
 | [x] | P1 | BUG-001 | Starting a miner without a configured wallet ends in an unexplained generic error state. |
 | [x] | P2 | BUG-002 | The frontend lacks a deliberate cache and invalidation strategy for stable or rarely changing data. |
 | [~] | P1 | BUG-003 | An orphaned Stratum-proxy process can retain its port after the PC-Agent exits, preventing the next startup. |
+| [~] | P1 | BUG-004 | Worker status or displayed miner can lag behind the active CPU/GPU process after starting or changing the operating mode. |
+| [~] | P1 | BUG-005 | A power-limit sweep may stop its queue before testing a second coin on the same GPU. |
+| [~] | P1 | BUG-006 | The elevated Windows launcher can stall waiting for another administrator prompt. |
+| [~] | P2 | BUG-007 | Dashboard worker status labels benchmark runs as normal mining. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -199,3 +203,151 @@ supported native platform.
   `MiningControllerValidationTest` passed on JDK 21 on 2026-10-12.
 - Release and beta workflows now parse the shipped launcher PowerShell file in
   addition to the installer before publishing assets.
+
+## BUG-004 — Show the live worker after a mode or start change
+
+**Status:** Under investigation (`[~]`, 2026-10-16)
+**Priority:** P1
+**Area:** Workers page, CPU/GPU runtime read model
+
+### Observed behaviour
+
+Originally reported in the operator's implementation note: after starting a worker in
+an operating mode, the Workers page can show stale information. The operator
+expects the current miner on each GPU and CPU; the report suggests the display
+may only change when no miner is running.
+
+### Expected behaviour
+
+Every worker row shows its saved assignment and operating mode separately from
+the currently running miner. A start or mode change refreshes the row promptly.
+
+### Investigation
+
+- `WorkerAssignmentService.view` already selects the live `MINING` telemetry by
+  physical device ID before considering the saved assignment. The Workers UI
+  rendered that telemetry, but suppressed every incoming worker snapshot while
+  either the setup dialog or miner console was open. This could leave a row
+  stale indefinitely while the console was open. The suppression is removed,
+  and an explicit start/pause now awaits the worker refresh. Check the CPU and
+  GPU live read model with an actual miner before marking the report resolved.
+- `scripts/check-i18n.cjs` and `scripts/scan-i18n-literals.cjs` pass for both
+  supported languages. A live UI session is still required.
+
+### Verification required
+
+- Start and switch modes for CPU and GPU workers, including a coin change, and
+  compare each row with the live process and miner console on target hardware.
+
+## BUG-005 — Continue the power-limit test queue across coins
+
+**Status:** Under investigation (`[~]`, 2026-10-16)
+**Priority:** P1
+**Area:** Efficiency sweep scheduling and miner transitions
+
+### Observed behaviour
+
+Originally reported in the operator's implementation note: after testing the first coin on one GPU, the
+power-limit test appears not to start the second coin, as though the queue
+ended. No session run snapshot or miner log accompanied the report.
+
+### Expected behaviour
+
+Every eligible selected coin/GPU pair reaches a terminal run state. A failed
+coin run records its own cause; recoverable failures do not silently discard
+the remaining queue. Unsafe stop, power restoration or sensor failures still
+abort the sweep safely.
+
+### Investigation
+
+- `referenceBatches` and `takeRunnable` do schedule multiple coins on one
+  physical GPU sequentially. A thrown task exception currently exits
+  `executeTasks`, after which `finalizePendingRuns` marks queued runs as failed
+  without attempting them. Whether this is the reported hardware failure is
+  unconfirmed. Capture the first run's `RunStatus.detail`, proxy/miner logs and
+  the second run's status on a live GPU.
+- A focused queue test confirms that a second coin stays queued while the GPU
+  is busy and is selected when it becomes free. This does not reproduce the
+  reported live failure. No unsafe continuation rule was introduced without
+  the first run's failure evidence.
+
+### Verification required
+
+- Run two configured coins on one writable GPU and confirm both start and
+  finish; repeat with a first-coin startup failure and verify safe continuation.
+
+## BUG-006 — Avoid a second Windows elevation request
+
+**Status:** Under investigation (`[~]`, 2026-10-16)
+**Priority:** P1
+**Area:** Stable and beta Windows launchers
+
+### Observed behaviour
+
+Originally reported in the operator's implementation note: an already elevated PC-Agent startup can wait on an
+administrator prompt and become stuck.
+
+### Expected behaviour
+
+After the launcher confirms its administrator token, optional Defender setup
+does not invoke another elevation prompt. Declining the optional exclusion
+still allows the documented startup flow.
+
+### Investigation
+
+- Both launchers check `WindowsPrincipal.IsInRole(Administrator)` before the
+  Defender step, but that step called `Start-Process powershell.exe -Verb RunAs
+  -Wait` after the operator opted in. Both launchers now call
+  `Add-MpPreference` directly with the already elevated token. The changed
+  prompt is bilingual and accepts English `y/yes` and German `j/ja`.
+- `WindowsLauncherLifecycleTest` passed on JDK 21 and checks both launchers for
+  the admin-token gate, direct Defender call and absence of `-Verb RunAs`.
+  A Windows live run is still needed to verify the full startup flow.
+- `standalone/install-windows.ps1` also launched the downloaded batch file via
+  unconditional `-Verb RunAs`. It now reuses an already elevated installer
+  token and requests elevation only for a non-elevated installer. The focused
+  lifecycle test checks both branches.
+
+### Verification required
+
+- Run stable and beta launchers as administrator with an exclusion missing,
+  opt in and confirm the command completes without a second UAC prompt. Test
+  the decline path too.
+
+## BUG-007 — Distinguish benchmarking from ordinary mining
+
+**Status:** Implemented, live verification pending (`[~]`, 2026-10-16)
+**Priority:** P2
+**Area:** Local and LAN dashboard worker status
+
+### Observed behaviour
+
+Originally reported in the operator's implementation note: local and remote dashboard
+workers display the ordinary “Mining active” status during a benchmark. The
+same ambiguity can occur during a power-limit sweep.
+
+### Expected behaviour
+
+An active worker participating in a benchmark or sweep shows “Benchmarking” in
+English and “Benchmark läuft” in German. Idle workers retain their actual
+paused/stopped/error status.
+
+### Investigation and remedy
+
+- The dashboard only had miner process state, with no measurement-run context.
+  It now subscribes to the local benchmark and sweep SSE channels and overrides
+  a `MINING` row's display status while either local run is active.
+- LAN snapshots add nullable `benchmarking` to each worker row. A new peer sets
+  it only for active workers during a benchmark/sweep. Older peers omit it and
+  keep the previous status display. The dashboard polls its cached LAN board
+  every five seconds, matching the service's five-second refresh cycle.
+- The status label uses the closed German/English catalog; the protocol field
+  is additive and does not change the miner's actual `MINING` process state.
+
+### Verification performed and required
+
+- `NetworkDashboardServiceTest` covers active versus stopped peer rows and
+  passed with the focused JDK 21 suite. Both i18n checks passed (1,420 keys,
+  zero unkeyed browser literals); `overview.js` passed `node --check`.
+- Confirm on two real agents that a local benchmark and sweep label only the
+  mining workers, the remote board follows, and both revert after completion.

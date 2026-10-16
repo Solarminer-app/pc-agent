@@ -59,7 +59,16 @@ public class LocalGpuPowerService {
 
     public record Gpu(String vendor, int index, String deviceId, String model, int driverMinWatts, int driverMaxWatts,
                       int minWatts, int maxWatts, Integer currentPowerLimitWatts, Double currentWatts,
-                      String usageMeasurement, boolean supportsDynamicPowerScaling, String regulationError) { }
+                      String usageMeasurement, boolean supportsDynamicPowerScaling, String regulationError,
+                      Integer driverDefaultWatts) {
+        public Gpu(String vendor, int index, String deviceId, String model, int driverMinWatts, int driverMaxWatts,
+                   int minWatts, int maxWatts, Integer currentPowerLimitWatts, Double currentWatts,
+                   String usageMeasurement, boolean supportsDynamicPowerScaling, String regulationError) {
+            this(vendor, index, deviceId, model, driverMinWatts, driverMaxWatts, minWatts, maxWatts,
+                    currentPowerLimitWatts, currentWatts, usageMeasurement, supportsDynamicPowerScaling,
+                    regulationError, null);
+        }
+    }
 
     @Autowired
     public LocalGpuPowerService(ObjectMapper json, @Value("${solarminer.agent.gpu-power-settings-file:./solarminer-agent/gpu-power-limits.json}") String path) {
@@ -133,7 +142,8 @@ public class LocalGpuPowerService {
             cards.replaceAll(gpu -> startupRecovery.containsKey(gpu.deviceId())
                     ? new Gpu(gpu.vendor(), gpu.index(), gpu.deviceId(), gpu.model(), gpu.driverMinWatts(), gpu.driverMaxWatts(),
                     gpu.minWatts(), gpu.maxWatts(), gpu.currentPowerLimitWatts(), gpu.currentWatts(), gpu.usageMeasurement(), false,
-                    "Gespeicherter Power-Cap konnte nach dem letzten Abbruch noch nicht wiederhergestellt werden")
+                    "Gespeicherter Power-Cap konnte nach dem letzten Abbruch noch nicht wiederhergestellt werden",
+                    gpu.driverDefaultWatts())
                     : gpu);
         }
         return List.copyOf(cards);
@@ -141,13 +151,23 @@ public class LocalGpuPowerService {
 
     private void detectNvidia(List<Gpu> cards) {
         try {
-            String output = commands.run(List.of("nvidia-smi", "--query-gpu=index,uuid,name,power.min_limit,power.max_limit,power.limit,power.draw", "--format=csv,noheader,nounits"));
+            String fields = "index,uuid,name,power.min_limit,power.max_limit,power.default_limit,power.limit,power.draw";
+            String output;
+            boolean hasDefault = true;
+            try {
+                output = commands.run(List.of("nvidia-smi", "--query-gpu=" + fields, "--format=csv,noheader,nounits"));
+            } catch (IOException unsupportedDefaultField) {
+                // Older driver versions may reject the optional default_limit query.
+                hasDefault = false;
+                output = commands.run(List.of("nvidia-smi", "--query-gpu=index,uuid,name,power.min_limit,power.max_limit,power.limit,power.draw", "--format=csv,noheader,nounits"));
+            }
             for (String line : output.lines().toList()) {
                 String[] c = line.split(",", -1);
-                if (c.length != 7) continue;
+                if (c.length != (hasDefault ? 8 : 7)) continue;
                 try {
                     addCard(cards, "NVIDIA", Integer.parseInt(c[0].trim()), c[1].trim(), c[2].trim(),
-                            watts(c[3]), watts(c[4]), optionalWatts(c[5]), decimal(c[6]));
+                            watts(c[3]), watts(c[4]), hasDefault ? optionalWatts(c[5]) : null,
+                            optionalWatts(c[hasDefault ? 6 : 5]), decimal(c[hasDefault ? 7 : 6]));
                 } catch (RuntimeException ignored) { }
             }
         } catch (IOException | InterruptedException e) { interrupted(e); }
@@ -163,10 +183,11 @@ public class LocalGpuPowerService {
                 Integer min = wattsValue(first(values, "MIN_POWER_CAP", "POWER_CAP_MIN", "MIN_POWER_LIMIT", "MIN_POWER"));
                 Integer max = wattsValue(first(values, "MAX_POWER_CAP", "POWER_CAP_MAX", "MAX_POWER_LIMIT", "MAX_POWER"));
                 Integer current = wattsValue(first(values, "CURRENT_POWER_CAP", "POWER_CAP", "POWER_LIMIT"));
+                Integer defaultCap = wattsValue(first(values, "DEFAULT_POWER_CAP", "DEFAULT_POWER_LIMIT"));
                 Double draw = decimal(first(values, "CURRENT_SOCKET_POWER", "AVERAGE_SOCKET_POWER", "SOCKET_POWER", "CURRENT_POWER", "POWER_USAGE"));
                 String model = first(values, "MARKET_NAME", "PRODUCT_NAME", "ASIC_NAME");
                 addCard(cards, "AMD", descriptor.index(), descriptor.selector(), model == null ? "AMD GPU" : model,
-                        valueOrZero(min), valueOrZero(max), current, draw);
+                        valueOrZero(min), valueOrZero(max), defaultCap, current, draw);
             }
         } catch (IOException | InterruptedException | RuntimeException e) { interrupted(e); }
     }
@@ -189,6 +210,7 @@ public class LocalGpuPowerService {
                     Integer min = microValue(hwmon.resolve("power1_cap_min"), false);
                     Integer max = microValue(hwmon.resolve("power1_cap_max"), false);
                     Integer current = microValue(hwmon.resolve("power1_cap"), false);
+                    Integer defaultCap = microValue(hwmon.resolve("power1_cap_default"), false);
                     if (min == null || max == null || current == null) continue;
                     String id;
                     try { id = device.toRealPath().getFileName().toString(); }
@@ -201,14 +223,14 @@ public class LocalGpuPowerService {
                     if (draw == null) draw = microDouble(hwmon.resolve("power1_input"));
                     String model = readText(device.resolve("product_name"));
                     addCard(cards, "AMD", index, id, model == null || model.isBlank() ? "AMD GPU " + id : model,
-                            min, max, current, draw);
+                            min, max, defaultCap, current, draw);
                 }
             }
         } catch (IOException | RuntimeException ignored) { }
     }
 
     private void addCard(List<Gpu> cards, String vendor, int index, String id, String model,
-                         int driverMin, int driverMax, Integer current, Double draw) {
+                         int driverMin, int driverMax, Integer driverDefault, Integer current, Double draw) {
         boolean readable = !id.isBlank() && driverMin > 0 && driverMax >= driverMin && current != null;
         Integer saved = userPowerLimits.get(id);
         int min = readable ? driverMin : 0;
@@ -218,7 +240,8 @@ public class LocalGpuPowerService {
         Capability capability = valid ? writableCapability(vendor, id, current) : null;
         cards.add(new Gpu(vendor, index, id, model, driverMin, driverMax, min, max, current, draw,
                 draw == null ? "unavailable" : "measured", valid && capability.writable(),
-                valid ? capability.error() : "Treibergrenzen oder Nutzergrenzen nicht sicher verifizierbar"));
+                valid ? capability.error() : "Treibergrenzen oder Nutzergrenzen nicht sicher verifizierbar",
+                driverDefault != null && driverDefault >= driverMin && driverDefault <= driverMax ? driverDefault : null));
     }
 
     /** Same-value write: verifies permissions/capability without increasing consumption. */

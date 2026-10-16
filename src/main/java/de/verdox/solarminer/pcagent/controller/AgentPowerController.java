@@ -70,7 +70,8 @@ public class AgentPowerController {
         // command paths. A slow driver never slows this endpoint down.
         List<GpuStatus> cards = gpus.snapshot().stream().map(g -> new GpuStatus(g.deviceId(), g.vendor(), g.index(), g.model(),
                 g.driverMinWatts(), g.driverMaxWatts(), g.minWatts(), g.maxWatts(), g.currentPowerLimitWatts(),
-                g.currentWatts(), g.usageMeasurement(), g.supportsDynamicPowerScaling(), g.regulationError(), mining.externallySelected(g.deviceId()))).toList();
+                g.currentWatts(), g.usageMeasurement(), g.supportsDynamicPowerScaling(), g.regulationError(), mining.externallySelected(g.deviceId()),
+                externalView ? null : g.driverDefaultWatts())).toList();
         if (externalView) cards = owner.externalControlEnabled()
                 ? cards.stream().filter(GpuStatus::externalControlEnabled).toList() : List.of();
         long min = mining.calculateMinPowerTargetFromComponents(), max = mining.calculateMaxPowerTargetFromComponents();
@@ -232,5 +233,16 @@ public class AgentPowerController {
     public record GpuStatus(String deviceId, String vendor, int index, String model, int driverMinPowerLimitWatts,
                             int driverMaxPowerLimitWatts, int userMinPowerLimitWatts, int userMaxPowerLimitWatts,
                             Integer currentPowerLimitWatts, Double currentUsageWatts, String usageMeasurement,
-                            boolean supportsDynamicPowerScaling, String regulationError, boolean externalControlEnabled) { }
+                            boolean supportsDynamicPowerScaling, String regulationError, boolean externalControlEnabled,
+                            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                            Integer driverDefaultPowerLimitWatts) {
+        public GpuStatus(String deviceId, String vendor, int index, String model, int driverMinPowerLimitWatts,
+                         int driverMaxPowerLimitWatts, int userMinPowerLimitWatts, int userMaxPowerLimitWatts,
+                         Integer currentPowerLimitWatts, Double currentUsageWatts, String usageMeasurement,
+                         boolean supportsDynamicPowerScaling, String regulationError, boolean externalControlEnabled) {
+            this(deviceId, vendor, index, model, driverMinPowerLimitWatts, driverMaxPowerLimitWatts,
+                    userMinPowerLimitWatts, userMaxPowerLimitWatts, currentPowerLimitWatts, currentUsageWatts,
+                    usageMeasurement, supportsDynamicPowerScaling, regulationError, externalControlEnabled, null);
+        }
+    }
 }

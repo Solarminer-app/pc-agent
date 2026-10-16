@@ -107,7 +107,7 @@
 
   // ------------------------------------------------------------------ status language
 
-  const statusLabels = {MINING: 'mining_active', PAUSED: 'paused', STOPPED: 'stopped', ERROR: 'error'};
+  const statusLabels = {MINING: 'mining_active', BENCHMARKING: 'benchmarking', PAUSED: 'paused', STOPPED: 'stopped', ERROR: 'error'};
   function statusPill(status, override) {
     const pill = element('span', `pill status-${String(status || 'unknown').toLowerCase()}`);
     pill.append(element('i', 'pill-dot'), element('span', '', t(override || statusLabels[status] || 'unknown')));

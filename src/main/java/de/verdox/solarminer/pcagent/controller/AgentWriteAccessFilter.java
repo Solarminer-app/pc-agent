@@ -67,7 +67,8 @@ public class AgentWriteAccessFilter extends OncePerRequestFilter {
             // The peer-dashboard snapshot is a read-only visibility contract gated by its
             // own explicit LAN-sharing consent, not by the Node-control gate.
             if ("GET".equalsIgnoreCase(request.getMethod())
-                    && path.equals(EXTERNAL_API + "/network-snapshot")) {
+                    && (path.equals(EXTERNAL_API + "/network-snapshot")
+                    || path.equals(EXTERNAL_API + "/energy-history"))) {
                 if (controls.get().networkSharingActive()) {
                     filterChain.doFilter(request, response);
                 } else {

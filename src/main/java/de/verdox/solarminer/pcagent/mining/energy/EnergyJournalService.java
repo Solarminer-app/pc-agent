@@ -136,6 +136,46 @@ public class EnergyJournalService {
         return current == null ? emptyOverview() : current;
     }
 
+    /** Bounded historical aggregates for the Power Consumption detail page and LAN peers. */
+    public synchronized History history(Instant from, Instant to) {
+        if (from == null || to == null || !to.isAfter(from) || Duration.between(from, to).toDays() > 366)
+            throw new IllegalArgumentException("Invalid energy history range");
+        List<Session> sessions = new ArrayList<>(readSessions());
+        Instant now = Instant.now();
+        sessions.addAll(active.values().stream().map(value -> value.snapshot(now)).toList());
+        ZoneId zone = ZoneId.systemDefault();
+        Map<Instant, Bucket> hours = new java.util.TreeMap<>();
+        for (Instant cursor = from.truncatedTo(java.time.temporal.ChronoUnit.HOURS); cursor.isBefore(to); cursor = cursor.plus(Duration.ofHours(1)))
+            hours.put(cursor, new Bucket());
+        for (Session session : sessions) {
+            Instant start = session.startedAt().isAfter(from) ? session.startedAt() : from;
+            Instant end = session.endedAt().isBefore(to) ? session.endedAt() : to;
+            if (!end.isAfter(start)) continue;
+            long total = Math.max(1, Duration.between(session.startedAt(), session.endedAt()).toSeconds());
+            for (Instant cursor = start.truncatedTo(java.time.temporal.ChronoUnit.HOURS); cursor.isBefore(end); cursor = cursor.plus(Duration.ofHours(1))) {
+                Instant a = cursor.isAfter(start) ? cursor : start, b = cursor.plus(Duration.ofHours(1)).isBefore(end) ? cursor.plus(Duration.ofHours(1)) : end;
+                long seconds = Duration.between(a, b).toSeconds();
+                Bucket bucket = hours.computeIfAbsent(cursor, ignored -> new Bucket());
+                Double recordedWh = session.hourlyWattHours() == null ? null : session.hourlyWattHours().get(cursor.toString());
+                if (recordedWh == null) bucket.wattHours += session.wattHours() * seconds / total;
+                else bucket.wattHours += recordedWh * seconds / 3600d;
+                bucket.runtime += seconds;
+                bucket.measured += Math.round(session.measuredSeconds() * seconds / (double) total);
+                bucket.hashrateWeighted += session.averageHashrateHs() * seconds;
+            }
+        }
+        Map<LocalDate, Bucket> days = new java.util.TreeMap<>();
+        hours.forEach((instant, bucket) -> days.computeIfAbsent(instant.atZone(zone).toLocalDate(), ignored -> new Bucket()).add(bucket));
+        return new History(from, to, hours.entrySet().stream().map(e -> e.getValue().point(e.getKey().toString())).toList(),
+                days.entrySet().stream().map(e -> e.getValue().point(e.getKey().toString())).toList());
+    }
+
+    private static final class Bucket {
+        double wattHours, hashrateWeighted; long runtime, measured;
+        void add(Bucket other) { wattHours += other.wattHours; runtime += other.runtime; measured += other.measured; hashrateWeighted += other.hashrateWeighted; }
+        HistoryPoint point(String at) { return new HistoryPoint(at, wattHours / 1000d, runtime == 0 ? 0 : hashrateWeighted / runtime, runtime, measured); }
+    }
+
     /** Called only by lifecycle/sample/write paths, never by a dashboard GET. */
     private synchronized void refreshOverviewSnapshot() {
         overviewSnapshot = buildOverview();
@@ -258,12 +298,25 @@ public class EnergyJournalService {
                             long measuredSeconds, double measurementCoverage) { }
     public record Overview(Settings settings, Aggregate today, Aggregate last7Days, Aggregate last30Days,
                            List<Session> activeSessions, List<Session> recentSessions) { }
+    public record History(Instant from, Instant to, List<HistoryPoint> hourly, List<HistoryPoint> daily) { }
+    public record HistoryPoint(String at, double kilowattHours, double averageHashrateHs, long runtimeSeconds, long measuredSeconds) { }
     public record Session(String id, String deviceId, String hardwareType, String hardwareModel,
                           String coin, String minerSoftwareId, String algorithm,
                           Instant startedAt, Instant endedAt, long runtimeSeconds, long measuredSeconds,
                           double wattHours, double averageWatts, double maximumWatts,
                           double averageHashrateHs, Long acceptedShares, Long rejectedShares,
-                          String measurementSource, String endReason) { }
+                          String measurementSource, String endReason, Map<String, Double> hourlyWattHours) {
+        public Session(String id, String deviceId, String hardwareType, String hardwareModel,
+                       String coin, String minerSoftwareId, String algorithm,
+                       Instant startedAt, Instant endedAt, long runtimeSeconds, long measuredSeconds,
+                       double wattHours, double averageWatts, double maximumWatts,
+                       double averageHashrateHs, Long acceptedShares, Long rejectedShares,
+                       String measurementSource, String endReason) {
+            this(id, deviceId, hardwareType, hardwareModel, coin, minerSoftwareId, algorithm, startedAt, endedAt,
+                    runtimeSeconds, measuredSeconds, wattHours, averageWatts, maximumWatts, averageHashrateHs,
+                    acceptedShares, rejectedShares, measurementSource, endReason, null);
+        }
+    }
 
     static final class ActiveSession {
         public String id;
@@ -287,6 +340,7 @@ public class EnergyJournalService {
         public Long acceptedLast;
         public Long rejectedLast;
         public String measurementSource;
+        public Map<String, Double> hourlyWattHours = new LinkedHashMap<>();
 
         public ActiveSession() { }
 
@@ -323,7 +377,17 @@ public class EnergyJournalService {
             double watts = measured ? worker.approximatedPowerUsageWatts() : 0;
             if (seconds > 0 && seconds <= MAX_SAMPLE_GAP.toSeconds()) {
                 if (lastMeasured && measured) {
-                    wattHours += ((lastWatts + watts) / 2.0) * seconds / 3600.0;
+                    double intervalWh = ((lastWatts + watts) / 2.0) * seconds / 3600.0;
+                    wattHours += intervalWh;
+                    Instant cursor = lastSampleAt;
+                    while (cursor.isBefore(now)) {
+                        Instant bucketStart = cursor.truncatedTo(java.time.temporal.ChronoUnit.HOURS);
+                        Instant next = bucketStart.plus(Duration.ofHours(1));
+                        Instant segmentEnd = next.isBefore(now) ? next : now;
+                        long segmentSeconds = Duration.between(cursor, segmentEnd).toSeconds();
+                        hourlyWattHours.merge(bucketStart.toString(), intervalWh * segmentSeconds / seconds, Double::sum);
+                        cursor = segmentEnd;
+                    }
                     measuredSeconds += seconds;
                     maximumWatts = Math.max(maximumWatts, watts);
                 }
@@ -346,7 +410,8 @@ public class EnergyJournalService {
             return new Session(id, deviceId, hardwareType, hardwareModel, coin, minerSoftwareId, algorithm,
                     startedAt, endedAt, runtime, measuredSeconds, wattHours, average, maximumWatts,
                     hashrateSeconds == 0 ? 0 : weightedHashrate / hashrateSeconds,
-                    delta(acceptedAtStart, acceptedLast), delta(rejectedAtStart, rejectedLast), measurementSource, reason);
+                    delta(acceptedAtStart, acceptedLast), delta(rejectedAtStart, rejectedLast), measurementSource, reason,
+                    Map.copyOf(hourlyWattHours));
         }
 
         private static Long delta(Long start, Long end) {

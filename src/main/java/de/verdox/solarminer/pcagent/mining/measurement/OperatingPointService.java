@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Learns local GPU operating points during ordinary mining, without starting a benchmark. */
+/** Learns local CPU and GPU operating points during ordinary mining, without starting a benchmark. */
 @Service
 public class OperatingPointService {
     private static final int SAMPLES = 12;
@@ -46,7 +46,8 @@ public class OperatingPointService {
         Set<String> seen = new HashSet<>();
         for (MinerStats.Worker worker : workers) {
             Coin coin = Coin.byAlgorithm(worker.currentAlgorithm()).orElse(null);
-            if (coin == null || !coin.isGpu() || !"GPU".equalsIgnoreCase(worker.hardwareType())
+            if (coin == null || !(coin.isGpu() && "GPU".equalsIgnoreCase(worker.hardwareType())
+                    || coin.isCpu() && "CPU".equalsIgnoreCase(worker.hardwareType()))
                     || worker.deviceId() == null || worker.deviceId().isBlank()
                     || worker.powerTargetWatts() <= 0 || worker.powerTargetWatts() > Integer.MAX_VALUE
                     || worker.miningStatus() != MinerStats.MinerStatus.MINING

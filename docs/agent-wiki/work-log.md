@@ -1,5 +1,23 @@
 # PC-Agent work log
 
+## 2026-10-17 — Power Consumption detail page and LAN history
+
+- Added `/power.html` with a date range picker, aggregate network metrics, a chart (hour buckets for short ranges, daily buckets for longer ranges), and a daily statistics table. All page text, date labels, accessibility text and status feedback use the German/English catalog.
+- Added a bounded energy journal history read model. The external `GET /api/agent/external/energy-history` route returns only time buckets (kWh, runtime-weighted hashrate, runtime and measured seconds) and is guarded by the existing network-sharing consent. The local endpoint combines this agent with currently discovered peers concurrently; unreachable or non-sharing peers contribute no readings.
+- No worker identities, device identifiers, raw sessions, shares, or configuration are sent by the new peer response. The UI explicitly states that missing readings are not estimated and that unavailable peers do not contribute data.
+- Contract details: [Power Consumption history](power-consumption.md).
+- Verification: JavaScript syntax and closed-catalog DE/EN checks passed (`check-i18n.cjs`: 1,441 keys, 11 pages; literal scan: 0). Java compilation could not start because Gradle tried to create a wrapper lock under the read-only `/home/lukas/.gradle`; the LAN browser smoke test remains outstanding. A workspace-wide whitespace check also reports only trailing spaces in the pre-existing dirty `docs/What needs to be implemented.md`.
+
+## 2026-10-16 — Wallets page compact layout
+
+- The LAN wallet import is now a closed-by-default disclosure, and each coin
+  wallet is a compact row that expands to show its pool, wallet and worker
+  fields. Expanded wallet rows stay open when the page refreshes after a save.
+  Native `<details>` keeps the controls keyboard and screen-reader accessible.
+- Existing localized text and German/English language behavior are unchanged;
+  no new UI copy was added. Verification: JavaScript syntax and the repository's
+  German/English i18n checks passed; manual browser layout review remains open.
+
 ## 2026-10-16 — Revenue-Modi starten direkt mit dem besten Messpunkt
 
 - Das Betriebsmodus-Feld steht jetzt am Anfang des Worker-Dialogs. Die zweisprachige Hilfe erklärt Effizienz, festen Coin-Ertrag und Coin-Wechsel getrennt.
@@ -2330,3 +2348,28 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Added persisted `MANUAL`, `EFFICIENCY`, `REVENUE_PER_KWH`, and GPU-only `COIN_REVENUE_PER_KWH` modes in the Worker UI/API. Selection uses stable sweep steps and target-specific measurements with at least 12 samples; CPU automatic modes use measured thread targets. For a fixed coin, efficiency and gross fiat/kWh select the same point.
 - GPU caps are applied before a miner starts and retained by the miner's start path. Automatic workers expose a fixed on/off miner to the Node; external target increments/decrements and economic-plan target or coin changes are blocked. C10 capabilities add the mode so the Node can send on/off plans without assigning a coin to those workers.
 - Verification: focused `WorkerPowerModeServiceTest`, `WorkerAssignmentServiceTest`, `AgentPowerControllerTest`, and `EconomicPlanningServiceTest` passed on JDK 21; both i18n checks passed for German and English (1,414 keys, zero unkeyed browser literals). The full suite compiled and ran 225 tests with one existing unrelated `QuanPoolStatsTest.resolvesEveryConfiguredNvidiaWorkerWithoutAssumingContiguousIndices` failure (expected `[2,7]`, got `[0]`). Real driver writes, CPU thread response, and pool payouts remain unverified. See [worker-power-modes.md](worker-power-modes.md).
+
+## 2026-10-16 — Optional maximum-hashrate worker mode
+
+- Added GPU-only `MAX_HASHRATE` alongside the existing modes. It selects the highest stable hashrate from local sweep steps under the configured GPU watt and temperature ceilings. The default continuous temperature ceiling is 80 °C; a five-second guard pauses an active worker on overtemperature or missing sensor data, and a 10 °C start hysteresis prevents immediate restart while hot. The mode is never selected automatically; Node still handles on/off only.
+- Focused `WorkerPowerModeServiceTest` and `MaxHashrateThermalGuardTest` passed on JDK 21. The German/English i18n catalog and static fallback were updated. Live GPU temperature, memory junction temperature, driver writes and battery economics require physical/system verification before deployment.
+
+## 2026-10-16 — User-reported PC-Agent bug triage
+
+- Copied bug reports 2, 6 and 8 from `docs/What needs to be implemented.md` into `docs/KNOWN_BUGS.md` as BUG-004 through BUG-006. The already open BUG-003 still needs a native Windows process/port capture.
+- BUG-004: `workers.js` no longer discards live worker snapshots while setup or console dialogs are open. Manual worker refresh returns its completion to start/pause callers. The backend's physical-device read model already prefers live `MINING` telemetry over the saved assignment. CPU/GPU process comparison on live hardware is still needed.
+- BUG-005: the queue already serializes two coin references on one GPU. A new focused scheduler test proves the second task remains queued until the GPU is free. The reported stop has no session state or miner log, so its cause and a safe code remedy remain unconfirmed. An unsafe stop/power failure must not be treated as an ordinary per-coin failure.
+- BUG-006: stable and beta Windows launchers now use their already verified administrator token for optional Defender setup and do not open a second `RunAs` process. The installer also reuses an elevated token when launching the downloaded batch file; it requests elevation only when needed. The prompt is bilingual and accepts English/German positive answers. `WindowsLauncherLifecycleTest`, `EfficiencySweepServiceTest` and `WorkerAssignmentServiceTest` passed on JDK 21 after the installer change. Both i18n scripts passed (1,420 keys, zero unkeyed browser literals). Live Windows confirmation remains open.
+- BUG-007: dashboard worker status now combines the real process state with active local benchmark/sweep SSE sessions. LAN snapshots add a nullable per-worker `benchmarking` flag; older peers remain compatible. Only active mining rows show the localized benchmarking label. `NetworkDashboardServiceTest` passed with the focused JDK 21 suite; live two-agent verification remains open. See [pc-agent.md](pc-agent.md) for the additive LAN contract.
+
+## 2026-10-17 — Separate feature requests from the bug backlog
+
+- Removed the four transferred bug entries (original items 2, 6, 7 and 8) from `docs/What needs to be implemented.md` and renumbered its four remaining feature requests. The bug reports and their current verification limits remain in `docs/KNOWN_BUGS.md` as BUG-004 through BUG-007.
+
+## 2026-10-17 — Four PC-Agent feature requests
+
+- Power limits: the local API now carries the GPU driver's nullable default cap (NVIDIA, AMD-SMI and Linux AMD hwmon). The hardware slider marks that watt value; green covers values up to it and red values above it. No marker or color claim appears when the driver does not report a usable default. Old NVIDIA drivers retain the prior discovery query, and the external Node wire format stays unchanged.
+- Continuous learning: `OperatingPointService` now collects ordinary CPU as well as GPU mining points and persists a fresh profile for each changed target after twelve valid five-second samples. New `AdaptiveWorkerPowerModeService` checks fixed-coin GPU efficiency/revenue modes every minute and applies only a measured 5% gain, with a 30-minute cooldown and the existing measurement lock. MAX_HASHRATE still requires sweep temperature evidence; CPU profiles are applied on a later start.
+- LAN navigation: a remote worker's name links to the peer host and dashboard port from LAN discovery. Invalid host or port data leaves plain text. The link label is localized and takes the user to that PC-Agent dashboard.
+- Sweep measurements: the live plan, finished runs and saved profiles now show individual stable/unstable/planned power steps in structured rows. The live step list and stored profile list are disclosures; the existing efficiency curves remain. Open live disclosures persist across refreshes.
+- Verification: focused JDK 21 tests for GPU driver/default discovery, local/external power wire format, CPU/GPU operating-point collection and guarded adaptive retuning passed. The full suite compiled and ran 236 tests; its sole failure was the previously documented unrelated `QuanPoolStatsTest.resolvesEveryConfiguredNvidiaWorkerWithoutAssumingContiguousIndices`. JavaScript syntax, German/English catalog (1,446 keys, 11 pages), unkeyed-literal scan and `git diff --check` passed. Real NVIDIA/AMD driver defaults, dynamic writes, LAN browser navigation and visual layout need live hardware/browser confirmation.

@@ -12,6 +12,8 @@ import de.verdox.solarminer.pcagent.mining.agent.AgentIdentityService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.mining.economics.MarketDataService;
 import de.verdox.solarminer.pcagent.mining.energy.EnergyJournalService;
+import de.verdox.solarminer.pcagent.mining.measurement.BenchmarkSessionService;
+import de.verdox.solarminer.pcagent.mining.measurement.EfficiencySweepService;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -48,6 +50,8 @@ public class NetworkDashboardService {
     private final WorkerAssignmentService ownWorkers;
     private final AgentControlSettingsService ownControls;
     private final AgentStatusService status;
+    private final BenchmarkSessionService benchmarks;
+    private final EfficiencySweepService sweeps;
     private final AgentIdentityService ownIdentity;
     private final ObjectMapper mapper;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(1200)).build();
@@ -60,6 +64,7 @@ public class NetworkDashboardService {
                                    WorkerAssignmentService ownWorkers, AgentControlSettingsService ownControls,
                                    AgentIdentityService ownIdentity,
                                    @org.springframework.context.annotation.Lazy AgentStatusService status,
+                                   BenchmarkSessionService benchmarks, EfficiencySweepService sweeps,
                                    ObjectMapper mapper,
                                    @org.springframework.beans.factory.annotation.Value("${server.port:8084}") int ownDashboardPort) {
         this.discovery = discovery;
@@ -69,6 +74,8 @@ public class NetworkDashboardService {
         this.ownWorkers = ownWorkers;
         this.ownControls = ownControls;
         this.status = status;
+        this.benchmarks = benchmarks;
+        this.sweeps = sweeps;
         this.ownIdentity = ownIdentity;
         this.ownDashboardPort = ownDashboardPort;
         this.mapper = mapper.copy().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -79,6 +86,53 @@ public class NetworkDashboardService {
     /** One card per machine from the last completed background refresh; never performs I/O. */
     public List<AgentCard> cards() {
         return snapshot;
+    }
+
+    public EnergyJournalService.History ownEnergyHistory(Instant from, Instant to) { return ownEnergy.history(from, to); }
+
+    /** On-demand, aggregate-only history across currently discovered peers that opted into LAN visibility. */
+    public EnergyJournalService.History networkEnergyHistory(Instant from, Instant to) {
+        EnergyJournalService.History own = ownEnergy.history(from, to);
+        Map<String, MutablePoint> hourly = new java.util.TreeMap<>(), daily = new java.util.TreeMap<>();
+        addHistory(own, hourly, daily);
+        List<AgentNetworkDiscoveryService.Peer> peers = discovery.peers();
+        try (var fetches = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            List<java.util.concurrent.CompletableFuture<EnergyJournalService.History>> requests = peers.stream()
+                    .map(peer -> java.util.concurrent.CompletableFuture.supplyAsync(() -> peerEnergyHistory(peer, from, to), fetches))
+                    .toList();
+            for (var request : requests) {
+                EnergyJournalService.History history = request.join();
+                if (history != null) addHistory(history, hourly, daily);
+            }
+        }
+        return new EnergyJournalService.History(from, to, hourly.values().stream().map(MutablePoint::point).toList(),
+                daily.values().stream().map(MutablePoint::point).toList());
+    }
+
+    private EnergyJournalService.History peerEnergyHistory(AgentNetworkDiscoveryService.Peer peer, Instant from, Instant to) {
+            try {
+                String query = "?from=" + java.net.URLEncoder.encode(from.toString(), java.nio.charset.StandardCharsets.UTF_8)
+                        + "&to=" + java.net.URLEncoder.encode(to.toString(), java.nio.charset.StandardCharsets.UTF_8);
+                HttpRequest request = HttpRequest.newBuilder(URI.create("http://" + peer.host() + ":" + peer.dashboardPort()
+                                + "/api/agent/external/energy-history" + query)).timeout(FETCH_TIMEOUT).GET().build();
+                HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 200) return mapper.readValue(response.body(), EnergyJournalService.History.class);
+            } catch (Exception ignored) {
+                if (ignored instanceof InterruptedException) Thread.currentThread().interrupt();
+            }
+            return null;
+    }
+
+    private static void addHistory(EnergyJournalService.History history, Map<String, MutablePoint> hourly,
+                                   Map<String, MutablePoint> daily) {
+        history.hourly().forEach(point -> hourly.computeIfAbsent(point.at(), MutablePoint::new).add(point));
+        history.daily().forEach(point -> daily.computeIfAbsent(point.at(), MutablePoint::new).add(point));
+    }
+    private static final class MutablePoint {
+        final String at; double kwh, hashrateSeconds; long runtime, measured;
+        MutablePoint(String at) { this.at = at; }
+        void add(EnergyJournalService.HistoryPoint p) { kwh += p.kilowattHours(); hashrateSeconds += p.averageHashrateHs() * p.runtimeSeconds(); runtime += p.runtimeSeconds(); measured += p.measuredSeconds(); }
+        EnergyJournalService.HistoryPoint point() { return new EnergyJournalService.HistoryPoint(at, kwh, runtime == 0 ? 0 : hashrateSeconds / runtime, runtime, measured); }
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -111,7 +165,8 @@ public class NetworkDashboardService {
         List<MinerStats.Worker> workers = ownMining.getWorkerStats();
         List<MarketDataService.Forecast> forecasts = ownEarnings.forecasts(workers);
         return new AgentCard(discovery.agentId(), ownIdentity.displayName(), null, ownDashboardPort,
-                true, true, null, assignedWorkerRows(ownWorkers.workers()), earningsRows(forecasts),
+                true, true, null, assignedWorkerRows(ownWorkers.workers(),
+                        benchmarks.status().running() || sweeps.status().running()), earningsRows(forecasts),
                 totals(workers, forecasts), sharedEnergy(ownEnergy.overview()),
                 ownControls.get().externalControlEnabled(), Instant.now());
     }
@@ -194,11 +249,16 @@ public class NetworkDashboardService {
                         worker.terahashPerSecond() * 1e12,
                         worker.approximatedPowerUsageWatts(), worker.miningStatus().name(),
                         Coin.byAlgorithm(worker.currentAlgorithm()).map(Coin::id).orElse(null),
-                        worker.deviceId(), true, true, true))
+                        worker.deviceId(), true, true, true, false))
                 .toList();
     }
 
     static List<WorkerRow> assignedWorkerRows(List<WorkerAssignmentService.WorkerView> workers) {
+        return assignedWorkerRows(workers, false);
+    }
+
+    static List<WorkerRow> assignedWorkerRows(List<WorkerAssignmentService.WorkerView> workers,
+                                              boolean measurementRunning) {
         return workers.stream().filter(worker -> !Coin.NONE.id().equals(worker.coin()))
                 .map(worker -> {
                     MinerStats.Worker telemetry = worker.telemetry();
@@ -206,7 +266,8 @@ public class NetworkDashboardService {
                             worker.hardwareModel(), telemetry == null ? 0 : telemetry.terahashPerSecond() * 1e12,
                             telemetry == null ? 0 : telemetry.approximatedPowerUsageWatts(),
                             worker.status().name(), worker.coin(), worker.deviceId(),
-                            worker.configured(), worker.minerInstalled(), worker.externalControlEnabled());
+                            worker.configured(), worker.minerInstalled(), worker.externalControlEnabled(),
+                            measurementRunning && worker.status() == MinerStats.MinerStatus.MINING);
                 }).toList();
     }
 
@@ -246,7 +307,7 @@ public class NetworkDashboardService {
     public record WorkerRow(String name, String algorithm, String hardwareType, String hardwareModel,
                             double hashrateHps, long watts, String status, String coin,
                             String deviceId, Boolean configured, Boolean minerInstalled,
-                            Boolean controlAllowed) { }
+                            Boolean controlAllowed, Boolean benchmarking) { }
 
     /** Nullable for backward-compatible deserialization of snapshots from older LAN peers. */
     public record EarningsRow(String coin, String ticker, double hashrateHps, double usdPerDay,

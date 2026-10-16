@@ -33,6 +33,7 @@ Start with [pc-agent.md](pc-agent.md) — the ownership map for the source tree.
 | [Economic dispatch (C10)](economic-dispatch.md) | Node capability/short-lived-plan boundary and cold-start policy |
 | [Local coin hopping](coin-hopping.md) | GPU sweep profiles, USD/kWh comparison, local consent and switch gates |
 | [Worker operating modes](worker-power-modes.md) | Per-worker manual, efficiency and revenue modes; local cap ownership and Node on/off contract |
+| [Power Consumption history](power-consumption.md) | Historical measured mining energy, period aggregates and the consent-gated LAN history contract |
 | [MINER-INTEGRATION-GUIDE.md](../../MINER-INTEGRATION-GUIDE.md) | Adding a miner to an existing coin |
 | [pc-agent-miner-candidates.md](pc-agent-miner-candidates.md) | Miner candidate backlog |
 | [quantus-integration.md](quantus-integration.md) | QuanPool miner contract, implementation and live certification gates |

@@ -545,6 +545,7 @@ let lastSweepRunSignature = null;
 // so a re-render never collapses their view mid-run.
 const openSweepGroups = new Map();
 const openSweepRows = new Set();
+const openSweepStepDetails = new Set();
 
 function formatDuration(seconds) {
     const value = Math.max(0, Math.round(Number(seconds) || 0));
@@ -586,15 +587,34 @@ function runIdentity(run) {
     return `${run.coin} · ${t(run.mode === 'FULL' ? 'reference_curve' : 'parallel_device_validation')}${wave}`;
 }
 
-function runPlanLine(run) {
-    const completed = new Map((run.steps || []).map(step => [step.limitWatts, step]));
-    return (run.plannedLimits || []).map(limit => {
+function stepList(limits, steps) {
+    const completed = new Map((steps || []).map(step => [step.limitWatts, step]));
+    const list = make('ol', 'sweep-step-list');
+    for (const limit of limits) {
         const step = completed.get(limit);
-        if (!step) return `${limit} W ○`;
-        const measurement = step.medianHashrateHs ? ` · ${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W` : '';
-        const reason = step.note ? ` — ${s(step.note)}` : '';
-        return `${limit} W ${step.stable ? '✓' : '✗'}${measurement}${reason}`;
-    }).join('  ·  ');
+        const item = make('li', `sweep-step${step ? step.stable ? ' stable' : ' unstable' : ' planned'}`);
+        item.append(make('strong', '', `${limit} W`), make('span', 'sweep-step-status', t(step ? step.stable ? 'stable' : 'unstable' : 'planned')));
+        if (step?.medianHashrateHs > 0)
+            item.append(make('span', '', fmtRate(step.medianHashrateHs)));
+        if (step?.avgPowerWatts > 0)
+            item.append(make('span', '', t('measured_power') + ': ' + Math.round(step.avgPowerWatts) + ' W'));
+        if (step?.note) item.append(make('small', '', s(step.note)));
+        list.append(item);
+    }
+    return list;
+}
+
+function runPlanDisclosure(run) {
+    const limits = run.plannedLimits || [];
+    if (!limits.length) return null;
+    const details = make('details', 'sweep-step-details');
+    details.open = openSweepStepDetails.has(run.id);
+    details.addEventListener('toggle', () => {
+        if (details.open) openSweepStepDetails.add(run.id);
+        else openSweepStepDetails.delete(run.id);
+    });
+    details.append(make('summary', '', t('power_steps_count', {count: limits.length})), stepList(limits, run.steps));
+    return details;
 }
 
 function liveRunCard(run, statusLabel) {
@@ -613,8 +633,8 @@ function liveRunCard(run, statusLabel) {
     info.append(make('p', 'muted sweep-sample-stage', Number(run.samples) > 0
         ? t('collecting_power_limit_samples', {samples: run.samples, required: run.samplesRequired})
         : t('waiting_for_first_power_limit_sample')));
-    const steps = runPlanLine(run);
-    if (steps) info.append(make('p', 'muted', steps));
+    const steps = runPlanDisclosure(run);
+    if (steps) info.append(steps);
     card.append(info, make('span', 'tag ready', t(statusLabel[run.status] || run.status)));
     return card;
 }
@@ -650,8 +670,7 @@ function runRow(run, statusLabel, expandFinishedHistory) {
     const body = make('div', 'sweep-run-body');
     body.append(make('p', '', `${runIdentity(run)} · ${run.deviceId}`));
     if (run.detail) body.append(make('p', '', s(run.detail)));
-    const steps = runPlanLine(run);
-    if (steps) body.append(make('p', '', steps));
+    if ((run.plannedLimits || []).length) body.append(stepList(run.plannedLimits, run.steps));
     row.append(body);
     return row;
 }
@@ -688,9 +707,13 @@ async function loadProfiles() {
             } else info.append(make('p', '', t('no_stable_power_limit_found')));
             const chart = efficiencyChart(profile);
             if (chart) info.append(chart);
-            const steps = (profile.steps || []).map(step =>
-                `${step.limitWatts} W ${step.stable ? '✓' : '✗'}${step.medianHashrateHs ? ` (${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W)` : ''}${step.note ? ` — ${s(step.note)}` : ''}`).join(' · ');
-            if (steps) info.append(make('p', 'muted', steps));
+            const limits = (profile.steps || []).map(step => step.limitWatts);
+            if (limits.length) {
+                const details = make('details', 'sweep-step-details');
+                details.append(make('summary', '', t('power_steps_count', {count: limits.length})),
+                    stepList(limits, profile.steps));
+                info.append(details);
+            }
             card.append(info);
             groups.get(algorithmGroupLabel(profile)).append(card);
         }

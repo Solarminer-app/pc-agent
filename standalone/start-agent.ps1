@@ -172,15 +172,13 @@ function Invoke-FirstStartBootstrap {
         } else {
             Write-StartupAction "Defender exclusion is missing for: $installDir"
             Write-StartupItem 'An exclusion reduces scanning of all files here, including miners.'
-            $choice = Read-Host 'Add this folder as a Defender exclusion with UAC? [y/N]'
-            if ($choice -match '^(y|yes)$') {
+            $choice = Read-Host 'Add this folder as a Defender exclusion? / Ordner als Defender-Ausnahme hinzufügen? [y/j/N]'
+            if ($choice -match '^(y|yes|j|ja)$') {
                 try {
-                    $escaped = $installDir.Replace("'", "''")
-                    $command = "`$ErrorActionPreference='Stop'; Add-MpPreference -ExclusionPath '$escaped'"
-                    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-                    $arguments = '-NoProfile -NonInteractive -EncodedCommand ' + $encoded
-                    $process = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -Wait -PassThru
-                    if ($process.ExitCode -ne 0 -or -not (Test-DefenderExclusion $installDir)) {
+                    # The launcher already verified its elevated token above. A second
+                    # RunAs prompt can block startup while the first console waits.
+                    Add-MpPreference -ExclusionPath $installDir
+                    if (-not (Test-DefenderExclusion $installDir)) {
                         Write-Warning 'Defender did not confirm the exclusion. Review Windows Security policies and Protection history.'
                     } else { Write-StartupItem 'Defender exclusion verified [OK]' }
                 } catch { Write-Warning "Defender approval failed or was declined: $($_.Exception.Message)" }

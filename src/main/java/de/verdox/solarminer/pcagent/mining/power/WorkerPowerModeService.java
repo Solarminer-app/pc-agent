@@ -7,6 +7,7 @@ import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.mining.measurement.GpuEfficiencyStore;
 import de.verdox.solarminer.pcagent.mining.measurement.MiningPerformanceProfileStore;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -19,13 +20,17 @@ public class WorkerPowerModeService {
     private final LocalGpuPowerService gpus;
     private final GpuEfficiencyStore sweeps;
     private final MiningPerformanceProfileStore benchmarks;
+    private final double maxHashrateTemperatureC;
 
     public WorkerPowerModeService(AgentControlSettingsService controls, LocalGpuPowerService gpus,
-                                  GpuEfficiencyStore sweeps, MiningPerformanceProfileStore benchmarks) {
+                                  GpuEfficiencyStore sweeps, MiningPerformanceProfileStore benchmarks,
+                                  @Value("${solarminer.agent.max-hashrate.max-temperature-c:80}") double maxHashrateTemperatureC) {
         this.controls = controls;
         this.gpus = gpus;
         this.sweeps = sweeps;
         this.benchmarks = benchmarks;
+        this.maxHashrateTemperatureC = Double.isFinite(maxHashrateTemperatureC)
+                ? Math.max(60, Math.min(90, maxHashrateTemperatureC)) : 80;
     }
 
     public Selection select(String deviceId, String coinId) {
@@ -35,6 +40,8 @@ public class WorkerPowerModeService {
     public Selection selectForMode(String deviceId, String coinId, String mode) {
         if ("MANUAL".equals(mode)) return new Selection(mode, null, null);
         Coin coin = Coin.byIdOrNull(coinId);
+        if ("MAX_HASHRATE".equals(mode) && WorkerIds.isCpu(deviceId))
+            return new Selection(mode, null, "power_mode_requires_gpu");
         if (WorkerIds.isCpu(deviceId)) {
             if (coin == null || !coin.isCpu() || "COIN_REVENUE_PER_KWH".equals(mode))
                 return new Selection(mode, null, "power_mode_requires_gpu_coin");
@@ -50,6 +57,24 @@ public class WorkerPowerModeService {
         if (coin == null || !coin.isGpu()) return new Selection(mode, null, "power_mode_requires_gpu_coin");
         LocalGpuPowerService.Gpu gpu = gpus.discover().stream().filter(card -> deviceId.equals(card.deviceId())).findFirst().orElse(null);
         if (gpu == null || !gpu.supportsDynamicPowerScaling()) return new Selection(mode, null, "gpu_power_control_unavailable");
+        if ("MAX_HASHRATE".equals(mode)) {
+            Double currentTemperature = gpus.readTemperatureC(gpu);
+            if (currentTemperature == null || !Double.isFinite(currentTemperature)
+                    || currentTemperature >= maxHashrateTemperatureC - 10)
+                return new Selection(mode, null, "power_mode_temperature_unavailable_or_high");
+            GpuEfficiencyStore.Profile profile = sweeps.find(deviceId, coin.assignmentAlgorithm());
+            if (profile == null || !coin.id().equals(profile.coin()) || profile.steps() == null)
+                return new Selection(mode, null, "power_mode_no_safe_hashrate_point");
+            return profile.steps().stream()
+                    .filter(step -> step.stable() && positive(step.medianHashrateHs())
+                            && step.maxTemperatureC() != null && Double.isFinite(step.maxTemperatureC())
+                            && step.maxTemperatureC() < maxHashrateTemperatureC
+                            && step.limitWatts() >= gpu.minWatts() && step.limitWatts() <= gpu.maxWatts())
+                    .max(Comparator.comparingDouble((GpuEfficiencyStore.StepResult step) -> step.medianHashrateHs())
+                            .thenComparingInt(step -> -step.limitWatts()))
+                    .map(step -> new Selection(mode, step.limitWatts(), null))
+                    .orElseGet(() -> new Selection(mode, null, "power_mode_no_safe_hashrate_point"));
+        }
         List<Point> points = new ArrayList<>();
         GpuEfficiencyStore.Profile sweep = sweeps.find(deviceId, coin.assignmentAlgorithm());
         if (sweep != null && coin.id().equals(sweep.coin()) && sweep.steps() != null) {

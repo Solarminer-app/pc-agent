@@ -72,6 +72,13 @@ public class ExternalAgentController {
                 : networkDashboard.ownSnapshot();
     }
 
+    @GetMapping("/energy-history")
+    public de.verdox.solarminer.pcagent.mining.energy.EnergyJournalService.History energyHistory(
+            @org.springframework.web.bind.annotation.RequestParam java.time.Instant from,
+            @org.springframework.web.bind.annotation.RequestParam java.time.Instant to) {
+        return networkDashboard.ownEnergyHistory(from, to);
+    }
+
     /** Immediate peer-dashboard action; the sharing and remote-control gates are enforced by the filter. */
     @PostMapping("/network-workers/{deviceId}/start")
     public boolean startNetworkWorker(@org.springframework.web.bind.annotation.PathVariable String deviceId) {

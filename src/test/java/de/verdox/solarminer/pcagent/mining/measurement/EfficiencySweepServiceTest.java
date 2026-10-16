@@ -129,6 +129,20 @@ class EfficiencySweepServiceTest {
     }
 
     @Test
+    void schedulerKeepsSecondCoinQueuedUntilTheSameGpuIsFree() {
+        var firstCoin = task(targetForCoin("one", "pearl", "PearlHash"), SweepMode.FULL);
+        var secondCoin = task(targetForCoin("one", "ravencoin", "KAWPOW"), SweepMode.FULL);
+        List<EfficiencySweepService.SweepTask> references = new java.util.ArrayList<>(List.of(firstCoin, secondCoin));
+        List<EfficiencySweepService.SweepTask> validations = new java.util.ArrayList<>();
+
+        assertSame(firstCoin, EfficiencySweepService.takeRunnable(validations, references, Set.of()));
+        assertNull(EfficiencySweepService.takeRunnable(validations, references, Set.of("one")));
+        assertEquals(List.of(secondCoin), references);
+        assertSame(secondCoin, EfficiencySweepService.takeRunnable(validations, references, Set.of()));
+        assertTrue(references.isEmpty());
+    }
+
+    @Test
     void resumeReusesOnlyFullyCompletedRunsAndNotCancelledPartialResults() {
         var complete = withStatus(identifiedRun("one", SweepMode.FULL, List.of(200, 185)), SweepRunState.COMPLETE);
         var cancelled = withStatus(identifiedRun("two", SweepMode.FULL, List.of(200, 185)), SweepRunState.CANCELLED);

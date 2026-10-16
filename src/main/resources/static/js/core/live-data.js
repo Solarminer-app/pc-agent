@@ -292,7 +292,7 @@
     refreshAll() {
       for (const target of channels.values()) if (target.subscribers.size) target.refresh();
     },
-    refresh(name) { channels.get(name)?.refresh(); },
+    refresh(name) { return channels.get(name)?.refresh(); },
     get(name) { return channels.get(name)?.value ?? null; },
     age(name) { return channels.get(name)?.age() ?? Infinity; },
     fresh(name) { return Boolean(channels.get(name)?.fresh()); },

@@ -20,17 +20,31 @@ public class EconomicsController {
     private final EnergyJournalService energy;
     private final MarketDataService rates;
     private final AgentStatusService status;
+    private final de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService network;
 
     public EconomicsController(EnergyJournalService energy, MarketDataService rates,
-                               @org.springframework.context.annotation.Lazy AgentStatusService status) {
+                               @org.springframework.context.annotation.Lazy AgentStatusService status,
+                               de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService network) {
         this.energy = energy;
         this.rates = rates;
         this.status = status;
+        this.network = network;
+    }
+
+    EconomicsController(EnergyJournalService energy, MarketDataService rates,
+                        @org.springframework.context.annotation.Lazy AgentStatusService status) {
+        this(energy, rates, status, null);
     }
 
     /** Energy journal overview (today, 7 days, active sessions, tariff settings). */
     @GetMapping
     public EnergyJournalService.Overview overview() { return energy.overview(); }
+
+    @GetMapping("/history")
+    public EnergyJournalService.History history(@org.springframework.web.bind.annotation.RequestParam java.time.Instant from,
+                                                 @org.springframework.web.bind.annotation.RequestParam java.time.Instant to) {
+        return network == null ? energy.history(from, to) : network.networkEnergyHistory(from, to);
+    }
 
     @PostMapping("/settings")
     public EnergyJournalService.Settings settings(@RequestBody EnergyJournalService.Settings settings) {
