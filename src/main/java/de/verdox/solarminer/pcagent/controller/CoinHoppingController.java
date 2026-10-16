@@ -20,7 +20,7 @@ public class CoinHoppingController {
     @GetMapping
     public CoinHoppingService.View view(@RequestParam(required = false) String deviceId,
                                        @RequestParam(required = false) Integer targetWatts) {
-        return deviceId == null || targetWatts == null ? hopping.view() : hopping.view(deviceId, targetWatts);
+        return deviceId == null ? hopping.view() : hopping.view(deviceId, targetWatts == null ? 0 : targetWatts);
     }
 
     @PostMapping

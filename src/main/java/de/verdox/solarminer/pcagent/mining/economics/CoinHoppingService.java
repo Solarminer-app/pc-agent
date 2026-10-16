@@ -91,8 +91,11 @@ public class CoinHoppingService {
             if (saved != null && (saved.cooldownMinutes() == 0 || saved.thresholdPercent() == 0))
                 saved = new Settings(saved.enabled(), saved.deviceId(), saved.targetWatts(),
                         DEFAULT_COOLDOWN_MINUTES, DEFAULT_THRESHOLD_PERCENT);
+            // Earlier releases stored a fixed target. Hopping now optimizes the target too.
             return saved != null && (!saved.enabled() || (saved.deviceId() != null
-                    && !saved.deviceId().isBlank() && saved.targetWatts() > 0)) ? saved : Settings.disabled();
+                    && !saved.deviceId().isBlank()))
+                    ? new Settings(saved.enabled(), saved.deviceId(), 0, saved.cooldownMinutes(), saved.thresholdPercent())
+                    : Settings.disabled();
         } catch (Exception ignored) {
             // A damaged file never opts the agent into automatic switching.
             return Settings.disabled();
@@ -109,20 +112,22 @@ public class CoinHoppingService {
             LocalGpuPowerService.Gpu gpu = power.snapshot().stream()
                     .filter(value -> value.deviceId().equals(requested.deviceId())).findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("coin_hopping_gpu_missing"));
-            if (!gpu.supportsDynamicPowerScaling() || requested.targetWatts() < gpu.minWatts()
-                    || requested.targetWatts() > gpu.maxWatts())
+            if (!gpu.supportsDynamicPowerScaling())
                 throw new IllegalArgumentException("coin_hopping_target_unavailable");
             boolean swept = profiles.all().stream().anyMatch(profile -> requested.deviceId().equals(profile.deviceId())
                     && profile.bestStableWatts() != null && profile.steps() != null
                     && profile.steps().stream().anyMatch(step -> step.stable()
-                    && step.limitWatts() == requested.targetWatts() && positive(step.medianHashrateHs())
-                    && positive(step.avgPowerWatts())));
-            boolean observed = performanceProfiles.all().stream().anyMatch(profile -> requested.deviceId().equals(profile.workerId())
-                    && profile.powerTargetWatts() != null && profile.powerTargetWatts() == requested.targetWatts()
+                    && step.limitWatts() >= gpu.minWatts() && step.limitWatts() <= gpu.maxWatts()
+                    && positive(step.medianHashrateHs()) && positive(step.avgPowerWatts())));
+            boolean observed = performanceProfiles.all().stream().anyMatch(profile ->
+                    requested.deviceId().equals(profile.workerId()) && profile.powerTargetWatts() != null
+                    && profile.powerTargetWatts() >= gpu.minWatts() && profile.powerTargetWatts() <= gpu.maxWatts()
                     && profile.observations() >= 12 && profile.hashrateHps() > 0 && profile.powerWatts() > 0);
-            if (!swept && !observed) throw new IllegalArgumentException("coin_hopping_target_unmeasured");
+            if (!swept && !observed)
+                throw new IllegalArgumentException("coin_hopping_target_unmeasured");
         }
-        Settings next = requested;
+        Settings next = new Settings(requested.enabled(), requested.deviceId(), 0,
+                requested.cooldownMinutes(), requested.thresholdPercent());
         Instant now = Instant.now();
         if (next.enabled()) ledger.begin(next.deviceId(), next.targetWatts(), now);
         ledger.mark(now);
@@ -139,7 +144,7 @@ public class CoinHoppingService {
 
     public View view(String deviceId, int targetWatts) {
         Settings current = settings;
-        if (deviceId == null || targetWatts <= 0)
+        if (deviceId == null || deviceId.isBlank())
             return new View(current, List.of(), null, lastSwitchAt, lastOutcome, ledger.summary());
         List<Candidate> candidates = candidates(deviceId, targetWatts);
         return new View(current, candidates, candidates.isEmpty() ? null : candidates.getFirst().coin(), lastSwitchAt,
@@ -148,6 +153,9 @@ public class CoinHoppingService {
 
     private List<Candidate> candidates(String deviceId, int targetWatts) {
         Instant now = Instant.now();
+        LocalGpuPowerService.Gpu gpu = power.snapshot().stream()
+                .filter(value -> deviceId.equals(value.deviceId())).findFirst().orElse(null);
+        if (gpu == null || !gpu.supportsDynamicPowerScaling()) return List.of();
         List<EconomicPlanningService.CoinCapability> capabilities = planning.capabilities().workers().stream()
                 .filter(worker -> deviceId.equals(worker.workerId())).findFirst()
                 .map(EconomicPlanningService.WorkerCapability::coins).orElse(List.of());
@@ -158,24 +166,26 @@ public class CoinHoppingService {
             Coin coin = Coin.byIdOrNull(profile.coin());
             if (coin == null || !coin.isGpu() || !coin.matchesAlgorithm(profile.algorithm())) continue;
             for (GpuEfficiencyStore.StepResult step : profile.steps()) {
-                if (!step.stable() || step.limitWatts() != targetWatts
+                if (!step.stable() || step.limitWatts() < gpu.minWatts() || step.limitWatts() > gpu.maxWatts()
+                        || (targetWatts > 0 && step.limitWatts() != targetWatts)
                         || !positive(step.medianHashrateHs()) || !positive(step.avgPowerWatts())) continue;
-                addCandidate(result, capabilities, coin, targetWatts, step.avgPowerWatts(), step.medianHashrateHs(),
+                addCandidate(result, capabilities, coin, step.limitWatts(), step.avgPowerWatts(), step.medianHashrateHs(),
                         profile.testedAt(), "SWEEP", now);
             }
         }
         for (MiningPerformanceProfileStore.Profile profile : performanceProfiles.all()) {
             if (!deviceId.equals(profile.workerId()) || profile.powerTargetWatts() == null
-                    || profile.powerTargetWatts() != targetWatts || profile.observations() < 12
+                    || profile.powerTargetWatts() < gpu.minWatts() || profile.powerTargetWatts() > gpu.maxWatts()
+                    || (targetWatts > 0 && profile.powerTargetWatts() != targetWatts) || profile.observations() < 12
                     || profile.measuredAt() == null || profile.measuredAt().isBefore(now.minus(MAX_PROFILE_AGE))) continue;
             Coin coin = Coin.byIdOrNull(profile.coin());
             if (coin == null || !coin.isGpu() || !coin.matchesAlgorithm(profile.algorithm())) continue;
-            addCandidate(result, capabilities, coin, targetWatts, (double) profile.powerWatts(), profile.hashrateHps(),
+            addCandidate(result, capabilities, coin, profile.powerTargetWatts(), (double) profile.powerWatts(), profile.hashrateHps(),
                     profile.measuredAt(), profile.source(), now);
         }
-        // A prior attempt and a later stable run may both be in storage; keep the newest
-        // measured point per coin so an old high result cannot dominate a newer reading.
-        return result.stream().collect(java.util.stream.Collectors.toMap(Candidate::coin, value -> value,
+        // Preserve every measured target; only replace an older observation of the same point.
+        return result.stream().collect(java.util.stream.Collectors.toMap(
+                        value -> value.coin() + "|" + value.limitWatts(), value -> value,
                         (left, right) -> left.measuredAt().isAfter(right.measuredAt()) ? left : right))
                 .values().stream().sorted(Comparator.comparingDouble(Candidate::usdPerKwh).reversed()).toList();
     }
@@ -218,14 +228,11 @@ public class CoinHoppingService {
             markLedger(now);
             return;
         }
-        List<Candidate> choices = candidates(current.deviceId(), current.targetWatts());
+        List<Candidate> choices = candidates(current.deviceId(), 0);
         if (choices.size() < 2) { lastOutcome = "coin_hopping_insufficient_candidates"; markLedger(now); return; }
         EconomicPlanningService.WorkerCapability worker = planning.capabilities().workers().stream()
                 .filter(value -> current.deviceId().equals(value.workerId())).findFirst().orElse(null);
         if (worker == null) { lastOutcome = "coin_hopping_gpu_missing"; markLedger(now); return; }
-        Candidate existing = choices.stream().filter(value -> value.coin().equals(worker.selectedCoin())).findFirst().orElse(null);
-        Candidate best = choices.getFirst();
-        if (existing == null) { lastOutcome = "coin_hopping_current_unmeasured"; markLedger(now); return; }
         MinerStats.Worker miningWorker = assignments.workers().stream()
                 .filter(value -> current.deviceId().equals(value.deviceId())).map(WorkerAssignmentService.WorkerView::telemetry)
                 .filter(Objects::nonNull).findFirst().orElse(null);
@@ -237,16 +244,21 @@ public class CoinHoppingService {
         if (gpu == null || gpu.currentPowerLimitWatts() == null) {
             lastOutcome = "coin_hopping_gpu_missing"; markLedger(now); return;
         }
-        if (gpu.currentPowerLimitWatts() != current.targetWatts()) {
-            lastOutcome = "coin_hopping_target_mismatch"; markLedger(now); return;
-        }
+        List<Candidate> safeChoices = choices.stream().filter(value -> value.limitWatts() >= gpu.minWatts()
+                && value.limitWatts() <= gpu.maxWatts()).toList();
+        Candidate existing = safeChoices.stream().filter(value -> value.coin().equals(worker.selectedCoin())
+                && value.limitWatts() == gpu.currentPowerLimitWatts()).findFirst().orElse(null);
+        Candidate best = safeChoices.isEmpty() ? null : safeChoices.getFirst();
+        if (existing == null) { lastOutcome = "coin_hopping_current_unmeasured"; markLedger(now); return; }
+        if (best == null) { lastOutcome = "coin_hopping_insufficient_candidates"; markLedger(now); return; }
         Instant activeStartedAt = energy.overview().activeSessions().stream()
                 .filter(session -> current.deviceId().equals(session.deviceId())
                         && existing.coin().equals(session.coin()))
                 .map(EnergyJournalService.Session::startedAt).findFirst().orElse(null);
-        try { ledger.account(now, existing.coin(), activeStartedAt, choices); }
+        try { ledger.account(now, existing.coin(), existing.limitWatts(), activeStartedAt, safeChoices); }
         catch (RuntimeException failure) { lastOutcome = "coin_hopping_ledger_save_failed"; return; }
-        if (best.coin().equals(existing.coin()) || !worthHop(existing.usdPerKwh(), best.usdPerKwh(), current.thresholdPercent())) {
+        if ((best.coin().equals(existing.coin()) && best.limitWatts() == existing.limitWatts())
+                || !worthHop(existing.usdPerKwh(), best.usdPerKwh(), current.thresholdPercent())) {
             lastOutcome = "coin_hopping_best_already_selected"; return;
         }
         if (!cooldownExpired(lastSwitchAt, now, current.cooldownMinutes())) {
@@ -260,29 +272,31 @@ public class CoinHoppingService {
             if (planning.capabilities().activePlanExpiresAt() != null) {
                 lastOutcome = "coin_hopping_measurement_or_plan_active"; return;
             }
-            if (!assignments.applyEconomicAssignment(current.deviceId(), best.coin()))
+            if (!best.coin().equals(existing.coin())
+                    && !assignments.applyEconomicAssignment(current.deviceId(), best.coin()))
                 throw new IllegalStateException("coin_hopping_switch_failed");
-            if (!power.setTotalPowerTarget(current.targetWatts(), List.of(gpu)))
+            if (!power.setTotalPowerTarget(best.limitWatts(), List.of(gpu)))
                 throw new IllegalStateException("coin_hopping_target_failed");
-            if (!assignments.start(current.deviceId()))
+            if (!best.coin().equals(existing.coin()) && !assignments.start(current.deviceId()))
                 throw new IllegalStateException("coin_hopping_switch_failed");
             lastSwitchAt = Instant.now();
             lastOutcome = AtomicFileStore.writeJson(file, new Persisted(current, lastSwitchAt), json, "coin-hopping-")
                     ? "coin_hopping_switched" : "coin_hopping_switch_not_persisted";
-            try { ledger.action(lastSwitchAt, lastOutcome, existing.coin(), best.coin(),
+            try { ledger.action(lastSwitchAt, lastOutcome, existing.coin(), best.coin(), best.limitWatts(),
                     (best.usdPerKwh() / existing.usdPerKwh() - 1) * 100,
                     existing.usdPerKwh(), best.usdPerKwh()); }
             catch (RuntimeException ignored) { lastOutcome = "coin_hopping_switch_not_recorded"; }
         } catch (RuntimeException failure) {
             boolean restored = false;
-            try { restored = assignments.applyEconomicAssignment(current.deviceId(), existing.coin()); }
+            try { restored = best.coin().equals(existing.coin())
+                    || assignments.applyEconomicAssignment(current.deviceId(), existing.coin()); }
             catch (RuntimeException ignored) { }
             try { power.setTotalPowerTarget(previousLimit, List.of(gpu)); } catch (RuntimeException ignored) { }
-            if (restored) {
+            if (restored && !best.coin().equals(existing.coin())) {
                 try { assignments.start(current.deviceId()); } catch (RuntimeException ignored) { }
             }
             lastOutcome = "coin_hopping_switch_failed";
-            try { ledger.action(Instant.now(), lastOutcome, existing.coin(), best.coin(),
+            try { ledger.action(Instant.now(), lastOutcome, existing.coin(), best.coin(), best.limitWatts(),
                     (best.usdPerKwh() / existing.usdPerKwh() - 1) * 100,
                     existing.usdPerKwh(), best.usdPerKwh()); } catch (RuntimeException ignored) { }
         } finally {

@@ -11,9 +11,9 @@ const make = (tag, className, value) => {
 const money = value => new Intl.NumberFormat(locale(), {style: 'currency', currency: 'USD', maximumFractionDigits: 4}).format(value);
 const number = (value, digits = 4) => new Intl.NumberFormat(locale(), {maximumFractionDigits: digits}).format(value);
 const date = value => new Intl.DateTimeFormat(locale(), {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(value));
-const rate = value => window.SolarMinerMeasurements.hashrate(value);
+const rate = value => window.SolarMinerUI.hashrate(value);
 let settings = null;
-let targetMap = new Map();
+let devices = new Map();
 let requestId = 0;
 
 function notice(message, error = false) {
@@ -22,54 +22,42 @@ function notice(message, error = false) {
     node.textContent = s(message);
 }
 
-async function loadTargets() {
-    const [sweepResponse, benchmarkResponse] = await Promise.all([
-        fetch('/api/agent/local/efficiency/profiles', {cache: 'no-store'}),
-        fetch('/api/agent/local/benchmarks/profiles', {cache: 'no-store'})
-    ]);
-    if (!sweepResponse.ok || !benchmarkResponse.ok) throw new Error('coin_hopping_load_failed');
-    const [sweeps, benchmarks] = await Promise.all([sweepResponse.json(), benchmarkResponse.json()]);
+async function loadDevices() {
+    const response = await fetch('/api/agent/local/measurements/profiles', {cache: 'no-store'});
+    if (!response.ok) throw new Error('coin_hopping_load_failed');
+    const {sweeps, benchmarks} = await response.json();
     const map = new Map();
-    const add = (id, model, watts) => {
-        if (!id || !(watts > 0)) return;
-        if (!map.has(id)) map.set(id, {model, limits: new Set()});
-        map.get(id).limits.add(watts);
+    const add = (id, model) => {
+        if (id) map.set(id, model || id);
     };
     for (const profile of sweeps) {
         if (profile.bestStableWatts == null) continue;
         for (const step of profile.steps || [])
             if (step.stable && step.medianHashrateHs > 0 && step.avgPowerWatts > 0)
-                add(profile.deviceId, profile.model, step.limitWatts);
+                add(profile.deviceId, profile.model);
     }
     for (const profile of benchmarks)
-        if (profile.observations >= 12 && profile.hashrateHps > 0 && profile.powerWatts > 0)
-            add(profile.workerId, profile.hardwareModel, profile.powerTargetWatts);
-    targetMap = map;
+        if (profile.powerTargetWatts > 0 && profile.observations >= 12 && profile.hashrateHps > 0 && profile.powerWatts > 0)
+            add(profile.workerId, profile.hardwareModel);
+    devices = map;
     updateOptions();
 }
 
-function updateOptions(changedGpu = false) {
+function updateOptions() {
     const gpu = $('hopping-gpu');
-    const target = $('hopping-target');
-    const desiredGpu = changedGpu ? gpu.value : (gpu.value || settings?.deviceId || '');
-    const desiredTarget = changedGpu ? null : (Number(target.value) || settings?.targetWatts);
+    const desiredGpu = gpu.value || settings?.deviceId || '';
     gpu.replaceChildren();
-    for (const [id, value] of targetMap) gpu.add(new Option(value.model || id, id));
-    if (targetMap.has(desiredGpu)) gpu.value = desiredGpu;
-    const limits = [...(targetMap.get(gpu.value)?.limits || [])].sort((a, b) => b - a);
-    target.replaceChildren();
-    for (const watts of limits) target.add(new Option(`${watts} W`, String(watts)));
-    if (limits.includes(desiredTarget)) target.value = String(desiredTarget);
-    $('hopping-save').disabled = $('hopping-enabled').checked && !target.value;
+    for (const [id, model] of devices) gpu.add(new Option(model, id));
+    if (devices.has(desiredGpu)) gpu.value = desiredGpu;
+    $('hopping-save').disabled = $('hopping-enabled').checked && !gpu.value;
     refresh();
 }
 
 async function refresh() {
     const id = ++requestId;
     const deviceId = $('hopping-gpu').value;
-    const targetWatts = Number($('hopping-target').value);
     const params = new URLSearchParams();
-    if (deviceId && targetWatts) { params.set('deviceId', deviceId); params.set('targetWatts', String(targetWatts)); }
+    if (deviceId) params.set('deviceId', deviceId);
     try {
         const response = await fetch(`/api/agent/local/coin-hopping?${params}`, {cache: 'no-store'});
         if (!response.ok) throw new Error('coin_hopping_load_failed');
@@ -97,15 +85,19 @@ async function refresh() {
 
 function renderCandidates(candidates, outcome) {
     const root = $('hopping-chart'); root.replaceChildren();
+    $('hopping-recommendation').textContent = candidates.length
+        ? t('coin_hopping_recommended_point', {coin: candidates[0].coin.toUpperCase(), watts: candidates[0].limitWatts})
+        : t('coin_hopping_no_recommendation');
     if (!candidates.length) root.append(make('p', 'empty', t('coin_hopping_no_candidates')));
     const max = Math.max(1, ...candidates.map(value => value.usdPerKwh));
-    for (const candidate of candidates) {
+    for (const [index, candidate] of candidates.entries()) {
         const row = make('div', 'hopping-row');
+        if (index === 0) row.classList.add('recommended');
         const track = make('div', 'hopping-track');
         const fill = make('i', 'hopping-fill');
         fill.style.width = `${Math.max(2, candidate.usdPerKwh / max * 100)}%`;
         track.append(fill);
-        row.append(make('strong', '', candidate.coin.toUpperCase()), track,
+        row.append(make('strong', '', `${candidate.coin.toUpperCase()} · ${candidate.limitWatts} W`), track,
             make('span', '', `${money(candidate.usdPerKwh)} / kWh`),
             make('small', 'hopping-meta', t('coin_hopping_point_detail', {
                 source: t(`coin_hopping_source_${candidate.source?.toLowerCase() || 'live'}`),
@@ -155,9 +147,12 @@ function renderSummary(summary) {
     for (const event of summary.actions || []) {
         const item = make('article', 'hopping-event');
         const time = make('time', '', date(event.at)); time.dateTime = event.at;
-        const label = ['coin_hopping_switched', 'coin_hopping_switch_not_persisted'].includes(event.outcome)
-            ? t('coin_hopping_action_switch', {from: event.fromCoin.toUpperCase(), to: event.toCoin.toUpperCase()})
-            : t('coin_hopping_action_failed', {from: event.fromCoin.toUpperCase(), to: event.toCoin.toUpperCase()});
+        const success = ['coin_hopping_switched', 'coin_hopping_switch_not_persisted'].includes(event.outcome);
+        const label = success && event.fromCoin === event.toCoin
+            ? t('coin_hopping_action_power', {coin: event.toCoin.toUpperCase(), watts: event.targetWatts})
+            : success
+                ? t('coin_hopping_action_switch', {from: event.fromCoin.toUpperCase(), to: event.toCoin.toUpperCase()})
+                : t('coin_hopping_action_failed', {from: event.fromCoin.toUpperCase(), to: event.toCoin.toUpperCase()});
         item.append(time, make('strong', '', label), make('small', '', t('coin_hopping_action_gain', {
             gain: number(event.gainPercent, 1), watts: event.targetWatts
         })));
@@ -166,19 +161,18 @@ function renderSummary(summary) {
     if (!history.children.length) history.append(make('p', 'empty', t('coin_hopping_no_actions_yet')));
 }
 
-$('hopping-gpu').addEventListener('change', () => updateOptions(true));
-$('hopping-target').addEventListener('change', refresh);
+$('hopping-gpu').addEventListener('change', refresh);
 $('hopping-enabled').addEventListener('change', () => {
-    $('hopping-save').disabled = $('hopping-enabled').checked && !$('hopping-target').value;
+    $('hopping-save').disabled = $('hopping-enabled').checked && !$('hopping-gpu').value;
 });
-$('refresh').addEventListener('click', async () => { await loadTargets(); refresh(); });
+$('refresh').addEventListener('click', async () => { await loadDevices(); refresh(); });
 $('hopping-save').addEventListener('click', async () => {
     const button = $('hopping-save'); button.disabled = true;
     try {
         const response = await fetch('/api/agent/local/coin-hopping', {method: 'POST',
             headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
                 enabled: $('hopping-enabled').checked, deviceId: $('hopping-gpu').value,
-                targetWatts: Number($('hopping-target').value),
+                targetWatts: 0,
                 cooldownMinutes: Number($('hopping-cooldown').value),
                 thresholdPercent: Number($('hopping-threshold').value)
             })});
@@ -187,12 +181,12 @@ $('hopping-save').addEventListener('click', async () => {
         notice('coin_hopping_saved');
         refresh();
     } catch (error) { notice(error.message, true); }
-    finally { button.disabled = $('hopping-enabled').checked && !$('hopping-target').value; }
+    finally { button.disabled = $('hopping-enabled').checked && !$('hopping-gpu').value; }
 });
 
 async function start() {
     await refresh();
-    await loadTargets();
+    await loadDevices();
 }
 start().catch(error => { $('hopping-detail').textContent = s(error.message); });
 setInterval(refresh, 60_000);

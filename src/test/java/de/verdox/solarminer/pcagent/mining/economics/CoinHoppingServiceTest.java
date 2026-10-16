@@ -43,6 +43,13 @@ class CoinHoppingServiceTest {
         MiningPerformanceProfileStore performance = mock(MiningPerformanceProfileStore.class);
         MarketDataService market = mock(MarketDataService.class);
         EconomicPlanningService planning = mock(EconomicPlanningService.class);
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        LocalGpuPowerService.Gpu gpu = mock(LocalGpuPowerService.Gpu.class);
+        when(gpu.deviceId()).thenReturn("gpu-1");
+        when(gpu.supportsDynamicPowerScaling()).thenReturn(true);
+        when(gpu.minWatts()).thenReturn(100);
+        when(gpu.maxWatts()).thenReturn(300);
+        when(power.snapshot()).thenReturn(List.of(gpu));
         Instant now = Instant.now();
         when(profiles.all()).thenReturn(List.of(
                 profile("quantus", "QPoW (Poseidon2)", now, 180, 100d, 200d, true),
@@ -58,7 +65,7 @@ class CoinHoppingServiceTest {
             return forecast(coin, coin.equals("quantus") ? 10d : 5d, now);
         });
         CoinHoppingService service = new CoinHoppingService(new ObjectMapper().findAndRegisterModules(), directory.resolve("hopping.json").toString(),
-                profiles, performance, market, planning, mock(WorkerAssignmentService.class), mock(LocalGpuPowerService.class),
+                profiles, performance, market, planning, mock(WorkerAssignmentService.class), power,
                 mock(BenchmarkSessionService.class), mock(EfficiencySweepService.class), mock(LocalRunLock.class),
                 new CoinHoppingLedger(new ObjectMapper().findAndRegisterModules(), directory.resolve("ledger.json").toString()),
                 mock(EnergyJournalService.class));
@@ -68,6 +75,7 @@ class CoinHoppingServiceTest {
         assertEquals("quantus", view.recommendedCoin());
         assertEquals("LIVE", view.candidates().get(1).source());
         assertTrue(view.candidates().getFirst().usdPerKwh() > view.candidates().get(1).usdPerKwh());
+        assertEquals(3, service.view("gpu-1", 0).candidates().size());
     }
 
     @Test
@@ -82,7 +90,7 @@ class CoinHoppingServiceTest {
         LocalRunLock lock = mock(LocalRunLock.class);
         Instant now = Instant.now();
         when(profiles.all()).thenReturn(List.of(profile("pearl", "pearlhash", now, 180, 100d, 200d, true),
-                profile("quantus", "QPoW (Poseidon2)", now, 180, 100d, 200d, true)));
+                profile("quantus", "QPoW (Poseidon2)", now, 150, 100d, 160d, true)));
         when(planning.capabilities()).thenReturn(new EconomicPlanningService.Capabilities(1, now,
                 List.of(new EconomicPlanningService.WorkerCapability("gpu-1", "GPU", "Test", "pearl", false, "FIXED",
                         List.of(ready("pearl"), ready("quantus")))), null));
@@ -97,7 +105,7 @@ class CoinHoppingServiceTest {
         when(gpu.maxWatts()).thenReturn(300);
         when(gpu.currentPowerLimitWatts()).thenReturn(180);
         when(power.snapshot()).thenReturn(List.of(gpu));
-        when(power.setTotalPowerTarget(180, List.of(gpu))).thenReturn(true);
+        when(power.setTotalPowerTarget(150, List.of(gpu))).thenReturn(true);
         when(lock.tryBegin("coin-hopping")).thenReturn(true);
         when(assignments.applyEconomicAssignment("gpu-1", "quantus")).thenReturn(true);
         when(assignments.start("gpu-1")).thenReturn(true);
@@ -122,15 +130,20 @@ class CoinHoppingServiceTest {
         CoinHoppingService service = new CoinHoppingService(new ObjectMapper().findAndRegisterModules(), directory.resolve("enabled.json").toString(),
                 profiles, mock(MiningPerformanceProfileStore.class), market, planning, assignments, power, benchmark, sweep, lock,
                 ledger, energy);
-        service.configure(new CoinHoppingService.Settings(true, "gpu-1", 180, 30, 5));
+        service.configure(new CoinHoppingService.Settings(true, "gpu-1", 0, 30, 5));
+        assertEquals(List.of("quantus:150", "pearl:180"), service.view().candidates().stream()
+                .map(candidate -> candidate.coin() + ":" + candidate.limitWatts()).toList());
 
         service.evaluate();
 
+        assertEquals("coin_hopping_switched", service.view().lastOutcome());
         verify(assignments).applyEconomicAssignment("gpu-1", "quantus");
-        verify(power).setTotalPowerTarget(180, List.of(gpu));
+        verify(power).setTotalPowerTarget(150, List.of(gpu));
         verify(assignments).start("gpu-1");
         verify(lock).end();
         assertEquals("coin_hopping_switched", service.view().lastOutcome());
+        assertEquals(0, service.view().settings().targetWatts());
+        assertEquals(150, ledger.summary().actions().getFirst().targetWatts());
         CoinHoppingService restarted = new CoinHoppingService(new ObjectMapper().findAndRegisterModules(),
                 directory.resolve("enabled.json").toString(), profiles, mock(MiningPerformanceProfileStore.class), market, planning, assignments, power,
                 benchmark, sweep, lock, ledger, energy);

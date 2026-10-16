@@ -23,7 +23,7 @@ class CoinHoppingLedgerTest {
         ledger.begin("gpu-1", 180, t0);
         ledger.account(t0.plusSeconds(600), "pearl", t0,
                 List.of(candidate("pearl", 2), candidate("quantus", 1)));
-        ledger.action(t0.plusSeconds(600), "coin_hopping_switched", "pearl", "quantus", 100, 2, 4);
+        ledger.action(t0.plusSeconds(600), "coin_hopping_switched", "pearl", "quantus", 180, 100, 2, 4);
         ledger.account(t0.plusSeconds(1200), "quantus", t0.plusSeconds(600),
                 List.of(candidate("pearl", 1), candidate("quantus", 2)));
 
@@ -62,6 +62,21 @@ class CoinHoppingLedgerTest {
         assertEquals(3d / 36d, summary.bestFixedUsd(), 0.000001);
         assertEquals("quantus", summary.bestFixedCoin());
         assertEquals(-1d / 36d, summary.gainUsd(), 0.000001);
+    }
+
+    @Test
+    void counterfactualPicksBestTargetPerCoinWhileActualUsesRunningTarget() {
+        CoinHoppingLedger ledger = new CoinHoppingLedger(new ObjectMapper().findAndRegisterModules(),
+                directory.resolve("targets.json").toString());
+        Instant t0 = Instant.parse("2026-10-16T10:00:00Z");
+        ledger.begin("gpu-1", 0, t0);
+        CoinHoppingService.Candidate running = candidate("pearl", 4, 200);
+        CoinHoppingService.Candidate better = new CoinHoppingService.Candidate("pearl", 150, 150, 100,
+                5d / (150 * 24 / 1000), t0, t0, "SWEEP", 5, 5);
+        ledger.account(t0.plusSeconds(600), "pearl", 180, t0, List.of(running, better));
+        assertEquals(4 * 600d / 86400d, ledger.summary().actualUsd(), 0.000001);
+        assertEquals(5d / (150 * 24 / 1000) * (200 * 600d / 3_600_000d),
+                ledger.summary().bestFixedUsd(), 0.000001);
     }
 
     private static CoinHoppingService.Candidate candidate(String coin, double usdPerDay) {

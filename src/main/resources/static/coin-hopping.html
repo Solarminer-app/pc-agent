@@ -24,21 +24,21 @@
         <div class="top-actions"><span id="connection" class="badge" data-i18n="connecting">Verbinde …</span><button id="refresh" class="button subtle" type="button" data-i18n="refresh">Aktualisieren</button></div>
     </header>
     <main>
-        <div class="page-title"><div><p class="kicker" data-i18n="coin_hopping_kicker">AUTOMATISCHE COIN-WAHL</p><h1 data-i18n="coin_hopping_title">Coin Hopping</h1><p data-i18n="coin_hopping_page_intro">Der PC-Agent vergleicht gemessene Betriebspunkte bei demselben Power Target und entscheidet anhand aktueller Netzwerkkurse. Alle Beträge sind modellierte Bruttoerträge, keine Pool-Auszahlungen.</p></div></div>
+        <div class="page-title"><div><p class="kicker" data-i18n="coin_hopping_kicker">AUTOMATISCHE COIN-WAHL</p><h1 data-i18n="coin_hopping_title">Coin Hopping</h1><p data-i18n="coin_hopping_page_intro">Der PC-Agent wählt Coin und Power Target gemeinsam aus gemessenen Betriebspunkten und aktuellen Netzwerkkursen. Ziel ist maximaler prognostizierter Bruttoertrag pro kWh. Die Beträge sind keine Pool-Auszahlungen.</p></div></div>
         <section class="panel hopping-panel">
             <div class="section-head"><div><p class="kicker" data-i18n="coin_hopping_settings">EINSTELLUNGEN</p><h2 data-i18n="coin_hopping_strategy">Deine Strategie</h2></div><span id="hopping-state" class="tag">—</span></div>
             <div class="hopping-controls">
                 <label><span data-i18n="coin_hopping_gpu">GPU</span><select id="hopping-gpu"></select></label>
-                <label><span data-i18n="coin_hopping_target">Power Target</span><select id="hopping-target"></select></label>
                 <label><span data-i18n="coin_hopping_cooldown">Sperrfrist zwischen Wechseln (Minuten)</span><input id="hopping-cooldown" type="number" min="1" max="1440" step="1" value="30"></label>
                 <label><span data-i18n="coin_hopping_threshold">Mindestvorteil für einen Wechsel (%)</span><input id="hopping-threshold" type="number" min="0.1" max="100" step="0.1" value="5"></label>
             </div>
             <div class="hopping-actions"><label class="hopping-enable"><input id="hopping-enabled" type="checkbox"><span data-i18n="coin_hopping_enable">Automatische Coin-Wahl aktivieren</span></label><button id="hopping-save" class="button primary" type="button" data-i18n="save">Speichern</button></div>
-            <p class="muted" data-i18n="coin_hopping_conditions">Wechsel nur bei aktivem Worker, passendem GPU-Limit, gültigen Messungen für beide Coins und bereiten Miner- und Proxy-Routen. Ein gestoppter Worker bleibt gestoppt.</p>
+            <p class="muted" data-i18n="coin_hopping_auto_target_explanation">Der PC-Agent wählt Coin und Power Target gemeinsam aus gemessenen Betriebspunkten. Er maximiert den prognostizierten Bruttoertrag pro kWh innerhalb der geprüften GPU-Grenzen.</p>
             <p id="hopping-notice" class="notice" role="status" aria-live="polite" hidden></p>
         </section>
         <section class="panel">
             <div class="section-head"><div><p class="kicker" data-i18n="coin_hopping_market">NETZWERKVERGLEICH</p><h2 data-i18n="coin_hopping_comparison_heading">Ertrag pro kWh</h2></div><small id="hopping-updated" class="benchmark-updated"></small></div>
+            <p id="hopping-recommendation" class="hopping-recommendation" aria-live="polite"></p>
             <div id="hopping-chart" class="hopping-chart" role="region" data-i18n-aria-label="coin_hopping_comparison" aria-label="Vergleich des geschätzten Bruttoertrags pro Kilowattstunde"></div>
             <p id="hopping-detail" class="muted"></p>
         </section>

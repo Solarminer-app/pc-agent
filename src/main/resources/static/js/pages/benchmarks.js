@@ -14,37 +14,53 @@ let lastUploadStatus = '';
 let sharePromptShown = false;
 let sharingKnown = false;
 let savedBenchmarkSignature = null;
-let savedBenchmarkRequest = null;
-let sweepProfileRequest = null;
+let measurementRequest = null;
+let measurementSnapshot = null;
 let previousBenchmarkRunning = null;
 let previousSweepRunning = null;
 
+function invalidateMeasurements() {
+    measurementSnapshot = null;
+}
+
+function readMeasurements() {
+    if (measurementSnapshot) return Promise.resolve(measurementSnapshot);
+    if (measurementRequest) return measurementRequest;
+    measurementRequest = fetch('/api/agent/local/measurements/profiles', {cache: 'no-store'})
+        .then(response => { if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json(); })
+        .then(snapshot => { measurementSnapshot = snapshot; return snapshot; })
+        .finally(() => { measurementRequest = null; });
+    return measurementRequest;
+}
+
 function renderSavedBenchmarks() {
-    if (savedBenchmarkRequest) return savedBenchmarkRequest;
-    savedBenchmarkRequest = loadSavedBenchmarks().finally(() => { savedBenchmarkRequest = null; });
-    return savedBenchmarkRequest;
+    return loadSavedBenchmarks();
 }
 
 async function loadSavedBenchmarks() {
     try {
-        const response = await fetch('/api/agent/local/benchmarks/profiles', {cache: 'no-store'});
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const profiles = await response.json();
+        const snapshot = await readMeasurements();
+        const profiles = snapshot.benchmarks || [];
         $('overview-profiles').textContent = new Intl.NumberFormat(window.SolarMinerI18n.locale).format(profiles.length);
         const signature = JSON.stringify(profiles);
         if (signature === savedBenchmarkSignature) return;
         savedBenchmarkSignature = signature;
         const root = $('saved-benchmarks'); root.replaceChildren();
         if (!profiles.length) {
-            root.append(make('p', 'empty', t('no_saved_local_benchmark_profiles_yet')));
-            await appendStorageDiagnostic(root, '/api/agent/local/benchmarks/profiles/storage');
+            root.append(make('p', 'empty', t('benchmark_no_saved_points')));
+            appendStorageDiagnostic(root, snapshot.benchmarkStorage);
             return;
         }
         for (const profile of profiles) {
             const card = make('article', 'worker-card');
-            card.append(make('strong', '', `${profile.hardwareModel} · ${profile.coin} · ${profile.algorithm}`),
+            const origin = ['LIVE', 'BENCHMARK'].includes(profile.source) ? profile.source.toLowerCase() : 'benchmark';
+            const target = profile.powerTargetWatts > 0
+                ? `${profile.powerTargetWatts} W` : t('benchmark_target_not_recorded');
+            card.append(make('small', 'measurement-origin', t(`coin_hopping_source_${origin}`)),
+                make('strong', '', `${profile.hardwareModel || profile.workerId} · ${profile.coin} · ${profile.algorithm}`),
+                make('p', 'measurement-target', t('benchmark_profile_target', {target})),
                 make('p', 'muted', t('hardware_count_samples', {hardware: profile.hardwareType, count: profile.observations})),
-                make('p', '', `${t('hashrate')}: ${fmtRate(profile.hashrateHps)} · ${t('power_4606f4')}: ${profile.powerWatts} W · ${t('energy_per_hash')}: ${window.SolarMinerMeasurements.efficiency(profile.hashrateHps, profile.powerWatts)}`));
+                make('p', '', `${t('hashrate')}: ${fmtRate(profile.hashrateHps)} · ${t('power_4606f4')}: ${profile.powerWatts} W · ${t('energy_per_hash')}: ${window.SolarMinerUI.efficiency(profile.hashrateHps, profile.powerWatts)}`));
             root.append(card);
         }
     } catch (e) {
@@ -53,10 +69,8 @@ async function loadSavedBenchmarks() {
     }
 }
 
-async function appendStorageDiagnostic(root, endpoint) {
-    const response = await fetch(endpoint, {cache: 'no-store'});
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const status = await response.json();
+function appendStorageDiagnostic(root, status) {
+    if (!status || !status.loadError) return;
     root.append(make('p', 'muted', t('profile_storage_diagnostic', {
         file: status.file,
         state: status.loadError || (status.exists ? t('file_readable') : t('file_not_created_yet')),
@@ -72,7 +86,7 @@ function notice(text, error = false, kind = 'action') {
 }
 
 function fmtRate(v) {
-    return window.SolarMinerMeasurements.hashrate(v);
+    return window.SolarMinerUI.hashrate(v);
 }
 
 function benchmarkPhase(phase) {
@@ -131,7 +145,7 @@ async function renderResults(results, running = false, phase = '') {
         const card = make('article', 'worker-card');
         const info = make('div', '');
         info.append(make('strong', '', `${row.hardwareModel} · ${row.algorithm}`), make('p', 'muted', t('hardware_count_samples', {hardware: row.hardwareType, count: row.observations})));
-        info.append(make('p', '', `${t('hashrate')}: ${fmtRate(row.hashrateHs)} · ${t('power_4606f4')}: ${row.powerWatts > 0 ? new Intl.NumberFormat(window.SolarMinerI18n.locale, {maximumFractionDigits: 0}).format(row.powerWatts) + ' W' : t('unavailable_6d094b')} · ${t('energy_per_hash')}: ${window.SolarMinerMeasurements.efficiency(row.hashrateHs, row.powerWatts)}`));
+        info.append(make('p', '', `${t('hashrate')}: ${fmtRate(row.hashrateHs)} · ${t('power_4606f4')}: ${row.powerWatts > 0 ? new Intl.NumberFormat(window.SolarMinerI18n.locale, {maximumFractionDigits: 0}).format(row.powerWatts) + ' W' : t('unavailable_6d094b')} · ${t('energy_per_hash')}: ${window.SolarMinerUI.efficiency(row.hashrateHs, row.powerWatts)}`));
         card.append(info);
         root.append(card);
         const peer = running ? null : await comparisons[index];
@@ -147,7 +161,7 @@ async function renderResults(results, running = false, phase = '') {
 
 function applyBenchmarkState(state, meta = {}) {
     $('overview-benchmark').textContent = state.running ? t('running') : t('ready');
-    if (previousBenchmarkRunning === true && !state.running) renderSavedBenchmarks();
+    if (previousBenchmarkRunning === true && !state.running) { invalidateMeasurements(); renderSavedBenchmarks(); }
     previousBenchmarkRunning = state.running;
     if ($('notice').dataset.kind === 'connection') $('notice').hidden = true;
     $('connection').className = `badge ${meta.stale ? 'offline' : 'online'}`;
@@ -326,6 +340,7 @@ $('cancel').addEventListener('click', async () => {
     finally {actionBusy=false;$('cancel').disabled=false;window.SolarMinerLive.refresh('benchmarks');}
 });
 $('refresh').addEventListener('click', () => {
+    invalidateMeasurements();
     window.SolarMinerLive.refresh('benchmarks');
     window.SolarMinerLive.refresh('efficiency');
     window.SolarMinerLive.refresh('benchmark-upload');
@@ -354,7 +369,7 @@ fetch('/api/agent/local/benchmarks/sharing').then(async response => {
 
 function applySweepState(state) {
         $('overview-sweep').textContent = state.running ? t('running') : t('ready');
-        if (previousSweepRunning === true && !state.running) renderProfiles();
+        if (previousSweepRunning === true && !state.running) { invalidateMeasurements(); renderProfiles(); }
         previousSweepRunning = state.running;
         $('sweep-state').textContent = state.running ? t('running') : (!state.phase || state.phase === 'Idle' ? t('ready') : s(state.phase));
         $('sweep-cancel').hidden = !state.running;
@@ -374,6 +389,97 @@ function applySweepState(state) {
                 ? t('calculating_eta') : t('approximate_time_remaining_time', {time: formatDuration(state.secondsRemaining)});
         }
         renderSweepRuns(state.runs || [], state.running);
+        renderLiveSweepChart(state.runs || [], state.running);
+}
+
+let selectedSweepRunId = null;
+let lastLiveSweepSignature = null;
+function renderLiveSweepChart(runs, running) {
+    const root = $('sweep-live-chart');
+    if (!root) return;
+    const signature = JSON.stringify({running, selectedSweepRunId, runs: runs.map(run =>
+        ({id: run.id, status: run.status, limits: run.plannedLimits, steps: run.steps}))});
+    if (signature === lastLiveSweepSignature) return;
+    lastLiveSweepSignature = signature;
+    const available = runs.map(run => ({run, points: (run.steps || [])
+        .filter(step => step.stable && step.avgPowerWatts > 0 && step.medianHashrateHs > 0)
+        .map(step => ({x: step.limitWatts, y: step.medianHashrateHs / step.avgPowerWatts}))
+        .sort((a, b) => a.x - b.x)})).filter(line => line.points.length);
+    root.replaceChildren();
+    if (!available.length) {
+        root.append(make('div', 'sweep-chart-empty', t(running
+            ? 'benchmark_sweep_waiting_points' : 'benchmark_sweep_no_live_curve')));
+        return;
+    }
+    const selected = available.find(line => line.run.id === selectedSweepRunId)
+        || available.find(line => line.run.status === 'RUNNING') || available[0];
+    selectedSweepRunId = selected.run.id;
+    const lines = [selected];
+    if (available.length > 1) {
+        const tabs = make('div', 'sweep-chart-tabs');
+        for (const line of available) {
+            const button = make('button', line.run.id === selectedSweepRunId ? 'selected' : '',
+                `${line.run.coin.toUpperCase()} · ${line.run.model}`);
+            button.type = 'button'; button.setAttribute('aria-pressed', String(line.run.id === selectedSweepRunId));
+            button.addEventListener('click', () => { selectedSweepRunId = line.run.id; renderLiveSweepChart(runs, running); });
+            tabs.append(button);
+        }
+        root.append(tabs);
+    }
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 760 330');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', t('benchmark_sweep_curve_aria'));
+    const add = (tag, attrs, label) => {
+        const node = document.createElementNS(ns, tag);
+        for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+        if (label != null) node.textContent = label;
+        svg.append(node); return node;
+    };
+    const all = lines.flatMap(line => line.points);
+    const xMin = Math.min(...all.map(point => point.x), ...(selected.run.plannedLimits || []));
+    const xMax = Math.max(...all.map(point => point.x), ...(selected.run.plannedLimits || []));
+    const yMax = Math.max(...all.map(point => point.y)) * 1.18;
+    const left = 78, right = 730, top = 22, bottom = 268;
+    const x = value => left + (value - xMin) / Math.max(1, xMax - xMin) * (right - left);
+    const y = value => bottom - value / Math.max(1, yMax) * (bottom - top);
+    for (let index = 0; index <= 4; index++) {
+        const lineY = top + index * (bottom - top) / 4;
+        add('line', {x1:left, x2:right, y1:lineY, y2:lineY, class:'sweep-grid-line'});
+        add('text', {x:left - 12, y:lineY + 4, class:'sweep-axis-label', 'text-anchor':'end'}, fmtRate(yMax * (4-index)/4));
+    }
+    add('text', {x:(left+right)/2, y:310, class:'sweep-axis-label', 'text-anchor':'middle'}, t('power_target_watts'));
+    add('text', {x:18, y:148, class:'sweep-axis-label', 'text-anchor':'middle', transform:`rotate(${-90} 18 148)`}, t('benchmark_hashes_per_watt'));
+    const limits = [...new Set(selected.run.plannedLimits || [])].sort((a,b) => a-b);
+    for (const [index, limit] of limits.entries()) {
+        add('line', {x1:x(limit), x2:x(limit), y1:top, y2:bottom, class:'sweep-grid-vertical'});
+        if (index % Math.max(1, Math.ceil(limits.length / 8)) === 0 || index === limits.length - 1)
+            add('text', {x:x(limit), y:bottom + 21, class:'sweep-axis-label', 'text-anchor':'middle'}, `${limit}`);
+    }
+    const palette = ['#8fe9b5', '#79bdff', '#f6c375', '#bc9bff', '#f3939b'];
+    for (const [index, line] of lines.entries()) {
+        const color = palette[index % palette.length];
+        if (line.points.length > 1) add('polyline', {
+            points:line.points.map(point => `${x(point.x)},${y(point.y)}`).join(' '),
+            fill:'none', stroke:color, 'stroke-width':'3.5', 'stroke-linecap':'round', 'stroke-linejoin':'round',
+            class:'sweep-curve-line'
+        });
+        for (const point of line.points) {
+            const circle = add('circle', {cx:x(point.x), cy:y(point.y), r:6, fill:color, class:'sweep-curve-point'});
+            const title = document.createElementNS(ns, 'title');
+            title.textContent = `${line.run.model} · ${line.run.coin} · ${point.x} W · ${fmtRate(point.y)} / W`;
+            circle.append(title);
+        }
+    }
+    root.append(svg);
+    const legend = make('div', 'sweep-chart-legend');
+    for (const [index, line] of lines.entries()) {
+        const item = make('span', '', `${line.run.coin.toUpperCase()} · ${line.run.model}`);
+        item.style.setProperty('--series-color', palette[index % palette.length]);
+        legend.append(item);
+    }
+    root.append(legend);
 }
 
 let lastProfileSignature = null;
@@ -494,16 +600,13 @@ function runRow(run, statusLabel, expandFinishedHistory) {
 }
 
 function renderProfiles() {
-    if (sweepProfileRequest) return sweepProfileRequest;
-    sweepProfileRequest = loadProfiles().finally(() => { sweepProfileRequest = null; });
-    return sweepProfileRequest;
+    return loadProfiles();
 }
 
 async function loadProfiles() {
     try {
-        const response = await fetch('/api/agent/local/efficiency/profiles', {cache: 'no-store'});
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const profiles = await response.json();
+        const snapshot = await readMeasurements();
+        const profiles = snapshot.sweeps || [];
         $('overview-efficiency').textContent = new Intl.NumberFormat(window.SolarMinerI18n.locale).format(profiles.length);
         const signature = JSON.stringify(profiles);
         if (signature === lastProfileSignature) return;
@@ -512,7 +615,7 @@ async function loadProfiles() {
         root.replaceChildren();
         if (!profiles.length) {
             root.append(make('p', 'empty', t('no_efficiency_profile_yet_start_a_test_to_fi')));
-            await appendStorageDiagnostic(root, '/api/agent/local/efficiency/profiles/storage');
+            appendStorageDiagnostic(root, snapshot.sweepStorage);
             return;
         }
         for (const profile of profiles) {
@@ -521,7 +624,7 @@ async function loadProfiles() {
             info.append(make('strong', '', `${profile.model} · ${profile.algorithm}`),
                 make('p', 'muted', t('coin_tested_date', {coin: profile.coin, date: new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(profile.testedAt))})));
             if (profile.bestStableWatts != null) {
-                info.append(make('p', '', t('best_stable_value_watts_w_hashrate_power_w_e', {watts: profile.bestStableWatts, hashrate: fmtRate(profile.bestHashrateHs), power: Math.round(profile.bestPowerWatts), efficiency: window.SolarMinerMeasurements.efficiency(profile.bestHashrateHs, profile.bestPowerWatts)})));
+                info.append(make('p', '', t('best_stable_value_watts_w_hashrate_power_w_e', {watts: profile.bestStableWatts, hashrate: fmtRate(profile.bestHashrateHs), power: Math.round(profile.bestPowerWatts), efficiency: window.SolarMinerUI.efficiency(profile.bestHashrateHs, profile.bestPowerWatts)})));
             } else info.append(make('p', '', t('no_stable_power_limit_found')));
             const chart = efficiencyChart(profile);
             if (chart) info.append(chart);
@@ -627,4 +730,11 @@ window.SolarMinerLive.channel('benchmark-upload', {endpoint: '/api/agent/local/b
 // status update arriving first.
 renderSavedBenchmarks();
 renderProfiles();
+// Ordinary mining contributes new operating points without a benchmark transition.
+// Keep the durable library fresh while the page remains open.
+setInterval(() => {
+    invalidateMeasurements();
+    renderSavedBenchmarks();
+    renderProfiles();
+}, 60_000);
 window.SolarMinerLive.start();

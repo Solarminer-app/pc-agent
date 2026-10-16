@@ -41,7 +41,7 @@ public class CoinHoppingLedger {
     }
 
     public synchronized void begin(String deviceId, int targetWatts, Instant now) {
-        if (deviceId == null || targetWatts <= 0) return;
+        if (deviceId == null || targetWatts < 0) return;
         if (deviceId.equals(state.deviceId()) && targetWatts == state.targetWatts()) return;
         persist(new State(deviceId, targetWatts, now, now, 0, 0, Map.of(), Map.of(), List.of()));
     }
@@ -55,9 +55,16 @@ public class CoinHoppingLedger {
 
     public synchronized void account(Instant now, String currentCoin, Instant activeStartedAt,
                                      List<CoinHoppingService.Candidate> candidates) {
+        account(now, currentCoin, 0, activeStartedAt, candidates);
+    }
+
+    public synchronized void account(Instant now, String currentCoin, int currentTargetWatts,
+                                     Instant activeStartedAt, List<CoinHoppingService.Candidate> candidates) {
         if (state.deviceId() == null) return;
         CoinHoppingService.Candidate actual = candidates.stream()
-                .filter(value -> value.coin().equals(currentCoin)).findFirst().orElse(null);
+                .filter(value -> value.coin().equals(currentCoin)
+                        && (currentTargetWatts <= 0 || value.limitWatts() == currentTargetWatts))
+                .findFirst().orElse(null);
         if (actual == null || activeStartedAt == null || state.lastEvaluatedAt() == null) {
             mark(now); return;
         }
@@ -72,7 +79,11 @@ public class CoinHoppingLedger {
         Map<String, Double> actualCoins = new LinkedHashMap<>(state.actualCoins());
         actualCoins.merge(currentCoin, coinsPerKwh(actual) * energyKwh, Double::sum);
         Map<String, FixedEstimate> fixed = new LinkedHashMap<>(state.fixed());
-        for (CoinHoppingService.Candidate candidate : candidates) {
+        Map<String, CoinHoppingService.Candidate> bestByCoin = new LinkedHashMap<>();
+        for (CoinHoppingService.Candidate candidate : candidates)
+            bestByCoin.merge(candidate.coin(), candidate,
+                    (left, right) -> left.usdPerKwh() >= right.usdPerKwh() ? left : right);
+        for (CoinHoppingService.Candidate candidate : bestByCoin.values()) {
             FixedEstimate previous = fixed.getOrDefault(candidate.coin(), new FixedEstimate(0, 0, 0));
             fixed.put(candidate.coin(), new FixedEstimate(previous.coveredSeconds() + seconds,
                     previous.usd() + candidate.usdPerKwh() * energyKwh,
@@ -87,11 +98,11 @@ public class CoinHoppingLedger {
         return candidate.coinsPerDay() / (candidate.measuredWatts() * 24.0 / 1000.0);
     }
 
-    public synchronized void action(Instant at, String outcome, String fromCoin, String toCoin,
+    public synchronized void action(Instant at, String outcome, String fromCoin, String toCoin, int targetWatts,
                                     double gainPercent, double fromUsdPerKwh, double toUsdPerKwh) {
         if (state.deviceId() == null) return;
         List<Action> actions = new ArrayList<>(state.actions());
-        actions.add(new Action(at, outcome, fromCoin, toCoin, gainPercent, state.targetWatts(),
+        actions.add(new Action(at, outcome, fromCoin, toCoin, gainPercent, targetWatts,
                 fromUsdPerKwh, toUsdPerKwh));
         if (actions.size() > MAX_ACTIONS) actions = actions.subList(actions.size() - MAX_ACTIONS, actions.size());
         persist(new State(state.deviceId(), state.targetWatts(), state.startedAt(), state.lastEvaluatedAt(),
