@@ -104,6 +104,7 @@ window.SolarMinerI18nCatalog = {
         "coin_hopping_evaluation_failed": {de: "Coin-Hopping-Prüfung fehlgeschlagen; automatische Wechsel werden beim nächsten Intervall erneut geprüft.", en: "Coin hopping evaluation failed; automatic switching will be checked again at the next interval."},
         "benchmark_sample_progress": {de: "{phase} · {samples}/{required} Messpunkte", en: "{phase} · {samples}/{required} samples"},
         "coin_hopping_switched": {de: "Coin automatisch gewechselt.", en: "Coin switched automatically."},
+        "coin_hopping_power_adjusted": {de: "Power Target für den aktuellen Coin automatisch angepasst.", en: "Power target adjusted automatically for the current coin."},
         "coin_hopping_switch_not_persisted": {de: "Coin gewechselt; die Sperrfrist konnte nicht gespeichert werden. Automatische Wechsel nach einem Neustart prüfen.", en: "Coin switched, but the cooldown could not be saved. Check automatic switching after a restart."},
         "energy_per_hash": {de: "Energie je Hash", en: "Energy per hash"},
         "cpu_gpu_power": {de: "CPU + GPU LEISTUNG", en: "CPU + GPU POWER"},

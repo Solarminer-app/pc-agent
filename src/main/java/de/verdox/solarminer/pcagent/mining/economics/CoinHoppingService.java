@@ -25,7 +25,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
-/** Local, explicitly enabled GPU coin selection based on measured gross USD per kWh. */
+/** Local, explicitly enabled GPU coin and power-target selection based on measured gross USD per kWh. */
 @Service
 public class CoinHoppingService {
     private static final Duration MAX_PROFILE_AGE = Duration.ofDays(30);
@@ -281,7 +281,8 @@ public class CoinHoppingService {
                 throw new IllegalStateException("coin_hopping_switch_failed");
             lastSwitchAt = Instant.now();
             lastOutcome = AtomicFileStore.writeJson(file, new Persisted(current, lastSwitchAt), json, "coin-hopping-")
-                    ? "coin_hopping_switched" : "coin_hopping_switch_not_persisted";
+                    ? (best.coin().equals(existing.coin()) ? "coin_hopping_power_adjusted" : "coin_hopping_switched")
+                    : "coin_hopping_switch_not_persisted";
             try { ledger.action(lastSwitchAt, lastOutcome, existing.coin(), best.coin(), best.limitWatts(),
                     (best.usdPerKwh() / existing.usdPerKwh() - 1) * 100,
                     existing.usdPerKwh(), best.usdPerKwh()); }

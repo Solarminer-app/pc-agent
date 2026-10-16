@@ -147,7 +147,7 @@ function renderSummary(summary) {
     for (const event of summary.actions || []) {
         const item = make('article', 'hopping-event');
         const time = make('time', '', date(event.at)); time.dateTime = event.at;
-        const success = ['coin_hopping_switched', 'coin_hopping_switch_not_persisted'].includes(event.outcome);
+        const success = ['coin_hopping_switched', 'coin_hopping_power_adjusted', 'coin_hopping_switch_not_persisted'].includes(event.outcome);
         const label = success && event.fromCoin === event.toCoin
             ? t('coin_hopping_action_power', {coin: event.toCoin.toUpperCase(), watts: event.targetWatts})
             : success
