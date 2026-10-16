@@ -22,6 +22,7 @@ public class EconomicsController {
     private final AgentStatusService status;
     private final de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService network;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public EconomicsController(EnergyJournalService energy, MarketDataService rates,
                                @org.springframework.context.annotation.Lazy AgentStatusService status,
                                de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService network) {
