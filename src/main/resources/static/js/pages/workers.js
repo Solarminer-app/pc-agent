@@ -189,7 +189,8 @@
       : chosen?.installed ? t('installed_and_ready')
       : t('install_compatible_software_in_the_miner_sof');
     $('worker-miner-install').hidden = coinId === 'none' || !chosen?.selectable || Boolean(chosen?.installed);
-    $('worker-save').disabled = coinId !== 'none' && (!chosen || !chosen.selectable || !chosen.installed);
+    $('worker-save').disabled = (coinId !== 'none' && (!chosen || !chosen.selectable || !chosen.installed))
+      || (coinId === 'none' && $('worker-power-mode').value !== 'MANUAL');
     select.disabled = coinId === 'none';
   }
 
@@ -216,12 +217,11 @@
     }
     coinSelect.value = worker.coin; populateMinerSelect(worker.coin, worker.minerSoftwareId);
     $('worker-power-mode').value = worker.powerMode || 'MANUAL';
-    $('worker-power-mode').disabled = worker.coin === 'none';
     $('worker-power-mode').querySelector('[value="COIN_REVENUE_PER_KWH"]').disabled = worker.hardwareType === 'CPU';
     updatePoolSummary(worker.coin, worker.poolUrl, worker.configured);
     coinSelect.onchange = () => { populateMinerSelect(coinSelect.value, null); updatePoolSummary(coinSelect.value, null, false);
-      $('worker-power-mode').disabled = coinSelect.value === 'none';
       if (coinSelect.value === 'none') $('worker-power-mode').value = 'MANUAL'; };
+    $('worker-power-mode').onchange = () => populateMinerSelect(coinSelect.value, $('worker-miner').value);
     $('worker-editor').showModal();
   }
 

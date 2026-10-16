@@ -22,7 +22,7 @@ window.SolarMinerI18nCatalog = {
         "worker_mode_efficiency": {de: "Effizienz · Hashes pro Watt", en: "Efficiency · hashes per watt"},
         "worker_mode_revenue": {de: "Ertrag pro kWh · fester Coin", en: "Revenue per kWh · fixed coin"},
         "worker_mode_coin_revenue": {de: "Coin & Ertrag pro kWh", en: "Coin & revenue per kWh"},
-        "worker_mode_help": {de: "Automatische Modi benötigen lokale Messpunkte; für GPUs wird ein vollständiger Power-Sweep empfohlen. Beim festen Coin wählen Effizienz und Ertrag pro kWh denselben Punkt. Die Node steuert dann nur Ein/Aus.", en: "Automatic modes need local measurements; a full power sweep is recommended for GPUs. For a fixed coin, efficiency and revenue per kWh choose the same point. The Node then controls only on/off."},
+        "worker_mode_help": {de: "Automatische Modi benötigen lokale Messpunkte. Effizienz wählt Hashes pro Watt; Ertrag pro kWh wählt den besten Messpunkt für den festen Coin. Coin & Ertrag pro kWh darf auch einen anderen Coin wählen. Die Node steuert dann nur Ein/Aus.", en: "Automatic modes need local measurements. Efficiency chooses hashes per watt; revenue per kWh chooses the best measured point for the fixed coin. Coin & revenue per kWh may choose a different coin. The Node then controls only on/off."},
         "power_mode_invalid": {de: "Unbekannter Betriebsmodus.", en: "Unknown operating mode."},
         "power_mode_requires_gpu": {de: "Automatische Betriebsmodi sind derzeit nur für GPUs verfügbar.", en: "Automatic operating modes are currently available only for GPUs."},
         "power_mode_requires_gpu_coin": {de: "Weise der GPU zuerst einen Coin zu.", en: "Assign a coin to the GPU first."},

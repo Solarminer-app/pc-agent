@@ -69,7 +69,7 @@ public class WorkerCoinRevenueModeService {
             try {
                 if (!best.coin().equals(current.coin()) && !assignments.applyEconomicAssignment(id, best.coin())) return;
                 boolean applied = gpus.setTotalPowerTarget(best.limitWatts(), List.of(gpu));
-                if (applied && !best.coin().equals(current.coin())) applied = assignments.start(id);
+                if (applied && !best.coin().equals(current.coin())) applied = assignments.startAtCurrentPowerTarget(id);
                 if (applied) {
                     switchedAt.put(id, Instant.now());
                     return;
@@ -80,8 +80,76 @@ public class WorkerCoinRevenueModeService {
             try {
                 if (!best.coin().equals(current.coin())) assignments.applyEconomicAssignment(id, current.coin());
                 gpus.setTotalPowerTarget(current.limitWatts(), List.of(gpu));
-                if (!best.coin().equals(current.coin())) assignments.start(id);
+                if (!best.coin().equals(current.coin())) assignments.startAtCurrentPowerTarget(id);
             } catch (RuntimeException ignored) { /* The miner remains stopped on a failed recovery. */ }
         } finally { runLock.end(); }
     }
+
+    /** A local operator stop ends the previous automatic decision cycle for this worker. */
+    public void resetCooldown(String workerId) {
+        if (workerId != null) switchedAt.remove(workerId);
+    }
+
+    public void resetCooldownForCoin(String coinId) {
+        assignments.workers().stream().filter(worker -> coinId.equals(worker.coin()))
+                .map(WorkerAssignmentService.WorkerView::deviceId).forEach(this::resetCooldown);
+    }
+
+    public void resetAllCooldowns() {
+        switchedAt.clear();
+    }
+
+    public StartSelection selectBestStartPoint(String workerId, String assignedCoin, String mode) {
+        List<CoinHoppingService.Candidate> choices = hopping.candidates(workerId, 0);
+        if ("REVENUE_PER_KWH".equals(mode))
+            choices = choices.stream().filter(candidate -> assignedCoin.equals(candidate.coin())).toList();
+        else if (!"COIN_REVENUE_PER_KWH".equals(mode))
+            return new StartSelection(null, "power_mode_invalid");
+        return choices.isEmpty()
+                ? new StartSelection(null, "power_mode_no_measured_point")
+                : new StartSelection(choices.getFirst(), null);
+    }
+
+    /** Applies the best measured revenue point and optionally starts/restarts its miner. */
+    public StartResult applyBestStartPoint(String workerId, String assignedCoin, String mode, boolean startWorker) {
+        StartSelection selection = selectBestStartPoint(workerId, assignedCoin, mode);
+        if (selection.error() != null) return new StartResult(false, selection.error(), null, null);
+        if (planning.capabilities().activePlanExpiresAt() != null || !runLock.tryBegin("worker-revenue-start"))
+            return new StartResult(false, "power_mode_busy", null, null);
+        try {
+            WorkerAssignmentService.WorkerView worker = assignments.workers().stream()
+                    .filter(value -> workerId.equals(value.deviceId())).findFirst().orElse(null);
+            LocalGpuPowerService.Gpu gpu = gpus.snapshot().stream()
+                    .filter(value -> workerId.equals(value.deviceId())).findFirst().orElse(null);
+            if (worker == null || gpu == null || gpu.currentPowerLimitWatts() == null)
+                return new StartResult(false, "gpu_not_found", null, null);
+            String oldCoin = worker.coin();
+            int oldLimit = gpu.currentPowerLimitWatts();
+            boolean wasMining = worker.status() == MinerStats.MinerStatus.MINING;
+            String targetCoin = selection.candidate().coin();
+            boolean coinChanged = !targetCoin.equals(oldCoin);
+            boolean assignmentChanged = false;
+            try {
+                if (coinChanged) {
+                    if (!assignments.applyEconomicAssignment(workerId, targetCoin))
+                        return new StartResult(false, "power_mode_apply_failed", null, null);
+                    assignmentChanged = true;
+                }
+                if (!gpus.setTotalPowerTarget(selection.candidate().limitWatts(), List.of(gpu)))
+                    throw new IllegalStateException("power_mode_apply_failed");
+                if ((startWorker || (wasMining && coinChanged)) && !assignments.startAtCurrentPowerTarget(workerId))
+                    throw new IllegalStateException("power_mode_apply_failed");
+                switchedAt.put(workerId, Instant.now());
+                return new StartResult(true, null, targetCoin, selection.candidate().limitWatts());
+            } catch (RuntimeException failure) {
+                if (assignmentChanged) assignments.applyEconomicAssignment(workerId, oldCoin);
+                gpus.setTotalPowerTarget(oldLimit, List.of(gpu));
+                if (wasMining && assignmentChanged) assignments.startAtCurrentPowerTarget(workerId);
+                return new StartResult(false, "power_mode_apply_failed", null, null);
+            }
+        } finally { runLock.end(); }
+    }
+
+    public record StartSelection(CoinHoppingService.Candidate candidate, String error) { }
+    public record StartResult(boolean success, String error, String coin, Integer watts) { }
 }

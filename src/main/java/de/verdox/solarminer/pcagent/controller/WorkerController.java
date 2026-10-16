@@ -39,11 +39,17 @@ public class WorkerController {
     private final MinerConsoleService consoles;
     private final AgentStatusService status;
     private de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService powerModes;
+    private de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService coinRevenueMode;
     private de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock runLock;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setPowerModes(de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService powerModes) {
         this.powerModes = powerModes;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCoinRevenueMode(de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService coinRevenueMode) {
+        this.coinRevenueMode = coinRevenueMode;
     }
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -91,19 +97,39 @@ public class WorkerController {
         if (!"MANUAL".equals(request.mode())) {
             if ("CPU".equals(worker.hardwareType()) && "COIN_REVENUE_PER_KWH".equals(request.mode()))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "power_mode_requires_gpu");
-            if (powerModes == null)
-                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "power_mode_unavailable");
-            // Validate the selected coin and available points before persisting a new mode.
-            var selection = powerModes.selectForMode(deviceId, worker.coin(), request.mode());
-            if (selection.error() != null)
-                throw new ResponseStatusException(HttpStatus.CONFLICT, selection.error());
+            boolean revenueMode = "REVENUE_PER_KWH".equals(request.mode())
+                    || "COIN_REVENUE_PER_KWH".equals(request.mode());
+            if (revenueMode && "GPU".equals(worker.hardwareType())) {
+                if (coinRevenueMode == null)
+                    throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "power_mode_unavailable");
+                var selection = coinRevenueMode.selectBestStartPoint(deviceId, worker.coin(), request.mode());
+                if (selection.error() != null)
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, selection.error());
+            } else {
+                if (powerModes == null)
+                    throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "power_mode_unavailable");
+                var selection = powerModes.selectForMode(deviceId, worker.coin(), request.mode());
+                if (selection.error() != null)
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, selection.error());
+            }
         }
         String previous = controls.get().powerModeFor(deviceId);
         if (!controls.setWorkerPowerMode(deviceId, request.mode()))
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "power_mode_save_failed");
         if (worker.status() == de.verdox.solarminer.pcagent.dto.MinerStats.MinerStatus.MINING && powerModes != null) {
-            var applied = powerModes.apply(deviceId, worker.coin());
-            boolean started = applied.error() == null;
+            boolean revenueMode = "GPU".equals(worker.hardwareType())
+                    && ("REVENUE_PER_KWH".equals(request.mode()) || "COIN_REVENUE_PER_KWH".equals(request.mode()));
+            boolean started;
+            String failure = null;
+            if (revenueMode) {
+                var applied = coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), request.mode(), false);
+                started = applied.success();
+                failure = applied.error();
+            } else {
+                var applied = powerModes.apply(deviceId, worker.coin());
+                started = applied.error() == null;
+                failure = applied.error();
+            }
             if (started && "CPU".equals(worker.hardwareType())) {
                 started = workers.pause(deviceId);
                 if (started) started = workers.start(deviceId);
@@ -112,9 +138,11 @@ public class WorkerController {
                 controls.setWorkerPowerMode(deviceId, previous);
                 if ("CPU".equals(worker.hardwareType())) try { workers.start(deviceId); } catch (RuntimeException ignored) { }
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        applied.error() == null ? "power_mode_apply_failed" : applied.error());
+                        failure == null ? "power_mode_apply_failed" : failure);
             }
         }
+        if (coinRevenueMode != null && !"COIN_REVENUE_PER_KWH".equals(request.mode()))
+            coinRevenueMode.resetCooldown(deviceId);
         reportChanged("workers", "power-control", "overview", "settings");
         return workers.workers().stream().filter(value -> deviceId.equals(value.deviceId())).findFirst().orElseThrow();
     }
@@ -137,7 +165,20 @@ public class WorkerController {
     @PostMapping("/{deviceId}/start")
     public boolean start(@PathVariable String deviceId) {
         try {
-            boolean started = workers.start(deviceId);
+            WorkerAssignmentService.WorkerView worker = workers.workers().stream()
+                    .filter(value -> deviceId.equals(value.deviceId())).findFirst()
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "gpu_not_found"));
+            String mode = controls.get().powerModeFor(deviceId);
+            boolean revenueMode = "GPU".equals(worker.hardwareType())
+                    && ("REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode));
+            boolean started;
+            if (revenueMode) {
+                if (coinRevenueMode == null)
+                    throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "power_mode_unavailable");
+                var result = coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), mode, true);
+                if (!result.success()) throw new ResponseStatusException(HttpStatus.CONFLICT, result.error());
+                started = true;
+            } else started = workers.start(deviceId);
             if (started) reportChanged("workers", "overview", "power-control");
             return started;
         }
@@ -148,7 +189,10 @@ public class WorkerController {
     @PostMapping("/{deviceId}/pause")
     public boolean pause(@PathVariable String deviceId) {
         boolean paused = workers.pause(deviceId);
-        if (paused) reportChanged("workers", "overview", "power-control");
+        if (paused) {
+            if (coinRevenueMode != null) coinRevenueMode.resetCooldown(deviceId);
+            reportChanged("workers", "overview", "power-control");
+        }
         return paused;
     }
 

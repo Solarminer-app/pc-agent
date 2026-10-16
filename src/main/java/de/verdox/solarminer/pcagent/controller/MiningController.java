@@ -73,6 +73,17 @@ public class MiningController {
      * the section TTL. Injected lazily because this controller is itself a section producer.
      */
     private final AgentStatusService status;
+    private de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService workerCoinRevenueMode;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setWorkerCoinRevenueMode(
+            de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService workerCoinRevenueMode) {
+        this.workerCoinRevenueMode = workerCoinRevenueMode;
+    }
+
+    private void resetWorkerRevenueCooldown(String deviceId) {
+        if (workerCoinRevenueMode != null) workerCoinRevenueMode.resetCooldown(deviceId);
+    }
 
     @org.springframework.beans.factory.annotation.Autowired
     public MiningController(MiningService miningService, XmrConfigService xmrConfigService,
@@ -558,7 +569,11 @@ public class MiningController {
     public boolean pauseGpuCoin(@PathVariable String coin, @PathVariable String vendor, @PathVariable int index) {
         boolean paused = localRunsFree() && workerGpuMiner(coin, vendor, index)
                 .map(miner -> miner.pauseGpu(vendor, index)).orElse(false);
-        if (paused) reportChanged("overview", "workers", "power-control");
+        if (paused) {
+            gpuPowerService.discover().stream().filter(gpu -> gpu.vendor().equals(vendor) && gpu.index() == index)
+                    .findFirst().ifPresent(gpu -> resetWorkerRevenueCooldown(gpu.deviceId()));
+            reportChanged("overview", "workers", "power-control");
+        }
         return paused;
     }
 
@@ -826,7 +841,10 @@ public class MiningController {
     @PostMapping("/miners/{coin}/pause")
     public boolean pauseMiner(@PathVariable String coin) {
         boolean paused = localRunsFree() && miningService.pauseMining(coin);
-        if (paused) reportChanged("overview", "workers", "power-control");
+        if (paused) {
+            if (workerCoinRevenueMode != null) workerCoinRevenueMode.resetCooldownForCoin(coin);
+            reportChanged("overview", "workers", "power-control");
+        }
         return paused;
     }
 
@@ -869,7 +887,10 @@ public class MiningController {
     @PostMapping("/pause")
     public boolean pause() {
         boolean paused = localRunsFree() && miningService.pauseAll("Local dashboard global pause request");
-        if (paused) reportChanged("overview", "workers", "power-control", "energy");
+        if (paused) {
+            if (workerCoinRevenueMode != null) workerCoinRevenueMode.resetAllCooldowns();
+            reportChanged("overview", "workers", "power-control", "energy");
+        }
         return paused;
     }
 

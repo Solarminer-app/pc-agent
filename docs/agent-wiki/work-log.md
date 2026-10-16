@@ -1,5 +1,17 @@
 # PC-Agent work log
 
+## 2026-10-16 — Revenue-Modi starten direkt mit dem besten Messpunkt
+
+- Das Betriebsmodus-Feld steht jetzt am Anfang des Worker-Dialogs. Die zweisprachige Hilfe erklärt Effizienz, festen Coin-Ertrag und Coin-Wechsel getrennt.
+- Beim lokalen Worker-Start wählt `REVENUE_PER_KWH` den besten gemessenen USD/kWh-Punkt nur für den gewählten Coin. `COIN_REVENUE_PER_KWH` wählt den besten verfügbaren Coin/Power-Punkt und aktualisiert die Worker-Zuweisung vor dem Start. Beide schreiben das gewählte GPU-Powerlimit vorab und starten den Miner ohne anschließende Effizienz-Modus-Überschreibung. Bei Moduswechsel an einem laufenden Worker wird der Punkt direkt angewendet; ein notwendiger Coinwechsel startet den neuen Miner.
+- Die Modi verlangen passende aktuelle Kandidaten mit route-bereitem konfiguriertem Coin und frischen Marktdaten. Effizienz und manueller Modus behalten ihre bisherige Auswahl.
+
+## 2026-10-16 — Manuelles Stoppen setzt Coin-Revenue-Cooldown zurück
+
+- Ein erfolgreicher manueller Worker-, GPU-, Coin- oder globaler Pause-Aufruf entfernt jetzt den 30-Minuten-Cooldown für die betroffenen GPU-Worker. Beim nächsten Start kann „Coin Revenue per kWh“ wieder beim nächsten Minuten-Check entscheiden.
+- Das Verlassen des Modus löscht den individuellen Cooldown ebenfalls. Automatische Stops/Wechsel und Node-Steuerpfade lösen keinen manuellen Reset aus.
+- Keine API- oder UI-Texte geändert; keine Tests ausgeführt.
+
 ## 2026-10-16 — GPU-Worker-Ansicht folgt dem laufenden Miner
 
 - Die Workers-Ansicht filterte Telemetrie anhand des gespeicherten Coin-Assignments. Ein laufender GPU-Prozess mit abweichender Coin-Zuordnung wurde dadurch als `STOPPED` ohne Live-Daten dargestellt, obwohl sein Miner-Adapter bereits Hashrate und Verbrauch meldete.

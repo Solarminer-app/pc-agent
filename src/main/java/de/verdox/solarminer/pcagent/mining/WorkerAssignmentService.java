@@ -104,6 +104,15 @@ public class WorkerAssignmentService {
     }
 
     public synchronized boolean start(String deviceId) {
+        return start(deviceId, true);
+    }
+
+    /** Starts with the already selected power cap; revenue modes choose that point upstream. */
+    public synchronized boolean startAtCurrentPowerTarget(String deviceId) {
+        return start(deviceId, false);
+    }
+
+    private boolean start(String deviceId, boolean applyPowerMode) {
         Hardware hardware = hardware(deviceId);
         Coin coin = Coin.byIdOrNull(controls.get().coinFor(deviceId));
         if (coin == null || coin == Coin.NONE) throw new IllegalStateException("Assign a coin to this worker first");
@@ -115,7 +124,7 @@ public class WorkerAssignmentService {
         String minerId = miners.minerSoftwareForWorker(coin, deviceId);
         GpuCoinMiner miner = miners.gpuMiner(coin, minerId);
         ensureGpuDefault(coin, miner, hardware, assignedDevices(coin.id(), minerId));
-        if (workerPowerModes != null) {
+        if (applyPowerMode && workerPowerModes != null) {
             var selected = workerPowerModes.apply(deviceId, coin.id());
             if (selected.error() != null) throw new IllegalStateException(selected.error());
         }
