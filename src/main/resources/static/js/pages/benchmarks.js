@@ -19,6 +19,42 @@ let measurementSnapshot = null;
 let measurementRevision = 0;
 let previousBenchmarkRunning = null;
 let previousSweepRunning = null;
+const openAlgorithmGroups = new Map();
+
+function algorithmGroupLabel(row) {
+    const catalog = window.SolarMinerUI.coinCatalog;
+    const known = catalog.find(coin => coin.id === row.coin)
+        || catalog.find(coin => coin.id === window.SolarMinerUI.coinIdForAlgorithm(row.algorithm));
+    return known?.algorithm
+        || row.algorithm || t('benchmark_unknown_algorithm');
+}
+
+function mountAlgorithmGroups(root, rows, section) {
+    const grouped = new Map();
+    for (const row of rows) {
+        const algorithm = algorithmGroupLabel(row);
+        if (!grouped.has(algorithm)) grouped.set(algorithm, []);
+        grouped.get(algorithm).push(row);
+    }
+    const ordered = [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right, window.SolarMinerI18n.locale));
+    root.replaceChildren();
+    const containers = new Map();
+    for (const [index, [algorithm, members]] of ordered.entries()) {
+        const group = make('details', 'benchmark-algorithm-group');
+        const key = `${section}|${algorithm}`;
+        group.open = openAlgorithmGroups.get(key) ?? (ordered.length === 1 || index === 0);
+        group.addEventListener('toggle', () => openAlgorithmGroups.set(key, group.open));
+        const summary = make('summary', 'benchmark-algorithm-summary');
+        summary.append(make('strong', '', algorithm),
+            make('span', 'benchmark-algorithm-count', t(members.length === 1
+                ? 'benchmark_algorithm_entry_one' : 'benchmark_algorithm_entries', {count: members.length})));
+        const cards = make('div', 'benchmark-algorithm-cards');
+        group.append(summary, cards);
+        root.append(group);
+        containers.set(algorithm, cards);
+    }
+    return containers;
+}
 
 function invalidateMeasurements() {
     measurementRevision++;
@@ -58,6 +94,7 @@ async function loadSavedBenchmarks() {
             appendStorageDiagnostic(root, snapshot.benchmarkStorage);
             return;
         }
+        const groups = mountAlgorithmGroups(root, profiles, 'saved');
         for (const profile of profiles) {
             const card = make('article', 'worker-card');
             const origin = ['LIVE', 'BENCHMARK'].includes(profile.source) ? profile.source.toLowerCase() : 'benchmark';
@@ -68,7 +105,7 @@ async function loadSavedBenchmarks() {
                 make('p', 'measurement-target', t('benchmark_profile_target', {target})),
                 make('p', 'muted', t('hardware_count_samples', {hardware: profile.hardwareType, count: profile.observations})),
                 make('p', '', `${t('hashrate')}: ${fmtRate(profile.hashrateHps)} · ${t('power_4606f4')}: ${profile.powerWatts} W · ${t('energy_per_hash')}: ${window.SolarMinerUI.efficiency(profile.hashrateHps, profile.powerWatts)}`));
-            root.append(card);
+            groups.get(algorithmGroupLabel(profile)).append(card);
         }
     } catch (e) {
         if (revision !== measurementRevision) return;
@@ -121,19 +158,30 @@ function renderChart(results, running) {
     if (!results?.length) return;
     const head = make('div', 'benchmark-chart-head');
     head.append(make('strong', '', t('current_median_hashrate')), make('span', '', running ? t('benchmark_running') : t('results')));
-    const bars = make('div', 'benchmark-bar-list');
-    const maximum = Math.max(...results.map(row => Number(row.hashrateHs) || 0), 1);
+    root.append(head);
+    const algorithms = new Map();
     for (const row of results) {
-        const line = make('div', 'benchmark-bar-row');
-        const label = make('span', 'benchmark-bar-label', `${row.hardwareModel} · ${row.algorithm}`);
-        const track = make('div', 'benchmark-bar-track');
-        track.setAttribute('role', 'progressbar'); track.setAttribute('aria-label', `${label.textContent}: ${fmtRate(row.hashrateHs)}`);
-        track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', String(maximum)); track.setAttribute('aria-valuenow', String(row.hashrateHs || 0));
-        const fill = make('i', 'benchmark-bar-fill');
-        fill.style.width = `${Math.max(0, Math.min(100, (Number(row.hashrateHs) || 0) / maximum * 100))}%`;
-        track.append(fill); line.append(label, track, make('span', 'benchmark-bar-value', fmtRate(row.hashrateHs))); bars.append(line);
+        const algorithm = algorithmGroupLabel(row);
+        if (!algorithms.has(algorithm)) algorithms.set(algorithm, []);
+        algorithms.get(algorithm).push(row);
     }
-    root.append(head, bars);
+    for (const [algorithm, rows] of [...algorithms.entries()].sort(([a], [b]) => a.localeCompare(b, window.SolarMinerI18n.locale))) {
+        const section = make('section', 'benchmark-chart-series');
+        section.append(make('h4', '', algorithm));
+        const bars = make('div', 'benchmark-bar-list');
+        const maximum = Math.max(...rows.map(row => Number(row.hashrateHs) || 0), 1);
+        for (const row of rows) {
+            const line = make('div', 'benchmark-bar-row');
+            const label = make('span', 'benchmark-bar-label', row.hardwareModel);
+            const track = make('div', 'benchmark-bar-track');
+            track.setAttribute('role', 'progressbar'); track.setAttribute('aria-label', `${algorithm} · ${label.textContent}: ${fmtRate(row.hashrateHs)}`);
+            track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', String(maximum)); track.setAttribute('aria-valuenow', String(row.hashrateHs || 0));
+            const fill = make('i', 'benchmark-bar-fill');
+            fill.style.width = `${Math.max(0, Math.min(100, (Number(row.hashrateHs) || 0) / maximum * 100))}%`;
+            track.append(fill); line.append(label, track, make('span', 'benchmark-bar-value', fmtRate(row.hashrateHs))); bars.append(line);
+        }
+        section.append(bars); root.append(section);
+    }
 }
 
 let resultRenderVersion = 0;
@@ -148,6 +196,7 @@ async function renderResults(results, running = false, phase = '') {
             : !phase || phase === 'Idle' ? t('no_measurement_yet_choose_a_mode_above') : t('no_valid_mining_readings_recorded_check_that')));
         return;
     }
+    const groups = mountAlgorithmGroups(root, results, 'current');
     const comparisons = running ? [] : results.map(comparison);
     for (const [index, row] of results.entries()) {
         const card = make('article', 'worker-card');
@@ -155,8 +204,8 @@ async function renderResults(results, running = false, phase = '') {
         info.append(make('strong', '', `${row.hardwareModel} · ${row.algorithm}`), make('p', 'muted', t('hardware_count_samples', {hardware: row.hardwareType, count: row.observations})));
         info.append(make('p', '', `${t('hashrate')}: ${fmtRate(row.hashrateHs)} · ${t('power_4606f4')}: ${row.powerWatts > 0 ? new Intl.NumberFormat(window.SolarMinerI18n.locale, {maximumFractionDigits: 0}).format(row.powerWatts) + ' W' : t('unavailable_6d094b')} · ${t('energy_per_hash')}: ${window.SolarMinerUI.efficiency(row.hashrateHs, row.powerWatts)}`));
         card.append(info);
-        root.append(card);
-        const peer = running ? null : await comparisons[index];
+        groups.get(algorithmGroupLabel(row)).append(card);
+        const peer = running ? null : await comparisons[index].catch(() => null);
         if (version !== resultRenderVersion || !card.isConnected) return;
         if (peer) {
             const delta = peer.medianHashrateHs > 0 ? (row.hashrateHs / peer.medianHashrateHs - 1) * 100 : null;
@@ -628,6 +677,7 @@ async function loadProfiles() {
             appendStorageDiagnostic(root, snapshot.sweepStorage);
             return;
         }
+        const groups = mountAlgorithmGroups(root, profiles, 'sweep');
         for (const profile of profiles) {
             const card = make('article', 'worker-card');
             const info = make('div', '');
@@ -642,7 +692,7 @@ async function loadProfiles() {
                 `${step.limitWatts} W ${step.stable ? '✓' : '✗'}${step.medianHashrateHs ? ` (${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W)` : ''}${step.note ? ` — ${s(step.note)}` : ''}`).join(' · ');
             if (steps) info.append(make('p', 'muted', steps));
             card.append(info);
-            root.append(card);
+            groups.get(algorithmGroupLabel(profile)).append(card);
         }
     } catch (e) {
         if (revision !== measurementRevision) return;

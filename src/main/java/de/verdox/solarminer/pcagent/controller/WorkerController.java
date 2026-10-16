@@ -38,6 +38,18 @@ public class WorkerController {
     private final LocalGpuPowerService gpus;
     private final MinerConsoleService consoles;
     private final AgentStatusService status;
+    private de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService powerModes;
+    private de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock runLock;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPowerModes(de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService powerModes) {
+        this.powerModes = powerModes;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRunLock(de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock runLock) {
+        this.runLock = runLock;
+    }
 
     public WorkerController(WorkerAssignmentService workers, AgentControlSettingsService controls,
                             LocalGpuPowerService gpus, MinerConsoleService consoles, AgentStatusService status) {
@@ -61,6 +73,53 @@ public class WorkerController {
 
     @GetMapping
     public List<WorkerAssignmentService.WorkerView> workers() { return workers.workers(); }
+
+    @PostMapping("/{deviceId}/power-mode")
+    public WorkerAssignmentService.WorkerView powerMode(@PathVariable String deviceId, @RequestBody PowerModeRequest request) {
+        if (runLock != null && !runLock.tryBegin("worker-power-mode"))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "power_mode_busy");
+        try { return savePowerMode(deviceId, request); }
+        finally { if (runLock != null) runLock.end(); }
+    }
+
+    private WorkerAssignmentService.WorkerView savePowerMode(String deviceId, PowerModeRequest request) {
+        if (request == null || !java.util.Set.of("MANUAL", "EFFICIENCY", "REVENUE_PER_KWH", "COIN_REVENUE_PER_KWH").contains(request.mode()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "power_mode_invalid");
+        WorkerAssignmentService.WorkerView worker = workers.workers().stream()
+                .filter(value -> deviceId.equals(value.deviceId())).findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "gpu_not_found"));
+        if (!"MANUAL".equals(request.mode())) {
+            if ("CPU".equals(worker.hardwareType()) && "COIN_REVENUE_PER_KWH".equals(request.mode()))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "power_mode_requires_gpu");
+            if (powerModes == null)
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "power_mode_unavailable");
+            // Validate the selected coin and available points before persisting a new mode.
+            var selection = powerModes.selectForMode(deviceId, worker.coin(), request.mode());
+            if (selection.error() != null)
+                throw new ResponseStatusException(HttpStatus.CONFLICT, selection.error());
+        }
+        String previous = controls.get().powerModeFor(deviceId);
+        if (!controls.setWorkerPowerMode(deviceId, request.mode()))
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "power_mode_save_failed");
+        if (worker.status() == de.verdox.solarminer.pcagent.dto.MinerStats.MinerStatus.MINING && powerModes != null) {
+            var applied = powerModes.apply(deviceId, worker.coin());
+            boolean started = applied.error() == null;
+            if (started && "CPU".equals(worker.hardwareType())) {
+                started = workers.pause(deviceId);
+                if (started) started = workers.start(deviceId);
+            }
+            if (!started) {
+                controls.setWorkerPowerMode(deviceId, previous);
+                if ("CPU".equals(worker.hardwareType())) try { workers.start(deviceId); } catch (RuntimeException ignored) { }
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        applied.error() == null ? "power_mode_apply_failed" : applied.error());
+            }
+        }
+        reportChanged("workers", "power-control", "overview", "settings");
+        return workers.workers().stream().filter(value -> deviceId.equals(value.deviceId())).findFirst().orElseThrow();
+    }
+
+    public record PowerModeRequest(String mode) { }
 
     @PostMapping("/{deviceId}/assignment")
     public WorkerAssignmentService.WorkerView assignment(@PathVariable String deviceId,

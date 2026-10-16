@@ -45,6 +45,12 @@ public class CoinHoppingService {
     private final LocalRunLock runLock;
     private final CoinHoppingLedger ledger;
     private final EnergyJournalService energy;
+    private de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService ownerSettings;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setOwnerSettings(de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService ownerSettings) {
+        this.ownerSettings = ownerSettings;
+    }
     private volatile Settings settings;
     private volatile Instant lastSwitchAt;
     private volatile String lastOutcome;
@@ -151,7 +157,7 @@ public class CoinHoppingService {
                 lastOutcome, ledger.summary());
     }
 
-    private List<Candidate> candidates(String deviceId, int targetWatts) {
+    List<Candidate> candidates(String deviceId, int targetWatts) {
         Instant now = Instant.now();
         LocalGpuPowerService.Gpu gpu = power.snapshot().stream()
                 .filter(value -> deviceId.equals(value.deviceId())).findFirst().orElse(null);
@@ -221,6 +227,7 @@ public class CoinHoppingService {
     private void evaluateCurrent() {
         Settings current = settings;
         if (!current.enabled()) return;
+        if (ownerSettings != null && !"MANUAL".equals(ownerSettings.get().powerModeFor(current.deviceId()))) return;
         Instant now = Instant.now();
         if (benchmark.status().running() || sweep.status().running()
                 || planning.capabilities().activePlanExpiresAt() != null) {

@@ -34,6 +34,12 @@ public class WorkerAssignmentService {
     private final MinerFactory miners;
     private final PayoutDefaultsService payouts;
     private final ProxyConfigurationService proxy;
+    private de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setWorkerPowerModes(de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes) {
+        this.workerPowerModes = workerPowerModes;
+    }
 
     public WorkerAssignmentService(AgentControlSettingsService controls, MiningService mining,
                                    LocalGpuPowerService gpuPower, MinerCatalogService catalog,
@@ -109,6 +115,10 @@ public class WorkerAssignmentService {
         String minerId = miners.minerSoftwareForWorker(coin, deviceId);
         GpuCoinMiner miner = miners.gpuMiner(coin, minerId);
         ensureGpuDefault(coin, miner, hardware, assignedDevices(coin.id(), minerId));
+        if (workerPowerModes != null) {
+            var selected = workerPowerModes.apply(deviceId, coin.id());
+            if (selected.error() != null) throw new IllegalStateException(selected.error());
+        }
         if (!miner.resumeGpu(hardware.vendor, hardware.index))
             throw new IllegalStateException(error(miner.lastError(),
                     "GPU miner could not start. Check its console, installation and proxy fee route."));
@@ -232,7 +242,8 @@ public class WorkerAssignmentService {
                 coin == null ? Coin.NONE.id() : coin.id(), coin == null ? Coin.NONE.displayName() : coin.displayName(), algorithm,
                 selected == null ? null : selected.id(), selected == null ? null : selected.name(),
                 selected != null && selected.installed(), configured, pool,
-                controls.get().workerEnabled(deviceId), live == null ? MinerStats.MinerStatus.STOPPED : live.miningStatus(), live);
+                controls.get().workerEnabled(deviceId), live == null ? MinerStats.MinerStatus.STOPPED : live.miningStatus(), live,
+                controls.get().powerModeFor(deviceId));
     }
 
     private void synchronizeConfiguredDevices(Object... changedAssignments) throws IOException {
@@ -286,5 +297,13 @@ public class WorkerAssignmentService {
     public record WorkerView(String deviceId, String hardwareType, String hardwareModel, String vendor, Integer index,
                              String coin, String coinName, String algorithm, String minerSoftwareId, String minerSoftwareName,
                              boolean minerInstalled, boolean configured, String poolUrl, boolean externalControlEnabled,
-                             MinerStats.MinerStatus status, MinerStats.Worker telemetry) { }
+                             MinerStats.MinerStatus status, MinerStats.Worker telemetry, String powerMode) {
+        public WorkerView(String deviceId, String hardwareType, String hardwareModel, String vendor, Integer index,
+                          String coin, String coinName, String algorithm, String minerSoftwareId, String minerSoftwareName,
+                          boolean minerInstalled, boolean configured, String poolUrl, boolean externalControlEnabled,
+                          MinerStats.MinerStatus status, MinerStats.Worker telemetry) {
+            this(deviceId, hardwareType, hardwareModel, vendor, index, coin, coinName, algorithm, minerSoftwareId,
+                    minerSoftwareName, minerInstalled, configured, poolUrl, externalControlEnabled, status, telemetry, "MANUAL");
+        }
+    }
 }

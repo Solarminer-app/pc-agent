@@ -13,6 +13,23 @@ credentials, wallets, driver controls or unrestricted per-GPU commands.
   range. The response states whether the plan was accepted and, when accepted,
   its expiry.
 
+The Node's economic cluster additively sends `activeWorkerIds` and
+`targetWatts: null`. Each active worker in manual power mode needs one coin
+assignment. An Agent-local automatic power mode may keep its current coin
+without a Node assignment. All selected workers must be locally enabled with
+`coinPolicy=AUTO`, a measured profile and fresh market data. The Agent
+starts the selected workers and pauses the other enabled `AUTO` workers
+individually. `FIXED` and disabled workers stay outside the plan. The Node
+renews a 90-second plan every 30 seconds. At expiry, this worker-selection
+form pauses its managed workers so an absent Node decision cannot leave them
+mining. Legacy plans without `activeWorkerIds` retain the old target behavior.
+
+`CoinCapability` additively carries nullable `usdPerDay` and
+`marketUpdatedAt` for a measured local profile. The values are gross USD/day
+forecasts from cached network and coin-price snapshots. Unavailable or stale
+market data yields null. The Node also requires a profile no older than 30
+days and a market observation no older than two hours.
+
 Every external route remains behind `externalControlEnabled`; `/identity` is
 still the sole discovery exception. A worker must additionally be locally
 enabled and opt into `coinPolicy=AUTO`. The default is `FIXED` for every new
@@ -26,7 +43,7 @@ hash rate and measured mining watts, or when a stable local GPU efficiency-sweep
 profile exists. An absent profile is an explicit
 `unavailableReason`, not zero performance. V1 rejects economic plans that
 select an unmeasured coin. This intentionally favours verified hardware over a
-new GPU whose profitability is still unknown. A valid plan is reverted at TTL
+new GPU whose profitability is still unknown. A legacy plan is reverted at TTL
 expiry unless the operator has changed the assignment or target in the meantime.
 
 Pool configuration and a ready fee/proxy route are prerequisites as well.

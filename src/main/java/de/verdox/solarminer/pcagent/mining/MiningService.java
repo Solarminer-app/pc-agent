@@ -49,6 +49,12 @@ public class MiningService {
     private final CpuMiner cpu;
     private final LocalGpuPowerService gpuPowerService;
     private final AgentControlSettingsService controls;
+    private de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setWorkerPowerModes(de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes) {
+        this.workerPowerModes = workerPowerModes;
+    }
     private final AgentIdentityService agentIdentity;
     private final Path coinSelectionFile;
     private volatile String activeCoin;
@@ -83,6 +89,7 @@ public class MiningService {
     public synchronized boolean setExternalTarget(long powerTarget) {
         return MinerStopContext.with("Remote control API", () -> {
             if (powerTarget <= 0) return pauseExternally();
+            if (controls.get().hasAutomaticPowerMode()) return resumeExternally();
             if (!controls.get().dynamicPowerScalingEnabled()) return resumeExternally();
             return setTarget(powerTarget, true);
         });
@@ -172,6 +179,11 @@ public class MiningService {
         boolean allStarted = true;
         if (controls.workerEnabled(WorkerIds.CPU) && !cpuManuallyPaused && cpu.readyForStart()) {
             attempted = true;
+            if (workerPowerModes != null) {
+                var choice = workerPowerModes.select(WorkerIds.CPU, controls.get().coinFor(WorkerIds.CPU));
+                if (choice.error() != null) return false;
+                if (choice.watts() != null) cpu.setPowerCap(choice.watts());
+            }
             cpu.startAll();
             allStarted = cpu.running() && allStarted;
         }
@@ -225,6 +237,7 @@ public class MiningService {
             if (other != targetCoin || !adapter.softwareId().equals(targetSoftware))
                 stopped = adapter.miner().stopGpu(vendor, index) && stopped;
         if (!stopped) return false;
+        if (workerPowerModes != null && workerPowerModes.apply(gpu.deviceId(), coinId).error() != null) return false;
         return target.get().startGpu(vendor, index);
     }
 
@@ -398,6 +411,11 @@ public class MiningService {
         Optional<CoinMiner> miner = miners.miner(coinId);
         if (miner.isEmpty()) return false;
         if (miner.get() instanceof CpuMiner) cpuManuallyPaused = false;
+        if (miner.get() instanceof CpuMiner && workerPowerModes != null) {
+            var choice = workerPowerModes.select(WorkerIds.CPU, coinId);
+            if (choice.error() != null) return false;
+            if (choice.watts() != null) miner.get().setPowerCap(choice.watts());
+        }
         return miner.get().startAll();
     }
 

@@ -32,6 +32,12 @@ public class ExternalAgentController {
     private final NodeAssessmentController assessment;
     private final EconomicPlanningService economicPlanning;
     private final de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService networkDashboard;
+    private de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService ownerSettings;
+
+    @Autowired(required = false)
+    public void setOwnerSettings(de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService ownerSettings) {
+        this.ownerSettings = ownerSettings;
+    }
 
     @Autowired
     public ExternalAgentController(MiningController mining, AgentPowerController power,
@@ -123,10 +129,21 @@ public class ExternalAgentController {
     public AgentPowerController.PowerStatus target(@RequestParam long watts) { return power.externalTarget(watts); }
 
     @PostMapping("/power-target/increment")
-    public boolean increment(@RequestParam long watts) { return mining.increasePowerTarget(watts); }
+    public boolean increment(@RequestParam long watts) {
+        rejectAutomaticPowerAdjustment();
+        return mining.increasePowerTarget(watts);
+    }
 
     @PostMapping("/power-target/decrement")
-    public boolean decrement(@RequestParam long watts) { return mining.decreasePowerTarget(watts); }
+    public boolean decrement(@RequestParam long watts) {
+        rejectAutomaticPowerAdjustment();
+        return mining.decreasePowerTarget(watts);
+    }
+
+    private void rejectAutomaticPowerAdjustment() {
+        if (ownerSettings != null && ownerSettings.get().hasAutomaticPowerMode())
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.CONFLICT, "power_mode_locally_managed");
+    }
 
     @PostMapping("/proxy")
     public boolean configureProxy(@RequestParam String host) { return mining.configureProxy(host); }

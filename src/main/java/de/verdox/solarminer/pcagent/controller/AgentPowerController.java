@@ -79,7 +79,11 @@ public class AgentPowerController {
                 && visibleCards.stream().allMatch(c -> "measured".equals(c.usageMeasurement()));
         Long usage = measured ? visibleCards.stream().map(GpuStatus::currentUsageWatts).mapToLong(Math::round).sum() : null;
         var application = mining.powerApplication();
-        return new PowerStatus(owner.dynamicPowerScalingEnabled() && cards.stream().anyMatch(g -> g.externalControlEnabled() && g.supportsDynamicPowerScaling()), owner.dynamicPowerScalingEnabled(), owner.externalControlEnabled(), min, max, max == 0 ? 0 : Math.min(max, Math.max(min, max / 2)),
+        boolean automaticPower = owner.hasAutomaticPowerMode();
+        // A locally managed group is one fixed on/off device to the Node. Advertise its
+        // conservative maximum as the fixed budget until every selected worker has a point.
+        long standard = automaticPower ? max : max == 0 ? 0 : Math.min(max, Math.max(min, max / 2));
+        return new PowerStatus(!automaticPower && owner.dynamicPowerScalingEnabled() && cards.stream().anyMatch(g -> g.externalControlEnabled() && g.supportsDynamicPowerScaling()), owner.dynamicPowerScalingEnabled() && !automaticPower, owner.externalControlEnabled(), automaticPower ? max : min, max, standard,
                 mining.desiredGlobalPowerTarget(), usage,
                 measured ? "measured" : "unavailable", mining.desiredGlobalPowerTarget() == 0,
                 externalView ? Map.of() : owner.workerExternalControl(), cards,
@@ -101,7 +105,7 @@ public class AgentPowerController {
         return withControl(() -> {
             // Dynamic GPU regulation is optional. When it is off, a positive target
             // still means that the Node may start this fixed-power miner.
-            if (watts > 0 && !controls.get().dynamicPowerScalingEnabled()) {
+            if (watts > 0 && (!controls.get().dynamicPowerScalingEnabled() || controls.get().hasAutomaticPowerMode())) {
                 if (!mining.resumeExternally())
                     throw new ResponseStatusException(HttpStatus.CONFLICT, "Miner konnte nicht gestartet werden");
                 logExternalChange("Mining started remotely (power target " + watts + " W)");

@@ -109,7 +109,13 @@
     {label: 'assignment', key: 'coinName', width: '18%', render: worker => {
       const wrap = ui.element('div');
       wrap.append(ui.element('strong', '', worker.coin === 'none' ? t('unassigned_4cfcb8') : `${worker.coinName} · ${worker.minerSoftwareName || t('no_miner')}`));
-      wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? t('free_capacity') : `${worker.algorithm} · ${worker.configured ? worker.poolUrl ? t('pool_configured') : t('default_route') : t('solarminer_default_payout_will_be_checked_at')}`)); return wrap;
+      wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? t('free_capacity') : `${worker.algorithm} · ${worker.configured ? worker.poolUrl ? t('pool_configured') : t('default_route') : t('solarminer_default_payout_will_be_checked_at')}`));
+      if (worker.coin !== 'none') {
+        const labels = {MANUAL: 'worker_mode_manual', EFFICIENCY: 'worker_mode_efficiency',
+          REVENUE_PER_KWH: 'worker_mode_revenue', COIN_REVENUE_PER_KWH: 'worker_mode_coin_revenue'};
+        wrap.append(ui.element('span', 'cell-sub', t(labels[worker.powerMode] || labels.MANUAL)));
+      }
+      return wrap;
     }},
     {label: 'status_bae7d5', key: 'status', width: '11%', render: worker => ui.statusPill(worker.status)},
     {label: 'Live', key: 'telemetry', width: '16%', render: worker => {
@@ -191,8 +197,13 @@
       coinSelect.append(option);
     }
     coinSelect.value = worker.coin; populateMinerSelect(worker.coin, worker.minerSoftwareId);
+    $('worker-power-mode').value = worker.powerMode || 'MANUAL';
+    $('worker-power-mode').disabled = worker.coin === 'none';
+    $('worker-power-mode').querySelector('[value="COIN_REVENUE_PER_KWH"]').disabled = worker.hardwareType === 'CPU';
     updatePoolSummary(worker.coin, worker.poolUrl, worker.configured);
-    coinSelect.onchange = () => { populateMinerSelect(coinSelect.value, null); updatePoolSummary(coinSelect.value, null, false); };
+    coinSelect.onchange = () => { populateMinerSelect(coinSelect.value, null); updatePoolSummary(coinSelect.value, null, false);
+      $('worker-power-mode').disabled = coinSelect.value === 'none';
+      if (coinSelect.value === 'none') $('worker-power-mode').value = 'MANUAL'; };
     $('worker-editor').showModal();
   }
 
@@ -285,6 +296,7 @@
     const assignment = {
       coin: $('worker-coin').value, minerSoftwareId: $('worker-coin').value === 'none' ? null : $('worker-miner').value
     };
+    const powerMode = $('worker-power-mode').value;
     pendingWorkers.add(worker.deviceId);
     $('worker-editor').close();
     selected = null;
@@ -294,6 +306,12 @@
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(assignment)
       });
       if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || `HTTP ${response.status}`); }
+      if (powerMode !== (worker.powerMode || 'MANUAL')) {
+        const modeResponse = await fetch(`/api/agent/local/workers/${encodeURIComponent(worker.deviceId)}/power-mode`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode: powerMode})
+        });
+        if (!modeResponse.ok) { const body = await modeResponse.json().catch(() => null); throw new Error(body?.detail || body?.message || `HTTP ${modeResponse.status}`); }
+      }
       notice('assignment_saved_the_previous_running_worker'); await load();
     } catch (error) { notice(t('assignment_failed_error', {error: s(error.message)}), true, true); }
     finally {

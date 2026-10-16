@@ -31,12 +31,20 @@ public class AgentControlSettingsService {
     public record Settings(boolean dynamicPowerScalingEnabled, boolean externalControlEnabled,
                            Map<String, Boolean> workerExternalControl, Map<String, String> workerCoins,
                            Map<String, String> workerCoinPolicies, Boolean networkSharingEnabled,
-                           Boolean walletTargetSharingEnabled, Map<String, String> workerMiners) {
+                           Boolean walletTargetSharingEnabled, Map<String, String> workerMiners,
+                           Map<String, String> workerPowerModes) {
         public Settings {
             workerExternalControl = workerExternalControl == null ? Map.of() : Map.copyOf(workerExternalControl);
             workerCoins = workerCoins == null ? null : Map.copyOf(workerCoins);
             workerCoinPolicies = workerCoinPolicies == null ? Map.of() : Map.copyOf(workerCoinPolicies);
             workerMiners = workerMiners == null ? Map.of() : Map.copyOf(workerMiners);
+            workerPowerModes = workerPowerModes == null ? Map.of() : Map.copyOf(workerPowerModes);
+        }
+
+        public Settings(boolean scaling, boolean external, Map<String, Boolean> workers, Map<String, String> coins,
+                        Map<String, String> policies, Boolean networkSharing, Boolean walletSharing,
+                        Map<String, String> miners) {
+            this(scaling, external, workers, coins, policies, networkSharing, walletSharing, miners, Map.of());
         }
 
         public Settings(boolean scaling, boolean external, Map<String, Boolean> workers) {
@@ -104,6 +112,15 @@ public class AgentControlSettingsService {
         public boolean permitsEconomicSelection(String workerId) {
             return workerEnabled(workerId) && WorkerCoinPolicy.AUTO.name().equals(coinPolicyFor(workerId));
         }
+
+        public String powerModeFor(String workerId) {
+            return workerPowerModes.getOrDefault(workerId, "MANUAL");
+        }
+
+        public boolean hasAutomaticPowerMode() {
+            return workerPowerModes.entrySet().stream().anyMatch(entry -> !"MANUAL".equals(entry.getValue())
+                    && !Coin.NONE.id().equals(coinFor(entry.getKey())));
+        }
     }
 
     public AgentControlSettingsService(ObjectMapper json, @Value("${solarminer.agent.control-settings-file:./solarminer-agent/control-settings.json}") String path) {
@@ -127,7 +144,7 @@ public class AgentControlSettingsService {
                 value.workerCoinPolicies() == null ? settings.workerCoinPolicies() : Map.copyOf(value.workerCoinPolicies()),
                 value.networkSharingEnabled() == null ? settings.networkSharingEnabled() : value.networkSharingEnabled(),
                 value.walletTargetSharingEnabled() == null ? settings.walletTargetSharingEnabled() : value.walletTargetSharingEnabled(),
-                settings.workerMiners());
+                settings.workerMiners(), settings.workerPowerModes());
         if (!persist(value)) return false;
         settings = value;
         Runnable listener = feeTierListener;
@@ -175,7 +192,7 @@ public class AgentControlSettingsService {
         else miners.put(workerId, minerSoftwareId);
         Settings next = new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(),
                 settings.workerExternalControl(), coins, settings.workerCoinPolicies(), settings.networkSharingEnabled(),
-                settings.walletTargetSharingEnabled(), miners);
+                settings.walletTargetSharingEnabled(), miners, settings.workerPowerModes());
         if (!persist(next)) return false;
         settings = next;
         return true;
@@ -190,6 +207,19 @@ public class AgentControlSettingsService {
         return update(new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(),
                 settings.workerExternalControl(), settings.workerCoins(), next, settings.networkSharingEnabled(),
                 settings.walletTargetSharingEnabled(), settings.workerMiners()));
+    }
+
+    public synchronized boolean setWorkerPowerMode(String workerId, String mode) {
+        if (workerId == null || workerId.isBlank() || !java.util.Set.of("MANUAL", "EFFICIENCY", "REVENUE_PER_KWH", "COIN_REVENUE_PER_KWH").contains(mode)) return false;
+        Map<String, String> next = new java.util.HashMap<>(settings.workerPowerModes());
+        if ("MANUAL".equals(mode)) next.remove(workerId);
+        else next.put(workerId, mode);
+        Settings updated = new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(),
+                settings.workerExternalControl(), settings.workerCoins(), settings.workerCoinPolicies(),
+                settings.networkSharingEnabled(), settings.walletTargetSharingEnabled(), settings.workerMiners(), next);
+        if (!persist(updated)) return false;
+        settings = updated;
+        return true;
     }
 
     /**

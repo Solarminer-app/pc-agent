@@ -40,6 +40,12 @@ public class LocalGpuPowerService {
     private volatile long discoveredAt;
     private volatile String lastPowerTargetError;
     private volatile Map<String, Integer> userPowerLimits;
+    private de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService ownerSettings;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setOwnerSettings(de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService ownerSettings) {
+        this.ownerSettings = ownerSettings;
+    }
     private volatile Map<String, Integer> applied = Map.of();
     private final Map<String, Integer> originalLimits = new LinkedHashMap<>();
     private final Map<String, Capability> capabilities = new HashMap<>();
@@ -297,6 +303,8 @@ public class LocalGpuPowerService {
         if (!gpu.supportsDynamicPowerScaling()) return true;
         Integer current = gpu.currentPowerLimitWatts();
         if (current == null) return false;
+        if (ownerSettings != null && !"MANUAL".equals(ownerSettings.get().powerModeFor(gpu.deviceId())))
+            return current >= gpu.minWatts() && current <= gpu.maxWatts();
         int target = gpu.maxWatts();
         return target == current || setTotalPowerTarget(target, List.of(gpu));
     }
