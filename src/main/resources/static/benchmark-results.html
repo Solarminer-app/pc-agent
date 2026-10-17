@@ -7,8 +7,8 @@
     <title data-i18n="solarminer_benchmark_results">SolarMiner · Ergebnisse</title>
     <link rel="stylesheet" href="/css/agent.css">
     <link rel="stylesheet" href="/css/workspace.css">
-    <link rel="stylesheet" href="/css/benchmarks.css?v=20261017-gpu-concurrency">
-    <script src="/js/core/i18n-catalog.js?v=20261017-gpu-concurrency" defer></script>
+    <link rel="stylesheet" href="/css/benchmarks.css?v=20261017-results-layout">
+    <script src="/js/core/i18n-catalog.js?v=20261017-results-layout" defer></script>
     <script src="/js/core/i18n.js?v=20261012-benchmark-live-dashboard" defer></script>
     <script src="/js/core/live-data.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/core/components.js?v=20261012-benchmark-live-dashboard" defer></script>
@@ -16,7 +16,7 @@
     <script src="/js/chrome/fee-tier-badge.js?v=20261012-benchmark-live-dashboard" defer></script>
     <script src="/js/chrome/wallet-strip.js?v=20261016-global-wallet-strip" defer></script>
     <script src="/js/chrome/workspace.js?v=20261017-gpu-concurrency" defer></script>
-    <script src="/js/pages/benchmarks.js?v=20261017-gpu-concurrency" defer></script>
+    <script src="/js/pages/benchmarks.js?v=20261017-results-layout" defer></script>
 </head>
 <body class="benchmark-page benchmark-results-page">
 <div class="shell">
@@ -49,6 +49,11 @@
             <div id="comparison-chart" class="hopping-chart" role="region" data-i18n-aria-label="coin_hopping_comparison" aria-label="Vergleich des geschätzten Bruttoertrags pro Kilowattstunde"></div>
             <p id="comparison-detail" class="muted" data-i18n="coin_hopping_gross_note">Brutto-Prognose vor Poolgebühren, Minergebühren und Stromkosten. Sweep- und Betriebsmessungen mit frischen Netzwerkkursen werden gleich behandelt.</p>
         </section>
+        <section class="panel current-sweep-panel">
+            <div class="section-head"><div><p class="kicker" data-i18n="power_limit_sweep">POWER-LIMIT-SWEEP</p><h2 data-i18n="benchmark_current_sweep">Aktueller Power Sweep</h2><p class="muted" data-i18n="benchmark_current_sweep_intro">Wähle einen Coin und Algorithmus, um die gemessene Worker-Kurve zu sehen.</p></div></div>
+            <div id="sweep-live-chart" class="sweep-live-chart prominent-sweep-chart" role="region" data-i18n-aria-label="benchmark_sweep_curve_aria" aria-label="Effizienzkurve während des Power-Limit-Tests"></div>
+            <div id="sweep-runs" class="benchmark-results" hidden></div>
+        </section>
         <section class="panel measurement-library" id="measurement-library">
             <div class="section-head">
                 <div><p class="kicker" data-i18n="results">ERGEBNISSE</p>
@@ -59,14 +64,12 @@
             <div id="benchmark-chart" class="benchmark-chart" hidden></div>
             <div id="results" class="benchmark-results"><p class="empty" data-i18n="start_a_benchmark_run_to_see_results">Starte einen Messlauf, um Ergebnisse
                 anzuzeigen.</p></div>
-            <div class="library-divider"><h3 data-i18n="saved_local_benchmark_profiles">Gespeicherte lokale Benchmark-Profile</h3></div>
-            <div id="saved-benchmarks" class="benchmark-results"></div>
-            <div class="library-divider"><h3 data-i18n="saved_efficiency_profiles">Gespeicherte Effizienzprofile</h3></div>
-            <div id="sweep-results" class="benchmark-results"></div>
+            <details class="benchmark-nerd-details"><summary data-i18n="saved_efficiency_profiles">Gespeicherte Effizienzprofile</summary><div id="sweep-results" class="benchmark-results"></div></details>
             <div class="library-divider"><h3 data-i18n="benchmark_data_sharing_status">Datenfreigabe</h3></div>
             <p id="upload-status" class="notice" role="status" aria-live="polite" hidden></p>
             <p id="periodic-upload-status" class="notice" role="status" aria-live="polite" hidden></p>
             <button id="retry-upload" class="button subtle" type="button" hidden data-i18n="retry_upload">Upload erneut versuchen</button>
+            <details class="benchmark-nerd-details saved-benchmark-details"><summary data-i18n="saved_local_benchmark_profiles">Gespeicherte lokale Benchmark-Profile</summary><div id="saved-benchmarks" class="benchmark-results"></div></details>
         </section>
         <section class="panel" id="benchmark-run">
             <input id="max-concurrent-gpus" type="hidden" value="1">
@@ -105,8 +108,6 @@
                 <div class="detail"><span id="sweep-phase">—</span><strong id="sweep-remaining" data-i18n="lower_the_power_limit_step_by_step_and_check">Power-Limit schrittweise senken und Stabilität prüfen</strong></div>
                 <progress id="sweep-progress" aria-label="Effizienz-Sweep läuft" data-i18n-aria-label="efficiency_sweep_in_progress"></progress>
             </div>
-            <div id="sweep-live-chart" class="sweep-live-chart" role="region" data-i18n-aria-label="benchmark_sweep_curve_aria" aria-label="Effizienzkurve während des Power-Limit-Tests"></div>
-            <div id="sweep-runs" class="benchmark-results" hidden></div>
         </section>
         <details class="sharing-details"><summary><span data-i18n="share_anonymous_benchmarks">Anonyme Benchmarks teilen </span><span id="sharing-summary" class="tag" data-i18n="disabled_139955">AUSGESCHALTET</span></summary><section class="panel">
             <div class="section-head">

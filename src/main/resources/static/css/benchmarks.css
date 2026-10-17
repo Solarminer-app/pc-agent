@@ -110,6 +110,19 @@
 .sweep-chart-legend{display:flex;gap:9px;flex-wrap:wrap;margin:0 0 2px 52px}
 .sweep-chart-legend span{display:inline-flex;align-items:center;gap:7px;border:1px solid #415665;border-radius:7px;padding:5px 8px;color:#b9d2d3;font-size:11px}
 .sweep-chart-legend span:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--series-color)}
+.benchmark-results-page .current-sweep-panel{border-color:#487468;background:linear-gradient(148deg,#182c30,#101c29 48%)}
+.benchmark-results-page .prominent-sweep-chart{min-height:470px;padding:22px;margin:8px 0 0}
+.benchmark-results-page .prominent-sweep-chart svg{max-height:none;height:clamp(380px,52vw,620px)}
+.benchmark-results-page .sweep-chart-tabs{display:flex;gap:9px;overflow-x:auto;padding:2px 0 14px}
+.benchmark-results-page .sweep-algorithm-tab{flex:0 0 auto;border:1px solid #42615f;border-radius:9px;background:#142731;color:#c7d9dc;padding:11px 16px;font:inherit;font-weight:650;cursor:pointer}
+.benchmark-results-page .sweep-algorithm-tab.selected{background:#245042;border-color:#8fe9b5;color:#f1fff7;box-shadow:0 0 0 2px #8fe9b526}
+.benchmark-results-page .sweep-curve-point{r:9;cursor:help;transition:r .12s ease,filter .12s ease}
+.benchmark-results-page .sweep-curve-point:hover,.benchmark-results-page .sweep-curve-point:focus{r:13;filter:drop-shadow(0 0 7px #c1ffdc)}
+.benchmark-nerd-details{margin:20px 0;border:1px solid #354b58;border-radius:11px;background:#111f2b;padding:14px 17px}
+.benchmark-nerd-details>summary{cursor:pointer;color:#c1d4db;font-weight:650}
+.benchmark-nerd-details[open]>summary{margin-bottom:14px}
+.benchmark-nerd-details .benchmark-results{margin-top:14px}
+.benchmark-results-page .saved-benchmark-details{margin-top:26px}
 @keyframes sweep-draw{to{stroke-dashoffset:0}}
 @keyframes sweep-point{from{opacity:0;transform:scale(.5)}to{opacity:1;transform:scale(1)}}
 .efficiency-curve{max-width:100%;height:auto;margin:12px 0;border:1px solid #344d5a;border-radius:9px;background:#11212e;padding:5px}
@@ -189,6 +202,7 @@
 /* Two destinations share the live measurement controller, while each exposes only its task. */
 .benchmark-page:not(.benchmark-results-page) .benchmark-comparison,
 .benchmark-page:not(.benchmark-results-page) .measurement-library,
+.benchmark-page:not(.benchmark-results-page) .current-sweep-panel,
 .benchmark-page:not(.benchmark-results-page) #sweep-live-chart,
 .benchmark-page:not(.benchmark-results-page) #sweep-runs{display:none!important}
 .benchmark-page:not(.benchmark-results-page) .benchmark-overview{grid-template-columns:repeat(2,minmax(0,1fr))}

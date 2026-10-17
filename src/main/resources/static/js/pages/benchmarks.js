@@ -30,13 +30,6 @@ const selectedGpu = () => resultsPage ? $('comparison-gpu').value : null;
 const forSelectedGpu = rows => resultsPage ? (rows || []).filter(row =>
     (row.deviceId || row.workerId) === selectedGpu()) : (rows || []);
 if (resultsPage) {
-    const library = $('measurement-library');
-    const divider = make('div', 'library-divider');
-    divider.append(make('h3', '', t('benchmark_current_sweep')));
-    const savedSweepHeading = $('sweep-results').previousElementSibling;
-    library.insertBefore(divider, savedSweepHeading);
-    library.insertBefore($('sweep-live-chart'), savedSweepHeading);
-    library.insertBefore($('sweep-runs'), savedSweepHeading);
     $('upload-status').previousElementSibling.hidden = true;
     for (const id of ['upload-status', 'periodic-upload-status', 'retry-upload']) $(id).hidden = true;
 } else {
@@ -760,7 +753,7 @@ function renderLiveSweepChart(runs, running) {
     lastLiveSweepSignature = signature;
     const available = runs.map(run => ({run, points: (run.steps || [])
         .filter(step => step.stable && step.avgPowerWatts > 0 && step.medianHashrateHs > 0)
-        .map(step => ({x: step.limitWatts, y: step.medianHashrateHs / step.avgPowerWatts}))
+        .map(step => ({x: step.limitWatts, y: step.medianHashrateHs / step.avgPowerWatts, step}))
         .sort((a, b) => a.x - b.x)})).filter(line => line.points.length);
     root.replaceChildren();
     if (!available.length) {
@@ -775,8 +768,8 @@ function renderLiveSweepChart(runs, running) {
     if (available.length > 1) {
         const tabs = make('div', 'sweep-chart-tabs');
         for (const line of available) {
-            const button = make('button', line.run.id === selectedSweepRunId ? 'selected' : '',
-                `${line.run.coin.toUpperCase()} · ${line.run.model}`);
+            const button = make('button', `sweep-algorithm-tab${line.run.id === selectedSweepRunId ? ' selected' : ''}`,
+                `${algorithmGroupLabel(line.run)} · ${line.run.model}`);
             button.type = 'button'; button.setAttribute('aria-pressed', String(line.run.id === selectedSweepRunId));
             button.addEventListener('click', () => { selectedSweepRunId = line.run.id; renderLiveSweepChart(runs, running); });
             tabs.append(button);
@@ -825,7 +818,8 @@ function renderLiveSweepChart(runs, running) {
         for (const point of line.points) {
             const circle = add('circle', {cx:x(point.x), cy:y(point.y), r:6, fill:color, class:'sweep-curve-point'});
             const title = document.createElementNS(ns, 'title');
-            title.textContent = `${line.run.model} · ${line.run.coin} · ${point.x} W · ${fmtRate(point.y)} / W`;
+            const step = point.step;
+            title.textContent = `${algorithmGroupLabel(line.run)} · ${line.run.model} · ${line.run.coin} · ${point.x} W · ${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W · ${fmtRate(point.y)} / W`;
             circle.append(title);
         }
     }

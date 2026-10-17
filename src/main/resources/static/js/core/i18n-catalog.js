@@ -547,6 +547,7 @@ window.SolarMinerI18nCatalog = {
         "solarminer_benchmark_results": {de: "SolarMiner · Ergebnisse", en: "SolarMiner · Results"},
         "solarminer_benchmark": {de: "SolarMiner · Benchmark", en: "SolarMiner · Benchmark"},
         "benchmark_current_sweep": {de: "Aktueller Power Sweep", en: "Current power sweep"},
+        "benchmark_current_sweep_intro": {de: "Wähle einen Coin und Algorithmus, um die gemessene Worker-Kurve zu sehen.", en: "Choose a coin and algorithm to view the measured worker curve."},
         "benchmark_no_gpu_available": {de: "Keine GPU verfügbar", en: "No GPU available"},
         "benchmark_no_gpu_run_result": {de: "Für diese GPU liegen im aktuellen Messlauf keine Ergebnisse vor.", en: "The current run has no results for this GPU."},
         "benchmark_open_gpu_results": {de: "GPU-Ergebnisse und Kurven ansehen", en: "View GPU results and curves"},

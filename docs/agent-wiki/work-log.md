@@ -2647,3 +2647,15 @@ Vorgehen / Andockpunkte für andere Agenten:
   `WorkerAssignmentServiceTest`, `NetworkDashboardServiceTest`, Java compile,
   i18n catalog/literal checks, two-locale render simulation and `git diff --check`
   passed on JDK 21. A real CPU/GPU start and browser visual pass remain open.
+## 2026-10-17 — Bring worker power curves forward
+
+- The Benchmark Results page now places the selected GPU's current power-sweep
+  curve immediately below Revenue per kWh. The large chart uses algorithm/model
+  tabs, and each stable point exposes algorithm, worker model, coin, target,
+  hashrate, measured power and hashes-per-watt on hover.
+- Benchmark and efficiency profile collections remain lower on the page inside
+  disclosure panels; saved local benchmark profiles are last. New helper copy
+  has German and English entries.
+- Verification: `node --check`, the catalog check (1,555 keys), two-locale
+  render simulation, literal scan (zero unkeyed strings) and `git diff --check`
+  passed. Browser visual review and real sweep data review remain open.
