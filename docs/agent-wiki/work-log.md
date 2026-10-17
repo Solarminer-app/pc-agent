@@ -2633,6 +2633,15 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Added German/English UI help and validation copy. Restoring previously running miners after measurement is outside the cap, since the choice governs measurement load rather than ordinary operation. No live thermal or pool test was available.
 - Verification: focused `BenchmarkSessionServiceTest`, `EfficiencySweepServiceTest` and `BenchmarkControllerSelectionTest` passed on JDK 21; `node --check`, catalog, literal, two-locale render and `git diff --check` passed. The benchmark planner test proves that a cap of two retains all device/coin measurements while splitting each wave. Sweep capacity is enforced at task admission; live GPU temperatures remain unverified.
 
+## 2026-10-17 — Efficiency-sweep controller tests follow concurrency contract
+
+- Updated the controller test stubs and verifications to include the nullable
+  `maxConcurrentGpus` argument now passed by restart and resume requests. The
+  omission case is intentionally asserted as `null`, preserving compatibility
+  with clients that do not send the optional limit.
+- Verification: JDK 21 focused `EfficiencySweepControllerTest` passed (4 tests);
+  `git diff --check` passed. No user-facing strings or behavior changed.
+
 ## 2026-10-17 — Show worker startup in Workers and Dashboard
 
 - Local and LAN worker start requests publish a temporary `STARTING` runtime
