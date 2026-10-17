@@ -576,7 +576,7 @@ window.SolarMinerI18nCatalog = {
         "worker_mode_comparison_hashes_watt": {de: "Hashes pro Watt", en: "Hashes per watt"},
         "worker_mode_comparison_source": {de: "Messpunkt: {source} · {time}", en: "Measurement: {source} · {time}"},
         "worker_mode_comparison_same_point": {de: "Effizienz und Tagesgewinn wählen denselben Messpunkt.", en: "Efficiency and daily profit select the same measured point."},
-        "worker_mode_comparison_no_gpu": {de: "Auf diesem PC-Agent ist keine GPU verfügbar. Coin und Miner können ausgewählt werden; Vergleichswerte erscheinen erst mit einer lokalen GPU und gültigen Messpunkten.", en: "No GPU is available on this PC Agent. You can select a coin and miner; comparison values need a local GPU and eligible measurements."},
+        "worker_mode_comparison_no_gpu": {de: "Auf diesem PC-Agent ist keine GPU verfügbar. Der Vergleich benötigt eine lokale GPU und nutzbare Messpunkte.", en: "No GPU is available on this PC Agent. The comparison needs a local GPU and eligible measurements."},
         "fleet_title": {de: "SolarMiner · Flotte", en: "SolarMiner · Fleet"},
         "fleet_nav": {de: "Flotte", en: "Fleet"},
         "fleet_kicker": {de: "GESAMTÜBERSICHT", en: "FLEET OVERVIEW"},

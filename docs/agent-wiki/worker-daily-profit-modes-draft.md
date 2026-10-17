@@ -239,7 +239,7 @@ The Java code compiled, and German/English catalog and render checks passed. Uni
 
 The view remains a 24-hour projection at current quotes and fixed tariffs. It does not forecast intermittent PV power or later coin switches. CPU workers are outside the current GPU operating-point model. Live LAN and hardware validation remains outstanding.
 
-The fixed coin and miner selectors on the local results page now use the installed agent's coin/miner catalog, not only eligible measured candidates. The fleet page likewise offers all catalogued GPU coins and a fleet-wide miner choice or automatic selection per worker. A choice without eligible measurements remains selectable and is reported as missing data in the comparison. A peer returning HTTP 404 for the fleet route is identified as needing an agent update, rather than shown as generically unreachable.
+The fixed coin and miner selectors on the local results page offer only combinations with eligible measured candidates for the selected GPU. The fleet page likewise offers only coins and miner software with eligible measured candidates on at least one available GPU worker, plus automatic miner choice per worker. This keeps empty catalogue choices out of both comparisons; a selected fleet combination can still lack measurements on some workers, and those omissions remain visible. A peer returning HTTP 404 for the fleet route is identified as needing an agent update, rather than shown as generically unreachable.
 
 The local results comparison renders its three modes as columns of one semantic
 table, with each measured or estimated quantity on a shared row. The final

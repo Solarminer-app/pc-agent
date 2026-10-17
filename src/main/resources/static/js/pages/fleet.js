@@ -130,13 +130,15 @@
     const entry = catalog.find(row => row.id === coin);
     const candidates = agents.flatMap(agent => agent.points?.workers || [])
       .flatMap(worker => worker.candidates || []).filter(point => point.coin === coin);
-    const ids = [...new Set([...(entry?.miners || []).map(item => item.id),
-      ...candidates.map(point => point.minerSoftwareId)])].filter(Boolean).sort();
+    const ids = [...new Set(candidates.filter(point => point.hashrateHps > 0
+      && point.measuredWatts > 0 && point.usdPerKwh > 0)
+      .map(point => point.minerSoftwareId))].filter(Boolean).sort();
     const select = $('fleet-miner');
     const previous = select.value;
     select.replaceChildren(new Option(t('fleet_miner_auto'), ''), ...ids.map(id =>
       new Option(entry?.miners?.find(item => item.id === id)?.name || id, id)));
     select.value = ids.includes(previous) ? previous : '';
+    select.disabled = !coin;
   }
 
   async function load() {
@@ -149,7 +151,12 @@
       if (!response.ok) throw new Error('fleet_load_failed');
       agents = await response.json();
       if (catalogResponse?.ok) catalog = await catalogResponse.json();
-      const coins = ui.coinCatalog.filter(entry => entry.device === 'GPU').map(entry => entry.id);
+      const coins = [...new Set(agents.filter(agent => agent.available && agent.points)
+        .flatMap(agent => agent.points.workers || [])
+        .flatMap(worker => worker.candidates || [])
+        .filter(point => point.coin && point.minerSoftwareId && point.hashrateHps > 0
+          && point.measuredWatts > 0 && point.usdPerKwh > 0)
+        .map(point => point.coin))].sort((a, b) => a.localeCompare(b, prefs.locale));
       const previous = $('fleet-coin').value;
       $('fleet-coin').replaceChildren(...coins.map(coin => {
         const entry = catalog.find(row => row.id === coin)

@@ -1157,9 +1157,8 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
     const usable = candidates.filter(row => row.coin && row.minerSoftwareId && Number(row.hashrateHps) > 0
         && Number(row.measuredWatts) > 0 && Number(row.usdPerKwh) > 0);
     const gpuCatalog = comparisonCatalog.filter(entry => entry.device !== 'CPU');
-    const coins = [...new Set([...gpuCatalog.map(entry => entry.id),
-        ...window.SolarMinerUI.coinCatalog.filter(entry => entry.device === 'GPU').map(entry => entry.id),
-        ...usable.map(row => row.coin)])].sort((a, b) => a.localeCompare(b, window.SolarMinerI18n.locale));
+    const coins = [...new Set(usable.map(row => row.coin))]
+        .sort((a, b) => a.localeCompare(b, window.SolarMinerI18n.locale));
     const worker = availableWorkerById.get(selectedGpu());
     const previousCoin = coinSelect.value;
     coinSelect.replaceChildren();
@@ -1171,8 +1170,8 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
     coinSelect.value = coins.includes(previousCoin) ? previousCoin : coins.includes(worker?.coin) ? worker.coin : coins[0] || '';
     coinSelect.disabled = !coins.length;
     const catalogEntry = gpuCatalog.find(entry => entry.id === coinSelect.value);
-    const miners = [...new Set([...(catalogEntry?.miners || []).map(miner => miner.id),
-        ...usable.filter(row => row.coin === coinSelect.value).map(row => row.minerSoftwareId)])].sort();
+    const miners = [...new Set(usable.filter(row => row.coin === coinSelect.value)
+        .map(row => row.minerSoftwareId))].sort();
     const previousMiner = minerSelect.value;
     minerSelect.replaceChildren();
     for (const miner of miners) {
@@ -1187,6 +1186,11 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
     if (!selectedGpu()) {
         context.textContent = '';
         comparison.append(make('p', 'empty', t('worker_mode_comparison_no_gpu')));
+        return;
+    }
+    if (!coins.length) {
+        context.textContent = '';
+        comparison.append(make('p', 'empty', t('worker_mode_comparison_no_points')));
         return;
     }
     const rate = tariff?.settings;

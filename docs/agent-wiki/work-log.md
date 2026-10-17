@@ -2921,3 +2921,8 @@ Vorgehen / Andockpunkte für andere Agenten:
 
 - Replaced the three separate result cards on `/benchmark-results.html` with a semantic table: manual, efficiency and daily-profit modes are columns, while hashrate, power, costs and revenue are rows. The revenue-after-electricity row is emphasized. Measurement provenance, missing-point reasons and the labeled manual sweep approximation stay visible in their mode column.
 - The table can be focused and scrolled horizontally on narrow screens. New table headers are translated in German and English; the mode selectors and calculation are unchanged. JavaScript syntax, both-locale catalog/literal/render checks and `git diff --check` passed. A browser visual check was unavailable on this host.
+
+## 2026-10-17 — Restrict comparison selectors to measured combinations
+
+- The local results page once again lists only coins and miner software with eligible measurements for the selected GPU. The fleet page lists only coins and miner software measured on at least one available GPU worker; its per-worker automatic miner option remains. Empty selections are disabled, while workers without a point for a selected fleet combination still appear as missing.
+- Adjusted the German and English no-GPU message to match the restored selector behavior. JavaScript syntax, i18n catalog, unkeyed-literal scan, both-locale render simulation and diff checks passed.
