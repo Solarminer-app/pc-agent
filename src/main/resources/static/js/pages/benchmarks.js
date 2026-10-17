@@ -1150,7 +1150,7 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
     modeComparisonPower = power;
     const coinSelect = $('mode-comparison-coin');
     const minerSelect = $('mode-comparison-miner');
-    const cards = $('mode-comparison-cards');
+    const comparison = $('mode-comparison-cards');
     const context = $('mode-comparison-context');
     const same = $('mode-comparison-same');
     same.hidden = true;
@@ -1183,10 +1183,10 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
         : miners.includes(worker?.minerSoftwareId) ? worker.minerSoftwareId
             : miners.includes(catalogEntry?.selectedMinerId) ? catalogEntry.selectedMinerId : miners[0] || '';
     minerSelect.disabled = !miners.length;
-    cards.replaceChildren();
+    comparison.replaceChildren();
     if (!selectedGpu()) {
         context.textContent = '';
-        cards.append(make('p', 'empty', t('worker_mode_comparison_no_gpu')));
+        comparison.append(make('p', 'empty', t('worker_mode_comparison_no_gpu')));
         return;
     }
     const rate = tariff?.settings;
@@ -1213,46 +1213,72 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
     const prefs = window.SolarMinerPreferences;
     const number = (value, digits = 2) => new Intl.NumberFormat(window.SolarMinerI18n.locale,
         {maximumFractionDigits: digits}).format(value);
-    const addCard = (title, point, missing, note = null) => {
-        const card = make('article', 'worker-mode-card');
-        card.append(make('h3', '', t(title)));
-        if (!point) { card.append(make('p', 'empty', missing)); cards.append(card); return; }
-        const grid = make('dl', 'worker-mode-metrics');
-        const metric = (key, value) => {
-            const pair = make('div', 'worker-mode-metric');
-            pair.append(make('dt', '', t(key)), make('dd', '', value));
-            grid.append(pair);
-        };
-        const kwh = point.measuredWatts * 24 / 1000;
-        const cost = rate?.pricePerKwh != null && Number.isFinite(Number(rate.pricePerKwh))
-            ? new Intl.NumberFormat(window.SolarMinerI18n.locale, {style: 'currency', currency: rate.currency,
-                maximumFractionDigits: 3}).format(kwh * Number(rate.pricePerKwh)) : '—';
-        metric('hashrate', fmtRate(point.hashrateHps));
-        metric('worker_mode_comparison_hashes_watt', number(point.hashrateHps / point.measuredWatts, 1));
-        metric('worker_mode_comparison_limit', `${point.limitWatts} W`);
-        metric('worker_mode_comparison_measured_power', ui.power(point.measuredWatts));
-        metric('worker_mode_comparison_energy_day', `${number(kwh, 3)} kWh`);
-        metric('worker_mode_comparison_cost_day', cost === '—' ? cost : `≈ ${cost}`);
-        metric('worker_mode_comparison_gross_kwh', ui.moneyPerKwh(point.usdPerKwh));
-        metric('worker_mode_comparison_gross_day', `≈ ${prefs.moneyFromUsd(point.usdPerDay)}`);
-        metric('worker_mode_comparison_net_day', point.profitUsdPerDay == null ? '—'
-            : `≈ ${prefs.moneyFromUsd(point.profitUsdPerDay)}`);
-        card.append(grid);
-        const measured = new Intl.DateTimeFormat(window.SolarMinerI18n.locale,
-            {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(point.measuredAt));
-        card.append(make('p', 'muted', t('worker_mode_comparison_source', {
-            source: t(`coin_hopping_source_${point.source?.toLowerCase() || 'live'}`), time: measured
-        })));
-        if (note) card.append(make('p', 'muted', note));
-        cards.append(card);
-    };
-    addCard('worker_mode_manual', manual, manualTargetKnown
-        ? t('worker_mode_comparison_manual_unmeasured', {watts: manualTarget})
-        : t('worker_mode_comparison_manual_unavailable'), sweepProxy
-        ? t('worker_mode_comparison_manual_sweep_proxy', {target: manualTarget, measured: sweepProxy.limitWatts}) : null);
-    addCard('worker_mode_efficiency', efficiency, t('worker_mode_comparison_no_points'));
-    addCard('worker_mode_profit_day', profit, t(points.length
-        ? 'worker_mode_comparison_no_profit' : 'worker_mode_comparison_no_points'));
+    const modes = [
+        {title: 'worker_mode_manual', point: manual, missing: manualTargetKnown
+            ? t('worker_mode_comparison_manual_unmeasured', {watts: manualTarget})
+            : t('worker_mode_comparison_manual_unavailable'), note: sweepProxy
+            ? t('worker_mode_comparison_manual_sweep_proxy', {target: manualTarget, measured: sweepProxy.limitWatts}) : null},
+        {title: 'worker_mode_efficiency', point: efficiency, missing: t('worker_mode_comparison_no_points')},
+        {title: 'worker_mode_profit_day', point: profit, missing: t(points.length
+            ? 'worker_mode_comparison_no_profit' : 'worker_mode_comparison_no_points')}
+    ];
+    const table = make('table', 'worker-mode-table');
+    table.setAttribute('aria-label', t('worker_mode_comparison_title'));
+    const head = make('thead');
+    const heading = make('tr');
+    const metricHeading = make('th', '', t('worker_mode_comparison_metric'));
+    metricHeading.scope = 'col';
+    heading.append(metricHeading);
+    for (const mode of modes) {
+        const cell = make('th', '', t(mode.title));
+        cell.scope = 'col';
+        heading.append(cell);
+    }
+    head.append(heading);
+    const body = make('tbody');
+    const cost = point => rate?.pricePerKwh != null && Number.isFinite(Number(rate.pricePerKwh))
+        ? `≈ ${new Intl.NumberFormat(window.SolarMinerI18n.locale, {style: 'currency', currency: rate.currency,
+            maximumFractionDigits: 3}).format(point.measuredWatts * 24 / 1000 * Number(rate.pricePerKwh))}` : '—';
+    const rows = [
+        ['hashrate', point => fmtRate(point.hashrateHps)],
+        ['worker_mode_comparison_hashes_watt', point => number(point.hashrateHps / point.measuredWatts, 1)],
+        ['worker_mode_comparison_limit', point => `${point.limitWatts} W`],
+        ['worker_mode_comparison_measured_power', point => ui.power(point.measuredWatts)],
+        ['worker_mode_comparison_energy_day', point => `${number(point.measuredWatts * 24 / 1000, 3)} kWh`],
+        ['worker_mode_comparison_cost_day', cost],
+        ['worker_mode_comparison_gross_kwh', point => ui.moneyPerKwh(point.usdPerKwh)],
+        ['worker_mode_comparison_gross_day', point => `≈ ${prefs.moneyFromUsd(point.usdPerDay)}`],
+        ['worker_mode_comparison_net_day', point => point.profitUsdPerDay == null ? '—'
+            : `≈ ${prefs.moneyFromUsd(point.profitUsdPerDay)}`]
+    ];
+    for (const [label, value] of rows) {
+        const row = make('tr', label === 'worker_mode_comparison_net_day' ? 'worker-mode-profit-row' : '');
+        const header = make('th', '', t(label));
+        header.scope = 'row';
+        row.append(header);
+        for (const mode of modes) row.append(make('td', '', mode.point ? value(mode.point) : '—'));
+        body.append(row);
+    }
+    const sourceRow = make('tr', 'worker-mode-source-row');
+    const sourceHeader = make('th', '', t('worker_mode_comparison_measurement'));
+    sourceHeader.scope = 'row';
+    sourceRow.append(sourceHeader);
+    for (const mode of modes) {
+        const cell = make('td');
+        if (!mode.point) cell.append(make('span', 'worker-mode-missing', mode.missing));
+        else {
+            const measured = new Intl.DateTimeFormat(window.SolarMinerI18n.locale,
+                {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(mode.point.measuredAt));
+            cell.append(make('span', '', t('worker_mode_comparison_source', {
+                source: t(`coin_hopping_source_${mode.point.source?.toLowerCase() || 'live'}`), time: measured
+            })));
+            if (mode.note) cell.append(make('span', 'worker-mode-proxy-note', mode.note));
+        }
+        sourceRow.append(cell);
+    }
+    body.append(sourceRow);
+    table.append(head, body);
+    comparison.append(table);
     same.hidden = !(efficiency && profit && efficiency.limitWatts === profit.limitWatts);
 }
 function updateComparisonDevices(snapshot) {

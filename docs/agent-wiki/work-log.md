@@ -2916,3 +2916,8 @@ Vorgehen / Andockpunkte für andere Agenten:
 
 - The local results and fleet views continue to prefer an eligible point at the exact saved manual GPU cap. When that point is missing, they use the nearest eligible stable Power Sweep point below the cap for the same GPU, coin and miner, and label the measured and manual limits in German and English. They do not extrapolate the sweep hashrate or present the proxy as an exact manual measurement.
 - This is a comparison-only fallback; actual manual mode power control and automatic mode selection are unchanged. JavaScript syntax, i18n catalog, unkeyed-literal scan, both-locale render simulation and diff checks passed. Live GPU/browser verification is still outstanding.
+
+## 2026-10-17 — Align local operating-point metrics in one table
+
+- Replaced the three separate result cards on `/benchmark-results.html` with a semantic table: manual, efficiency and daily-profit modes are columns, while hashrate, power, costs and revenue are rows. The revenue-after-electricity row is emphasized. Measurement provenance, missing-point reasons and the labeled manual sweep approximation stay visible in their mode column.
+- The table can be focused and scrolled horizontally on narrow screens. New table headers are translated in German and English; the mode selectors and calculation are unchanged. JavaScript syntax, both-locale catalog/literal/render checks and `git diff --check` passed. A browser visual check was unavailable on this host.

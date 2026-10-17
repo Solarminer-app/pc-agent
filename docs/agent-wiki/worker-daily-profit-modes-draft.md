@@ -240,3 +240,10 @@ The Java code compiled, and German/English catalog and render checks passed. Uni
 The view remains a 24-hour projection at current quotes and fixed tariffs. It does not forecast intermittent PV power or later coin switches. CPU workers are outside the current GPU operating-point model. Live LAN and hardware validation remains outstanding.
 
 The fixed coin and miner selectors on the local results page now use the installed agent's coin/miner catalog, not only eligible measured candidates. The fleet page likewise offers all catalogued GPU coins and a fleet-wide miner choice or automatic selection per worker. A choice without eligible measurements remains selectable and is reported as missing data in the comparison. A peer returning HTTP 404 for the fleet route is identified as needing an agent update, rather than shown as generically unreachable.
+
+The local results comparison renders its three modes as columns of one semantic
+table, with each measured or estimated quantity on a shared row. The final
+revenue-after-electricity row is emphasized; the measurement source, timestamp,
+missing-data reason and manual sweep approximation remain visible per mode.
+The table scrolls horizontally on narrow screens so headings stay associated
+with values.

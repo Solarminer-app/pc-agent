@@ -7,8 +7,8 @@
     <title data-i18n="solarminer_benchmark_results">SolarMiner · Ergebnisse</title>
     <link rel="stylesheet" href="/css/agent.css">
     <link rel="stylesheet" href="/css/workspace.css">
-    <link rel="stylesheet" href="/css/benchmarks.css?v=20261017-manual-mode-comparison">
-    <script src="/js/core/i18n-catalog.js?v=20261017-manual-sweep-proxy" defer></script>
+    <link rel="stylesheet" href="/css/benchmarks.css?v=20261017-mode-table">
+    <script src="/js/core/i18n-catalog.js?v=20261017-mode-table" defer></script>
     <script src="/js/core/i18n.js?v=20261012-benchmark-live-dashboard" defer></script>
     <script src="/js/core/live-data.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/core/components.js?v=20261012-benchmark-live-dashboard" defer></script>
@@ -16,7 +16,7 @@
     <script src="/js/chrome/fee-tier-badge.js?v=20261012-benchmark-live-dashboard" defer></script>
     <script src="/js/chrome/wallet-strip.js?v=20261016-global-wallet-strip" defer></script>
     <script src="/js/chrome/workspace.js?v=20261017-gpu-concurrency" defer></script>
-    <script src="/js/pages/benchmarks.js?v=20261017-manual-sweep-proxy" defer></script>
+    <script src="/js/pages/benchmarks.js?v=20261017-mode-table" defer></script>
 </head>
 <body class="benchmark-page benchmark-results-page">
 <div class="shell">
@@ -46,7 +46,7 @@
                 <label class="comparison-picker"><span data-i18n="miner_software">Miner-Software</span><select id="mode-comparison-miner" data-i18n-aria-label="miner_software" aria-label="Miner-Software"></select></label>
             </div>
             <p id="mode-comparison-context" class="muted" aria-live="polite"></p>
-            <div id="mode-comparison-cards" class="worker-mode-cards" aria-live="polite"></div>
+            <div id="mode-comparison-cards" class="worker-mode-table-scroll" role="region" aria-labelledby="worker-mode-comparison-title" tabindex="0" aria-live="polite"></div>
             <p id="mode-comparison-same" class="worker-mode-same-point" hidden data-i18n="worker_mode_comparison_same_point">Effizienz und Tagesgewinn wählen denselben Messpunkt.</p>
             <p class="muted" data-i18n="worker_mode_comparison_note">≈ ist eine 24-Stunden-Hochrechnung aus gemessener GPU-Leistung und aktuellen Netzwerkdaten. Stromkosten werden abgezogen, Gebühren nicht. Tatsächliche Auszahlungen und wechselnde PV-Leistung können abweichen.</p>
         </section>

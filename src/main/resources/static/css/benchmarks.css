@@ -175,17 +175,22 @@
 .worker-mode-comparison{border-color:#496778!important;background:linear-gradient(140deg,#172a37,#111d2a 60%)!important}
 .worker-mode-controls{display:flex;flex-wrap:wrap;gap:10px 24px;margin:12px 0 5px}
 .worker-mode-controls .comparison-picker{margin:0}
-.worker-mode-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:13px 0}
-.worker-mode-card{min-width:0;padding:17px;border:1px solid #40576a;border-radius:11px;background:#101e2c}
-.worker-mode-card h3{margin:0 0 14px;color:#dcf4e7;font-size:17px}
-.worker-mode-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0 0 14px}
-.worker-mode-metric{min-width:0;padding:9px 10px;border:1px solid #2d4657;border-radius:7px;background:#152535}
-.worker-mode-metric dt{color:#a9bdc8;font-size:11px;line-height:1.4}
-.worker-mode-metric dd{margin:5px 0 0;color:#f0f8f5;font-size:15px;font-weight:650;overflow-wrap:anywhere}
-.worker-mode-card .muted{margin:0;font-size:11px}
+.worker-mode-table-scroll{overflow-x:auto;margin:13px 0;border:1px solid #40576a;border-radius:11px;background:#101e2c}
+.worker-mode-table-scroll:focus-visible{outline:2px solid #8fe9b5;outline-offset:2px}
+.worker-mode-table{width:100%;min-width:760px;border-collapse:collapse;table-layout:fixed}
+.worker-mode-table th,.worker-mode-table td{padding:11px 13px;border-bottom:1px solid #2d4657;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+.worker-mode-table th:first-child{width:23%}
+.worker-mode-table thead th{color:#dcf4e7;background:#172b3a;font-size:14px;font-weight:700}
+.worker-mode-table tbody th{color:#a9bdc8;background:#132432;font-size:12px;font-weight:600}
+.worker-mode-table tbody td{color:#f0f8f5;font-size:14px;font-weight:650;font-variant-numeric:tabular-nums}
+.worker-mode-table tbody tr:nth-child(even) td{background:#142637}
+.worker-mode-table tbody tr:last-child th,.worker-mode-table tbody tr:last-child td{border-bottom:0}
+.worker-mode-table .worker-mode-profit-row th,.worker-mode-table .worker-mode-profit-row td{background:#18362f;color:#d8f8e5;font-weight:750}
+.worker-mode-table .worker-mode-source-row td{color:#a9bdc8;font-size:12px;font-weight:400}
+.worker-mode-proxy-note{display:block;margin-top:7px;color:#d8f1de}
+.worker-mode-missing{color:#b6c3cb}
 .worker-mode-same-point{color:#a6e9c6;font-size:12px;font-weight:650}
-@media(max-width:1100px){.worker-mode-cards{grid-template-columns:1fr}}
-@media(max-width:430px){.worker-mode-metrics{grid-template-columns:1fr}.worker-mode-controls .comparison-picker{width:100%}}
+@media(max-width:430px){.worker-mode-controls .comparison-picker{width:100%}}
 .comparison-picker{display:flex;align-items:center;gap:12px;color:#b9cfd1;font-size:12px;margin:10px 0 14px}
 .comparison-picker select,.library-search input{background:#0e1d2a;border:1px solid #4a666b;color:#edf8f2;border-radius:8px;padding:8px 11px;min-height:39px;font:inherit}
 .comparison-picker select{max-width:min(100%,420px);min-width:220px}
