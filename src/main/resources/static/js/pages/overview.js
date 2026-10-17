@@ -144,7 +144,7 @@
       ui.metric({label: 'active_workers', value: String(activeRows.length), detail: t('local_and_shared_workers')}),
       ui.metric({label: 'total_power', value: ui.power(totalWatts), detail: t('sum_of_running_workers')}),
       ui.metric({label: 'earnings', value: totalUsdPerDay > 0 ? t('value_day', {value: preferences.moneyFromUsd(totalUsdPerDay)}) : '—', detail: t('sum_of_running_workers')}),
-      ui.metric({label: 'profit_per_day', value: totalProfitPerDay == null ? '—' : t('value_day', {value: preferences.moneyFromUsd(totalProfitPerDay)}), detail: localTariffFallbackCount
+      ui.metric({label: 'profit_per_day', value: totalProfitPerDay == null ? '—' : `≈ ${t('value_day', {value: preferences.moneyFromUsd(totalProfitPerDay)})}`, detail: localTariffFallbackCount
         ? t('local_tariff_approximation_count', {count: localTariffFallbackCount}) : t('estimated_profit_after_electricity')}),
       ui.metric({label: 'average_earnings_per_kwh', value: ui.moneyPerKwh(averageRevenuePerKwh), detail: t('average_of_workers_with_data')}));
     root.replaceChildren(ui.table({
@@ -159,7 +159,7 @@
         {label: 'earnings', align: 'right', render: row => row.usdPerDay != null ? t('value_day', {value: preferences.moneyFromUsd(row.usdPerDay)}) : '—'},
         {label: 'estimated_profit_24h', align: 'right', render: row => {
           if (row.profitUsdPerDay == null) return '—';
-          const cell = ui.cellLines(t('value_day', {value: preferences.moneyFromUsd(row.profitUsdPerDay)}),
+          const cell = ui.cellLines(`≈ ${t('value_day', {value: preferences.moneyFromUsd(row.profitUsdPerDay)})}`,
             row.usedLocalTariff ? t('local_tariff_approximation') : '');
           return cell;
         }},
@@ -223,6 +223,7 @@
     const root = $('energy-kpis');
     $('energy-settings').disabled = !energy;
     if (!energy) {
+      $('energy-tariff-value').textContent = '—';
       root.replaceChildren(ui.element('div', energyError ? 'notice-line warn' : 'skeleton',
         energyError ? 'energy_data_could_not_be_loaded' : undefined));
       $('energy-note').textContent = energyError ? `${t('energy_api')} ${t(energyError)}` : '';
@@ -256,6 +257,8 @@
     const money = value => value == null ? '—' : preferences.money(value, preferences.currency);
     const tariff = preferences.convert(energy.settings.pricePerKwh, energy.settings.currency);
     const tariffCurrency = tariff == null ? energy.settings.currency : preferences.currency;
+    $('energy-tariff-value').textContent = `${Number(energy.settings.pricePerKwh)
+      .toLocaleString(preferences.locale, {minimumFractionDigits: 2, maximumFractionDigits: 4})} ${energy.settings.currency}/kWh`;
     root.replaceChildren(
       ui.metric({label: 'running_sessions', value: ui.kilowattHours(activeWh), detail: t('count_workers_duration', {count: activeCount, duration: ui.duration(activeSeconds)}), tone: activeCount ? 'ok' : ''}),
       ui.metric({label: 'today_1ab330', value: ui.kilowattHours(today.kilowattHours * 1000), detail: `${money(today.cost)} ${t('electricity_cost')}`}),
@@ -278,6 +281,8 @@
     if (!Number.isFinite(price) || price < 0) return alert(t('enter_a_valid_positive_electricity_rate'));
     try {
       energy.settings = await ui.postJson('/api/agent/local/economics/settings', {pricePerKwh: price, currency: editCurrency});
+      renderEnergy();
+      if (overview) renderDashboardWorkers(overview);
       window.SolarMinerLive.refresh('energy');
     } catch (_) { alert(t('could_not_save_the_electricity_rate')); }
   }

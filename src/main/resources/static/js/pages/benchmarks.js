@@ -1136,6 +1136,109 @@ const comparisonCache = new Map();
 const comparisonRequests = new Map();
 const COMPARISON_CACHE_MS = 30_000;
 let comparisonCacheRevision = 0;
+let modeComparisonCandidates = [];
+let modeComparisonTariff = null;
+let modeComparisonPower = null;
+function renderModeComparison(candidates = modeComparisonCandidates, tariff = modeComparisonTariff,
+                              power = modeComparisonPower) {
+    if (!resultsPage) return;
+    modeComparisonCandidates = candidates;
+    modeComparisonTariff = tariff;
+    modeComparisonPower = power;
+    const coinSelect = $('mode-comparison-coin');
+    const minerSelect = $('mode-comparison-miner');
+    const cards = $('mode-comparison-cards');
+    const context = $('mode-comparison-context');
+    const same = $('mode-comparison-same');
+    same.hidden = true;
+    const usable = candidates.filter(row => row.coin && row.minerSoftwareId && Number(row.hashrateHps) > 0
+        && Number(row.measuredWatts) > 0 && Number(row.usdPerKwh) > 0);
+    const coins = [...new Set(usable.map(row => row.coin))].sort((a, b) => a.localeCompare(b, window.SolarMinerI18n.locale));
+    const worker = availableWorkerById.get(selectedGpu());
+    const previousCoin = coinSelect.value;
+    coinSelect.replaceChildren();
+    for (const coin of coins) {
+        const name = window.SolarMinerUI.coinCatalog.find(item => item.id === coin)?.name || coin;
+        coinSelect.add(new Option(name, coin));
+    }
+    coinSelect.value = coins.includes(previousCoin) ? previousCoin : coins.includes(worker?.coin) ? worker.coin : coins[0] || '';
+    coinSelect.disabled = !coins.length;
+    const miners = [...new Set(usable.filter(row => row.coin === coinSelect.value)
+        .map(row => row.minerSoftwareId))].sort();
+    const previousMiner = minerSelect.value;
+    minerSelect.replaceChildren();
+    for (const miner of miners) minerSelect.add(new Option(miner, miner));
+    minerSelect.value = miners.includes(previousMiner) ? previousMiner
+        : miners.includes(worker?.minerSoftwareId) ? worker.minerSoftwareId : miners[0] || '';
+    minerSelect.disabled = !miners.length;
+    cards.replaceChildren();
+    if (!selectedGpu()) {
+        context.textContent = '';
+        cards.append(make('p', 'empty', t('benchmark_comparison_no_device')));
+        return;
+    }
+    const rate = tariff?.settings;
+    const manualStatus = power?.gpus?.find(gpu => gpu.deviceId === selectedGpu());
+    const manualTarget = Number(manualStatus?.userMaxPowerLimitWatts);
+    const manualTargetKnown = Number.isInteger(manualTarget) && manualTarget > 0;
+    context.textContent = (rate?.pricePerKwh != null
+        ? t('worker_mode_comparison_rate', {rate: new Intl.NumberFormat(window.SolarMinerI18n.locale,
+            {maximumFractionDigits: 4}).format(Number(rate.pricePerKwh)), currency: rate.currency})
+        : t('worker_mode_comparison_rate_unavailable')) + ' · ' + (manualTargetKnown
+        ? t('worker_mode_comparison_manual_target', {watts: manualTarget})
+        : t('worker_mode_comparison_manual_unavailable'));
+    const points = usable.filter(row => row.coin === coinSelect.value && row.minerSoftwareId === minerSelect.value);
+    const manual = manualTargetKnown ? points.find(row => Number(row.limitWatts) === manualTarget) : null;
+    const efficiency = points.reduce((best, row) => !best || row.hashrateHps / row.measuredWatts
+        > best.hashrateHps / best.measuredWatts ? row : best, null);
+    const profit = points.filter(row => Number.isFinite(row.profitUsdPerDay))
+        .reduce((best, row) => !best || row.profitUsdPerDay > best.profitUsdPerDay ? row : best, null);
+    const ui = window.SolarMinerUI;
+    const prefs = window.SolarMinerPreferences;
+    const number = (value, digits = 2) => new Intl.NumberFormat(window.SolarMinerI18n.locale,
+        {maximumFractionDigits: digits}).format(value);
+    const addCard = (title, point, missing) => {
+        const card = make('article', 'worker-mode-card');
+        card.append(make('h3', '', t(title)));
+        if (!point) { card.append(make('p', 'empty', missing)); cards.append(card); return; }
+        const grid = make('dl', 'worker-mode-metrics');
+        const metric = (key, value) => {
+            const pair = make('div', 'worker-mode-metric');
+            pair.append(make('dt', '', t(key)), make('dd', '', value));
+            grid.append(pair);
+        };
+        const kwh = point.measuredWatts * 24 / 1000;
+        const cost = rate?.pricePerKwh != null && Number.isFinite(Number(rate.pricePerKwh))
+            ? new Intl.NumberFormat(window.SolarMinerI18n.locale, {style: 'currency', currency: rate.currency,
+                maximumFractionDigits: 3}).format(kwh * Number(rate.pricePerKwh)) : '—';
+        metric('hashrate', fmtRate(point.hashrateHps));
+        metric('worker_mode_comparison_hashes_watt', number(point.hashrateHps / point.measuredWatts, 1));
+        metric('worker_mode_comparison_limit', `${point.limitWatts} W`);
+        metric('worker_mode_comparison_measured_power', ui.power(point.measuredWatts));
+        metric('worker_mode_comparison_energy_day', `${number(kwh, 3)} kWh`);
+        metric('worker_mode_comparison_cost_day', cost === '—' ? cost : `≈ ${cost}`);
+        metric('worker_mode_comparison_gross_kwh', ui.moneyPerKwh(point.usdPerKwh));
+        metric('worker_mode_comparison_gross_day', `≈ ${prefs.moneyFromUsd(point.usdPerDay)}`);
+        metric('worker_mode_comparison_fees', point.feePercentage == null ? '—'
+            : `${number(point.feePercentage, 2)} %`);
+        metric('worker_mode_comparison_net_day', point.profitUsdPerDay == null ? '—'
+            : `≈ ${prefs.moneyFromUsd(point.profitUsdPerDay)}`);
+        card.append(grid);
+        const measured = new Intl.DateTimeFormat(window.SolarMinerI18n.locale,
+            {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(point.measuredAt));
+        card.append(make('p', 'muted', t('worker_mode_comparison_source', {
+            source: t(`coin_hopping_source_${point.source?.toLowerCase() || 'live'}`), time: measured
+        })));
+        cards.append(card);
+    };
+    addCard('worker_mode_manual', manual, manualTargetKnown
+        ? t('worker_mode_comparison_manual_unmeasured', {watts: manualTarget})
+        : t('worker_mode_comparison_manual_unavailable'));
+    addCard('worker_mode_efficiency', efficiency, t('worker_mode_comparison_no_points'));
+    addCard('worker_mode_profit_day', profit, t(points.length
+        ? 'worker_mode_comparison_no_profit' : 'worker_mode_comparison_no_points'));
+    same.hidden = !(efficiency && profit && efficiency.limitWatts === profit.limitWatts);
+}
 function updateComparisonDevices(snapshot) {
     const devices = new Map();
     if (resultsPage) {
@@ -1203,12 +1306,16 @@ async function loadComparison() {
         chart.replaceChildren();
         $('comparison-recommendation').textContent = '';
         $('comparison-updated').textContent = '';
+        $('mode-comparison-coin').value = '';
+        $('mode-comparison-miner').value = '';
+        renderModeComparison([], null, null);
     }
     if (!deviceId) {
         chart.replaceChildren();
         $('comparison-recommendation').textContent = '';
         $('comparison-updated').textContent = '';
         chart.append(make('p', 'empty', t('benchmark_comparison_no_device')));
+        renderModeComparison([], null, null);
         return;
     }
     try {
@@ -1237,6 +1344,11 @@ async function loadComparison() {
         chart.replaceChildren();
         $('comparison-recommendation').textContent = '';
         $('comparison-updated').textContent = '';
+        renderModeComparison(candidates, null, null);
+        const read = path => fetch(path, {cache: 'no-store', signal: AbortSignal.timeout(5000)})
+            .then(response => response.ok ? response.json() : null).catch(() => null);
+        Promise.all([read('/api/agent/local/economics'), read('/api/agent/local/power-control')])
+            .then(([tariff, power]) => { if (id === comparisonRequest) renderModeComparison(candidates, tariff, power); });
         if (!candidates.length) {
             chart.append(make('p', 'empty', t('coin_hopping_no_candidates')));
             return;
@@ -1267,6 +1379,7 @@ async function loadComparison() {
             chart.replaceChildren(make('p', 'empty', t('benchmark_comparison_load_failed')));
             $('comparison-recommendation').textContent = '';
             $('comparison-updated').textContent = '';
+            renderModeComparison([], null, null);
         }
     }
 }
@@ -1291,6 +1404,10 @@ $('comparison-gpu').addEventListener('change', () => {
     }
     loadComparison();
 });
+if (resultsPage) {
+    $('mode-comparison-coin').addEventListener('change', () => renderModeComparison());
+    $('mode-comparison-miner').addEventListener('change', () => renderModeComparison());
+}
 $('profile-filter').addEventListener('input', applyProfileFilter);
 document.addEventListener('solarminer:preferences-changed', loadComparison);
 

@@ -1,5 +1,65 @@
 # PC-Agent work log
 
+## 2026-10-17 — Manual baseline in Results / Manueller Vergleichspunkt
+
+- Added `MANUAL` as a third Results comparison card using the selected GPU's
+  `userMaxPowerLimitWatts` from the local power-control read model. Metrics
+  require an exact eligible coin/miner/limit measurement; otherwise the card
+  shows the saved target and a localized missing-measurement reason. / `MANUAL`
+  ist die dritte Ergebnisspalte. Sie nutzt `userMaxPowerLimitWatts` der
+  gewählten GPU und zeigt Kennzahlen nur bei einem exakt passenden aktuellen
+  Coin-/Miner-/Limit-Messpunkt; andernfalls nennt sie Zielwert und Ursache.
+- Verification / Prüfung: JavaScript syntax, both-language catalog/literal
+  checks, both-locale render simulation and `git diff --check` passed.
+
+## 2026-10-17 — Fixed-coin mode comparison in Results / Modusvergleich in Ergebnisse
+
+- `/benchmark-results.html` now compares efficiency (measured hashes/W) and
+  fixed-coin daily profit for the selected GPU, coin and miner using current
+  measured candidates. It displays hashrate, power cap, measured watts,
+  energy/cost per day, gross fiat/kWh and gross/day, fee assumption and estimated net/day.
+  Missing profit or tariff data is shown as unavailable. / Die Ergebnisseite
+  vergleicht für GPU, festen Coin und Miner Effizienz und Tagesgewinn anhand
+  aktueller Messpunkte. Hashrate, Limit, Watt, Tagesenergie und -kosten,
+  Bruttoertrag/kWh und /Tag, Gebührenannahme sowie geschätzter Nettogewinn sind sichtbar;
+  fehlende Eingaben bleiben als nicht verfügbar markiert.
+- Verification / Prüfung: JavaScript syntax, German/English catalog and
+  literal checks, both-locale render simulation and `git diff --check` passed.
+  Real GPU, pool and PV-runtime comparison remains open.
+
+## 2026-10-17 — Tariff visibility and stale-point reevaluation / Tarif und Neubewertung
+
+- Dashboard now shows the stored electricity rate in a prominent card with a
+  direct edit action. Worker and dashboard profit figures carry `≈` because
+  they subtract electricity cost but do not include fees; the selector still
+  uses known fees. / Das Dashboard zeigt den gespeicherten Tarif deutlich mit
+  direkter Änderungsmöglichkeit. Worker- und Dashboard-Gewinnwerte tragen
+  `≈`, da sie Stromkosten, aber keine Gebühren abziehen; die Auswahl rechnet
+  weiterhin mit bekannten Gebühren.
+- Daily-profit reevaluation now selects a valid alternative when the running
+  point is no longer in the candidate set and restores the previous cap and
+  assignment after a failed switch. / Die Tagesgewinn-Modi wählen bei
+  überholtem laufendem Messpunkt einen gültigen Ersatz und stellen bei einem
+  fehlgeschlagenen Wechsel Grenzwert und Zuweisung wieder her.
+- Verification / Prüfung: focused JDK 21 mode-service tests, both-language
+  catalog, literal and render checks, JavaScript syntax and `git diff --check`
+  passed. Live GPU, pool and PV dispatch checks remain open.
+
+## 2026-10-17 — Daily-profit mode review / Prüfung der Tagesgewinn-Modi
+
+- Reviewed commit `c8bd75f` against the bilingual mode contract. Core candidate
+  ranking is wired; an unconfirmed default tariff is accepted, the Worker UI
+  omits fees from its profit figure and selection details, and the new modes
+  have no focused tests. Details and code locations are in
+  [worker-daily-profit-modes-draft.md](worker-daily-profit-modes-draft.md).
+- Prüfung von Commit `c8bd75f` gegen das zweisprachige Konzept: Die
+  Kandidatenauswahl ist angebunden; ein unbestätigter Standardtarif wird
+  akzeptiert, die Worker-Anzeige lässt Gebühren und Auswahldetails aus, und
+  gezielte Tests für die neuen Modi fehlen. Code-Stellen und Einzelheiten
+  stehen im verlinkten Konzept.
+- Verification / Prüfung: focused JDK 21 `WorkerCoinRevenueModeServiceTest`
+  passed; both i18n checks passed. No live GPU/pool evidence; no source edit.
+
 ## 2026-10-17 — Implement daily-profit GPU modes
 
 - Added selectable `PROFIT_PER_DAY` (fixed coin and miner) and

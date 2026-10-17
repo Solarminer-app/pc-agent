@@ -5,6 +5,115 @@ additional goals alongside the existing revenue-per-kWh modes. Both currently
 require a GPU; the fixed-coin mode retains its coin and miner, while the second
 may choose a different GPU route.
 
+## Review of commit `c8bd75f` / Prüfung des Commits `c8bd75f` (2026-10-17)
+
+**Deutsch:** Die Grundauswahl ist eingebaut: GPU-Messpunkte werden mit eigener
+Leistung, frischen Prognosen, bekannten Gebühren und dem gespeicherten Tarif
+nach geschätztem Nettogewinn/Tag sortiert. Die Umsetzung erfüllt das Konzept
+noch nicht vollständig:
+
+- `EnergyJournalService.loadSettings()` setzt bei fehlender Tarifdatei 0,30 EUR/kWh.
+  `CoinHoppingService.addCandidate()` behandelt diesen Vorgabewert als bekannten
+  Tarif; die Aktivierung meldet keinen fehlenden oder unbestätigten Tarif.
+- `workers.js:31-40` zeigt als „geschätzten Gewinn“ Bruttoertrag minus Stromkosten
+  ohne Gebühren. Das widerspricht der Auswahlformel; Coin, Messpunkt, Gebühren,
+  Tagesenergiekosten und Auswahlgrund sind dort auch nicht einsehbar.
+- Die vorhandenen `WorkerCoinRevenueModeServiceTest`-Fälle prüfen nur die alten
+  kWh-Modi. Die im Abschnitt „Verifikation“ genannten Rechnungs-, Wechsel-,
+  Negativgewinn- und Wiederherstellungsfälle bleiben ungetestet. Die
+  Wiederherstellung bei Hardware- oder Minerfehlern braucht zusätzlich einen
+  realen GPU-/Pool-Lauf.
+- `WorkerCoinRevenueModeService.evaluateWorker()` wechselt nur, wenn der gerade
+  laufende Coin-/Miner-/Power-Punkt noch in der aktuellen Kandidatenliste steht.
+  Läuft dessen bis zu 30 Tage altes Profil ab oder fehlen dafür aktuelle
+  Eingaben, bleibt ein vorhandener besserer Kandidat ungenutzt; das ist aus
+  dem Codepfad abgeleitet und noch nicht als Laufzeittest reproduziert.
+
+**English:** The core selector is wired: GPU measurements use their own power,
+fresh forecasts, known fees and the stored tariff to rank estimated net
+profit/day. The implementation does not yet meet the whole contract:
+
+- `EnergyJournalService.loadSettings()` supplies 0.30 EUR/kWh when no tariff file
+  exists. `CoinHoppingService.addCandidate()` treats that default as a known
+  tariff, so activation does not identify an unset or unconfirmed rate.
+- `workers.js:31-40` displays gross revenue minus electricity cost as
+  “estimated profit,” omitting fees. The selected coin, measurement, fee
+  assumption, daily energy cost and selection reason are not inspectable there.
+- Existing `WorkerCoinRevenueModeServiceTest` cases cover only the older kWh
+  modes. The calculation, switching, negative-profit and rollback scenarios
+  listed below remain untested. Recovery after a hardware or miner failure
+  also needs a live GPU/pool run.
+- `WorkerCoinRevenueModeService.evaluateWorker()` switches only if the running
+  coin/miner/power point remains in the current candidate list. When its
+  profile ages out or required data disappears, another better candidate is
+  ignored. This follows from the code path and has not yet been reproduced in
+  a runtime test.
+
+Review evidence: focused `WorkerCoinRevenueModeServiceTest` passed on JDK 21;
+both i18n catalog/literal checks passed. No live GPU or pool evidence was
+available. No source code was changed in this review.
+
+### Follow-up / Nacharbeit (2026-10-17)
+
+**Deutsch:** Der Dashboard-Energiebereich zeigt den gespeicherten Tarif nun
+als hervorgehobenen Wert mit direkter Schaltfläche zum Ändern. Die Worker-
+und Dashboard-Gewinnanzeigen kennzeichnen ihre Rechnung aus Ertrag minus
+Stromkosten mit `≈`; die Modus-Auswahl berücksichtigt bekannte Gebühren
+weiterhin. Wenn das Profil des laufenden Punkts überholt ist, wählt die
+regelmäßige Neubewertung einen anderen gültigen Messpunkt, auch wenn nur
+dieser eine Kandidat übrig ist. Der alte GPU-Grenzwert und die Zuweisung
+werden bei fehlgeschlagenem Wechsel wiederhergestellt. Drei gezielte
+Regressionstests für diese Fälle sowie Katalog-, Literal- und Renderprüfungen
+für Deutsch/Englisch bestanden. Der Standardtarif bleibt ein Vorgabewert;
+eine Bestätigung oder dynamische PV-Bewertung ist nicht implementiert.
+
+**English:** The dashboard energy section now shows the stored rate prominently
+with a direct edit button. Worker and dashboard profit figures use `≈` for
+their revenue-minus-electricity estimate; mode selection still includes
+known fees. If the running point's profile expires, periodic reevaluation
+can choose another valid measured point even when it is the only remaining
+candidate. A failed switch restores the previous GPU cap and assignment.
+Three focused regression tests and both-language catalog, literal and render
+checks passed. The default tariff remains a preset; confirmation and dynamic
+solar valuation are not implemented.
+
+### Results comparison / Ergebnisvergleich (2026-10-17)
+
+**Deutsch:** `/benchmark-results.html` vergleicht für eine gewählte GPU einen
+festen Coin und Miner anhand derselben aktuell nutzbaren Kandidaten. Der
+Effizienzpunkt maximiert gemessene Hashes/Watt, der Tagesgewinnpunkt den vom
+Backend geschätzten Nettogewinn/24 h. Die Ansicht nennt Hashrate, GPU-Limit,
+gemessene Watt, kWh und Stromkosten je 24 h, Bruttoertrag/kWh und /24 h sowie
+die Gebührenannahme und den geschätzten Nettogewinn. Der Tarif stammt aus dem lokalen Economics-Read-
+Model; fehlt er oder ein Gewinnkandidat, erscheinen keine erfundenen Nullwerte.
+Die Ansicht ist eine 24-Stunden-Hochrechnung und keine PV-Zeitplanung.
+
+**English:** `/benchmark-results.html` compares one selected GPU, fixed coin
+and miner over the same currently eligible candidates. The efficiency point
+maximizes measured hashes/watt; the daily-profit point maximizes backend
+estimated net profit/24 h. It displays hashrate, GPU limit, measured watts,
+kWh and electricity cost per 24 h, gross revenue/kWh and /24 h, and estimated
+net profit with the fee assumption. The tariff comes from the local economics read model; missing
+tariff or profit inputs remain unavailable rather than becoming zero. This is
+a 24-hour projection, not a solar schedule.
+
+### Manual baseline / Manueller Vergleichspunkt (2026-10-17)
+
+**Deutsch:** Die Ergebnisansicht zeigt zusätzlich `MANUAL`. Das Power-Target
+kommt aus `GET /api/agent/local/power-control`, Feld
+`gpus[].userMaxPowerLimitWatts` für die ausgewählte GPU. Dieses Limit wird
+auch beim manuellen Worker-Start verwendet. Hashrate, gemessene Watt und
+Ertragswerte erscheinen nur, wenn für exakt dieses Limit und denselben Coin
+und Miner ein aktuell nutzbarer Messpunkt existiert. Ein nächstgelegener
+Messpunkt wird nicht als manuelles Ergebnis ausgegeben.
+
+**English:** Results also show `MANUAL`. The power target comes from
+`GET /api/agent/local/power-control`, field `gpus[].userMaxPowerLimitWatts`
+for the selected GPU. Manual worker startup uses this limit too. Hashrate,
+measured watts and revenue appear only when a currently eligible measurement
+matches that exact limit, coin and miner. A nearby point is never presented
+as the manual result.
+
 ## Deutsch
 
 ### Modi

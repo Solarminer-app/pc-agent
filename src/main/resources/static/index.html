@@ -7,9 +7,9 @@
     <title data-i18n="solarminer_dashboard">SolarMiner · Dashboard</title>
     <link rel="stylesheet" href="/css/agent.css?v=20261012-dashboard-width-v1">
     <link rel="stylesheet" href="/css/workspace.css?v=20261012-dashboard-width-v1">
-    <link rel="stylesheet" href="/css/design.css?v=20261017-power-sweep-status">
+    <link rel="stylesheet" href="/css/design.css?v=20261017-tariff-card">
     <link rel="stylesheet" href="/css/update.css?v=20261017-update-v1">
-    <script src="/js/core/i18n-catalog.js?v=20261017-profit-modes" defer></script>
+    <script src="/js/core/i18n-catalog.js?v=20261017-tariff-card" defer></script>
     <script src="/js/core/i18n.js?v=20261017-update-v1" defer></script>
     <script src="/js/core/live-data.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/core/mining-cache.js?v=20261012-network-worker-list-v1" defer></script>
@@ -19,7 +19,7 @@
     <script src="/js/chrome/workspace.js?v=20261017-gpu-results" defer></script>
     <script src="/js/chrome/wallet-strip.js?v=20261012-network-worker-list-v1" defer></script>
     <script src="/js/chrome/telemetry-gate.js?v=20261012-network-worker-list-v1" defer></script>
-    <script src="/js/pages/overview.js?v=20261017-network-profit" defer></script>
+    <script src="/js/pages/overview.js?v=20261017-tariff-card" defer></script>
     <script src="/js/pages/update.js?v=20261017-update-v1" defer></script>
 </head>
 <body class="dashboard-page">
@@ -66,8 +66,13 @@
                 <p id="network-workers-note" class="muted"></p>
             </section>
             <section id="energy-summary" class="section panel energy-summary" aria-labelledby="energy-title">
-                <div class="panel-head"><div><p class="kicker" data-i18n="energy">ENERGIE</p><h2 id="energy-title" data-i18n="consumption_cost">Verbrauch & Kosten</h2></div>
-                    <button id="energy-settings" class="button subtle" type="button" data-i18n="rate">Tarif</button></div>
+                <div class="panel-head"><div><p class="kicker" data-i18n="energy">ENERGIE</p><h2 id="energy-title" data-i18n="consumption_cost">Verbrauch & Kosten</h2></div></div>
+                <div class="energy-tariff-card" aria-labelledby="energy-tariff-label">
+                    <div><span id="energy-tariff-label" class="metric-label" data-i18n="electricity_tariff">Stromtarif</span>
+                        <strong id="energy-tariff-value" class="energy-tariff-value">—</strong>
+                        <p class="energy-tariff-hint" data-i18n="energy_tariff_profit_hint">Dieser Tarif wird für die geschätzten Tagesgewinne verwendet. Prüfe ihn bei wechselndem PV-Strom.</p></div>
+                    <button id="energy-settings" class="button primary" type="button" data-i18n="change_electricity_tariff" disabled>Tarif ändern</button>
+                </div>
                 <div id="energy-kpis" class="energy-kpis"></div>
                 <p id="energy-note" class="muted"></p>
             </section>
