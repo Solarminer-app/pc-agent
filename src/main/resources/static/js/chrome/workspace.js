@@ -32,7 +32,10 @@
   const subtitle = make('p', 'app-instance', 'your_local_mining_agent'); sidebar.append(subtitle);
   // The operator label is what the SolarMiner Node lists this machine under, so it belongs in the
   // persistent navigation rather than only in the dashboard form.
-  const applyIdentity = name => { subtitle.textContent = name || t('your_local_mining_agent'); };
+  const applyIdentity = name => {
+    subtitle.textContent = name || t('your_local_mining_agent');
+    window.SolarMinerPageTitle?.applyAgentName(name?.trim());
+  };
   window.SolarMinerAgentIdentity = { apply: applyIdentity };
   fetch('/api/agent/local/power-control/identity', {cache: 'no-store'})
     .then(response => response.ok ? response.json() : null)

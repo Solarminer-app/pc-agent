@@ -250,7 +250,20 @@
   };
   function translateStaticMarkup() {
     const title = document.querySelector('title[data-i18n]');
-    if (title) document.title = t(title.getAttribute('data-i18n'));
+    if (title) {
+      const translated = t(title.getAttribute('data-i18n'));
+      // Keep the page label localized, while using the operator-configured agent name
+      // as the browser tab's instance identity.
+      const separator = translated.indexOf(' · ');
+      const pageLabel = separator >= 0 ? translated.slice(separator + 3) : translated;
+      const applyAgentName = name => { document.title = `${name || 'SolarMiner'} - ${pageLabel}`; };
+      applyAgentName('SolarMiner');
+      window.SolarMinerPageTitle = {applyAgentName};
+      fetch('/api/agent/local/power-control/identity', {cache: 'no-store'})
+        .then(response => response.ok ? response.json() : null)
+        .then(identity => { if (identity?.name?.trim()) applyAgentName(identity.name.trim()); })
+        .catch(() => { /* Keep the brand fallback when local identity is unavailable. */ });
+    }
     for (const element of document.querySelectorAll('[data-i18n]')) {
       if (element.matches('title')) continue;
       element.textContent = t(element.getAttribute('data-i18n'));

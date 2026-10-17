@@ -2926,3 +2926,16 @@ Vorgehen / Andockpunkte für andere Agenten:
 
 - The local results page once again lists only coins and miner software with eligible measurements for the selected GPU. The fleet page lists only coins and miner software measured on at least one available GPU worker; its per-worker automatic miner option remains. Empty selections are disabled, while workers without a point for a selected fleet combination still appear as missing.
 - Adjusted the German and English no-GPU message to match the restored selector behavior. JavaScript syntax, i18n catalog, unkeyed-literal scan, both-locale render simulation and diff checks passed.
+
+## 2026-10-17 — PC-Agent Seitentitel verwenden Agent-Namen
+
+- Browser-Tabs der PC-Agent-Seiten zeigen jetzt den konfigurierten Agent-Namen
+  vor dem lokalisierten Seitennamen, zum Beispiel „Rig West - Dashboard“.
+  Ohne gespeicherten Namen bleibt „SolarMiner - Dashboard“ als Fallback.
+  Das Speichern eines neuen Namens aktualisiert den Tabtitel direkt.
+- Die Seitennamen kommen weiterhin aus dem geschlossenen Deutsch/Englisch-
+  Übersetzungskatalog. API-Ausfälle behalten den Fallback; API-Identitätswerte
+  sind vom Betreiber konfigurierte externe Namen und bleiben unverändert.
+- Verification: `node scripts/check-i18n.cjs` (1,628 keys, 13 pages),
+  `node scripts/simulate-i18n-render.cjs`, `node scripts/scan-i18n-literals.cjs`
+  and `node --check` for both changed JavaScript files passed.
