@@ -7,7 +7,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
-import java.net.InetAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -75,11 +74,8 @@ public class AgentUpdateService {
         });
     }
 
-    public synchronized boolean start(String remoteAddress) {
-        // Same-origin also permits browsers on the trusted LAN. Executable updates are host-local.
-        try {
-            if (!InetAddress.getByName(remoteAddress).isLoopbackAddress()) return false;
-        } catch (Exception ex) { return false; }
+    public synchronized boolean start() {
+        // AgentWriteAccessFilter requires a same-origin dashboard request, including for LAN clients.
         if (docker || !supervised || busy || availableTag.isBlank() || availableTag.equals(currentTag)) return false;
         busy = true;
         error = "";

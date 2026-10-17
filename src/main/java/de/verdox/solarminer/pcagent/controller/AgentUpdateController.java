@@ -1,7 +1,6 @@
 package de.verdox.solarminer.pcagent.controller;
 
 import de.verdox.solarminer.pcagent.update.AgentUpdateService;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,8 +21,8 @@ public class AgentUpdateController {
 
     @PostMapping("/start")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public AgentUpdateService.Status start(HttpServletRequest request) {
-        if (!updates.start(request.getRemoteAddr())) throw new IllegalStateException("update_unavailable");
+    public AgentUpdateService.Status start() {
+        if (!updates.start()) throw new IllegalStateException("update_unavailable");
         return updates.status();
     }
 }

@@ -3,8 +3,11 @@
 The dashboard update panel uses local `GET /api/agent/local/update`,
 `POST /api/agent/local/update/check`, and `POST /api/agent/local/update/start`.
 The local write filter still requires a same-origin browser request. Starting
-an executable update additionally requires a loopback client, an explicitly
-supervised native launcher, and a newer release in the install's own channel.
+an executable update additionally requires the existing same-origin dashboard
+write check, an explicitly supervised native launcher, and a newer release in
+the install's own channel. This permits an operator using the dashboard over
+the trusted LAN to start the update; the request still comes from the agent's
+own UI and the executable replacement still runs on the agent host.
 The frontend translates phase/error keys through the closed DE/EN catalog.
 
 Native release launchers set `SOLARMINER_AGENT_CHANNEL`,

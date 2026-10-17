@@ -12,7 +12,6 @@
   let waitingForRestart = false;
   let completed = false;
   let guideOpen = false;
-  const localBrowser = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(location.hostname);
 
   async function api(path = '', method = 'GET') {
     const response = await fetch(`/api/agent/local/update${path}`, {method, cache: 'no-store'});
@@ -52,14 +51,14 @@
       const image = s.channel === 'beta' ? 'verdox/solar-miner-pc-agent:latest-beta' : 'verdox/solar-miner-pc-agent:latest';
       const env = `PC_AGENT_IMAGE=${image} `;
       command.textContent = `${env}docker compose -f compose.yml${overlay} pull pc-agent\n${env}docker compose -f compose.yml${overlay} up -d pc-agent`;
-    } else if (s.automatic && localBrowser) action.textContent = t('install_update_and_restart');
+    } else if (s.automatic) action.textContent = t('install_update_and_restart');
     else action.textContent = t('open_update_locally');
   }
 
   action.addEventListener('click', async () => {
     if (!last) return;
     if (last.deployment === 'docker') { guideOpen = true; guide.hidden = false; return; }
-    if (!last.automatic || !localBrowser) { state.textContent = t('open_update_locally_detail'); return; }
+    if (!last.automatic) { state.textContent = t('open_update_locally_detail'); return; }
     action.disabled = true;
     sessionStorage.setItem('solarminer.update.target', last.availableTag);
     try { render(await api('/start', 'POST')); waitingForRestart = true; }
