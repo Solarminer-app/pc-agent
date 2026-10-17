@@ -286,6 +286,10 @@ abort the sweep safely.
   is busy and is selected when it becomes free. This does not reproduce the
   reported live failure. No unsafe continuation rule was introduced without
   the first run's failure evidence.
+- 2026-10-17: the new sweep concurrency setting can force sequential testing
+  with a limit of one GPU task, but focused queue tests still cannot establish
+  why a reported live second-coin run did not begin. Live run status and miner
+  logs remain required before changing failure continuation.
 
 ### Verification required
 

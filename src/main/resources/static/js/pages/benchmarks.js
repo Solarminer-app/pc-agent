@@ -494,11 +494,13 @@ async function start(mode) {
         notice('benchmark_select_coin', true); return;
     }
     if (!requireWorkerSelection(false)) return;
+    const gpuLimit = selectedGpuLimit();
+    if (gpuLimit == null) return;
     if (actionBusy) return; actionBusy = true;
     if ($('auto-start-mining')) $('auto-start-mining').disabled = true;
     $('run-live').disabled = $('run-installed').disabled = true;
     try {
-        const response = await fetch('/api/agent/local/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, coins: selectedCoins(), workers: selectedWorkers(), startMiningAfterBenchmark: Boolean($('auto-start-mining')?.checked)})});
+        const response = await fetch('/api/agent/local/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, coins: selectedCoins(), workers: selectedWorkers(), startMiningAfterBenchmark: Boolean($('auto-start-mining')?.checked), maxConcurrentGpus: gpuLimit})});
         if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.detail || body?.message || t('could_not_start_the_benchmark')); }
         notice('measurement_started_you_can_cancel_it_at_any');
         $('results').replaceChildren(make('p', 'empty', t('benchmark_started')));
@@ -519,6 +521,27 @@ if ($('auto-start-mining')) {
 // permanently exclude coins their cards cannot run (e.g. PearlHash on Pascal).
 const coinSelectionKey = 'solarminer.pc-agent.benchmark-coins';
 const workerSelectionKey = 'solarminer.pc-agent.benchmark-workers';
+const gpuConcurrencyKey = 'solarminer.pc-agent.benchmark-gpu-concurrency';
+const gpuConcurrencyInput = $('max-concurrent-gpus');
+try {
+    const stored = Number(localStorage.getItem(gpuConcurrencyKey));
+    if (Number.isInteger(stored) && stored >= 1 && stored <= 64) gpuConcurrencyInput.value = String(stored);
+} catch (_) { }
+gpuConcurrencyInput.addEventListener('change', () => {
+    if (gpuConcurrencyInput.checkValidity()) {
+        try { localStorage.setItem(gpuConcurrencyKey, gpuConcurrencyInput.value); } catch (_) { }
+    }
+});
+
+function selectedGpuLimit() {
+    const value = Number(gpuConcurrencyInput.value);
+    if (!gpuConcurrencyInput.checkValidity() || !Number.isInteger(value) || value < 1 || value > 64) {
+        notice('benchmark_invalid_gpu_concurrency', true);
+        gpuConcurrencyInput.focus();
+        return null;
+    }
+    return value;
+}
 let catalogCoins = [];
 let workersLoaded = false;
 
@@ -1059,12 +1082,14 @@ async function startSweep(mode = 'restart') {
         notice('benchmark_select_coin', true); return;
     }
     if (!requireWorkerSelection(true)) return;
+    const gpuLimit = selectedGpuLimit();
+    if (gpuLimit == null) return;
     if (actionBusy) return; actionBusy = true;
     $('run-sweep').disabled = true;
     $('resume-sweep').disabled = true;
     try {
         const response = await fetch(`/api/agent/local/efficiency?mode=${encodeURIComponent(mode)}`,
-            {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({coins: selectedCoins(), workers: selectedWorkers()})});
+            {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({coins: selectedCoins(), workers: selectedWorkers(), maxConcurrentGpus: gpuLimit})});
         if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || 'could_not_start_the_efficiency_sweep'); }
         notice(mode === 'resume'
             ? 'efficiency_sweep_resumed_with_completed_resu'

@@ -48,9 +48,8 @@ public class BenchmarkController {
         try {
             if (request == null || request.workers() == null || request.workers().isEmpty())
                 throw new IllegalArgumentException("benchmark_select_worker");
-            BenchmarkSessionService.Session session = request.startMiningAfterBenchmark()
-                    ? sessions.start(request.mode(), request.coins(), request.workers(), true)
-                    : sessions.start(request.mode(), request.coins(), request.workers());
+            BenchmarkSessionService.Session session = sessions.start(request.mode(), request.coins(), request.workers(),
+                    request.startMiningAfterBenchmark(), request.maxConcurrentGpus());
             // The benchmarks/efficiency channels have their own producers; wake them by name.
             status.invalidate("benchmarks", "efficiency", "overview", "power-control", "workers");
             return session;
@@ -101,7 +100,7 @@ public class BenchmarkController {
     }
 
     public record StartRequest(String mode, List<String> coins, List<String> workers,
-                               boolean startMiningAfterBenchmark) { }
+                               boolean startMiningAfterBenchmark, Integer maxConcurrentGpus) { }
 
     public record SharingRequest(boolean enabled) {
     }

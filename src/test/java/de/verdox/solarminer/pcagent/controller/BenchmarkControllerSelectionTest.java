@@ -28,13 +28,13 @@ class BenchmarkControllerSelectionTest {
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(sessions);
 
-        when(sessions.start("INSTALLED", List.of("pearl"), List.of("gpu-one")))
+        when(sessions.start("INSTALLED", List.of("pearl"), List.of("gpu-one"), false, null))
                 .thenReturn(new BenchmarkSessionService.Session(true, "INSTALLED", "Preparing",
                         null, null, null, 0, 1, List.of(), null));
         api.perform(post("/api/agent/local/benchmarks").contentType("application/json")
                         .content("{\"mode\":\"INSTALLED\",\"coins\":[\"pearl\"],\"workers\":[\"gpu-one\"]}"))
                 .andExpect(status().isOk());
-        verify(sessions).start("INSTALLED", List.of("pearl"), List.of("gpu-one"));
+        verify(sessions).start("INSTALLED", List.of("pearl"), List.of("gpu-one"), false, null);
     }
 
     @Test
@@ -42,13 +42,13 @@ class BenchmarkControllerSelectionTest {
         BenchmarkSessionService sessions = mock(BenchmarkSessionService.class);
         MockMvc api = standaloneSetup(new BenchmarkController(sessions, mock(BenchmarkSharingService.class),
                 mock(AgentStatusService.class), mock(MiningPerformanceProfileStore.class))).build();
-        when(sessions.start("INSTALLED", List.of("pearl"), List.of("gpu-one"), true))
+        when(sessions.start("INSTALLED", List.of("pearl"), List.of("gpu-one"), true, 1))
                 .thenReturn(new BenchmarkSessionService.Session(true, "INSTALLED", "Preparing",
                         null, null, null, 0, 1, List.of(), null));
 
         api.perform(post("/api/agent/local/benchmarks").contentType("application/json")
-                        .content("{\"mode\":\"INSTALLED\",\"coins\":[\"pearl\"],\"workers\":[\"gpu-one\"],\"startMiningAfterBenchmark\":true}"))
+                        .content("{\"mode\":\"INSTALLED\",\"coins\":[\"pearl\"],\"workers\":[\"gpu-one\"],\"startMiningAfterBenchmark\":true,\"maxConcurrentGpus\":1}"))
                 .andExpect(status().isOk());
-        verify(sessions).start("INSTALLED", List.of("pearl"), List.of("gpu-one"), true);
+        verify(sessions).start("INSTALLED", List.of("pearl"), List.of("gpu-one"), true, 1);
     }
 }

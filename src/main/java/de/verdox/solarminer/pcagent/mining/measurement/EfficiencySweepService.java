@@ -109,16 +109,20 @@ public class EfficiencySweepService {
     }
 
     public synchronized Session start() {
-        return start(false, null, null);
+        return start(false, null, null, null);
     }
 
     /** Selection-aware start: only the chosen coins are measured; null/empty means all. */
     public synchronized Session start(List<String> selectedCoinIds) {
-        return start(false, selectedCoinIds, null);
+        return start(false, selectedCoinIds, null, null);
     }
 
     public synchronized Session start(List<String> selectedCoinIds, List<String> selectedWorkerIds) {
-        return start(false, selectedCoinIds, selectedWorkerIds);
+        return start(false, selectedCoinIds, selectedWorkerIds, null);
+    }
+
+    public synchronized Session start(List<String> selectedCoinIds, List<String> selectedWorkerIds, Integer maxConcurrentGpus) {
+        return start(false, selectedCoinIds, selectedWorkerIds, maxConcurrentGpus);
     }
 
     public synchronized Session resume() {
@@ -130,13 +134,18 @@ public class EfficiencySweepService {
     }
 
     public synchronized Session resume(List<String> selectedCoinIds, List<String> selectedWorkerIds) {
+        return resume(selectedCoinIds, selectedWorkerIds, null);
+    }
+
+    public synchronized Session resume(List<String> selectedCoinIds, List<String> selectedWorkerIds, Integer maxConcurrentGpus) {
         if (session.running()) throw new IllegalStateException("Ein Effizienz-Sweep läuft bereits");
         if (session.runs().isEmpty() || session.runs().stream().allMatch(RunStatus::terminalComplete))
             throw new IllegalStateException("Es gibt keinen unterbrochenen Effizienz-Sweep zum Fortsetzen");
-        return start(true, selectedCoinIds, selectedWorkerIds);
+        return start(true, selectedCoinIds, selectedWorkerIds, maxConcurrentGpus);
     }
 
-    private Session start(boolean resume, List<String> selectedCoinIds, List<String> selectedWorkerIds) {
+    private Session start(boolean resume, List<String> selectedCoinIds, List<String> selectedWorkerIds, Integer maxConcurrentGpus) {
+        int gpuLimit = BenchmarkSessionService.validateGpuLimit(maxConcurrentGpus);
         if (session.running()) throw new IllegalStateException("Ein Effizienz-Sweep läuft bereits");
         Set<String> selection = BenchmarkSessionService.validateCoinSelection(selectedCoinIds);
         Session previous = session;
@@ -178,7 +187,7 @@ public class EfficiencySweepService {
                 estimateRemainingSeconds(runs, startedAt));
         try {
             Map<String, GpuEfficiencyStore.Profile> resumeCheckpoint = checkpoint;
-            guard.submit(() -> run(targets, referenceBatches, cohorts, resumeCheckpoint));
+            guard.submit(() -> run(targets, referenceBatches, cohorts, resumeCheckpoint, gpuLimit));
         } catch (RuntimeException e) {
             session = Session.idle();
             guard.end();
@@ -279,12 +288,13 @@ public class EfficiencySweepService {
     }
 
     private void run(List<Target> targets, List<List<List<Target>>> referenceBatches,
-                     List<List<Target>> cohorts, Map<String, GpuEfficiencyStore.Profile> checkpoint) {
+                     List<List<Target>> cohorts, Map<String, GpuEfficiencyStore.Profile> checkpoint, int gpuLimit) {
         try {
-            execute(targets, referenceBatches, cohorts, checkpoint);
+            execute(targets, referenceBatches, cohorts, checkpoint, gpuLimit);
         } catch (RuntimeException e) {
             Session old = session;
-            session = new Session(false, "Fehler: " + Objects.toString(e.getMessage(), "Sweep fehlgeschlagen"),
+            String detail = Objects.toString(e.getMessage(), "Sweep fehlgeschlagen");
+            session = new Session(false, "benchmark_sweep_stop_selected_failed".equals(detail) ? detail : "Fehler: " + detail,
                     old.startedAt(), old.phaseIndex(), old.phaseCount(), old.results(), old.runs(), 0L);
         } finally {
             guard.end();
@@ -292,7 +302,7 @@ public class EfficiencySweepService {
     }
 
     private void execute(List<Target> targets, List<List<List<Target>>> referenceBatches,
-                         List<List<Target>> cohorts, Map<String, GpuEfficiencyStore.Profile> checkpoint) {
+                         List<List<Target>> cohorts, Map<String, GpuEfficiencyStore.Profile> checkpoint, int gpuLimit) {
         // Safety snapshot: everything the sweep may touch is captured before the first write.
         // Phase 3: the Pearl adapter is captured/restored through the same generic
         // captureState/restoreState seam as every other GPU adapter.
@@ -319,10 +329,17 @@ public class EfficiencySweepService {
         List<GpuEfficiencyStore.Profile> produced = new ArrayList<>(checkpoint.values());
         String error = null;
         try {
+            // A queued selected card may already be mining at its old cap. Stop all selected
+            // cards before admitting the first task, otherwise the concurrency limit would
+            // count only sweep tasks while those miners continue heating the rig.
+            Set<String> stoppedDevices = new HashSet<>();
+            for (Target target : targets)
+                if (stoppedDevices.add(target.gpu().deviceId()) && !stopAllOn(target.gpu()))
+                    throw new IllegalStateException("benchmark_sweep_stop_selected_failed");
             // Overrides are session-scoped. Keeping them until restoration avoids one parallel
             // run clearing a shared coin override while a sibling still needs to restart.
             for (Target target : targets) applyOverride(target);
-            executeTasks(referenceBatches, cohorts, produced, checkpoint);
+            executeTasks(referenceBatches, cohorts, produced, checkpoint, gpuLimit);
         } catch (Exception e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             error = Objects.toString(e.getMessage(), "Sweep failed");
@@ -354,7 +371,7 @@ public class EfficiencySweepService {
             }
             sharing.reportEfficiencyResults(List.copyOf(produced));
             Session old = session;
-            String result = error != null ? "Fehler: " + error
+            String result = error != null ? ("benchmark_sweep_stop_selected_failed".equals(error) ? error : "Fehler: " + error)
                     : guard.cancelRequested() ? "Abgebrochen; Leistungsgrenzen und Miner-Zustand wiederhergestellt"
                     : "Fertig; Leistungsgrenzen und Miner-Zustand wiederhergestellt";
             List<RunStatus> finalRuns = finalizePendingRuns(old.runs(),
@@ -373,7 +390,7 @@ public class EfficiencySweepService {
      */
     private void executeTasks(List<List<List<Target>>> referenceBatches, List<List<Target>> cohorts,
                               List<GpuEfficiencyStore.Profile> produced,
-                              Map<String, GpuEfficiencyStore.Profile> checkpoint) throws Exception {
+                              Map<String, GpuEfficiencyStore.Profile> checkpoint, int gpuLimit) throws Exception {
         Map<String, List<Target>> siblingsByCohort = new LinkedHashMap<>();
         for (List<Target> cohort : cohorts)
             siblingsByCohort.put(cohortKey(cohort.getFirst()), List.copyOf(cohort.subList(1, cohort.size())));
@@ -397,7 +414,7 @@ public class EfficiencySweepService {
             while (active > 0 || (!guard.cancelRequested() && (!pendingReferences.isEmpty() || !readyValidations.isEmpty()))) {
                 if (!guard.cancelRequested()) {
                     SweepTask task;
-                    while ((task = takeRunnable(readyValidations, pendingReferences, busyDevices)) != null) {
+                    while (active < gpuLimit && (task = takeRunnable(readyValidations, pendingReferences, busyDevices)) != null) {
                         SweepTask selected = task;
                         busyDevices.add(selected.target().gpu().deviceId());
                         completed.submit(() -> new SweepTaskResult(selected,

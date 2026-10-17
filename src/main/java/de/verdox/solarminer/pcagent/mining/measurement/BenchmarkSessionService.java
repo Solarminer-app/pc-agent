@@ -81,7 +81,13 @@ public class BenchmarkSessionService {
 
     public synchronized Session start(String mode, List<String> selectedCoinIds, List<String> selectedWorkerIds,
                                       boolean startMiningAfterBenchmark) {
+        return start(mode, selectedCoinIds, selectedWorkerIds, startMiningAfterBenchmark, null);
+    }
+
+    public synchronized Session start(String mode, List<String> selectedCoinIds, List<String> selectedWorkerIds,
+                                      boolean startMiningAfterBenchmark, Integer maxConcurrentGpus) {
         BenchmarkMode parsed = BenchmarkMode.from(mode).orElseThrow(() -> new IllegalArgumentException("Unknown benchmark mode"));
+        int gpuLimit = validateGpuLimit(maxConcurrentGpus);
         if (session.running()) throw new IllegalStateException("A benchmark is already running");
         Set<String> selection = validateCoinSelection(selectedCoinIds);
         Set<String> workers = selectedWorkerIds == null ? Set.of() : validateWorkerSelection(selectedWorkerIds,
@@ -93,7 +99,7 @@ public class BenchmarkSessionService {
             });
         }
         List<String> phases = parsed == BenchmarkMode.INSTALLED ? installedPhases(selection, workers) : List.of(PHASE_LIVE);
-        List<GpuBenchmarkBatch> plannedBatches = parsed == BenchmarkMode.INSTALLED ? gpuBenchmarkBatches(phases, workers) : List.of();
+        List<GpuBenchmarkBatch> plannedBatches = parsed == BenchmarkMode.INSTALLED ? gpuBenchmarkBatches(phases, workers, gpuLimit) : List.of();
         if (phases.isEmpty() || parsed == BenchmarkMode.INSTALLED
                 && !phases.contains(Coin.MONERO.id()) && plannedBatches.isEmpty()) {
             String detail = setupSkipped.isEmpty()
@@ -374,7 +380,13 @@ public class BenchmarkSessionService {
     }
 
     /** Every selected GPU measures every compatible coin, even when another GPU has the same model. */
-    private List<GpuBenchmarkBatch> gpuBenchmarkBatches(List<String> phases, Set<String> workers) {
+    static int validateGpuLimit(Integer limit) {
+        if (limit == null) return Integer.MAX_VALUE; // Older clients retain their existing behavior.
+        if (limit < 1 || limit > 64) throw new IllegalArgumentException("benchmark_invalid_gpu_concurrency");
+        return limit;
+    }
+
+    private List<GpuBenchmarkBatch> gpuBenchmarkBatches(List<String> phases, Set<String> workers, int gpuLimit) {
         Map<String, Map<Coin, List<LocalGpuPowerService.Gpu>>> bySoftware = new LinkedHashMap<>();
         for (String phase : phases) {
             Coin coin = Coin.byIdOrNull(phase);
@@ -397,12 +409,18 @@ public class BenchmarkSessionService {
             }
         }
         List<GpuBenchmarkBatch> batches = new ArrayList<>();
-        bySoftware.forEach((software, cards) -> planGpuBatches(cards).forEach(wave -> batches.add(new GpuBenchmarkBatch(software, wave))));
+        bySoftware.forEach((software, cards) -> planGpuBatches(cards, gpuLimit)
+                .forEach(wave -> batches.add(new GpuBenchmarkBatch(software, wave))));
         return List.copyOf(batches);
     }
 
     /** Pure planner: each physical device has its own coin queue and runs at most one coin per wave. */
     static List<Map<Coin, List<LocalGpuPowerService.Gpu>>> planGpuBatches(Map<Coin, List<LocalGpuPowerService.Gpu>> cardsByCoin) {
+        return planGpuBatches(cardsByCoin, Integer.MAX_VALUE);
+    }
+
+    static List<Map<Coin, List<LocalGpuPowerService.Gpu>>> planGpuBatches(
+            Map<Coin, List<LocalGpuPowerService.Gpu>> cardsByCoin, int gpuLimit) {
         Map<String, LocalGpuPowerService.Gpu> devices = new LinkedHashMap<>();
         Map<String, List<Coin>> coinsByDevice = new LinkedHashMap<>();
         cardsByCoin.forEach((coin, cards) -> {
@@ -423,11 +441,30 @@ public class BenchmarkSessionService {
             }
             deviceIndex++;
         }
-        return waves.stream().map(wave -> {
-            Map<Coin, List<LocalGpuPowerService.Gpu>> copy = new LinkedHashMap<>();
-            wave.forEach((coin, cards) -> copy.put(coin, List.copyOf(cards)));
-            return Collections.unmodifiableMap(copy);
-        }).toList();
+        List<Map<Coin, List<LocalGpuPowerService.Gpu>>> limited = new ArrayList<>();
+        for (Map<Coin, List<LocalGpuPowerService.Gpu>> wave : waves) {
+            Map<Coin, List<LocalGpuPowerService.Gpu>> chunk = new LinkedHashMap<>();
+            int size = 0;
+            for (Map.Entry<Coin, List<LocalGpuPowerService.Gpu>> entry : wave.entrySet()) {
+                for (LocalGpuPowerService.Gpu gpu : entry.getValue()) {
+                    if (size == gpuLimit) {
+                        limited.add(immutableBatch(chunk));
+                        chunk = new LinkedHashMap<>();
+                        size = 0;
+                    }
+                    chunk.computeIfAbsent(entry.getKey(), ignored -> new ArrayList<>()).add(gpu);
+                    size++;
+                }
+            }
+            if (size > 0) limited.add(immutableBatch(chunk));
+        }
+        return List.copyOf(limited);
+    }
+
+    private static Map<Coin, List<LocalGpuPowerService.Gpu>> immutableBatch(Map<Coin, List<LocalGpuPowerService.Gpu>> batch) {
+        Map<Coin, List<LocalGpuPowerService.Gpu>> copy = new LinkedHashMap<>();
+        batch.forEach((coin, cards) -> copy.put(coin, List.copyOf(cards)));
+        return Collections.unmodifiableMap(copy);
     }
 
     private void measureGpuBatch(BenchmarkMode mode, GpuBenchmarkBatch batch, int index, int phaseCount,

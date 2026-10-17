@@ -2626,3 +2626,9 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Verification: focused `NetworkDashboardServiceTest`, JavaScript syntax,
   `check-i18n.cjs` and `simulate-i18n-render.cjs` passed. Real hardware and
   cross-agent visual confirmation remain open.
+
+## 2026-10-17 — Limit concurrent GPU measurement
+
+- Added a browser-saved GPU concurrency choice (default 1, range 1–64) for installed benchmarks and power sweeps. The limit is sent on every start and sweep resume, validated by the agent, and applied to benchmark wave size and sweep task admission. Before a sweep schedules work, it stops miners on all selected target cards so queued cards do not keep heating the rig at their old cap. Older clients without the field keep their previous parallel behavior. LIVE measurements continue observing already-running miners.
+- Added German/English UI help and validation copy. Restoring previously running miners after measurement is outside the cap, since the choice governs measurement load rather than ordinary operation. No live thermal or pool test was available.
+- Verification: focused `BenchmarkSessionServiceTest`, `EfficiencySweepServiceTest` and `BenchmarkControllerSelectionTest` passed on JDK 21; `node --check`, catalog, literal, two-locale render and `git diff --check` passed. The benchmark planner test proves that a cap of two retains all device/coin measurements while splitting each wave. Sweep capacity is enforced at task admission; live GPU temperatures remain unverified.

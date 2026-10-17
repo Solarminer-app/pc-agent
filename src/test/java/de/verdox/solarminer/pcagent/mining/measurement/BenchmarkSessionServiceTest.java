@@ -135,6 +135,21 @@ class BenchmarkSessionServiceTest {
                 .filter(gpu -> gpu.deviceId().equals("gpu-b")).count());
     }
     @Test
+    void gpuLimitSplitsWavesWithoutDroppingDeviceCoinMeasurements() {
+        var cards = new LinkedHashMap<de.verdox.solarminer.pcagent.coin.Coin, List<LocalGpuPowerService.Gpu>>();
+        cards.put(de.verdox.solarminer.pcagent.coin.Coin.PEARL, List.of(
+                gpu("gpu-a", "RTX 4090", 0), gpu("gpu-b", "RTX 4090", 1), gpu("gpu-c", "RTX 4090", 2)));
+        cards.put(de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN, cards.get(de.verdox.solarminer.pcagent.coin.Coin.PEARL));
+
+        var batches = BenchmarkSessionService.planGpuBatches(cards, 2);
+
+        assertEquals(4, batches.size());
+        assertEquals(6, batches.stream().flatMap(batch -> batch.values().stream()).mapToLong(List::size).sum());
+        assertTrue(batches.stream().allMatch(batch -> batch.values().stream().mapToInt(List::size).sum() <= 2));
+        assertEquals("benchmark_invalid_gpu_concurrency", assertThrows(IllegalArgumentException.class,
+                () -> BenchmarkSessionService.validateGpuLimit(0)).getMessage());
+    }
+    @Test
     void unavailableDefaultPayoutSkipsPearlInsteadOfPreventingAnotherInstalledBenchmark() {
         MiningService mining = mock(MiningService.class);
         XmrMinerService xmr = mock(XmrMinerService.class);
