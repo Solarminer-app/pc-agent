@@ -64,11 +64,14 @@ class CoinHoppingServiceTest {
             String coin = invocation.getArgument(0);
             return forecast(coin, coin.equals("quantus") ? 10d : 5d, now);
         });
+        EnergyJournalService energy = mock(EnergyJournalService.class);
+        EnergyJournalService.Overview overview = mock(EnergyJournalService.Overview.class);
+        when(energy.overview()).thenReturn(overview);
         CoinHoppingService service = new CoinHoppingService(new ObjectMapper().findAndRegisterModules(), directory.resolve("hopping.json").toString(),
                 profiles, performance, market, planning, mock(WorkerAssignmentService.class), power,
                 mock(BenchmarkSessionService.class), mock(EfficiencySweepService.class), mock(LocalRunLock.class),
                 new CoinHoppingLedger(new ObjectMapper().findAndRegisterModules(), directory.resolve("ledger.json").toString()),
-                mock(EnergyJournalService.class));
+                energy);
 
         CoinHoppingService.View view = service.view("gpu-1", 180);
         assertEquals(List.of("quantus", "pearl"), view.candidates().stream().map(CoinHoppingService.Candidate::coin).toList());
