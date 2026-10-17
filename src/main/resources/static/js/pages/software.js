@@ -15,6 +15,7 @@
     for (const option of options) {
       const item = grouped.get(option.id) || {...option, coins: [], algorithms: [], variants: []};
       item.coins.push(option.coin); item.algorithms.push(option.algorithm); item.variants.push(option);
+      item.compatibleGpuVendors = [...new Set([...(item.compatibleGpuVendors || []), ...(option.compatibleGpuVendors || [])])];
       item.installed ||= option.installed;
       item.installable ||= option.installable;
       if (option.downloadStatus === 'DOWNLOADING') item.downloadStatus = option.downloadStatus;
@@ -29,9 +30,11 @@
   const coinName = option => option.coinName || option.coin;
   function render() {
     const list = packages.filter(item => {
-      const device = item.device.includes('CPU') ? 'CPU' : 'GPU';
-      const haystack = [item.name, ...item.variants.map(coinName), ...item.algorithms].join(' ').toLowerCase();
-      return (filter === 'all' || filter === device) && (!search || haystack.includes(search));
+      const vendors = item.compatibleGpuVendors || [];
+      const deviceMatches = filter === 'all' || (filter === 'CPU' && item.device.includes('CPU'))
+        || (filter === 'GPU' && vendors.length > 0) || vendors.includes(filter);
+      const haystack = [item.name, ...item.variants.map(coinName), ...item.algorithms, ...vendors].join(' ').toLowerCase();
+      return deviceMatches && (!search || haystack.includes(search));
     });
     $('catalog-installed-count').textContent = t('count_installed', {count: packages.filter(item => item.installed).length});
     $('catalog-available-count').textContent = t('count_available', {count: packages.length});
@@ -43,11 +46,18 @@
       const head = el('div', 'software-card__head');
       const identity = el('div'); identity.append(el('p', 'kicker', item.device), el('h3', '', item.name));
       const status = el('span', `pill ${item.installed ? 'tone-ok' : needsUpdate ? 'tone-warn' : item.selectable ? '' : 'tone-warn'}`,
-        item.downloadStatus === 'DOWNLOADING' ? 'installing_d0dbee' : needsUpdate ? 'update_required' : item.installed ? 'installed_ff9a99' : item.installable ? 'installable' : 'not_integrated');
+        item.downloadStatus === 'DOWNLOADING' ? 'installing_d0dbee' : needsUpdate ? 'update_required' : item.installed ? 'installed_ff9a99' : item.installable ? 'installable' : item.downloadStatus === 'NOT_INTEGRATED' ? 'not_integrated' : item.unavailableReason ? 'not_available_on_this_system' : 'not_integrated');
       head.append(identity, status); card.append(head);
       const supported = el('div', 'software-support');
       [...new Set(item.variants.map(entry => `${coinName(entry)} · ${entry.algorithm}`))]
         .forEach(value => supported.append(el('span', 'software-chip', value)));
+      for (const variant of item.variants) for (const vendor of variant.compatibleGpuVendors || []) {
+        const badge = el('span', 'software-chip software-chip--gpu');
+        badge.textContent = t('coin_compatible_gpu_vendor', {
+          coin: coinName(variant), vendor: t(`gpu_vendor_${vendor.toLowerCase()}`)
+        });
+        supported.append(badge);
+      }
       card.append(supported);
       const facts = el('dl', 'software-facts');
       const fact = (name, value) => { facts.append(el('dt', '', name), el('dd', '', value)); };

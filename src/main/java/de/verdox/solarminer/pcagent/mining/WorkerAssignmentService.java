@@ -83,19 +83,21 @@ public class WorkerAssignmentService {
         Coin oldCoinValue = Coin.byIdOrNull(oldCoin);
         String oldMinerId = oldCoinValue == null || oldCoinValue == Coin.NONE ? null
                 : miners.minerSoftwareForWorker(oldCoinValue, deviceId);
-        if ((!oldCoin.equals(coin.id()) || !java.util.Objects.equals(oldMinerId, request.minerSoftwareId()))
-                && !Coin.NONE.id().equals(oldCoin) && !mining.stopExternalWorker(deviceId,
-                        "Worker-Zuweisung geändert / Worker assignment changed"))
-            throw new IllegalStateException("Der laufende Worker konnte nicht angehalten werden");
-
         MinerCatalogService.MinerOption selectedOption = null;
         if (coin != Coin.NONE) {
             selectedOption = catalog.options(coin.id()).stream()
                     .filter(candidate -> candidate.id().equals(request.minerSoftwareId())).findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("Miner-Software unterstützt diesen Coin nicht"));
+            if (!MinerCatalogService.supportsHardware(selectedOption, hardware.type, hardware.vendor))
+                throw new IllegalArgumentException("Miner-Software ist mit diesem GPU-Hersteller nicht kompatibel");
             if (!selectedOption.installed() || !selectedOption.selectable())
                 throw new IllegalArgumentException("Miner-Software ist nicht einsatzbereit");
         }
+
+        if ((!oldCoin.equals(coin.id()) || !java.util.Objects.equals(oldMinerId, request.minerSoftwareId()))
+                && !Coin.NONE.id().equals(oldCoin) && !mining.stopExternalWorker(deviceId,
+                        "Worker-Zuweisung geändert / Worker assignment changed"))
+            throw new IllegalStateException("Der laufende Worker konnte nicht angehalten werden");
 
         if (!controls.setWorkerAssignment(deviceId, coin.id(), selectedOption == null ? null : selectedOption.id()))
             throw new IOException("Worker-Zuweisung konnte nicht gespeichert werden");
@@ -145,6 +147,11 @@ public class WorkerAssignmentService {
             return true;
         }
         String minerId = miners.minerSoftwareForWorker(coin, deviceId);
+        MinerCatalogService.MinerOption option = catalog.options(coin.id()).stream()
+                .filter(candidate -> candidate.id().equals(minerId)).findFirst()
+                .orElseThrow(() -> new IllegalStateException("Miner-Software unterstützt diesen Coin nicht"));
+        if (!MinerCatalogService.supportsHardware(option, hardware.type, hardware.vendor))
+            throw new IllegalStateException("Miner-Software ist mit diesem GPU-Hersteller nicht kompatibel");
         GpuCoinMiner miner = miners.gpuMiner(coin, minerId);
         ensureGpuDefault(coin, miner, hardware, assignedDevices(coin.id(), minerId));
         if (applyPowerMode && workerPowerModes != null) {

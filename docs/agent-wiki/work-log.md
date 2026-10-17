@@ -2449,3 +2449,10 @@ Vorgehen / Andockpunkte für andere Agenten:
   Keine UI-/API-Texte wurden geändert; `check-i18n.cjs` bestätigte 1.496
   Schlüssel auf 11 Seiten in Deutsch/Englisch und `scan-i18n-literals.cjs`
   fand null ungekapselte Browsertexte. `git diff --check` bestand.
+
+## 2026-10-17 — Miner-Katalog nach GPU-Kompatibilität filtern
+
+- `MinerOption` liefert pro Coin die unterstützten GPU-Hersteller. Die Software-Seite zeigt die Coin/GPU-Kombinationen und filtert nach CPU, GPU, NVIDIA, AMD oder Intel. Die Worker-Einrichtung markiert inkompatible Kombinationen und deaktiviert sie; `WorkerAssignmentService` validiert Hersteller und Gerätetyp serverseitig bei Zuweisung und Start. Fehlgeschlagene Kompatibilitätsvalidierung stoppt keinen bereits laufenden Worker.
+- Die bekannten Zuordnungen folgen den vorhandenen Coin-/Miner-Integrationsnotizen: QuanPool QTC auf NVIDIA; SRBMiner QTC und PearlHash auf NVIDIA/AMD; RVN und ETC mit SRBMiner auf NVIDIA/AMD/Intel; Decred mit SRBMiner auf NVIDIA/AMD und TeamRedMiner auf AMD. Das ist Hersteller-/Familienfilterung; modell- und treiberspezifische Mindestanforderungen bleiben als Minerhinweise sichtbar und erfordern weiterhin Hardwareprüfung.
+- Aktualisiert den PC-Agent-Miner-Integrationsleitfaden: jede neue Miner-Option benötigt Coin-/GPU-Kompatibilitätsdaten, UI-Filter und Backend-Prüfung.
+- Verifikation: `compileJava --offline` erfolgreich; `check-i18n.cjs` bestätigte 1.504 Schlüssel über 11 Seiten in Deutsch/Englisch, Literal-Scan fand null ungekapselte Browsertexte; beide geänderten JavaScript-Dateien bestehen `node --check`. Keine GPU- oder Pooltests ausgeführt.

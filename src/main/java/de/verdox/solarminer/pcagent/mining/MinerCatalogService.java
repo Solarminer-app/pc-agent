@@ -71,12 +71,22 @@ public class MinerCatalogService {
     }
 
     /** Metadata is API data so future installers can be added without teaching the UI coin-specific facts. */
-    public record MinerOption(String id, String coin, String coinName, String name, String device, String algorithm,
+    public record MinerOption(String id, String coin, String coinName, String name, String device,
+                              List<String> compatibleGpuVendors, String algorithm,
                               Double developerFeePercent, String developerFeeLabel, String developerFeeSource,
                               List<String> advantages, List<String> disadvantages,
                               String projectUrl, boolean experimental, boolean installed,
                               String downloadStatus, String downloadDetail, boolean installable, boolean selectable,
                               String unavailableReason) {
+        public MinerOption(String id, String coin, String coinName, String name, String device, String algorithm,
+                           Double developerFeePercent, String developerFeeLabel, String developerFeeSource,
+                           List<String> advantages, List<String> disadvantages, String projectUrl,
+                           boolean experimental, boolean installed, String downloadStatus, String downloadDetail,
+                           boolean installable, boolean selectable, String unavailableReason) {
+            this(id, coin, coinName, name, device, supportedGpuVendors(id, coin), algorithm, developerFeePercent,
+                    developerFeeLabel, developerFeeSource, advantages, disadvantages, projectUrl, experimental,
+                    installed, downloadStatus, downloadDetail, installable, selectable, unavailableReason);
+        }
         /** Static catalog definitions carry no display name; {@code state} resolves it from the coin id. */
         public MinerOption(String id, String coin, String name, String device, String algorithm,
                     Double developerFeePercent, String developerFeeLabel, String developerFeeSource,
@@ -84,7 +94,7 @@ public class MinerCatalogService {
                     String projectUrl, boolean experimental, boolean installed,
                     String downloadStatus, String downloadDetail, boolean selectable,
                     String unavailableReason) {
-            this(id, coin, null, name, device, algorithm, developerFeePercent, developerFeeLabel, developerFeeSource,
+            this(id, coin, null, name, device, supportedGpuVendors(id, coin), algorithm, developerFeePercent, developerFeeLabel, developerFeeSource,
                     advantages, disadvantages,
                     projectUrl, experimental, installed, downloadStatus, downloadDetail, selectable, selectable, unavailableReason);
         }
@@ -95,10 +105,31 @@ public class MinerCatalogService {
                            String projectUrl, boolean experimental, boolean installed,
                            String downloadStatus, String downloadDetail, boolean installable, boolean selectable,
                            String unavailableReason) {
-            this(id, coin, null, name, device, algorithm, developerFeePercent, developerFeeLabel, developerFeeSource,
+            this(id, coin, null, name, device, supportedGpuVendors(id, coin), algorithm, developerFeePercent, developerFeeLabel, developerFeeSource,
                     advantages, disadvantages, projectUrl, experimental, installed, downloadStatus, downloadDetail,
                     installable, selectable, unavailableReason);
         }
+    }
+
+    /** Closed compatibility facts used by both the catalog and per-device assignment validation. */
+    public static List<String> supportedGpuVendors(String minerId, String coin) {
+        if ("xmrig".equals(minerId)) return List.of();
+        if ("quanpool-miner".equals(minerId)) return List.of("NVIDIA");
+        if ("teamredminer".equals(minerId)) return List.of("AMD");
+        if (!"srbminer-multi".equals(minerId)) return List.of();
+        if (de.verdox.solarminer.pcagent.coin.Coin.PEARL.id().equals(coin)
+                || de.verdox.solarminer.pcagent.coin.Coin.QUANTUS.id().equals(coin)) return List.of("AMD", "NVIDIA");
+        if (de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN.id().equals(coin)
+                || de.verdox.solarminer.pcagent.coin.Coin.ETHEREUMCLASSIC.id().equals(coin))
+            return List.of("AMD", "NVIDIA", "INTEL");
+        if (de.verdox.solarminer.pcagent.coin.Coin.DECRED.id().equals(coin)) return List.of("AMD", "NVIDIA");
+        return List.of();
+    }
+
+    public static boolean supportsHardware(MinerOption option, String hardwareType, String gpuVendor) {
+        if ("CPU".equals(hardwareType)) return "CPU".equals(option.device());
+        return "GPU".equals(hardwareType) && gpuVendor != null
+                && option.compatibleGpuVendors().contains(gpuVendor.toUpperCase(java.util.Locale.ROOT));
     }
 
     public List<MinerOption> options(String coin) {
@@ -173,32 +204,32 @@ public class MinerCatalogService {
                         List.of("Sehr verbreitet", "RandomX-Optimierungen und Huge Pages"),
                         List.of("Developer Fee", "Nur CPU-Pfad im PC-Agent"), "https://xmrig.com/", false,
                         false, null, null, true, null),
-                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.PEARL.id(), "SRBMiner-MULTI", "GPU", "PearlHash", 2.0,
+                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.PEARL.id(), "SRBMiner-MULTI", "NVIDIA RTX 2000+ / AMD RDNA2", "PearlHash", 2.0,
                         "SRBMiner-MULTI Entwicklergebühr", "https://github.com/doktor83/SRBMiner-Multi",
                         List.of("Gemeinsamer GPU-Installer", "Pro-GPU-Steuerung"),
                         List.of("Developer Fee", "Treiber- und GPU-Kompatibilität erforderlich"), "https://github.com/doktor83/SRBMiner-Multi", false,
                         false, null, null, true, null),
-                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN.id(), "SRBMiner-MULTI", "GPU", "KAWPOW", 0.85,
+                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN.id(), "SRBMiner-MULTI", "AMD / NVIDIA / Intel GPU", "KAWPOW", 0.85,
                         "SRBMiner-MULTI KAWPOW Entwicklergebühr", "SRBMiner-MULTI 3.7.1 --list-algorithms",
                         List.of("KAWPOW-Unterstützung", "Gemeinsamer GPU-Installer"),
                         List.of("Developer Fee", "End-to-End-Route noch experimentell"), "https://github.com/doktor83/SRBMiner-Multi", true,
                         false, null, null, true, null),
-                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.ETHEREUMCLASSIC.id(), "SRBMiner-MULTI", "GPU", "ETCHash", 0.65,
+                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.ETHEREUMCLASSIC.id(), "SRBMiner-MULTI", "AMD / NVIDIA / Intel GPU", "ETCHash", 0.65,
                         "SRBMiner-MULTI ETCHash Entwicklergebühr", "SRBMiner-MULTI 3.7.1 --list-algorithms",
                         List.of("ETCHash-Unterstützung", "Gemeinsamer GPU-Installer"),
                         List.of("Developer Fee", "End-to-End-Route noch experimentell"), "https://github.com/doktor83/SRBMiner-Multi", true,
                         false, null, null, true, null),
-                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.DECRED.id(), "SRBMiner-MULTI", "GPU", "BLAKE3 (Decred)", null,
+                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.DECRED.id(), "SRBMiner-MULTI", "AMD / NVIDIA GPU", "BLAKE3 (Decred)", null,
                         "SRBMiner-MULTI BLAKE3-Decred Entwicklergebühr", "Gebühr für die gewählte SRBMiner-Version muss vor Start verifiziert werden",
                         List.of("BLAKE3-Decred-Unterstützung", "Bereits verwendeter GPU-Installer"),
                         List.of("GPU und Poolkonto erforderlich", "SolarMiner-Fee-Ziel noch nicht provisioniert"), "https://github.com/doktor83/SRBMiner-Multi", true,
                         false, null, null, true, null),
-                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.QUANTUS.id(), "SRBMiner-MULTI", "GPU", "QPoW (Poseidon2)", 2.5,
+                new MinerOption("srbminer-multi", de.verdox.solarminer.pcagent.coin.Coin.QUANTUS.id(), "SRBMiner-MULTI", "AMD / NVIDIA GPU", "QPoW (Poseidon2)", 2.5,
                         "SRBMiner-MULTI QPoW Entwicklergebühr", "https://pool.kryptex.com/qtc",
                         List.of("Kryptex QTC pool support", "NVIDIA and AMD RDNA GPU path"),
                         List.of("2.5% miner fee", "SolarMiner QTC fee route and accepted-share credits are not yet verified"), "https://github.com/doktor83/SRBMiner-Multi", true,
                         false, null, null, true, null),
-                new MinerOption("quanpool-miner", de.verdox.solarminer.pcagent.coin.Coin.QUANTUS.id(), "QuanPool Miner", "NVIDIA GPU · Linux x86-64", "QPoW (Poseidon2)", 2.0,
+                new MinerOption("quanpool-miner", de.verdox.solarminer.pcagent.coin.Coin.QUANTUS.id(), "QuanPool Miner", "NVIDIA CUDA · Linux x86-64", "QPoW (Poseidon2)", 2.0,
                         "QuanPool Miner developer fee", "https://quanpool.com/",
                         List.of("Optimized native CUDA engine", "Stable NVIDIA GPU selection by driver UUID", "HiveOS-compatible JSON metrics"),
                         List.of("Closed binary with a 2% developer fee", "Real SolarMiner fee-share accounting is still pending"),

@@ -49,7 +49,7 @@ function render(data) {
             && key.endsWith('.temperature') && value.available).length === 1
             ? Object.entries(metrics).find(([key, value]) => key.startsWith('gpu.amd.')
               && key.endsWith('.temperature') && value.available)?.[1] : null)
-        : null;
+        : cardData?.vendor === 'Intel' ? metrics[`gpu.intel.${cardData.index}.temperature`] : null;
     const values = el('div', 'telemetry-device-values'); values.append(
       el('span', '', draw != null ? `${fmt(draw, 0)} W` : '—'),
       el('span', '', gpuTemperature?.available ? `${fmt(gpuTemperature.value, 0)} °C` : '—'),

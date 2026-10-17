@@ -174,21 +174,29 @@
   function render() { renderStatus(); renderKpis(); renderScope(); renderTable(); }
 
   function compatibleMiners(coinId) { return miners.filter(item => item.coin === coinId && item.selectable); }
+  function compatibleWithWorker(miner, worker = selected) {
+    if (!worker) return false;
+    return worker.hardwareType === 'CPU' ? miner.device === 'CPU'
+      : (miner.compatibleGpuVendors || []).includes(String(worker.vendor || '').toUpperCase());
+  }
   function populateMinerSelect(coinId, selectedId) {
     const select = $('worker-miner'); select.replaceChildren();
     const coinMiners = miners.filter(item => item.coin === coinId);
     for (const miner of coinMiners) {
       const option = document.createElement('option'); option.value = miner.id;
-      option.textContent = `${miner.name}${!miner.selectable ? ` · ${t('currently_unavailable_for_assignment')}` : miner.installed ? '' : ` · ${t('not_installed')}`}`;
-      option.disabled = !miner.selectable || !miner.installed; select.append(option);
+      const hardwareCompatible = compatibleWithWorker(miner);
+      option.textContent = `${miner.name}${!hardwareCompatible ? ` · ${t('not_compatible_with_this_gpu')}` : !miner.selectable ? ` · ${t('currently_unavailable_for_assignment')}` : miner.installed ? '' : ` · ${t('not_installed')}`}`;
+      option.disabled = !hardwareCompatible || !miner.selectable || !miner.installed; select.append(option);
     }
     if (selectedId && [...select.options].some(option => option.value === selectedId && !option.disabled)) select.value = selectedId;
     const chosen = coinMiners.find(miner => miner.id === select.value);
     $('worker-miner-help').textContent = coinId === 'none' ? t('no_software_required')
+      : chosen && !compatibleWithWorker(chosen) ? t('select_a_miner_compatible_with_this_gpu')
       : chosen && !chosen.selectable ? s(chosen.unavailableReason || 'this_miner_software_is_currently_not_releas')
       : chosen?.installed ? t('installed_and_ready')
       : t('install_compatible_software_in_the_miner_sof');
-    $('worker-miner-install').hidden = coinId === 'none' || !chosen?.selectable || Boolean(chosen?.installed);
+    $('worker-miner-install').hidden = coinId === 'none' || !chosen?.selectable
+      || !compatibleWithWorker(chosen) || Boolean(chosen?.installed);
     $('worker-save').disabled = (coinId !== 'none' && (!chosen || !chosen.selectable || !chosen.installed))
       || (coinId === 'none' && $('worker-power-mode').value !== 'MANUAL');
     select.disabled = coinId === 'none';
@@ -200,16 +208,19 @@
     $('worker-editor-hardware').textContent = `${worker.hardwareType} · ${worker.deviceId}`;
     const coinSelect = $('worker-coin'); coinSelect.replaceChildren();
     const catalog = window.SolarMinerCoinCatalog || [];
-    const ids = ['none', ...catalog.filter(row => worker.hardwareType === 'CPU' ? row.device === 'CPU' : row.device !== 'CPU').map(row => row.id)];
+    const ids = ['none', ...catalog.filter(row => worker.hardwareType === 'CPU'
+      ? row.device === 'CPU' : row.device !== 'CPU').map(row => row.id)];
     for (const id of ids) {
       const option = document.createElement('option'); option.value = id;
       const coinMiners = miners.filter(miner => miner.coin === id);
-      const unavailable = id !== 'none' && coinMiners.length > 0 && !coinMiners.some(miner => miner.selectable);
-      const reason = coinMiners.find(miner => !miner.selectable)?.unavailableReason;
+      const compatible = coinMiners.filter(miner => compatibleWithWorker(miner));
+      const unavailable = id !== 'none' && (compatible.length === 0 || !compatible.some(miner => miner.selectable));
+      const reason = compatible.length === 0 ? t('no_miner_compatible_with_this_gpu')
+        : compatible.find(miner => !miner.selectable)?.unavailableReason;
       option.textContent = id === 'none' ? t('unassigned_4cfcb8') : t('coin_algorithmunavailable', {
         coin: coinTicker(id),
         algorithm: coinAlgorithm(id),
-        unavailable: unavailable ? ` · ${t('not_enabled')}` : ''
+        unavailable: unavailable ? ` · ${compatible.length ? t('not_enabled') : t('not_compatible_with_this_gpu')}` : ''
       });
       option.disabled = unavailable;
       if (reason) option.title = s(reason);

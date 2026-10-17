@@ -19,7 +19,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
-/** Driver-backed NVIDIA/AMD power-cap control with verified writes and crash recovery. */
+/** Driver-backed NVIDIA/AMD/Intel power-cap control with verified writes and crash recovery. */
 @Service
 public class LocalGpuPowerService {
     private static final long DISCOVERY_CACHE = TimeUnit.SECONDS.toNanos(2);
@@ -30,6 +30,7 @@ public class LocalGpuPowerService {
     private record Capability(boolean writable, String error, long checkedAt) { }
     private record Recovery(String vendor, int watts) { }
     private record AmdDescriptor(int index, String selector) { }
+    private record IntelDescriptor(int index, String selector, String model) { }
 
     private final ObjectMapper json;
     private final Path limitsFile;
@@ -137,6 +138,7 @@ public class LocalGpuPowerService {
             cards.subList(beforeAmd, cards.size()).clear();
             detectAmdSysfs(cards);
         }
+        detectIntel(cards);
         if (recoverPending(cards)) return detect();
         if (!startupRecovery.isEmpty()) {
             cards.replaceAll(gpu -> startupRecovery.containsKey(gpu.deviceId())
@@ -147,6 +149,73 @@ public class LocalGpuPowerService {
                     : gpu);
         }
         return List.copyOf(cards);
+    }
+
+    /** Intel GPU telemetry and power caps through Intel XPU System Management Interface. */
+    private void detectIntel(List<Gpu> cards) {
+        try {
+            JsonNode list = json.readTree(commands.run(List.of("xpu-smi", "discovery", "-j")));
+            for (IntelDescriptor descriptor : intelDescriptors(list)) {
+                String config;
+                try {
+                    config = commands.run(List.of("xpu-smi", "config", "-d", descriptor.selector()));
+                } catch (IOException | InterruptedException unavailable) {
+                    interrupted(unavailable);
+                    config = "";
+                }
+                Integer min = configWatts(config, "min");
+                Integer max = configWatts(config, "max");
+                Integer current = configWatts(config, "current");
+                Double draw = intelMetric(descriptor.selector(), 1);
+                addCard(cards, "Intel", descriptor.index(), descriptor.selector(), descriptor.model(),
+                        valueOrZero(min), valueOrZero(max), null, current, draw);
+            }
+        } catch (IOException | InterruptedException | RuntimeException e) { interrupted(e); }
+    }
+
+    private Double intelMetric(String selector, int metric) {
+        try {
+            String output = commands.run(List.of("xpu-smi", "dump", "-d", selector, "-m",
+                    Integer.toString(metric), "-n", "1"));
+            List<String> rows = output.lines().filter(line -> line.contains(",")
+                    && !line.toLowerCase(Locale.ROOT).contains("timestamp")
+                    && !line.toLowerCase(Locale.ROOT).contains("deviceid")).toList();
+            if (rows.isEmpty()) return null;
+            String[] columns = rows.getLast().split(",", -1);
+            return columns.length < 3 ? null : decimal(columns[columns.length - 1]);
+        } catch (IOException | InterruptedException e) { interrupted(e); return null; }
+    }
+
+    private static List<IntelDescriptor> intelDescriptors(JsonNode root) {
+        List<IntelDescriptor> found = new ArrayList<>();
+        JsonNode devices = root == null ? null : root.path("device_list");
+        if (devices == null || !devices.isArray()) return found;
+        for (JsonNode device : devices) {
+            if (!device.path("vendor_name").asText().toLowerCase(Locale.ROOT).contains("intel")
+                    || !device.path("device_type").asText().equalsIgnoreCase("GPU")) continue;
+            String selector = device.path("pci_bdf_address").asText("").trim();
+            Integer index = integer(device.path("device_id").asText(null));
+            String model = device.path("device_name").asText("Intel GPU").trim();
+            if (!selector.isBlank() && index != null) found.add(new IntelDescriptor(index, selector, model));
+        }
+        return found;
+    }
+
+    private static Integer configWatts(String output, String field) {
+        String pattern = switch (field) {
+            case "min" -> "(?im)Valid Range:\\s*([0-9]+(?:\\.[0-9]+)?)\\s+to\\s+[0-9]+(?:\\.[0-9]+)?";
+            case "max" -> "(?im)Valid Range:\\s*[0-9]+(?:\\.[0-9]+)?\\s+to\\s+([0-9]+(?:\\.[0-9]+)?)";
+            default -> "(?im)Power Limit \\(w\\):\\s*([0-9]+(?:\\.[0-9]+)?)";
+        };
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(pattern).matcher(output);
+        if (!matcher.find()) return null;
+        Double value = decimal(matcher.group(1));
+        if (value == null) return null;
+        return switch (field) {
+            case "min" -> (int) Math.ceil(value);
+            case "max" -> (int) Math.floor(value);
+            default -> (int) Math.round(value);
+        };
     }
 
     private void detectNvidia(List<Gpu> cards) {
@@ -458,6 +527,7 @@ public class LocalGpuPowerService {
         else if ("AMD".equals(vendor) && amdSysfsPowerCaps.containsKey(id))
             Files.writeString(amdSysfsPowerCaps.get(id), Long.toString(target * 1_000_000L), StandardCharsets.US_ASCII);
         else if ("AMD".equals(vendor)) commands.run(List.of("amd-smi", "set", "--gpu", id, "--power-cap", Integer.toString(target)));
+        else if ("Intel".equals(vendor)) commands.run(List.of("xpu-smi", "config", "-d", id, "--powerlimit", Integer.toString(target)));
         else throw new IOException("Nicht unterstützter GPU-Hersteller: " + vendor);
     }
 
@@ -465,6 +535,7 @@ public class LocalGpuPowerService {
         if ("NVIDIA".equals(vendor)) return optionalWatts(commands.run(List.of("nvidia-smi", "-i", id,
                 "--query-gpu=power.limit", "--format=csv,noheader,nounits")).strip());
         if (amdSysfsPowerCaps.containsKey(id)) return microValue(amdSysfsPowerCaps.get(id), false);
+        if ("Intel".equals(vendor)) return configWatts(commands.run(List.of("xpu-smi", "config", "-d", id)), "current");
         JsonNode node = json.readTree(commands.run(List.of("amd-smi", "static", "--gpu", id, "--limit", "--json")));
         return wattsValue(first(flattened(node), "CURRENT_POWER_CAP", "POWER_CAP", "POWER_LIMIT"));
     }
@@ -544,7 +615,8 @@ public class LocalGpuPowerService {
             else if (amdSysfsTemperatures.containsKey(gpu.deviceId())) {
                 Long milli = longValue(readText(amdSysfsTemperatures.get(gpu.deviceId())));
                 temperature = milli == null ? null : milli / 1_000d;
-            } else {
+            } else if ("Intel".equals(gpu.vendor())) temperature = intelMetric(gpu.deviceId(), 3);
+            else {
                 JsonNode node = json.readTree(commands.run(List.of("amd-smi", "metric", "--gpu", gpu.deviceId(), "--temperature", "--json")));
                 temperature = decimal(first(flattened(node), "HOTSPOT_TEMPERATURE", "TEMPERATURE_HOTSPOT",
                         "EDGE_TEMPERATURE", "TEMPERATURE_EDGE", "TEMPERATURE"));

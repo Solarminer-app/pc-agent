@@ -37,6 +37,16 @@ Cross-repository coupling is protocol-only — keep it that way:
 - Agent ↔ Currency Service: HTTP only via `https://currency.solarminer.app`;
   owned by the separate `currency-service` repository.
 
+**Beta feature policy:** Beta is the user test channel, not a place to hide unfinished
+features. As soon as a feature has a minimally testable end-to-end path, expose it in
+Beta so users can test it. Do not make a beta miner unselectable or report it as “not
+integrated” because real hardware, pool shares, referral accounting, or release
+certification are still pending. Show its experimental status and outstanding evidence
+clearly. Only concrete runtime prerequisites (such as an absent binary, unsupported OS/GPU,
+or unavailable proxy/fee route) may prevent a particular install or start, and the UI must
+name that actual prerequisite. Release promotion waits for the applicable acceptance
+evidence; do not add a duplicate runtime channel flag when branch promotion controls rollout.
+
 Adding a miner to an existing coin: follow
 [`MINER-INTEGRATION-GUIDE.md`](MINER-INTEGRATION-GUIDE.md). New coins: the
 workspace `NEW-MINING-COIN-GUIDE.md` and the Pearl record

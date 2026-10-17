@@ -84,6 +84,11 @@ public class HardwareTelemetryService {
                 add(metrics, reading.key(), reading.value(), reading.unit(), "LibreHardwareMonitor", true);
         }
         List<LocalGpuPowerService.Gpu> gpus = gpuPowerService.discover();
+        for (LocalGpuPowerService.Gpu gpu : gpus) if ("Intel".equals(gpu.vendor())) {
+            Double temperature = gpuPowerService.readTemperatureC(gpu);
+            add(metrics, "gpu.intel." + gpu.index() + ".temperature", temperature == null ? Double.NaN : temperature,
+                    "°C", "xpu-smi", true);
+        }
 
         long committedMemory = Runtime.getRuntime().totalMemory();
         long freeMemory = Runtime.getRuntime().freeMemory();
@@ -187,6 +192,7 @@ public class HardwareTelemetryService {
         String name = text == null ? "" : text.toLowerCase(Locale.ROOT);
         return name.contains("gpu") || name.contains("nvidia") || name.contains("geforce")
                 || name.contains("radeon") || name.contains("amdgpu") || name.contains("graphics")
+                || name.contains("intel arc") || name.contains("arc graphics")
                 || name.contains("nouveau");
     }
 

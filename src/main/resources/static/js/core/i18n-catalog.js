@@ -645,6 +645,7 @@ window.SolarMinerI18nCatalog = {
         "compare_configurations": {de: "VERGLEICH DER KONFIGURATIONEN", en: "COMPARE CONFIGURATIONS"},
         "comparison": {de: "Vergleich", en: "Comparison"},
         "compatible_gpu_and_driver": {de: "Kompatible GPU und Treiber", en: "Compatible GPU and driver"},
+        "coin_compatible_gpu_vendor": {de: "{coin}: {vendor}-GPU", en: "{coin}: {vendor} GPU"},
         "complete": {de: "Fertig", en: "Complete"},
         "complete_miner_output": {de: "Vollständige Miner-Ausgabe", en: "Complete miner output"},
         "complete_power_limits_and_miner_state_restor": {
@@ -887,6 +888,18 @@ window.SolarMinerI18nCatalog = {
         "currently_unavailable_for_assignment": {
             de: "derzeit nicht zuweisbar",
             en: "currently unavailable for assignment"
+        },
+        "gpu_vendor_amd": {de: "AMD", en: "AMD"},
+        "gpu_vendor_intel": {de: "Intel", en: "Intel"},
+        "gpu_vendor_nvidia": {de: "NVIDIA", en: "NVIDIA"},
+        "no_miner_compatible_with_this_gpu": {
+            de: "Kein Miner ist mit dieser GPU kompatibel.",
+            en: "No miner is compatible with this GPU."
+        },
+        "not_compatible_with_this_gpu": {de: "nicht mit dieser GPU kompatibel", en: "not compatible with this GPU"},
+        "select_a_miner_compatible_with_this_gpu": {
+            de: "Wähle einen Miner, der mit dieser GPU kompatibel ist.",
+            en: "Choose a miner compatible with this GPU."
         },
         "custom_address": {de: "Eigene Adresse", en: "Custom address"},
         "custom_not_yet_catalogued_pool": {
@@ -1726,6 +1739,7 @@ window.SolarMinerI18nCatalog = {
         "not_installed_e95589": {de: "Noch nicht installiert", en: "Not installed"},
         "not_integrated": {de: "Nicht integriert", en: "Not integrated"},
         "not_integrated_yet": {de: "Noch nicht integriert", en: "Not integrated yet"},
+        "not_available_on_this_system": {de: "Auf diesem System nicht verfügbar", en: "Not available on this system"},
         "not_loaded": {de: "NICHT GELADEN", en: "NOT LOADED"},
         "not_reported_by_the_miner_api": {de: "Nicht von der Miner-API gemeldet", en: "Not reported by the miner API"},
         "not_selected": {de: "Nicht ausgewählt", en: "Not selected"},
