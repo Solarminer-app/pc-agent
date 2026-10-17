@@ -64,6 +64,7 @@ public record MinerStats(
 
     public enum MinerStatus {
         MINING,
+        STARTING,
         STOPPED,
         PAUSED,
         ERROR

@@ -249,6 +249,11 @@ the currently running miner. A start or mode change refreshes the row promptly.
   clear that intent. The switch stop reason is now recorded in the miner
   console in German and English. Focused service/assignment tests pass, but a
   live process and pool check is still required before closing this bug.
+- A local or LAN worker start now marks its assigned worker `STARTING` while the
+  start request is in progress. The Workers and network dashboard views show the
+  localized status and suppress a second Start action; completion or failure
+  clears it. Focused read-model and dashboard tests pass. CPU/GPU hardware timing
+  and visual confirmation remain part of the live verification below.
 
 ### Verification required
 

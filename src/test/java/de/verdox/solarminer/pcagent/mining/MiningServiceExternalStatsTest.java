@@ -18,6 +18,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -60,5 +62,38 @@ class MiningServiceExternalStatsTest {
         assertEquals(MinerStats.MinerStatus.MINING, stats.miningStatus());
         assertEquals(117, stats.approximatedPowerUsageWatts());
         assertEquals(1, stats.workers().size());
+    }
+
+    @Test
+    void exposesStartingWorkerDuringSlowStartAndClearsItAfterward() {
+        MinerFactory miners = mock(MinerFactory.class);
+        CpuMiner cpu = mock(CpuMiner.class);
+        when(miners.miner(Coin.MONERO)).thenReturn(cpu);
+        when(cpu.getWorkerStats()).thenReturn(new MinerStats.Worker(
+                MinerStats.MinerStatus.PAUSED, "CPU", "RandomX", 0, 0,
+                0, 0, 0, 0, 0, List.of(), "CPU", "Test CPU", "cpu",
+                null, null, MinerStats.PoolTelemetry.unavailable()));
+        for (Coin coin : Coin.gpuCoins()) {
+            GpuCoinMiner gpuMiner = mock(GpuCoinMiner.class);
+            when(miners.gpuMiner(coin)).thenReturn(gpuMiner);
+            when(gpuMiner.workerStats(anyList())).thenReturn(List.of());
+        }
+        AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(true, false, Map.of(),
+                Map.of("cpu", Coin.MONERO.id())));
+        HardwareIdentityService hardware = mock(HardwareIdentityService.class);
+        when(hardware.getDeterministicUuid()).thenReturn(UUID.randomUUID());
+        AgentIdentityService identity = mock(AgentIdentityService.class);
+        LocalGpuPowerService gpuPower = mock(LocalGpuPowerService.class);
+        when(gpuPower.snapshot()).thenReturn(List.of());
+        MiningService service = new MiningService(miners, gpuPower, hardware, controls, identity,
+                tempDirectory.resolve("active-coin.txt").toString());
+
+        assertTrue(service.beginWorkerStart("cpu"));
+        assertFalse(service.beginWorkerStart("cpu"));
+        assertEquals(MinerStats.MinerStatus.STARTING, service.getStats().workers().getFirst().miningStatus());
+        assertEquals(MinerStats.MinerStatus.STARTING, service.getStats().miningStatus());
+        service.endWorkerStart("cpu");
+        assertEquals(MinerStats.MinerStatus.PAUSED, service.getStats().workers().getFirst().miningStatus());
     }
 }

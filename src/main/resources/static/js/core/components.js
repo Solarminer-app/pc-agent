@@ -107,7 +107,7 @@
 
   // ------------------------------------------------------------------ status language
 
-  const statusLabels = {MINING: 'mining_active', BENCHMARKING: 'benchmarking', POWER_SWEEP: 'power_sweep_running', PAUSED: 'paused', STOPPED: 'stopped', ERROR: 'error'};
+  const statusLabels = {MINING: 'mining_active', STARTING: 'miner_starting', BENCHMARKING: 'benchmarking', POWER_SWEEP: 'power_sweep_running', PAUSED: 'paused', STOPPED: 'stopped', ERROR: 'error'};
   function statusPill(status, override) {
     const pill = element('span', `pill status-${String(status || 'unknown').toLowerCase()}`);
     pill.append(element('i', 'pill-dot'), element('span', '', t(override || statusLabels[status] || 'unknown')));
@@ -395,7 +395,7 @@
 
   // A paused miner keeps reporting its devices, which would list one GPU twice under two coins and imply capacity
   // that does not exist. Only a live miner process owns a device, so operation lists use exactly these states.
-  const operatingStates = new Set(['MINING', 'ERROR']);
+  const operatingStates = new Set(['MINING', 'STARTING', 'ERROR']);
   function operatingRows(rows) { return rows.filter(row => operatingStates.has(row.status)); }
 
   window.SolarMinerUI = {

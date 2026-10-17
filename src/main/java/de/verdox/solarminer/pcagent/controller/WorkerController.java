@@ -5,6 +5,7 @@ import de.verdox.solarminer.pcagent.coin.WorkerIds;
 import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
 import de.verdox.solarminer.pcagent.mining.WorkerAssignmentService;
+import de.verdox.solarminer.pcagent.mining.MiningService;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -41,6 +42,10 @@ public class WorkerController {
     private de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService powerModes;
     private de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService coinRevenueMode;
     private de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock runLock;
+    private MiningService mining;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMining(MiningService mining) { this.mining = mining; }
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setPowerModes(de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService powerModes) {
@@ -167,6 +172,9 @@ public class WorkerController {
 
     @PostMapping("/{deviceId}/start")
     public boolean start(@PathVariable String deviceId) {
+        if (mining != null && !mining.beginWorkerStart(deviceId))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "worker_start_in_progress");
+        reportChanged("workers", "overview");
         try {
             WorkerAssignmentService.WorkerView worker = workers.workers().stream()
                     .filter(value -> deviceId.equals(value.deviceId())).findFirst()
@@ -187,6 +195,10 @@ public class WorkerController {
         }
         catch (IllegalArgumentException failure) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, failure.getMessage()); }
         catch (IllegalStateException failure) { throw new ResponseStatusException(HttpStatus.CONFLICT, failure.getMessage()); }
+        finally {
+            if (mining != null) mining.endWorkerStart(deviceId);
+            reportChanged("workers", "overview");
+        }
     }
 
     @PostMapping("/{deviceId}/pause")

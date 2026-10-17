@@ -10,6 +10,7 @@
   let networkAgents = null;
   let benchmarkRunning = false, sweepWorkerIds = new Set();
   const pendingNetworkWorkers = new Set();
+  const pendingNetworkStarts = new Set();
   let networkActionMessage = '', networkActionError = false;
   let savedAt = null, fresh = true;
   // A persisted overview snapshot may invoke the subscription synchronously. Every value read
@@ -131,18 +132,20 @@
         {label: 'worker', render: workerNameCell},
         {label: 'pc_agent', render: row => ui.cellLines(row.agent, row.local ? t('this_pc')
           : t(row.controlEnabled ? 'lan_control' : 'view_only'))},
-        {label: 'status', render: row => ui.statusPill(row.status)},
+        {label: 'status', render: row => ui.statusPill(
+          pendingNetworkStarts.has(`${row.agentId}:${row.deviceId}`) && row.status !== 'MINING' ? 'STARTING' : row.status)},
         {label: 'hashrate', align: 'right', render: row => ui.hashrate(Number(row.hashrateHps))},
         {label: 'power_4606f4', align: 'right', render: row => ui.power(Number(row.watts))},
         {label: 'earnings', align: 'right', render: row => row.usdPerDay != null ? t('value_day', {value: preferences.moneyFromUsd(row.usdPerDay)}) : '—'},
         {label: 'earnings_per_kwh', align: 'right', render: row => ui.moneyPerKwh(row.revenuePerKwh)},
         {label: 'action', align: 'right', render: row => {
           if (row.local) return null;
+          const starting = row.status === 'STARTING' || pendingNetworkStarts.has(`${row.agentId}:${row.deviceId}`);
           const active = row.status === 'MINING' || row.status === 'BENCHMARKING' || row.status === 'POWER_SWEEP' || row.status === 'ERROR';
           const key = `${row.agentId}:${row.deviceId}`;
-          const button = ui.element('button', `button ${active ? 'subtle' : 'primary'}`, active ? 'pause' : 'start');
+          const button = ui.element('button', `button ${active ? 'subtle' : 'primary'}`, starting ? 'miner_starting' : active ? 'pause' : 'start');
           button.type = 'button';
-          button.disabled = !row.controlEnabled || row.controlAllowed !== true || !row.deviceId || pendingNetworkWorkers.has(key)
+          button.disabled = !row.controlEnabled || row.controlAllowed !== true || !row.deviceId || pendingNetworkWorkers.has(key) || starting
             || !active && (row.configured === false || row.minerInstalled === false);
           button.title = !row.controlEnabled ? t('peer_worker_control_disabled') : '';
           button.addEventListener('click', event => {
@@ -166,6 +169,7 @@
     const key = `${row.agentId}:${row.deviceId}`;
     if (pendingNetworkWorkers.has(key)) return;
     pendingNetworkWorkers.add(key);
+    if (enabled) pendingNetworkStarts.add(key);
     networkActionMessage = t(enabled ? 'starting_remote_worker' : 'pausing_remote_worker', {worker: row.name});
     networkActionError = false;
     if (overview) renderDashboardWorkers(overview);
@@ -180,6 +184,7 @@
       networkActionError = true;
     } finally {
       pendingNetworkWorkers.delete(key);
+      pendingNetworkStarts.delete(key);
       if (overview) renderDashboardWorkers(overview);
       window.setTimeout(() => {
         networkActionMessage = ''; networkActionError = false;

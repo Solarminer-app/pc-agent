@@ -9,6 +9,7 @@
   let benchmarkRunning = false, sweepWorkerIds = new Set();
   let search = '', coin = null, hardware = 'all', selected = null;
   const pendingWorkers = new Set();
+  const pendingStarts = new Set();
   let loading = false, catalogReady = false;
   let consoleTimer = null, consoleOffset = 0, consoleRunId = '', consoleId = null, consoleSession = 0;
   let consoleDecoder = new TextDecoder();
@@ -133,7 +134,8 @@
       return wrap;
     }},
     {label: 'status_bae7d5', key: 'status', width: '11%', render: worker => ui.statusPill(
-      worker.status === 'MINING' ? sweepWorkerIds.has(worker.deviceId) ? 'POWER_SWEEP' : benchmarkRunning ? 'BENCHMARKING' : 'MINING' : worker.status)},
+      pendingStarts.has(worker.deviceId) && worker.status !== 'MINING' ? 'STARTING'
+        : worker.status === 'MINING' ? sweepWorkerIds.has(worker.deviceId) ? 'POWER_SWEEP' : benchmarkRunning ? 'BENCHMARKING' : 'MINING' : worker.status)},
     {label: 'Live', key: 'telemetry', width: '16%', render: worker => {
       if (worker.status !== 'MINING') return null;
       const wrap = ui.element('div'); wrap.append(ui.element('strong', '', ui.hashrate(hps(worker))));
@@ -156,8 +158,9 @@
           update.addEventListener('click', event => { event.stopPropagation(); updateMiner(worker, miner); }); wrap.append(update);
           return wrap;
         }
-        const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, running ? 'pause' : 'start');
-        toggle.type = 'button'; toggle.disabled = pendingWorkers.has(worker.deviceId) || (!running && (worker.coin === 'none' || !worker.minerInstalled));
+        const starting = worker.status === 'STARTING' || pendingStarts.has(worker.deviceId);
+        const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, starting ? 'miner_starting' : running ? 'pause' : 'start');
+        toggle.type = 'button'; toggle.disabled = pendingWorkers.has(worker.deviceId) || starting || (!running && (worker.coin === 'none' || !worker.minerInstalled));
         toggle.addEventListener('click', event => { event.stopPropagation(); action(worker, running ? 'pause' : 'start'); }); wrap.append(toggle);
       }
       return wrap;
@@ -370,6 +373,7 @@
   async function action(worker, command) {
     if (pendingWorkers.has(worker.deviceId)) return;
     pendingWorkers.add(worker.deviceId);
+    if (command === 'start') pendingStarts.add(worker.deviceId);
     renderTable();
     try {
       const response = await fetch(`/api/agent/local/workers/${encodeURIComponent(worker.deviceId)}/${command}`, {method: 'POST'});
@@ -382,6 +386,7 @@
     } catch (error) { notice(`${t('worker_action_failed')} ${window.SolarMinerI18n.s(error.message)}`, true, true); await load(); }
     finally {
       pendingWorkers.delete(worker.deviceId);
+      pendingStarts.delete(worker.deviceId);
       renderTable();
     }
   }

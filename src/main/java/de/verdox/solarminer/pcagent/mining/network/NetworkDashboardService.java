@@ -392,19 +392,28 @@ public class NetworkDashboardService {
 
     public boolean controlOwnWorker(String deviceId, boolean enabled) {
         if (!ownControls.workerEnabled(deviceId)) return false;
-        String mode = ownControls.get().powerModeFor(deviceId);
-        boolean revenueMode = ("COIN_REVENUE_PER_KWH".equals(mode) || "REVENUE_PER_KWH".equals(mode))
-                && !de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(deviceId);
-        boolean applied;
-        if (enabled && revenueMode) {
-            WorkerAssignmentService.WorkerView worker = ownWorkers.workers().stream()
-                    .filter(value -> deviceId.equals(value.deviceId())).findFirst().orElse(null);
-            applied = worker != null && coinRevenueMode != null
-                    && coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), mode, true).success();
-        } else applied = enabled ? ownWorkers.start(deviceId) : ownWorkers.pause(deviceId);
-        if (applied && !enabled && coinRevenueMode != null) coinRevenueMode.cancelLocalStart(deviceId);
-        if (applied) status.invalidate("workers", "overview", "power-control", "energy");
-        return applied;
+        if (enabled && !ownMining.beginWorkerStart(deviceId)) return false;
+        if (enabled) status.invalidate("workers", "overview");
+        try {
+            String mode = ownControls.get().powerModeFor(deviceId);
+            boolean revenueMode = ("COIN_REVENUE_PER_KWH".equals(mode) || "REVENUE_PER_KWH".equals(mode))
+                    && !de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(deviceId);
+            boolean applied;
+            if (enabled && revenueMode) {
+                WorkerAssignmentService.WorkerView worker = ownWorkers.workers().stream()
+                        .filter(value -> deviceId.equals(value.deviceId())).findFirst().orElse(null);
+                applied = worker != null && coinRevenueMode != null
+                        && coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), mode, true).success();
+            } else applied = enabled ? ownWorkers.start(deviceId) : ownWorkers.pause(deviceId);
+            if (applied && !enabled && coinRevenueMode != null) coinRevenueMode.cancelLocalStart(deviceId);
+            if (applied) status.invalidate("workers", "overview", "power-control", "energy");
+            return applied;
+        } finally {
+            if (enabled) {
+                ownMining.endWorkerStart(deviceId);
+                status.invalidate("workers", "overview");
+            }
+        }
     }
 
     public record WorkerControlResult(boolean applied, String error) { }

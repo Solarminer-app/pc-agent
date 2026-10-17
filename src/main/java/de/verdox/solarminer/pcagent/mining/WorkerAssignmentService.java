@@ -60,7 +60,7 @@ public class WorkerAssignmentService {
         this.proxy = proxy;
     }
 
-    public synchronized List<WorkerView> workers() {
+    public List<WorkerView> workers() {
         // Listing workers is a read model: do not execute driver commands on its REST path.
         List<LocalGpuPowerService.Gpu> cards = gpuPower.snapshot();
         List<MinerStats.Worker> stats = mining.getStats(cards).workers();
@@ -298,7 +298,8 @@ public class WorkerAssignmentService {
         // Runtime ownership is authoritative for occupancy and telemetry. The saved assignment
         // remains the configuration target and may legitimately differ from a running process.
         MinerStats.Worker live = stats.stream().filter(worker -> deviceId.equals(worker.deviceId())
-                && worker.miningStatus() == MinerStats.MinerStatus.MINING).findFirst()
+                && (worker.miningStatus() == MinerStats.MinerStatus.MINING
+                    || worker.miningStatus() == MinerStats.MinerStatus.STARTING)).findFirst()
                 .orElseGet(() -> stats.stream().filter(worker -> deviceId.equals(worker.deviceId())
                         && (algorithm == null || algorithm.equalsIgnoreCase(worker.currentAlgorithm()))).findFirst().orElse(null));
         String selectedId = coin == null || coin == Coin.NONE ? null : miners.minerSoftwareForWorker(coin, deviceId);

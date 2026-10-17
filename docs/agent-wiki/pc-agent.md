@@ -35,6 +35,11 @@ Checked against `pc-agent/src/main/java` on 2026-10-02. This describes source st
   and physical Workers rows use the benchmark/sweep SSE sessions for prompt
   updates. The localized status is display-only: the miner remains `MINING`.
   Older peers omit either field and retain the ordinary status display.
+- Local and LAN worker start commands expose `STARTING` in the existing worker
+  status field while the command is in progress. The assigned worker's status
+  returns to the miner runtime result on completion or failure; dashboards
+  display starting workers but exclude them from mining power and earnings
+  totals. Starting status is transient and is not persisted across agent restarts.
 - XMRig and SRBMiner worker status includes nullable `acceptedShares` and `rejectedShares`. `MinerShareTelemetry` normalizes XMRig good/total values and SRBMiner's direct or nested share objects; values are reset for each process session and hidden for stopped workers. The Core and Node miner-details contracts preserve these counters verbatim; missing counters mean the miner API does not report them, not zero accepted shares. External Node status reports every local worker independently of control permission so aggregate power remains complete; command paths still enforce the global and per-worker gates. `MinerShareTelemetryTest` and `MinerAgentControllerConfigurationTest` cover parsing and transport, but live miner/pool comparison is still required. This is miner-native telemetry, not a pool-accounting source of truth.
 - All power-control commands are serialized with benchmark admission through `BenchmarkSessionService`. While a benchmark is running, local `/target` and Node `/external/*` target/pause/resume requests return HTTP 409; serialization closes the race where a command passed an idle check just as a benchmark began.
 - The physical Workers read model treats a live GPU process as the source of occupancy and telemetry even when it differs from the saved worker assignment. The assignment remains the configured target; the row separately identifies the live miner/algorithm. Pausing a GPU worker stops its managed runtime adapter by device ID before falling back to the assigned coin, so stale or changed assignments cannot leave the visible active process running.

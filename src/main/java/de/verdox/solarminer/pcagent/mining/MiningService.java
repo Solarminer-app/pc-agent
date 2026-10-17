@@ -25,6 +25,8 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import de.verdox.solarminer.pcagent.miner.MinerStopContext;
 
 /**
@@ -44,6 +46,10 @@ public class MiningService {
     private long desiredGpuPowerTarget;
     private long desiredGlobalPowerTarget;
     private final PowerApplicationState powerApplication = new PowerApplicationState();
+    private final Set<String> startingWorkers = ConcurrentHashMap.newKeySet();
+
+    public boolean beginWorkerStart(String deviceId) { return startingWorkers.add(deviceId); }
+    public void endWorkerStart(String deviceId) { startingWorkers.remove(deviceId); }
     private volatile boolean cpuManuallyPaused;
     private final MinerFactory miners;
     private final CpuMiner cpu;
@@ -579,7 +585,7 @@ public class MiningService {
         // already passed a fresh one; driver discovery never runs on a request thread.
         List<LocalGpuPowerService.Gpu> cards = discoveredGpus == null ? gpuPowerService.snapshot() : discoveredGpus;
         List<MinerStats.Worker> workers = new ArrayList<>();
-        workers.add(cpu.getWorkerStats());
+        workers.add(startingStatus(cpu.getWorkerStats(), Coin.MONERO.id()));
         AgentControlSettingsService.Settings owner = controls.get();
         for (Coin coin : Coin.gpuCoins()) {
             String coinId = coin.id();
@@ -589,11 +595,25 @@ public class MiningService {
                         || (owner.workerCoins() != null && owner.workerCoins().containsValue(coinId))) {
                     workers.addAll(miner.workerStats(cards).stream()
                             .filter(worker -> adapter.softwareId().equals(miners.minerSoftwareForWorker(coin, worker.deviceId())))
+                            .map(worker -> startingStatus(worker, coinId))
                             .toList());
                 }
             }
         }
         return workers;
+    }
+
+    private MinerStats.Worker startingStatus(MinerStats.Worker worker, String coinId) {
+        if (!startingWorkers.contains(worker.deviceId())
+                || !coinId.equals(controls.get().coinFor(worker.deviceId()))
+                || worker.miningStatus() == MinerStats.MinerStatus.MINING)
+            return worker;
+        return new MinerStats.Worker(MinerStats.MinerStatus.STARTING, worker.workerDisplayName(),
+                worker.currentAlgorithm(), worker.terahashPerSecond(), worker.temperatureCelsius(),
+                worker.powerTargetWatts(), worker.minPowerTarget(), worker.defaultPowerTarget(),
+                worker.maxPowerTarget(), worker.approximatedPowerUsageWatts(), worker.pools(),
+                worker.hardwareType(), worker.hardwareModel(), worker.deviceId(), worker.acceptedShares(),
+                worker.rejectedShares(), worker.pool());
     }
 
     private List<MinerFactory.GpuMinerAdapter> adapters(Coin coin) {
@@ -632,6 +652,7 @@ public class MiningService {
         boolean isAnyMining = false;
         boolean isAnyError = false;
         boolean isAnyPaused = false;
+        boolean isAnyStarting = false;
 
         for (MinerStats.Worker worker : workers) {
             totalPowerTarget += worker.powerTargetWatts();
@@ -651,6 +672,7 @@ public class MiningService {
 
             switch (worker.miningStatus()) {
                 case MINING -> isAnyMining = true;
+                case STARTING -> isAnyStarting = true;
                 case ERROR -> isAnyError = true;
                 case PAUSED -> isAnyPaused = true;
             }
@@ -659,6 +681,8 @@ public class MiningService {
         MinerStats.MinerStatus globalStatus = MinerStats.MinerStatus.STOPPED;
         if (isAnyMining) {
             globalStatus = MinerStats.MinerStatus.MINING;
+        } else if (isAnyStarting) {
+            globalStatus = MinerStats.MinerStatus.STARTING;
         } else if (isAnyError) {
             globalStatus = MinerStats.MinerStatus.ERROR;
         } else if (isAnyPaused) {

@@ -403,6 +403,8 @@ window.SolarMinerI18nCatalog = {
         "lan_control": {de: "LAN-Steuerung", en: "LAN control"},
         "view_only": {de: "nur Ansicht", en: "view only"},
         "starting_remote_worker": {de: "{worker} wird gestartet …", en: "Starting {worker} …"},
+        "miner_starting": {de: "Startet …", en: "Starting …"},
+        "worker_start_in_progress": {de: "Dieser Worker wird bereits gestartet.", en: "This worker is already starting."},
         "pausing_remote_worker": {de: "{worker} wird pausiert …", en: "Pausing {worker} …"},
         "remote_worker_started": {de: "{worker} wurde gestartet.", en: "{worker} was started."},
         "remote_worker_paused": {de: "{worker} wurde pausiert.", en: "{worker} was paused."},

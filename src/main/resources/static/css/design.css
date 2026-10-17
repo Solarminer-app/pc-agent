@@ -107,6 +107,25 @@
     background: var(--accent)
 }
 
+.pill.status-starting {
+    color: #a9d7f5;
+    border-color: #42637b;
+    background: #17232d
+}
+
+.pill.status-starting .pill-dot {
+    background: #83c4ed;
+    animation: starting-pulse 1.2s ease-in-out infinite
+}
+
+@keyframes starting-pulse {
+    50% { opacity: .35 }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pill.status-starting .pill-dot { animation: none }
+}
+
 .pill.status-power_sweep {
     color: #a9d7f5;
     border-color: #42637b;
