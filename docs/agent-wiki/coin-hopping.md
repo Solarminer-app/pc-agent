@@ -44,13 +44,23 @@ remains `https://currency.solarminer.app/api/v1/public/mining-networks` in
   verified GPU cap without restarting the miner. A stopped worker is never restarted merely
   because coin hopping is enabled.
 
-The sequential benchmark measures each installed and configured GPU adapter on compatible
-catalog vendors. It temporarily attributes worker telemetry to the adapter under test,
+The installed-miner benchmark measures every eligible selected coin on every selected physical GPU,
+including cards with the same model. Its waves spread different coins across devices, but
+never run two coins on one GPU at once. It measures each installed and configured GPU adapter
+on compatible catalog vendors. It temporarily attributes worker telemetry to the adapter under test,
 then clears that attribution and restores managed processes. Measurements are stored with
-software identity, so two miners for the same coin and GPU retain distinct points. The
-comparison UI shows the miner ID alongside the coin and cap. Vendor filtering is only a
+device and software identity, so identical models and two miners for the same coin retain
+distinct points. The comparison UI shows the miner ID alongside the coin and cap. The
+power-limit sweep runs a full curve for every eligible GPU/coin pair instead of using one
+same-model card as a reference for shorter sibling validations. Each curve selects its own
+best stable hashes-per-watt point. Vendor filtering is only a
 coarse eligibility check; a GPU architecture without a working kernel is exposed as a
 failed/skipped measurement and needs real hardware validation.
+Both local start APIs require an explicit, nonempty `workers` array of stable device IDs.
+The benchmark accepts CPU and GPU IDs; the power-limit sweep requires at least one GPU.
+The agent validates IDs against its current worker/GPU inventory and schedules only
+selected devices. The UI remembers checked IDs locally but starts with none selected
+on a fresh browser profile.
 
 ## Action and revenue history
 
@@ -104,7 +114,8 @@ measured candidate calculation used by that mode; its legacy `evaluate()` has
 no scheduler and the settings POST route is removed. A previously saved
 `coin-hopping.json` no longer activates automatic switching on restart.
 
-`/benchmarks.html#comparison` now owns the read-only USD/kWh comparison. Its
+`/benchmark-results.html#comparison` now owns the read-only USD/kWh comparison,
+scoped to the GPU selected for all result cards and curves. Its
 `GET /api/agent/local/benchmarks/comparison?deviceId=...` endpoint returns
 candidate points from the shared eligibility logic. It does not apply a worker
 assignment or GPU limit. The old `/coin-hopping.html` bookmark redirects to the

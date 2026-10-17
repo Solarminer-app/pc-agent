@@ -19,7 +19,32 @@ let measurementSnapshot = null;
 let measurementRevision = 0;
 let previousBenchmarkRunning = null;
 let previousSweepRunning = null;
+let lastAutoStartSignature = '';
 const openAlgorithmGroups = new Map();
+const resultsPage = document.body.classList.contains('benchmark-results-page');
+let availableWorkers = [];
+let availableWorkerById = new Map();
+let latestBenchmarkState = null;
+let latestSweepState = null;
+const selectedGpu = () => resultsPage ? $('comparison-gpu').value : null;
+const forSelectedGpu = rows => resultsPage ? (rows || []).filter(row =>
+    (row.deviceId || row.workerId) === selectedGpu()) : (rows || []);
+if (resultsPage) {
+    const library = $('measurement-library');
+    const divider = make('div', 'library-divider');
+    divider.append(make('h3', '', t('benchmark_current_sweep')));
+    const savedSweepHeading = $('sweep-results').previousElementSibling;
+    library.insertBefore(divider, savedSweepHeading);
+    library.insertBefore($('sweep-live-chart'), savedSweepHeading);
+    library.insertBefore($('sweep-runs'), savedSweepHeading);
+    $('upload-status').previousElementSibling.hidden = true;
+    for (const id of ['upload-status', 'periodic-upload-status', 'retry-upload']) $(id).hidden = true;
+} else {
+    const sharingStatus = make('section', 'panel');
+    sharingStatus.append($('upload-status').previousElementSibling, $('upload-status'),
+        $('periodic-upload-status'), $('retry-upload'));
+    document.querySelector('.sharing-details').before(sharingStatus);
+}
 
 function algorithmGroupLabel(row) {
     const catalog = window.SolarMinerUI.coinCatalog;
@@ -75,6 +100,7 @@ function readMeasurements() {
 }
 
 function renderSavedBenchmarks() {
+    if (!resultsPage) return Promise.resolve();
     return loadSavedBenchmarks();
 }
 
@@ -83,8 +109,8 @@ async function loadSavedBenchmarks() {
     try {
         const snapshot = await readMeasurements();
         if (revision !== measurementRevision) return;
-        const profiles = snapshot.benchmarks || [];
-        updateComparisonDevices(snapshot);
+        if (resultsPage) updateComparisonDevices(snapshot);
+        const profiles = forSelectedGpu(snapshot.benchmarks);
         $('overview-profiles').textContent = new Intl.NumberFormat(window.SolarMinerI18n.locale).format(profiles.length);
         const signature = JSON.stringify(profiles);
         if (signature === savedBenchmarkSignature) return;
@@ -103,6 +129,7 @@ async function loadSavedBenchmarks() {
                 ? `${profile.powerTargetWatts} W` : t('benchmark_target_not_recorded');
             card.append(make('small', 'measurement-origin', t(`coin_hopping_source_${origin}`)),
                 make('strong', '', `${profile.hardwareModel || profile.workerId} · ${profile.coin} · ${profile.algorithm}${profile.minerSoftwareId ? ` · ${profile.minerSoftwareId}` : ''}`),
+                make('p', 'muted', `${t('device_identity')}: ${profile.workerId || profile.deviceId}`),
                 make('p', 'measurement-target', t('benchmark_profile_target', {target})),
                 make('p', 'muted', t('hardware_count_samples', {hardware: profile.hardwareType, count: profile.observations})),
                 make('p', '', `${t('hashrate')}: ${fmtRate(profile.hashrateHps)} · ${t('power_4606f4')}: ${profile.powerWatts} W · ${t('energy_per_hash')}: ${window.SolarMinerUI.efficiency(profile.hashrateHps, profile.powerWatts)}`));
@@ -175,7 +202,7 @@ function renderChart(results, running) {
         const maximum = Math.max(...rows.map(row => Number(row.hashrateHs) || 0), 1);
         for (const row of rows) {
             const line = make('div', 'benchmark-bar-row');
-            const label = make('span', 'benchmark-bar-label', `${row.hardwareModel}${row.minerSoftwareId ? ` · ${row.minerSoftwareId}` : ''}`);
+            const label = make('span', 'benchmark-bar-label', `${row.hardwareModel}${row.deviceId ? ` · ${row.deviceId}` : ''}${row.minerSoftwareId ? ` · ${row.minerSoftwareId}` : ''}`);
             const track = make('div', 'benchmark-bar-track');
             track.setAttribute('role', 'progressbar'); track.setAttribute('aria-label', `${algorithm} · ${label.textContent}: ${fmtRate(row.hashrateHs)}`);
             track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', String(maximum)); track.setAttribute('aria-valuenow', String(row.hashrateHs || 0));
@@ -187,16 +214,181 @@ function renderChart(results, running) {
     }
 }
 
+let liveWorkerId = null;
+let liveTabSignature = '';
+let livePanelSignature = '';
+if ($('benchmark-worker-tabs')) $('benchmark-worker-tabs').addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const buttons = [...$('benchmark-worker-tabs').querySelectorAll('[role="tab"]')];
+    if (!buttons.length) return;
+    event.preventDefault();
+    const index = buttons.indexOf(document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+        : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next].click();
+    buttons[next].focus();
+});
+function liveWorkerLabel(id, series) {
+    const worker = availableWorkerById.get(id);
+    const model = worker?.hardwareModel || series?.hardwareModel || id;
+    return `${model} · ${id}`;
+}
+function liveMetricChart(points, field, label, format) {
+    const values = points.map(point => Number(point[field]) || 0);
+    const maximum = Math.max(...values, 1) * 1.12;
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 560 180');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', t('benchmark_live_chart_aria', {metric: label, count: points.length}));
+    const add = (tag, attributes, value) => {
+        const node = document.createElementNS(ns, tag);
+        for (const [key, attribute] of Object.entries(attributes)) node.setAttribute(key, String(attribute));
+        if (value != null) node.textContent = value;
+        svg.append(node);
+        return node;
+    };
+    const x = index => 48 + index / 11 * 490;
+    const y = value => 145 - value / maximum * 118;
+    for (let line = 0; line <= 2; line++) {
+        const value = maximum * (2 - line) / 2;
+        const position = y(value);
+        add('line', {x1:48, x2:538, y1:position, y2:position, class:'benchmark-live-grid'});
+        add('text', {x:42, y:position + 4, 'text-anchor':'end', class:'benchmark-live-axis'}, format(value));
+    }
+    add('text', {x:538, y:169, 'text-anchor':'end', class:'benchmark-live-axis'},
+        t('benchmark_live_sample_axis', {count: 12}));
+    if (points.length > 1) {
+        add('polyline', {points:values.map((value, index) => `${x(index)},${y(value)}`).join(' '),
+            fill:'none', pathLength:1, class:'benchmark-live-line'});
+    }
+    for (const [index, value] of values.entries()) {
+        const dot = add('circle', {cx:x(index), cy:y(value), r:4.5, class:'benchmark-live-point'});
+        const title = document.createElementNS(ns, 'title');
+        title.textContent = `${t('benchmark_live_sample_number', {number:index + 1})}: ${format(value)}`;
+        dot.append(title);
+    }
+    return svg;
+}
+function renderBenchmarkLive(state) {
+    const workspace = $('benchmark-live-workspace');
+    if (!workspace) return;
+    const series = state.liveSeries || [];
+    const seriesByWorker = new Map();
+    for (const trace of series) {
+        if (!seriesByWorker.has(trace.deviceId)) seriesByWorker.set(trace.deviceId, []);
+        seriesByWorker.get(trace.deviceId).push(trace);
+    }
+    const workerIds = [...new Set([...(state.selectedWorkers || []),
+        ...series.map(row => row.deviceId), ...(state.results || []).map(row => row.deviceId)].filter(Boolean))]
+        .sort((a, b) => liveWorkerLabel(a, seriesByWorker.get(a)?.[0])
+            .localeCompare(liveWorkerLabel(b, seriesByWorker.get(b)?.[0]), window.SolarMinerI18n.locale));
+    workspace.hidden = !workerIds.length || (!state.running && !(state.results || []).length);
+    if (workspace.hidden) return;
+    if (!workerIds.includes(liveWorkerId)) liveWorkerId = workerIds[0];
+    const tabs = $('benchmark-worker-tabs');
+    const tabSignature = JSON.stringify(workerIds);
+    if (tabSignature !== liveTabSignature) {
+        liveTabSignature = tabSignature;
+        tabs.replaceChildren();
+        for (const id of workerIds) {
+            const button = make('button', 'benchmark-worker-tab');
+            button.type = 'button'; button.setAttribute('role', 'tab'); button.dataset.workerId = id;
+            button.id = `benchmark-worker-tab-${workerIds.indexOf(id)}`;
+            button.setAttribute('aria-controls', 'benchmark-worker-panel');
+            button.addEventListener('click', () => { liveWorkerId = id; livePanelSignature = ''; renderBenchmarkLive(latestBenchmarkState); });
+            tabs.append(button);
+        }
+    }
+    const panel = $('benchmark-worker-panel');
+    for (const button of tabs.children) {
+        const id = button.dataset.workerId;
+        const traces = seriesByWorker.get(id) || [];
+        const count = traces.at(-1)?.points?.length || 0;
+        button.textContent = `${liveWorkerLabel(id, traces[0])} · ${count}/${12}`;
+        button.setAttribute('aria-selected', String(id === liveWorkerId));
+        button.tabIndex = id === liveWorkerId ? 0 : -1;
+        button.classList.toggle('selected', id === liveWorkerId);
+        if (id === liveWorkerId) panel.setAttribute('aria-labelledby', button.id);
+    }
+    const selectedSeries = seriesByWorker.get(liveWorkerId) || [];
+    const signature = JSON.stringify([liveWorkerId, selectedSeries, state.running, state.phase]);
+    if (signature === livePanelSignature) return;
+    livePanelSignature = signature;
+    panel.replaceChildren();
+    if (!selectedSeries.length) {
+        panel.append(make('p', 'empty', t(state.running ? 'benchmark_live_waiting' : 'benchmark_live_no_samples')));
+        return;
+    }
+    for (const trace of selectedSeries) {
+        const points = trace.points || [];
+        const result = (state.results || []).find(row => row.deviceId === trace.deviceId
+            && row.algorithm === trace.algorithm && row.minerSoftwareId === trace.minerSoftwareId);
+        const card = make('article', 'benchmark-live-series');
+        const heading = make('div', 'benchmark-live-series-head');
+        heading.append(make('strong', '', `${trace.algorithm} · ${trace.minerSoftwareId || '—'}`),
+            make('span', 'tag', t('benchmark_live_points', {count:points.length, required:12})));
+        card.append(heading);
+        if (result) card.append(make('p', 'benchmark-live-summary',
+            `${t('current_median_hashrate')}: ${fmtRate(result.hashrateHs)} · ${t('power_4606f4')}: ${result.powerWatts > 0 ? Math.round(result.powerWatts) + ' W' : t('unavailable_6d094b')}`));
+        const charts = make('div', 'benchmark-live-charts');
+        const rate = make('div', 'benchmark-live-chart');
+        rate.append(make('h3', '', t('hashrate')), liveMetricChart(points, 'hashrateHs', t('hashrate'), fmtRate));
+        charts.append(rate);
+        if (points.some(point => point.powerWatts > 0)) {
+            const power = make('div', 'benchmark-live-chart');
+            power.append(make('h3', '', t('power_4606f4')),
+                liveMetricChart(points, 'powerWatts', t('power_4606f4'), value => `${Math.round(value)} W`));
+            charts.append(power);
+        }
+        card.append(charts); panel.append(card);
+    }
+}
+
+function renderAutoStartStatus(state) {
+    const root = $('auto-start-status');
+    if (!root) return;
+    $('auto-start-mining').disabled = state.running || actionBusy;
+    const signature = JSON.stringify([state.running, state.autoStartRequested, state.autoStartResults]);
+    if (signature === lastAutoStartSignature) return;
+    lastAutoStartSignature = signature;
+    root.replaceChildren();
+    root.hidden = !state.autoStartRequested;
+    if (root.hidden) return;
+    if (state.running) {
+        root.append(make('p', 'muted', t('benchmark_auto_start_pending')));
+        return;
+    }
+    const outcomes = state.autoStartResults || [];
+    if (!outcomes.length) {
+        root.append(make('p', 'muted', t('benchmark_auto_start_no_result')));
+        return;
+    }
+    root.append(make('strong', '', t('benchmark_auto_start_result_heading')));
+    const list = make('ul', 'benchmark-auto-start-list');
+    for (const outcome of outcomes) {
+        const item = make('li', outcome.status === 'STARTED' ? 'success' : 'error');
+        item.append(make('strong', '', liveWorkerLabel(outcome.deviceId)),
+            make('span', '', t(outcome.status === 'STARTED' ? 'benchmark_auto_start_accepted'
+                : outcome.status === 'SKIPPED' ? 'benchmark_auto_start_skipped' : 'benchmark_auto_start_failed')));
+        if (outcome.message) item.append(make('small', 'muted', s(outcome.message)));
+        list.append(item);
+    }
+    root.append(list);
+}
+
 let resultRenderVersion = 0;
 async function renderResults(results, running = false, phase = '') {
     const version = ++resultRenderVersion;
     const root = $('results');
     root.replaceChildren();
+    results = forSelectedGpu(results);
     renderChart(results, running);
     if (!results?.length) {
         root.append(make('p', 'empty', running
             ? t('phase_waiting_for_the_first_valid_hashrate_s', {phase: benchmarkPhase(phase || 'benchmark_running')})
-            : !phase || phase === 'Idle' ? t('no_measurement_yet_choose_a_mode_above') : t('no_valid_mining_readings_recorded_check_that')));
+            : resultsPage ? t('benchmark_no_gpu_run_result')
+                : !phase || phase === 'Idle' ? t('no_measurement_yet_choose_a_mode_above') : t('no_valid_mining_readings_recorded_check_that')));
         return;
     }
     const groups = mountAlgorithmGroups(root, results, 'current');
@@ -205,6 +397,7 @@ async function renderResults(results, running = false, phase = '') {
         const card = make('article', 'worker-card');
         const info = make('div', '');
         info.append(make('strong', '', `${row.hardwareModel} · ${row.algorithm}${row.minerSoftwareId ? ` · ${row.minerSoftwareId}` : ''}`), make('p', 'muted', t('hardware_count_samples', {hardware: row.hardwareType, count: row.observations})));
+        if (row.deviceId) info.append(make('p', 'muted', `${t('device_identity')}: ${row.deviceId}`));
         info.append(make('p', '', `${t('hashrate')}: ${fmtRate(row.hashrateHs)} · ${t('power_4606f4')}: ${row.powerWatts > 0 ? new Intl.NumberFormat(window.SolarMinerI18n.locale, {maximumFractionDigits: 0}).format(row.powerWatts) + ' W' : t('unavailable_6d094b')} · ${t('energy_per_hash')}: ${window.SolarMinerUI.efficiency(row.hashrateHs, row.powerWatts)}`));
         card.append(info);
         groups.get(algorithmGroupLabel(row)).append(card);
@@ -220,6 +413,10 @@ async function renderResults(results, running = false, phase = '') {
 }
 
 function applyBenchmarkState(state, meta = {}) {
+    latestBenchmarkState = state;
+    renderBenchmarkLive(state);
+    renderAutoStartStatus(state);
+    if (resultsPage) updateComparisonDevices(measurementSnapshot || {benchmarks: [], sweeps: []});
     $('overview-benchmark').textContent = state.running ? t('running') : t('ready');
     if (previousBenchmarkRunning === true && !state.running) { invalidateMeasurements(); renderSavedBenchmarks(); }
     previousBenchmarkRunning = state.running;
@@ -248,11 +445,11 @@ function applyBenchmarkState(state, meta = {}) {
         }
     }
     const signature = JSON.stringify(state.results || []);
-    if (signature !== lastResults || state.running !== lastRenderRunning || (state.running && !state.results?.length)) {
+    if (resultsPage && (signature !== lastResults || state.running !== lastRenderRunning || (state.running && !state.results?.length))) {
         lastResults = signature;
         lastRenderRunning = state.running;
         renderResults(state.results, state.running, state.phase);
-    } else if (!state.running && state.phase !== 'Idle' && !state.results?.length) {
+    } else if (resultsPage && !state.running && state.phase !== 'Idle' && !state.results?.length) {
         $('results').replaceChildren(make('p', 'empty', benchmarkPhase(state.phase)));
         lastResults = signature;
     }
@@ -278,7 +475,7 @@ function applyUploadStatus(statuses) {
     $('retry-upload').hidden = manual.status !== 'FAILED';
     // The agent only reports NOT_SHARED with samples when a finished manual run kept its
     // measurements unsent; offer them once per run if the operator has sharing disabled.
-    if (manual.status === 'NOT_SHARED' && manual.sampleCount > 0 && sharingKnown && !$('sharing').checked && !sharePromptShown) {
+    if (!resultsPage && manual.status === 'NOT_SHARED' && manual.sampleCount > 0 && sharingKnown && !$('sharing').checked && !sharePromptShown) {
         sharePromptShown = true;
         $('share-prompt').showModal();
     }
@@ -296,22 +493,90 @@ async function start(mode) {
     if (catalogCoins.length && !document.querySelector('#coin-options input:checked')) {
         notice('benchmark_select_coin', true); return;
     }
+    if (!requireWorkerSelection(false)) return;
     if (actionBusy) return; actionBusy = true;
+    if ($('auto-start-mining')) $('auto-start-mining').disabled = true;
     $('run-live').disabled = $('run-installed').disabled = true;
     try {
-        const response = await fetch('/api/agent/local/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, coins: selectedCoins()})});
+        const response = await fetch('/api/agent/local/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, coins: selectedCoins(), workers: selectedWorkers(), startMiningAfterBenchmark: Boolean($('auto-start-mining')?.checked)})});
         if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.detail || body?.message || t('could_not_start_the_benchmark')); }
         notice('measurement_started_you_can_cancel_it_at_any');
         $('results').replaceChildren(make('p', 'empty', t('benchmark_started')));
     } catch (error) { notice(window.SolarMinerI18n.s(error.message), true); }
-    finally { actionBusy = false; window.SolarMinerLive.refresh('benchmarks'); }
+    finally { actionBusy = false; if ($('auto-start-mining')) $('auto-start-mining').disabled = Boolean(latestBenchmarkState?.running); window.SolarMinerLive.refresh('benchmarks'); }
+}
+
+const autoStartChoiceKey = 'solarminer.pc-agent.benchmark-auto-start';
+if ($('auto-start-mining')) {
+    try { $('auto-start-mining').checked = localStorage.getItem(autoStartChoiceKey) === 'true'; } catch (_) { }
+    $('auto-start-mining').addEventListener('change', () => {
+        try { localStorage.setItem(autoStartChoiceKey, String($('auto-start-mining').checked)); } catch (_) { }
+    });
 }
 
 // The coin selection applies to both measurement runs (benchmark and power-limit sweep).
 // Uninstalled coins stay disabled; a stored selection survives reloads so an operator can
 // permanently exclude coins their cards cannot run (e.g. PearlHash on Pascal).
 const coinSelectionKey = 'solarminer.pc-agent.benchmark-coins';
+const workerSelectionKey = 'solarminer.pc-agent.benchmark-workers';
 let catalogCoins = [];
+let workersLoaded = false;
+
+function selectedWorkers() {
+    return [...document.querySelectorAll('#worker-options input:checked')].map(input => input.value);
+}
+
+function requireWorkerSelection(gpuOnly) {
+    if (!workersLoaded) { notice('benchmark_worker_list_unavailable', true); return false; }
+    if (!selectedWorkers().length) { notice('benchmark_select_worker', true); return false; }
+    if (gpuOnly && ![...document.querySelectorAll('#worker-options input:checked')]
+        .some(input => input.dataset.hardwareType === 'GPU')) {
+        notice('benchmark_select_gpu_for_sweep', true); return false;
+    }
+    return true;
+}
+
+function renderWorkerOptions(workers) {
+    availableWorkers = workers;
+    availableWorkerById = new Map(workers.map(worker => [worker.deviceId, worker]));
+    if (latestBenchmarkState) {
+        renderBenchmarkLive(latestBenchmarkState);
+        lastAutoStartSignature = '';
+        renderAutoStartStatus(latestBenchmarkState);
+    }
+    if (resultsPage) updateComparisonDevices(measurementSnapshot || {benchmarks: [], sweeps: []});
+    const root = $('worker-options');
+    root.replaceChildren();
+    let stored = [];
+    try {
+        const value = JSON.parse(localStorage.getItem(workerSelectionKey));
+        if (Array.isArray(value)) stored = value;
+    } catch (_) { }
+    for (const worker of workers) {
+        const label = make('label', 'benchmark-coin-option');
+        const input = make('input', '');
+        input.type = 'checkbox'; input.value = worker.deviceId;
+        input.dataset.hardwareType = worker.hardwareType;
+        input.checked = stored.includes(worker.deviceId);
+        input.addEventListener('change', () => {
+            try { localStorage.setItem(workerSelectionKey, JSON.stringify(selectedWorkers())); } catch (_) { }
+        });
+        const name = worker.hardwareModel || worker.hardwareType;
+        const text = make('span', '');
+        text.append(make('strong', '', name), make('small', 'muted', worker.deviceId));
+        label.append(input, text);
+        root.append(label);
+    }
+    workersLoaded = true;
+}
+
+fetch('/api/agent/local/workers', {cache: 'no-store'}).then(async response => {
+    if (!response.ok) throw new Error('benchmark_worker_list_unavailable');
+    renderWorkerOptions(await response.json());
+}).catch(() => {
+    workersLoaded = false;
+    $('worker-options').replaceChildren(make('p', 'empty', t('benchmark_worker_list_unavailable')));
+});
 
 function storedCoinSelection() {
     try {
@@ -433,6 +698,8 @@ fetch('/api/agent/local/benchmarks/sharing').then(async response => {
 });
 
 function applySweepState(state) {
+        latestSweepState = state;
+        if (resultsPage) updateComparisonDevices(measurementSnapshot || {benchmarks: [], sweeps: []});
         $('overview-sweep').textContent = state.running ? t('running') : t('ready');
         if (previousSweepRunning === true && !state.running) { invalidateMeasurements(); renderProfiles(); }
         previousSweepRunning = state.running;
@@ -453,8 +720,10 @@ function applySweepState(state) {
             $('sweep-remaining').textContent = state.secondsRemaining == null
                 ? t('calculating_eta') : t('approximate_time_remaining_time', {time: formatDuration(state.secondsRemaining)});
         }
-        renderSweepRuns(state.runs || [], state.running);
-        renderLiveSweepChart(state.runs || [], state.running);
+        if (resultsPage) {
+            renderSweepRuns(forSelectedGpu(state.runs), state.running);
+            renderLiveSweepChart(forSelectedGpu(state.runs), state.running);
+        }
 }
 
 let selectedSweepRunId = null;
@@ -580,9 +849,7 @@ function renderSweepRuns(runs, sweepRunning) {
     for (const run of runs.filter(r => r.status === 'RUNNING')) root.append(liveRunCard(run, statusLabel));
     const waiting = runs.filter(r => r.status === 'QUEUED');
     const finished = runs.filter(r => isTerminal(r.status));
-    // A dependency can leave every remaining run queued while the sweep is still active
-    // (for example, sibling GPUs wait for their reference curve). Keep that work visible
-    // instead of showing an empty progress area until another run becomes RUNNING.
+    // Keep queued work visible while active device curves are finishing.
     const hasRunningRun = runs.some(r => r.status === 'RUNNING');
     if (waiting.length) root.append(runGroup(t('waiting_runs_count', {count: waiting.length}), waiting, statusLabel, false, !hasRunningRun));
     if (finished.length) root.append(runGroup(t('completed_runs_count', {count: finished.length}), finished, statusLabel,
@@ -592,7 +859,7 @@ function renderSweepRuns(runs, sweepRunning) {
 function runIdentity(run) {
     const wave = run.mode === 'FULL' && Number.isInteger(run.referenceBatch)
         ? ` · ${t('start_group_number', {number: run.referenceBatch + 1})}` : '';
-    return `${run.coin} · ${t(run.mode === 'FULL' ? 'reference_curve' : 'parallel_device_validation')}${wave}`;
+    return `${run.coin} · ${t(run.mode === 'FULL' ? 'full_device_curve' : 'parallel_device_validation')}${wave}`;
 }
 
 function stepList(limits, steps) {
@@ -684,6 +951,7 @@ function runRow(run, statusLabel, expandFinishedHistory) {
 }
 
 function renderProfiles() {
+    if (!resultsPage) return Promise.resolve();
     return loadProfiles();
 }
 
@@ -692,8 +960,8 @@ async function loadProfiles() {
     try {
         const snapshot = await readMeasurements();
         if (revision !== measurementRevision) return;
-        const profiles = snapshot.sweeps || [];
-        updateComparisonDevices(snapshot);
+        if (resultsPage) updateComparisonDevices(snapshot);
+        const profiles = forSelectedGpu(snapshot.sweeps);
         $('overview-efficiency').textContent = new Intl.NumberFormat(window.SolarMinerI18n.locale).format(profiles.length);
         const signature = JSON.stringify(profiles);
         if (signature === lastProfileSignature) return;
@@ -790,12 +1058,13 @@ async function startSweep(mode = 'restart') {
     if (catalogCoins.length && !document.querySelector('#coin-options input:checked')) {
         notice('benchmark_select_coin', true); return;
     }
+    if (!requireWorkerSelection(true)) return;
     if (actionBusy) return; actionBusy = true;
     $('run-sweep').disabled = true;
     $('resume-sweep').disabled = true;
     try {
         const response = await fetch(`/api/agent/local/efficiency?mode=${encodeURIComponent(mode)}`,
-            {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({coins: selectedCoins()})});
+            {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({coins: selectedCoins(), workers: selectedWorkers()})});
         if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || 'could_not_start_the_efficiency_sweep'); }
         notice(mode === 'resume'
             ? 'efficiency_sweep_resumed_with_completed_resu'
@@ -820,12 +1089,21 @@ let comparisonDevices = '';
 let comparisonRequest = 0;
 function updateComparisonDevices(snapshot) {
     const devices = new Map();
+    if (resultsPage) {
+        for (const worker of availableWorkers.filter(worker => worker.hardwareType === 'GPU'))
+            devices.set(worker.deviceId, worker.hardwareModel || worker.deviceId);
+        for (const row of latestBenchmarkState?.results || [])
+            if (row.hardwareType === 'GPU') devices.set(row.deviceId, row.hardwareModel || row.deviceId);
+        for (const run of latestSweepState?.runs || [])
+            if (run.deviceId) devices.set(run.deviceId, run.model || run.deviceId);
+    }
     for (const profile of snapshot.sweeps || []) {
-        if ((profile.steps || []).some(step => step.stable && step.medianHashrateHs > 0 && step.avgPowerWatts > 0))
+        if (resultsPage || (profile.steps || []).some(step => step.stable && step.medianHashrateHs > 0 && step.avgPowerWatts > 0))
             devices.set(profile.deviceId, profile.model || profile.deviceId);
     }
     for (const profile of snapshot.benchmarks || []) {
-        if (profile.powerTargetWatts > 0 && profile.observations >= 12 && profile.hashrateHps > 0 && profile.powerWatts > 0)
+        if ((resultsPage && profile.hardwareType === 'GPU') ||
+            (profile.powerTargetWatts > 0 && profile.observations >= 12 && profile.hashrateHps > 0 && profile.powerWatts > 0))
             devices.set(profile.workerId, profile.hardwareModel || profile.workerId);
     }
     const signature = JSON.stringify([...devices]);
@@ -834,13 +1112,31 @@ function updateComparisonDevices(snapshot) {
     const select = $('comparison-gpu');
     const previous = select.value;
     select.replaceChildren();
+    if (resultsPage && !devices.size) select.add(new Option(t('benchmark_no_gpu_available'), ''));
     for (const [id, model] of [...devices].sort((a,b) => a[1].localeCompare(b[1], window.SolarMinerI18n.locale)))
         select.add(new Option(`${model} · ${id}`, id));
+    const requested = new URLSearchParams(location.search).get('gpu');
     if (devices.has(previous)) select.value = previous;
+    else if (resultsPage && devices.has(requested)) select.value = requested;
     select.disabled = !devices.size;
+    if (resultsPage && previous !== select.value) refreshGpuResults();
     loadComparison();
 }
+function refreshGpuResults() {
+    savedBenchmarkSignature = null;
+    lastProfileSignature = null;
+    lastSweepRunSignature = null;
+    lastLiveSweepSignature = null;
+    if (latestBenchmarkState) renderResults(latestBenchmarkState.results, latestBenchmarkState.running, latestBenchmarkState.phase);
+    if (latestSweepState) {
+        renderSweepRuns(forSelectedGpu(latestSweepState.runs), latestSweepState.running);
+        renderLiveSweepChart(forSelectedGpu(latestSweepState.runs), latestSweepState.running);
+    }
+    renderSavedBenchmarks();
+    renderProfiles();
+}
 async function loadComparison() {
+    if (!resultsPage) return;
     const id = ++comparisonRequest;
     const deviceId = $('comparison-gpu').value;
     const chart = $('comparison-chart');
@@ -897,7 +1193,15 @@ function applyProfileFilter() {
         if (query && visible) group.open = true;
     }
 }
-$('comparison-gpu').addEventListener('change', loadComparison);
+$('comparison-gpu').addEventListener('change', () => {
+    if (resultsPage) {
+        const url = new URL(location.href);
+        url.searchParams.set('gpu', selectedGpu());
+        history.replaceState(null, '', url);
+        refreshGpuResults();
+    }
+    loadComparison();
+});
 $('profile-filter').addEventListener('input', applyProfileFilter);
 document.addEventListener('solarminer:preferences-changed', loadComparison);
 
@@ -918,7 +1222,7 @@ renderSavedBenchmarks();
 renderProfiles();
 // Ordinary mining contributes new operating points without a benchmark transition.
 // Keep the durable library fresh while the page remains open.
-setInterval(() => {
+if (resultsPage) setInterval(() => {
     invalidateMeasurements();
     renderSavedBenchmarks();
     renderProfiles();

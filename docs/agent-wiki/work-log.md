@@ -1,5 +1,34 @@
 # PC-Agent work log
 
+## 2026-10-17 — Per-GPU benchmark and efficiency curves
+
+- The installed-miner benchmark now schedules every eligible coin on each physical GPU,
+  including identical models. Waves spread coins across devices; each device appears at
+  most once per wave. Session results include `deviceId`, and the live and saved benchmark
+  UI shows the device identity so identical cards remain distinguishable.
+- The power-limit sweep now gives each GPU/coin target a complete curve. Its existing
+  per-device task lock permits different GPUs to run concurrently and prevents overlapping
+  coins on one GPU. Existing short validation profiles are not reused as complete curves
+  when resuming, because the run mode differs. English and German help text and dynamic
+  curve labels describe the new behavior. No GPU hardware was available for a live sweep.
+- Verification: targeted `BenchmarkSessionServiceTest` and `EfficiencySweepServiceTest`
+  passed on JDK 21; both i18n catalog/literal checks, JavaScript syntax, and
+  `git diff --check` passed. Live GPU and pool behavior remains unverified.
+
+## 2026-10-17 — Explicit benchmark worker selection
+
+- The benchmark page now lists physical workers from `/api/agent/local/workers` and
+  requires at least one checked worker before starting a measurement. Selection is
+  retained in browser storage; a fresh browser has no worker preselected. The sweep
+  requires a GPU, while the regular benchmark also accepts the CPU.
+- Both start requests now carry `workers`. The controllers reject a missing or empty
+  array. The services validate device IDs against the current inventory and filter
+  LIVE readings, installed GPU batches, and sweep targets accordingly. Unknown or
+  disconnected IDs fail with localized, actionable messages.
+- Verification: targeted benchmark, sweep, benchmark-controller and sweep-controller tests passed on JDK 21;
+  German/English catalog and browser-literal checks plus JavaScript syntax and
+  `git diff --check` passed. Live hardware selection remains unverified.
+
 ## 2026-10-17 — Agent update flow
 
 - Added channel-specific release checks and a dashboard update panel. Native supervised starts stage a SHA-256-verified JAR with byte progress, exit cleanly, and let the Windows/Linux launcher replace and restart it. An immediate failed start restores the prior JAR. Docker shows the matching host Compose commands, including the selected GPU overlay; no Docker daemon access is granted to the Agent container.
@@ -2533,3 +2562,55 @@ Vorgehen / Andockpunkte für andere Agenten:
   and `git diff --check` passed. No physical GPU/kernel or pool test was run;
   catalog vendor compatibility is a coarse filter, and actual architecture
   compatibility remains determined by a successful miner start and samples.
+
+## 2026-10-17 — Benchmark controls and per-GPU results pages
+
+- Split the operator navigation into **Benchmark** (`/benchmarks.html`) for global
+  measurement, sweep, worker/coin selection, progress and sharing, and **Results**
+  (`/benchmark-results.html`) for a selected physical GPU. The results page scopes
+  current benchmark rows, stored benchmark and efficiency profiles, live sweep
+  curves/run details and the gross revenue per kWh comparison to that GPU.
+- The benchmark page skips result rendering and profile refreshes, so its work
+  does not grow with the number of saved worker cards. The result picker includes
+  discovered GPUs and GPUs retained in local measurements; a `gpu` URL parameter
+  preserves a direct link to the chosen card. The retired coin-hopping URL now
+  points to the results comparison.
+- New headings, empty state, page titles and accessibility labels use the closed
+  German/English catalog. `node --check` for the page controller,
+  `scripts/check-i18n.cjs`, `scripts/scan-i18n-literals.cjs`, both-page ID checks
+  and `git diff --check` passed. No physical GPU or browser automation was run.
+
+## 2026-10-17 — Live per-worker benchmark tabs
+
+- The local benchmark status now publishes selected worker IDs and bounded sample
+  traces alongside the existing summary results. Each trace is keyed by physical
+  device, algorithm and miner software and carries at most twelve hashrate/power
+  points, matching the measurement stop condition.
+- The Benchmark page shows a horizontally scrollable tab per selected worker while
+  a run is active and retains the final view after completion. Only the selected
+  worker's interim median and animated hashrate/power curves are rendered. Tabs
+  support arrow, Home and End keys and keep selection across live updates. Reduced
+  motion disables chart animations; all new copy and chart labels have German and
+  English catalog entries.
+- Verification: focused `BenchmarkSessionServiceTest` passed on JDK 21, including
+  trace identity and payload bound; JavaScript syntax and German/English catalog,
+  literal and rendered-page checks passed. No real miner or browser visual pass
+  was available.
+
+## 2026-10-17 — Optional mining start after benchmark
+
+- Added a default-off, locally remembered **Mining after benchmark** choice to
+  the global Benchmark page. The start request carries it to the measurement
+  session. After a completed run, the agent stops any restored process on each
+  selected worker and invokes the normal configured worker start path while it
+  still owns the measurement lock. This applies the saved coin, miner and
+  operation mode, including measured revenue and power modes. Unselected
+  workers keep the existing restore behavior.
+- Cancellation, measurement failure and failed restoration skip the additional
+  starts. A failed stop or start is isolated to that worker and appears in the
+  session's per-worker outcomes; an accepted start does not claim pool shares.
+  German/English catalog entries cover the option, pending/result states and
+  added failure keys.
+- Verification: focused `BenchmarkSessionServiceTest` and
+  `BenchmarkControllerSelectionTest` passed on JDK 21. UI syntax, locale render
+  and literal checks passed. No physical miner or browser visual pass was run.

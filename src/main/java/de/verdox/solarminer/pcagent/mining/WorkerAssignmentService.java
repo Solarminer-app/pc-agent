@@ -121,6 +121,11 @@ public class WorkerAssignmentService {
         return startWithMode(deviceId, true);
     }
 
+    /** A completed benchmark still owns the measurement lock while it starts configured workers. */
+    public synchronized boolean startWithHeldRunLock(String deviceId) {
+        return startWithMode(deviceId, true);
+    }
+
     private boolean startWithMode(String deviceId, boolean lockHeld) {
         String mode = controls.get().powerModeFor(deviceId);
         if (!WorkerIds.isCpu(deviceId) && ("REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode))) {

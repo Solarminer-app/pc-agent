@@ -26,7 +26,10 @@ for (const name of fs.readdirSync(root).filter(n => n.endsWith('.html'))) {
   for (const locale of ['en', 'de']) {
     let out = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
     // title
-    out = out.replace(/<title[^>]*>([^<]*)<\/title>/, (m, txt) => `<title>${t(normalize(txt), locale)}</title>`);
+    out = out.replace(/<title([^>]*)>([^<]*)<\/title>/, (m, attrs, txt) => {
+      const key = attrs.match(/data-i18n="([^"]+)"/)?.[1];
+      return `<title>${t(key || normalize(txt), locale)}</title>`;
+    });
     // data-i18n elements: replace their inner text
     out = out.replace(/<([a-zA-Z][a-zA-Z0-9]*)([^>]*\sdata-i18n="([^"]+)")[^>]*>([^<]*)<\/\1>/g,
       (m, tag, attrs, key, inner) => `<${tag}${attrs}>${t(normalize(key), locale)}</${tag}>`);
@@ -55,5 +58,5 @@ for (const name of fs.readdirSync(root).filter(n => n.endsWith('.html'))) {
     }
   }
 }
-console.log(failures ? `render simulation failures: ${failures}` : 'render simulation: all 9 pages fully translated in both locales');
+console.log(failures ? `render simulation failures: ${failures}` : 'render simulation: all pages fully translated in both locales');
 if (failures) process.exitCode = 1;

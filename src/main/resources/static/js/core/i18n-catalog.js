@@ -100,6 +100,14 @@ window.SolarMinerI18nCatalog = {
         "benchmark_jump_comparison": {de: "Ertrag vergleichen", en: "Compare revenue"},
         "benchmark_comparison_intro": {de: "Gemessene GPU-, Coin- und Miner-Kombinationen mit aktuellen Netzwerkkursen vergleichen.", en: "Compare measured GPU, coin and miner combinations using current network quotes."},
         "benchmark_select_coin": {de: "Wähle mindestens einen installierten Coin für den Messlauf aus.", en: "Select at least one installed coin for the measurement run."},
+        "benchmark_select_worker": {de: "Wähle mindestens einen Worker für den Messlauf aus.", en: "Select at least one worker for the measurement run."},
+        "benchmark_select_workers": {de: "Worker für Messläufe auswählen", en: "Select workers for measurement runs"},
+        "benchmark_select_gpu_for_sweep": {de: "Wähle mindestens eine GPU für den Power-Limit-Test aus.", en: "Select at least one GPU for the power-limit test."},
+        "benchmark_worker_unavailable": {de: "Ein ausgewählter Worker ist nicht mehr verfügbar. Lade die Worker-Liste neu.", en: "A selected worker is no longer available. Reload the worker list."},
+        "benchmark_worker_list_unavailable": {de: "Die Worker-Liste konnte nicht geladen werden. Lade die Seite neu.", en: "Could not load the worker list. Reload the page."},
+        "benchmark_no_selected_targets": {de: "Für die ausgewählten GPUs und Coins ist kein Power-Limit-Test möglich. Prüfe Miner, Zuordnung und schreibbare Power-Limits.", en: "No power-limit test is available for the selected GPUs and coins. Check miners, assignments, and writable power limits."},
+        "benchmark_worker_selection_intro": {de: "Wähle die Worker für den Messlauf aus. Nur diese Geräte werden gemessen; für den Power-Limit-Test muss mindestens eine GPU ausgewählt sein.", en: "Select the workers for the measurement run. Only these devices are measured; the power-limit test requires at least one GPU."},
+        "benchmark_choose_workers_above": {de: "Worker für diesen Test auswählen", en: "Select workers for this test"},
         "benchmark_comparison_gpu": {de: "GPU auswählen", en: "Choose GPU"},
         "benchmark_comparison_load_failed": {de: "Der Netzwerkvergleich konnte nicht geladen werden.", en: "Could not load the network comparison."},
         "benchmark_comparison_no_device": {de: "Noch keine geeignete GPU-Messung vorhanden. Starte einen Benchmark oder Power Sweep.", en: "No eligible GPU measurement yet. Run a benchmark or power sweep."},
@@ -524,6 +532,39 @@ window.SolarMinerI18nCatalog = {
         "benchmark_upload": {de: "Benchmark-Upload", en: "Benchmark upload"},
         "benchmark_updated_at": {de: "Aktualisiert: {time}", en: "Updated: {time}"},
         "benchmarks": {de: "Benchmarks", en: "Benchmarks"},
+        "benchmark_page_title": {de: "Benchmark", en: "Benchmark"},
+        "benchmark_measurement_controls": {de: "MESSUNGEN", en: "MEASUREMENTS"},
+        "benchmark_page_intro": {de: "Starte Messläufe und Power Sweeps für die ausgewählten Worker.", en: "Start benchmark runs and power sweeps for the selected workers."},
+        "benchmark_results_title": {de: "Ergebnisse", en: "Results"},
+        "benchmark_results_intro": {de: "Wähle eine GPU, um ihre Messungen, Kurven und Erträge zu sehen.", en: "Select a GPU to see its measurements, curves, and revenue."},
+        "solarminer_benchmark_results": {de: "SolarMiner · Ergebnisse", en: "SolarMiner · Results"},
+        "solarminer_benchmark": {de: "SolarMiner · Benchmark", en: "SolarMiner · Benchmark"},
+        "benchmark_current_sweep": {de: "Aktueller Power Sweep", en: "Current power sweep"},
+        "benchmark_no_gpu_available": {de: "Keine GPU verfügbar", en: "No GPU available"},
+        "benchmark_no_gpu_run_result": {de: "Für diese GPU liegen im aktuellen Messlauf keine Ergebnisse vor.", en: "The current run has no results for this GPU."},
+        "benchmark_open_gpu_results": {de: "GPU-Ergebnisse und Kurven ansehen", en: "View GPU results and curves"},
+        "benchmark_live_kicker": {de: "LIVE-MESSUNG", en: "LIVE MEASUREMENT"},
+        "benchmark_live_heading": {de: "Worker im Benchmark", en: "Workers in the benchmark"},
+        "benchmark_live_intro": {de: "Wähle einen Worker. Kurven und Zwischenwerte wachsen mit jedem gültigen Messpunkt.", en: "Select a worker. Charts and interim values grow with each valid sample."},
+        "benchmark_worker_tabs": {de: "Benchmark-Worker", en: "Benchmark workers"},
+        "benchmark_live_chart_aria": {de: "{metric}-Verlauf mit {count} Messpunkten", en: "{metric} chart with {count} samples"},
+        "benchmark_live_sample_axis": {de: "Messpunkt {count}", en: "Sample {count}"},
+        "benchmark_live_sample_number": {de: "Messpunkt {number}", en: "Sample {number}"},
+        "benchmark_live_points": {de: "{count}/{required} Messpunkte", en: "{count}/{required} samples"},
+        "benchmark_live_waiting": {de: "Dieser Worker wartet auf den ersten gültigen Messpunkt.", en: "This worker is waiting for its first valid sample."},
+        "benchmark_live_no_samples": {de: "Für diesen Worker wurden keine gültigen Messpunkte erfasst.", en: "No valid samples were captured for this worker."},
+        "benchmark_auto_start_label": {de: "Mining nach Benchmark starten", en: "Start mining after benchmark"},
+        "benchmark_auto_start_help": {de: "Startet nach einem abgeschlossenen Benchmark die ausgewählten Worker mit ihrer gespeicherten Coin-, Miner- und Betriebsmodus-Konfiguration. Bei Abbruch erfolgt kein zusätzlicher Start.", en: "After a completed benchmark, starts the selected workers with their saved coin, miner, and operation mode settings. Cancelling does not trigger another start."},
+        "benchmark_auto_start_pending": {de: "Nach dem Benchmark wird Mining für die ausgewählten Worker gestartet.", en: "Mining will start for the selected workers after the benchmark."},
+        "benchmark_auto_start_result_heading": {de: "Mining-Start nach Benchmark", en: "Mining start after benchmark"},
+        "benchmark_auto_start_accepted": {de: "Start ausgelöst", en: "Start requested"},
+        "benchmark_auto_start_failed": {de: "Start fehlgeschlagen", en: "Start failed"},
+        "benchmark_auto_start_skipped": {de: "Nicht gestartet", en: "Not started"},
+        "benchmark_auto_start_no_result": {de: "Für diesen Benchmark wurde kein Mining-Start ausgeführt.", en: "No mining start was performed for this benchmark."},
+        "benchmark_auto_start_cancelled": {de: "Der Benchmark wurde abgebrochen.", en: "The benchmark was cancelled."},
+        "benchmark_auto_start_failed_run": {de: "Der Benchmark oder die Wiederherstellung ist fehlgeschlagen.", en: "The benchmark or restoration failed."},
+        "benchmark_auto_start_stop_failed": {de: "Der bisherige Miner konnte nicht angehalten werden.", en: "The previous miner could not be stopped."},
+        "benchmark_auto_start_start_failed": {de: "Der konfigurierte Miner konnte nicht gestartet werden.", en: "The configured miner could not be started."},
         "best_share_difficulty": {de: "Beste Share-Difficulty", en: "Best share difficulty"},
         "best_stable_value_watts_w_hashrate_power_w_e": {
             de: "Bester stabiler Messpunkt: {watts} W Limit · {hashrate} · {power} W gemessen · Energie je Hash: {efficiency}",
@@ -1118,6 +1159,7 @@ window.SolarMinerI18nCatalog = {
         },
         "free_capacity": {de: "Freie Kapazität", en: "Free capacity"},
         "full_reference_curve": {de: "Vollständige Referenzkurve", en: "Full reference curve"},
+        "full_device_curve": {de: "Vollständige GPU-Kurve", en: "Full GPU curve"},
         "global_node_automation_blocked": {
             de: "Node-Automatik global gesperrt.",
             en: "Global Node automation blocked."
@@ -1241,8 +1283,8 @@ window.SolarMinerI18nCatalog = {
             en: "I confirm: without my own wallet, my entire mining payout goes to the displayed SolarMiner standard destination. The full fees are listed under Advanced."
         },
         "identical_gpus_are_grouped_per_coin_and_algo": {
-            de: "Baugleiche GPUs werden pro Coin und Algorithmus gruppiert. Während eine Referenzkarte ihre Kurve ermittelt, messen die noch wartenden Schwesterkarten bereits andere Coins. Sobald die Referenz fertig ist, werden ihre Validierungen sofort freigeschaltet und auf den nächsten passenden freien Karten ausgeführt. Dieselbe GPU wird nie doppelt belegt. Nach jedem Power-Wechsel erhält der Miner bis zu vier Minuten Zeit, eine gültige Hashrate zu melden, bevor ein Schritt als instabil gilt. Ein Ergebnis wird erst gerätespezifisch gespeichert, wenn Miner, Pool, Temperatur und Shares stabil bleiben. Nach dem Lauf werden Leistungsgrenzen und Miner-Zustand verifiziert wiederhergestellt. Während der Sweep läuft, bleiben abgeschlossene oder fehlgeschlagene Kurven mit ihren Messwerten aufgeklappt. Wartende Läufe sind in einer Gruppe zusammengefasst.",
-            en: "Identical GPUs are grouped per coin and algorithm. While one reference card measures its curve, the still-waiting sibling cards already measure other coins. As soon as the reference finishes, its validations unlock immediately and run on the next matching free card. The same GPU is never double-booked. After every power change the miner gets up to four minutes to report a valid hashrate before a step counts as unstable. A result is stored for a device only after its miner, pool, temperature and shares remain stable. Power limits and miner state are verified and restored after the run. Finished or failed curves stay expanded with their measurements while the sweep is running. Waiting runs are grouped together."
+            de: "Jede GPU misst für jeden ausgewählten, geeigneten Coin ihre eigene vollständige Power-Kurve. Verschiedene Karten können gleichzeitig messen; dieselbe GPU wird nie doppelt belegt. Nach jedem Power-Wechsel erhält der Miner bis zu vier Minuten Zeit, eine gültige Hashrate zu melden, bevor ein Schritt als instabil gilt. Ein Ergebnis wird erst gerätespezifisch gespeichert, wenn Miner, Pool, Temperatur und Shares stabil bleiben. Nach dem Lauf werden Leistungsgrenzen und Miner-Zustand verifiziert wiederhergestellt. Während der Sweep läuft, bleiben abgeschlossene oder fehlgeschlagene Kurven mit ihren Messwerten aufgeklappt. Wartende Läufe sind in einer Gruppe zusammengefasst.",
+            en: "Each GPU measures its own complete power curve for every selected eligible coin. Different cards can measure at the same time; the same GPU is never used twice at once. After every power change the miner gets up to four minutes to report a valid hashrate before a step counts as unstable. A result is stored for a device only after its miner, pool, temperature and shares remain stable. Power limits and miner state are verified and restored after the run. Finished or failed curves stay expanded with their measurements while the sweep is running. Waiting runs are grouped together."
         },
         "included_in_the_node_profile": {de: "Im Node-Profil enthalten.", en: "Included in the Node profile."},
         "included_with_the_pc_agent_a_single_pc_does": {
@@ -2395,8 +2437,8 @@ window.SolarMinerI18nCatalog = {
         },
         "test_installed_miners": {de: "Installierte Miner testen", en: "Test installed miners"},
         "tests_configured_miners_in_sequence_running": {
-            de: "Testet konfigurierte Miner nacheinander. Laufende verwaltete Worker werden dafür vorübergehend pausiert und anschließend wiederhergestellt. Die Node-Steuerung ist währenddessen gesperrt.",
-            en: "Tests configured miners in sequence. Running managed workers are temporarily paused and then restored. Node control is blocked during the test."
+            de: "Jede ausgewählte GPU testet jeden für sie geeigneten Coin selbst; mehrere Karten messen zugleich. Laufende verwaltete Worker werden dafür vorübergehend pausiert und anschließend wiederhergestellt. Die Node-Steuerung ist währenddessen gesperrt.",
+            en: "Each selected GPU tests every coin it supports; multiple cards measure at the same time. Running managed workers are temporarily paused and then restored. Node control is blocked during the test."
         },
         "the_agent_keeps_no_measurement_history_the_c": {
             de: "Der Agent hält keine Messhistorik vor; der Verlauf beginnt mit diesem Aufruf.",
@@ -2978,6 +3020,7 @@ window.SolarMinerI18nCatalog = {
         "Effizienzkurven wurden nicht hochgeladen: Teilen ist deaktiviert.": "Efficiency curves were not uploaded: sharing is disabled.",
         "Keine Effizienz-Messpunkte zum Hochladen vorhanden.": "No efficiency samples available to upload.",
         "Vollständige Referenzkurve": "Full reference curve",
+        "Vollständige GPU-Kurve": "Full GPU curve",
         "Wartet auf Ergebnis der Referenzkarte": "Waiting for the reference GPU result",
         "Aus unterbrochenem Sweep übernommen": "Reused from interrupted sweep",
         "Referenz fertig; wartet auf freie GPU": "Reference complete; waiting for a free GPU",

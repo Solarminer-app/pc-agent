@@ -58,7 +58,7 @@ class EfficiencySweepServiceTest {
     }
 
     @Test
-    void cohortsRequireMatchingModelAlgorithmAndPowerBounds() {
+    void identicalModelsStillGetIndependentFullCurves() {
         var first = target("one", "TITAN RTX", 100, 320, "PearlHash");
         var sibling = target("two", "TITAN RTX", 100, 320, "PearlHash");
         var differentBounds = target("three", "TITAN RTX", 120, 320, "PearlHash");
@@ -67,7 +67,7 @@ class EfficiencySweepServiceTest {
         List<List<EfficiencySweepService.Target>> groups = EfficiencySweepService.targetGroups(
                 List.of(first, sibling, differentBounds, differentAlgorithm));
 
-        assertEquals(List.of(2, 1, 1), groups.stream().map(List::size).toList());
+        assertEquals(List.of(1, 1, 1, 1), groups.stream().map(List::size).toList());
     }
 
     @Test
@@ -79,10 +79,11 @@ class EfficiencySweepServiceTest {
         var thirdCoin = List.of(targetForCoin("one", "decred", "BLAKE3"),
                 targetForCoin("two", "decred", "BLAKE3"));
 
-        var batches = EfficiencySweepService.referenceBatches(List.of(firstCoin, secondCoin, thirdCoin));
+        var batches = EfficiencySweepService.referenceBatches(EfficiencySweepService.targetGroups(
+                java.util.stream.Stream.of(firstCoin, secondCoin, thirdCoin).flatMap(List::stream).toList()));
 
-        assertEquals(List.of(2, 1), batches.stream().map(List::size).toList());
-        assertEquals(3, batches.stream().flatMap(List::stream).count());
+        assertEquals(List.of(2, 2, 2), batches.stream().map(List::size).toList());
+        assertEquals(6, batches.stream().flatMap(List::stream).count());
         for (var batch : batches) {
             List<String> devices = batch.stream().map(group -> group.getFirst().gpu().deviceId()).toList();
             assertEquals(devices.size(), Set.copyOf(devices).size());

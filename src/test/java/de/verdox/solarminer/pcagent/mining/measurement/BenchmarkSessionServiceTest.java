@@ -26,7 +26,72 @@ import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
 
 class BenchmarkSessionServiceTest {
     @Test
-    void sameModelUsesDifferentCoinsWhileDifferentModelsProgressIndependently() {
+    void autoStartUsesConfiguredWorkerPathAndKeepsFailuresPerWorker() {
+        WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
+        when(assignments.pause("cpu")).thenReturn(true);
+        when(assignments.startWithHeldRunLock("cpu")).thenReturn(true);
+        when(assignments.pause("gpu-a")).thenReturn(true);
+        when(assignments.startWithHeldRunLock("gpu-a"))
+                .thenThrow(new IllegalStateException("power_mode_no_measured_point"));
+        when(assignments.pause("gpu-b")).thenReturn(false);
+        BenchmarkSessionService service = new BenchmarkSessionService(mock(MiningService.class),
+                mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class),
+                mock(BenchmarkSharingService.class), mock(MinerConsoleService.class), mock(LocalRunLock.class),
+                mock(MiningPerformanceProfileStore.class), assignments);
+
+        var results = service.startConfiguredWorkers(Set.of("cpu", "gpu-a", "gpu-b"));
+
+        assertEquals(3, results.size());
+        assertEquals("STARTED", results.stream().filter(result -> result.deviceId().equals("cpu"))
+                .findFirst().orElseThrow().status());
+        assertEquals("power_mode_no_measured_point", results.stream().filter(result -> result.deviceId().equals("gpu-a"))
+                .findFirst().orElseThrow().message());
+        assertEquals("benchmark_auto_start_stop_failed", results.stream().filter(result -> result.deviceId().equals("gpu-b"))
+                .findFirst().orElseThrow().message());
+        org.mockito.Mockito.verify(assignments).startWithHeldRunLock("cpu");
+        org.mockito.Mockito.verify(assignments).startWithHeldRunLock("gpu-a");
+        org.mockito.Mockito.verify(assignments, org.mockito.Mockito.never()).startWithHeldRunLock("gpu-b");
+        service.close();
+    }
+
+    @Test
+    void liveTraceKeepsPhysicalWorkersSeparateAndBoundsTheWirePayload() {
+        MinerStats.Worker first = new MinerStats.Worker(MinerStats.MinerStatus.MINING, "worker", "PearlHash",
+                0.000000000002, 60, 180, 100, 180, 300, 175, List.of(), "GPU", "RTX 4090", "gpu-a",
+                null, null, MinerStats.PoolTelemetry.unavailable());
+        MinerStats.Worker second = new MinerStats.Worker(MinerStats.MinerStatus.MINING, "worker", "PearlHash",
+                0.000000000003, 60, 180, 100, 180, 300, 180, List.of(), "GPU", "RTX 4090", "gpu-b",
+                null, null, MinerStats.PoolTelemetry.unavailable());
+        var traces = BenchmarkSessionService.liveSeries(Map.of(
+                "gpu-a|PearlHash|srbminer", java.util.Collections.nCopies(14, first),
+                "gpu-b|PearlHash|teamredminer", List.of(second)));
+
+        assertEquals(2, traces.size());
+        var a = traces.stream().filter(trace -> trace.deviceId().equals("gpu-a")).findFirst().orElseThrow();
+        var b = traces.stream().filter(trace -> trace.deviceId().equals("gpu-b")).findFirst().orElseThrow();
+        assertEquals("srbminer", a.minerSoftwareId());
+        assertEquals(12, a.points().size());
+        assertEquals(1, a.points().getFirst().index());
+        assertEquals(2.0, a.points().getFirst().hashrateHs(), 0.000001);
+        assertEquals(175, a.points().getFirst().powerWatts());
+        assertEquals("teamredminer", b.minerSoftwareId());
+        assertEquals(1, b.points().size());
+        assertEquals(3.0, b.points().getFirst().hashrateHs(), 0.000001);
+    }
+
+    @Test
+    void workerSelectionRejectsEmptyAndStaleIds() {
+        Set<String> available = Set.of("cpu", "gpu-a", "gpu-b");
+        assertEquals(Set.of("gpu-a", "gpu-b"), BenchmarkSessionService.validateWorkerSelection(
+                List.of("gpu-a", "gpu-b", "gpu-a"), available));
+        assertEquals("benchmark_select_worker", assertThrows(IllegalArgumentException.class,
+                () -> BenchmarkSessionService.validateWorkerSelection(List.of(), available)).getMessage());
+        assertEquals("benchmark_worker_unavailable", assertThrows(IllegalArgumentException.class,
+                () -> BenchmarkSessionService.validateWorkerSelection(List.of("gpu-missing"), available)).getMessage());
+    }
+
+    @Test
+    void everyDeviceMeasuresEveryEligibleCoinIncludingIdenticalModels() {
         LocalGpuPowerService.Gpu a0 = gpu("gpu-a0", "RTX 4090", 0);
         LocalGpuPowerService.Gpu a1 = gpu("gpu-a1", "RTX 4090", 1);
         LocalGpuPowerService.Gpu b0 = gpu("gpu-b0", "RTX 3060", 2);
@@ -39,17 +104,35 @@ class BenchmarkSessionServiceTest {
                 BenchmarkSessionService.planGpuBatches(cards);
 
         assertEquals(3, batches.size());
-        assertEquals(2, batches.getFirst().size());
+        assertEquals(3, batches.getFirst().size());
         Set<de.verdox.solarminer.pcagent.coin.Coin> firstModelCoins = new java.util.HashSet<>();
         batches.getFirst().forEach((coin, devices) -> devices.stream().filter(gpu -> gpu.model().equals("RTX 4090"))
                 .forEach(ignored -> firstModelCoins.add(coin)));
         assertEquals(2, firstModelCoins.size());
-        for (String model : List.of("RTX 4090", "RTX 3060")) {
+        for (String deviceId : List.of("gpu-a0", "gpu-a1", "gpu-b0")) {
             Set<de.verdox.solarminer.pcagent.coin.Coin> measured = new java.util.HashSet<>();
             batches.forEach(batch -> batch.forEach((coin, devices) -> devices.stream()
-                    .filter(gpu -> gpu.model().equals(model)).forEach(ignored -> measured.add(coin))));
+                    .filter(gpu -> gpu.deviceId().equals(deviceId)).forEach(ignored -> measured.add(coin))));
             assertEquals(cards.keySet(), measured);
+            for (var batch : batches) assertEquals(1, batch.values().stream().flatMap(List::stream)
+                    .filter(gpu -> gpu.deviceId().equals(deviceId)).count());
         }
+    }
+    @Test
+    void deviceOnlyRunsCoinsForWhichItIsSelected() {
+        LocalGpuPowerService.Gpu a = gpu("gpu-a", "Titan RTX", 0);
+        LocalGpuPowerService.Gpu b = gpu("gpu-b", "Titan RTX", 1);
+        var cards = new LinkedHashMap<de.verdox.solarminer.pcagent.coin.Coin, List<LocalGpuPowerService.Gpu>>();
+        cards.put(de.verdox.solarminer.pcagent.coin.Coin.PEARL, List.of(a, b));
+        cards.put(de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN, List.of(a));
+        var batches = BenchmarkSessionService.planGpuBatches(cards);
+        assertEquals(2, batches.size());
+        assertEquals(Set.of(de.verdox.solarminer.pcagent.coin.Coin.PEARL,
+                de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN), batches.stream()
+                .filter(batch -> batch.values().stream().flatMap(List::stream).anyMatch(gpu -> gpu.deviceId().equals("gpu-a")))
+                .flatMap(batch -> batch.keySet().stream()).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(1, batches.stream().flatMap(batch -> batch.values().stream()).flatMap(List::stream)
+                .filter(gpu -> gpu.deviceId().equals("gpu-b")).count());
     }
     @Test
     void unavailableDefaultPayoutSkipsPearlInsteadOfPreventingAnotherInstalledBenchmark() {

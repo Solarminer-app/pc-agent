@@ -40,11 +40,12 @@ class EfficiencySweepControllerTest {
     @Test
     void rejectedStartReturnsTheActionableReasonToTheDashboard() throws Exception {
         EfficiencySweepService sweep = mock(EfficiencySweepService.class);
-        when(sweep.start(null)).thenThrow(new IllegalStateException(
+        when(sweep.start(null, List.of("gpu-one"))).thenThrow(new IllegalStateException(
                 "Keine GPU-Leistungsgrenze ist schreibbar: Insufficient Permissions"));
         MockMvc api = standaloneSetup(new EfficiencySweepController(sweep, null)).build();
 
-        api.perform(post("/api/agent/local/efficiency"))
+        api.perform(post("/api/agent/local/efficiency").contentType("application/json")
+                        .content("{\"workers\":[\"gpu-one\"]}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message")
                         .value("Keine GPU-Leistungsgrenze ist schreibbar: Insufficient Permissions"));
@@ -53,33 +54,39 @@ class EfficiencySweepControllerTest {
     @Test
     void resumeModeUsesTheSavedSweepCheckpoint() throws Exception {
         EfficiencySweepService sweep = mock(EfficiencySweepService.class);
-        when(sweep.resume(null)).thenReturn(new EfficiencySweepService.Session(false, "Idle", null,
+        when(sweep.resume(null, List.of("gpu-one"))).thenReturn(new EfficiencySweepService.Session(false, "Idle", null,
                 0, 0, List.of(), List.of(), 0L));
         MockMvc api = standaloneSetup(new EfficiencySweepController(sweep, null)).build();
 
-        api.perform(post("/api/agent/local/efficiency").queryParam("mode", "resume"))
+        api.perform(post("/api/agent/local/efficiency").queryParam("mode", "resume")
+                        .contentType("application/json").content("{\"workers\":[\"gpu-one\"]}"))
                 .andExpect(status().isOk());
 
-        verify(sweep).resume(null);
+        verify(sweep).resume(null, List.of("gpu-one"));
     }
 
     @Test
     void coinSelectionIsPassedThroughToTheSweepAndUnknownCoinsAreRejected() throws Exception {
         EfficiencySweepService sweep = mock(EfficiencySweepService.class);
-        when(sweep.start(List.of("pearl"))).thenReturn(new EfficiencySweepService.Session(true, "Vorbereitung",
+        when(sweep.start(List.of("pearl"), List.of("gpu-one"))).thenReturn(new EfficiencySweepService.Session(true, "Vorbereitung",
                 Instant.now(), 0, 1, List.of(), List.of(), 0L));
-        when(sweep.start(List.of("notacoin"))).thenThrow(new IllegalArgumentException("Unknown benchmark coin: notacoin"));
+        when(sweep.start(List.of("notacoin"), List.of("gpu-one"))).thenThrow(new IllegalArgumentException("Unknown benchmark coin: notacoin"));
         MockMvc api = standaloneSetup(new EfficiencySweepController(sweep, null)).build();
 
         api.perform(post("/api/agent/local/efficiency")
                         .contentType("application/json")
-                        .content("{\"coins\":[\"pearl\"]}"))
+                        .content("{\"coins\":[\"pearl\"],\"workers\":[\"gpu-one\"]}"))
                 .andExpect(status().isOk());
-        verify(sweep).start(List.of("pearl"));
+        verify(sweep).start(List.of("pearl"), List.of("gpu-one"));
 
         api.perform(post("/api/agent/local/efficiency")
                         .contentType("application/json")
-                        .content("{\"coins\":[\"notacoin\"]}"))
+                        .content("{\"coins\":[\"notacoin\"],\"workers\":[\"gpu-one\"]}"))
                 .andExpect(status().isConflict());
+
+        api.perform(post("/api/agent/local/efficiency").contentType("application/json")
+                        .content("{\"coins\":[\"pearl\"]}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("benchmark_select_gpu_for_sweep"));
     }
 }

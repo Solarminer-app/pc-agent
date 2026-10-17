@@ -85,6 +85,9 @@
 .benchmark-mode button{margin-top:auto}
 #coin-selection{border-top:1px solid #354955;padding-top:20px}
 #coin-options{margin:14px 0 4px}
+#worker-selection{border-top:1px solid #354955;padding-top:20px;margin-top:20px}
+#worker-options{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 4px}
+#worker-options{max-height:260px;overflow-y:auto;align-content:start;padding:2px}
 #progress-wrap,#sweep-progress-wrap{margin-top:20px;border:1px solid #34535c;border-radius:12px;background:#122731;padding:14px 18px}
 #progress-wrap progress,#sweep-progress-wrap progress,.sweep-sample-progress{accent-color:#8fe9b5;width:100%;height:8px}
 .benchmark-help{margin:0 0 20px;color:#9fb9c4;font-size:12px}
@@ -177,3 +180,53 @@
 @media(max-width:700px){.benchmark-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.benchmark-page .panel{padding:16px}.benchmark-page .section-head{align-items:start}.library-tools{justify-content:start;width:100%}.comparison-picker{display:grid}.comparison-picker select{width:100%}.benchmark-comparison .hopping-row{grid-template-columns:1fr 1fr}.benchmark-comparison .hopping-row .hopping-track{grid-column:1/-1;grid-row:2}.benchmark-comparison .hopping-row span{text-align:left;grid-column:2;grid-row:1}.benchmark-comparison .hopping-row .hopping-meta{grid-row:3}.benchmark-modes{grid-template-columns:1fr}}
 [hidden]{display:none!important}
 .benchmark-algorithm-cards{max-height:460px;overflow-y:auto;align-content:start}
+/* Two destinations share the live measurement controller, while each exposes only its task. */
+.benchmark-page:not(.benchmark-results-page) .benchmark-comparison,
+.benchmark-page:not(.benchmark-results-page) .measurement-library,
+.benchmark-page:not(.benchmark-results-page) #sweep-live-chart,
+.benchmark-page:not(.benchmark-results-page) #sweep-runs{display:none!important}
+.benchmark-page:not(.benchmark-results-page) .benchmark-overview{grid-template-columns:repeat(2,minmax(0,1fr))}
+.benchmark-page:not(.benchmark-results-page) .benchmark-overview article:nth-child(n+3){display:none}
+.benchmark-results-page .benchmark-overview,
+.benchmark-results-page #benchmark-run,
+.benchmark-results-page #sweep-studio,
+.benchmark-results-page .sharing-details{display:none!important}
+.benchmark-results-page .gpu-results-picker{padding:14px 24px;margin-bottom:14px}
+.benchmark-results-page .gpu-results-picker .comparison-picker{margin:0}
+.benchmark-results-page .measurement-library #sweep-live-chart{margin-top:12px}
+.benchmark-results-page #upload-status,
+.benchmark-results-page #periodic-upload-status,
+.benchmark-results-page #retry-upload{display:none!important}
+.benchmark-live-workspace{border-color:#477766!important;background:linear-gradient(135deg,#19313a,#111c29 60%)!important}
+.benchmark-worker-tabs{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 12px;scrollbar-width:thin}
+.benchmark-worker-tab{flex:none;max-width:300px;border:1px solid #45616b;border-radius:9px;background:#172b38;color:#c0d5d5;padding:10px 13px;font:inherit;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.benchmark-worker-tab.selected{border-color:#81dfae;background:#25463d;color:#f1fff5;box-shadow:inset 0 -2px #81dfae}
+.benchmark-worker-tab:focus-visible{outline:2px solid #b2f3c9;outline-offset:2px}
+.benchmark-worker-panel{min-height:180px;border:1px solid #35545e;border-radius:12px;background:#102531;padding:16px}
+.benchmark-worker-panel:focus-visible{outline:2px solid #b2f3c9;outline-offset:2px}
+.benchmark-live-series+.benchmark-live-series{border-top:1px solid #3a5660;margin-top:18px;padding-top:18px}
+.benchmark-live-series-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.benchmark-live-series-head strong{font-size:14px;color:#e9f7ef}
+.benchmark-live-summary{color:#bfddd0;font-size:13px}
+.benchmark-live-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px}
+.benchmark-live-chart{min-width:0;border:1px solid #36535e;border-radius:10px;background:#10202c;padding:12px}
+.benchmark-live-chart h3{margin:0 0 8px;color:#c9e5d5}
+.benchmark-live-chart svg{display:block;width:100%;height:auto}
+.benchmark-live-grid{stroke:#54717a66;stroke-width:1}
+.benchmark-live-axis{fill:#a5bec5;font-size:10px}
+.benchmark-live-line{stroke:#8ee4b4;stroke-width:3;stroke-linejoin:round;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;animation:benchmark-live-draw .7s ease-out forwards}
+.benchmark-live-point{fill:#baf4c9;stroke:#13302e;stroke-width:2;transform-box:fill-box;transform-origin:center;animation:benchmark-live-appear .35s ease-out both}
+@keyframes benchmark-live-draw{to{stroke-dashoffset:0}}
+@keyframes benchmark-live-appear{from{opacity:0;transform:scale(.5)}to{opacity:1;transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){.benchmark-live-line,.benchmark-live-point{animation:none;stroke-dashoffset:0}}
+.benchmark-auto-start{display:flex;align-items:flex-start;gap:12px;margin:20px 0;padding:16px 18px;border:1px solid #456454;border-radius:11px;background:#18332d;cursor:pointer}
+.benchmark-auto-start input{width:19px;height:19px;flex:none;margin:2px 0 0;accent-color:#83dda8}
+.benchmark-auto-start strong,.benchmark-auto-start small{display:block}
+.benchmark-auto-start strong{color:#e8f8ed;font-size:14px}
+.benchmark-auto-start small{margin-top:5px;color:#b3cfc1;font-size:12px;line-height:1.5}
+.benchmark-auto-start-status{margin-top:18px;border:1px solid #3c6050;border-radius:10px;background:#142d29;padding:14px 18px}
+.benchmark-auto-start-list{display:grid;gap:8px;list-style:none;padding:0;margin:12px 0 0}
+.benchmark-auto-start-list li{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:baseline;border-top:1px solid #36554e;padding-top:8px;font-size:12px}
+.benchmark-auto-start-list li>span{color:#a9e4bb}
+.benchmark-auto-start-list li.error>span{color:#f2b4a8}
+.benchmark-auto-start-list li small{flex-basis:100%}

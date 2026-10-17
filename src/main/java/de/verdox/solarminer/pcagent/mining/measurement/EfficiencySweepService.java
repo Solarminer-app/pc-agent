@@ -1,6 +1,7 @@
 package de.verdox.solarminer.pcagent.mining.measurement;
 
 import de.verdox.solarminer.pcagent.coin.Coin;
+import de.verdox.solarminer.pcagent.coin.WorkerIds;
 import de.verdox.solarminer.pcagent.coin.SweepMode;
 import de.verdox.solarminer.pcagent.coin.SweepRunState;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
@@ -108,12 +109,16 @@ public class EfficiencySweepService {
     }
 
     public synchronized Session start() {
-        return start(false, null);
+        return start(false, null, null);
     }
 
     /** Selection-aware start: only the chosen coins are measured; null/empty means all. */
     public synchronized Session start(List<String> selectedCoinIds) {
-        return start(false, selectedCoinIds);
+        return start(false, selectedCoinIds, null);
+    }
+
+    public synchronized Session start(List<String> selectedCoinIds, List<String> selectedWorkerIds) {
+        return start(false, selectedCoinIds, selectedWorkerIds);
     }
 
     public synchronized Session resume() {
@@ -121,22 +126,34 @@ public class EfficiencySweepService {
     }
 
     public synchronized Session resume(List<String> selectedCoinIds) {
+        return resume(selectedCoinIds, null);
+    }
+
+    public synchronized Session resume(List<String> selectedCoinIds, List<String> selectedWorkerIds) {
         if (session.running()) throw new IllegalStateException("Ein Effizienz-Sweep läuft bereits");
         if (session.runs().isEmpty() || session.runs().stream().allMatch(RunStatus::terminalComplete))
             throw new IllegalStateException("Es gibt keinen unterbrochenen Effizienz-Sweep zum Fortsetzen");
-        return start(true, selectedCoinIds);
+        return start(true, selectedCoinIds, selectedWorkerIds);
     }
 
-    private Session start(boolean resume, List<String> selectedCoinIds) {
+    private Session start(boolean resume, List<String> selectedCoinIds, List<String> selectedWorkerIds) {
         if (session.running()) throw new IllegalStateException("Ein Effizienz-Sweep läuft bereits");
         Set<String> selection = BenchmarkSessionService.validateCoinSelection(selectedCoinIds);
         Session previous = session;
         if (miners.srbExternalMinerRunning())
             throw new IllegalStateException("Effizienz-Sweep abgebrochen: SRBMiner läuft außerhalb des PC-Agent; Leistungsgrenzen können nicht sicher überwacht werden");
         List<LocalGpuPowerService.Gpu> discovered = power.discover();
-        List<Target> targets = targets(discovered, selection);
+        Set<String> availableWorkers = new HashSet<>();
+        availableWorkers.add(WorkerIds.CPU);
+        discovered.stream().map(LocalGpuPowerService.Gpu::deviceId).forEach(availableWorkers::add);
+        Set<String> workers = selectedWorkerIds == null ? Set.of() : BenchmarkSessionService.validateWorkerSelection(
+                selectedWorkerIds, availableWorkers);
+        if (selectedWorkerIds != null && workers.stream().noneMatch(id -> !WorkerIds.CPU.equals(id)))
+            throw new IllegalArgumentException("benchmark_select_gpu_for_sweep");
+        List<Target> targets = targets(discovered, selection, workers);
         if (targets.isEmpty())
-            throw new IllegalStateException(unavailableReason(discovered, miners.srbBinaryAvailable()));
+            throw new IllegalStateException(selectedWorkerIds == null
+                    ? unavailableReason(discovered, miners.srbBinaryAvailable()) : "benchmark_no_selected_targets");
         if (!guard.begin("efficiency-sweep"))
             throw new IllegalStateException("Ein anderer Messlauf (Benchmark) läuft gerade; der Sweep wartet, bis er beendet ist");
         guard.resetCancel();
@@ -191,10 +208,11 @@ public class EfficiencySweepService {
      * (dev-fee) payout through an ephemeral in-memory override, exactly like an empty wallet in
      * the operator UI. The override never touches disk and is cleared when the sweep ends.
      */
-    private List<Target> targets(List<LocalGpuPowerService.Gpu> discovered, Set<String> selectedCoinIds) {
+    private List<Target> targets(List<LocalGpuPowerService.Gpu> discovered, Set<String> selectedCoinIds, Set<String> selectedWorkers) {
         List<Target> targets = new ArrayList<>();
         Map<String, LocalGpuPowerService.Gpu> verified = new LinkedHashMap<>();
-        discovered.stream().filter(LocalGpuPowerService.Gpu::supportsDynamicPowerScaling)
+        discovered.stream().filter(gpu -> gpu.supportsDynamicPowerScaling()
+                        && (selectedWorkers.isEmpty() || selectedWorkers.contains(gpu.deviceId())))
                 .forEach(gpu -> verified.put(gpu.deviceId(), gpu));
         if (verified.isEmpty() || !miners.srbBinaryAvailable()) return List.of();
         String devices = String.join(",", verified.values().stream()
@@ -453,7 +471,7 @@ public class EfficiencySweepService {
         int current = activeLimit(fresh);
         List<Integer> limits = requestedLimits == null
                 ? candidateLimits(fresh.minWatts(), current, stepWatts) : requestedLimits;
-        setPlannedLimits(target, limits, mode, mode == SweepMode.FULL ? "Vollständige Referenzkurve" : "Parallele Gerätevalidierung");
+        setPlannedLimits(target, limits, mode, mode == SweepMode.FULL ? "Vollständige GPU-Kurve" : "Parallele Gerätevalidierung");
         List<GpuEfficiencyStore.StepResult> steps = new ArrayList<>();
         GpuEfficiencyStore.StepResult best = null;
         for (int limit : limits) {
@@ -701,17 +719,14 @@ public class EfficiencySweepService {
     }
 
     static List<List<Target>> targetGroups(List<Target> targets) {
-        Map<String, List<Target>> groups = new LinkedHashMap<>();
-        for (Target target : targets)
-            groups.computeIfAbsent(cohortKey(target), ignored -> new ArrayList<>()).add(target);
-        return groups.values().stream().map(List::copyOf).toList();
+        // Power efficiency differs between physical cards, including cards of the same model.
+        // A singleton group gives every device/coin pair its own complete power curve.
+        return targets.stream().map(List::of).toList();
     }
 
     /**
-     * Assigns one cohort reference per physical GPU to each breadth-first batch. A cohort is
-     * reordered so its selected reference is always first; all remaining cards stay available
-     * for the later sibling validation. Batch barriers make it impossible for two coin runs to
-     * use the same physical GPU concurrently.
+     * Spreads complete device/coin curves across physical GPUs. The task queue enforces
+     * one active curve per device while allowing distinct GPUs to run together.
      */
     static List<List<List<Target>>> referenceBatches(List<List<Target>> cohorts) {
         List<List<Target>> pending = new ArrayList<>(cohorts);
@@ -750,7 +765,7 @@ public class EfficiencySweepService {
                     runs.add(new RunStatus(runId(target), target.gpu().deviceId(), target.gpu().model(), target.coin(),
                             target.algorithm(), reference ? SweepMode.FULL : SweepMode.VALIDATION, SweepRunState.QUEUED, null, limits,
                             List.of(), 0, SAMPLES_PER_STEP, reference ? batchIndex : null,
-                            reference ? "Vollständige Referenzkurve" : "Wartet auf Ergebnis der Referenzkarte"));
+                            reference ? "Vollständige GPU-Kurve" : "Wartet auf Ergebnis der Referenzkarte"));
                 }
             }
         }
