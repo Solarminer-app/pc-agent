@@ -261,26 +261,74 @@ if (-not (Test-Path -LiteralPath $javaExe)) {
 
 Write-Host 'SolarMiner PC-Agent wird gestartet / is starting. Open http://127.0.0.1:8084/ in your browser.'
 Push-Location $installDir
-$jobHandle = [IntPtr]::Zero
-$agentProcess = $null
+$env:SOLARMINER_AGENT_CHANNEL = 'stable'
+$env:SOLARMINER_AGENT_UPDATE_SUPERVISED = '1'
+$env:SOLARMINER_AGENT_RELEASE_TAG = $release.tag_name
+$updateDir = Join-Path $installDir '.update'
+$rollbackTag = ''
+$rollbackDeadline = [DateTime]::MinValue
 try {
-    try {
-        $jobHandle = [SolarMinerProcessJob]::CreateKillOnClose()
-        $agentProcess = Start-Process -FilePath $javaExe -ArgumentList @(
-            '-jar', ('"' + $jarPath + '"'),
-            '--solarminer.agent.standalone=true',
-            '--server.address=0.0.0.0'
-        ) -NoNewWindow -PassThru
-        [SolarMinerProcessJob]::Assign($jobHandle, $agentProcess.Handle)
-    } catch {
-        if ($agentProcess -and -not $agentProcess.HasExited) { $agentProcess.Kill() }
-        throw "Windows-Prozessschutz konnte nicht aktiviert werden / Windows process guard could not be enabled: $($_.Exception.Message)"
+    while ($true) {
+        $jobHandle = [IntPtr]::Zero
+        $agentProcess = $null
+        try {
+            try {
+                $jobHandle = [SolarMinerProcessJob]::CreateKillOnClose()
+                $agentProcess = Start-Process -FilePath $javaExe -ArgumentList @(
+                    '-jar', ('"' + $jarPath + '"'),
+                    '--solarminer.agent.standalone=true',
+                    '--server.address=0.0.0.0'
+                ) -NoNewWindow -PassThru
+                [SolarMinerProcessJob]::Assign($jobHandle, $agentProcess.Handle)
+            } catch {
+                if ($agentProcess -and -not $agentProcess.HasExited) { $agentProcess.Kill() }
+                throw "Windows-Prozessschutz konnte nicht aktiviert werden / Windows process guard could not be enabled: $($_.Exception.Message)"
+            }
+            $agentProcess.WaitForExit()
+            $agentExitCode = $agentProcess.ExitCode
+        } finally {
+            [SolarMinerProcessJob]::Close($jobHandle)
+            if ($agentProcess) { $agentProcess.Dispose() }
+        }
+        if ($agentExitCode -eq 0) { break }
+        if ($agentExitCode -eq 42) {
+            $requestPath = Join-Path $updateDir 'request'
+            $pendingPath = Join-Path $updateDir 'pending.jar'
+            if (-not (Test-Path -LiteralPath $requestPath) -or -not (Test-Path -LiteralPath $pendingPath)) {
+                throw 'Update-Dateien fehlen / Update files are missing.'
+            }
+            $lines = @(Get-Content -LiteralPath $requestPath)
+            $expectedPrefix = if ($env:SOLARMINER_AGENT_CHANNEL -eq 'beta') { 'pc-agent-beta-' } else { 'pc-agent-v' }
+            if ($lines.Count -lt 2 -or -not $lines[0].StartsWith($expectedPrefix) -or $lines[1] -notmatch '^[0-9a-f]{64}$') {
+                throw 'Update-Auftrag ist ungültig / Update request is invalid.'
+            }
+            $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $pendingPath).Hash.ToLowerInvariant()
+            if ($actualHash -ne $lines[1]) { throw 'Update-Prüfsumme stimmt nicht / Update checksum mismatch.' }
+            $previousPath = Join-Path $updateDir 'previous.jar'
+            Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $previousPath
+            Move-Item -LiteralPath $jarPath -Destination $previousPath
+            try { Move-Item -LiteralPath $pendingPath -Destination $jarPath }
+            catch { Move-Item -LiteralPath $previousPath -Destination $jarPath; throw }
+            $rollbackTag = $env:SOLARMINER_AGENT_RELEASE_TAG
+            $rollbackDeadline = (Get-Date).AddSeconds(60)
+            $env:SOLARMINER_AGENT_RELEASE_TAG = $lines[0]
+            Remove-Item -Force -LiteralPath $requestPath
+            Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath (Join-Path $updateDir 'last-error')
+            Write-Host 'PC-Agent-Update installiert; starte neu … / PC Agent update installed; restarting …'
+            continue
+        }
+        if ($rollbackTag -and (Get-Date) -le $rollbackDeadline) {
+            $previousPath = Join-Path $updateDir 'previous.jar'
+            if (Test-Path -LiteralPath $previousPath) {
+                Remove-Item -Force -LiteralPath $jarPath
+                Move-Item -LiteralPath $previousPath -Destination $jarPath
+                $env:SOLARMINER_AGENT_RELEASE_TAG = $rollbackTag
+                [System.IO.File]::WriteAllText((Join-Path $updateDir 'last-error'), 'update_start_failed')
+                $rollbackTag = ''
+                Write-Warning 'Update-Start fehlgeschlagen; vorherige Version wird gestartet. / Update startup failed; restoring previous version.'
+                continue
+            }
+        }
+        throw "PC-Agent wurde mit Code beendet / exited with code $agentExitCode."
     }
-    $agentProcess.WaitForExit()
-    $agentExitCode = $agentProcess.ExitCode
-    if ($agentExitCode -ne 0) { throw "PC-Agent wurde mit Code beendet / exited with code $agentExitCode." }
-} finally {
-    [SolarMinerProcessJob]::Close($jobHandle)
-    if ($agentProcess) { $agentProcess.Dispose() }
-    Pop-Location
-}
+} finally { Pop-Location }

@@ -52,6 +52,7 @@ tasks.register<BootJar>("standaloneJar") {
     mainClass.set("de.verdox.solarminer.pcagent.PcAgentApplication")
     targetJavaVersion.set(JavaVersion.VERSION_21)
     classpath = mainSourceSet.runtimeClasspath
+    manifest.attributes["Implementation-Version"] = project.version.toString()
 }
 
 tasks.named<BootRun>("bootRun") {

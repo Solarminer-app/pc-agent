@@ -35,6 +35,11 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
 ENTRYPOINT ["/usr/bin/tini", "--", "java", "-jar", "/opt/solarminer/solarminer-pc-agent.jar"]
 
 FROM runtime
+ARG PC_AGENT_RELEASE_CHANNEL=stable
+ARG PC_AGENT_RELEASE_TAG=unknown
+ENV SOLARMINER_AGENT_DEPLOYMENT=docker \
+    SOLARMINER_AGENT_CHANNEL=${PC_AGENT_RELEASE_CHANNEL} \
+    SOLARMINER_AGENT_RELEASE_TAG=${PC_AGENT_RELEASE_TAG}
 COPY --from=agent-builder /workspace/build/distributions/solarminer-pc-agent-standalone.jar /opt/solarminer/solarminer-pc-agent.jar
 EXPOSE 8090 3334 3335
 CMD ["--solarminer.agent.standalone=false"]

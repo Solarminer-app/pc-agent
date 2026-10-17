@@ -16,3 +16,4 @@ services:
     environment:
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0
       SERVER_ADDRESS: 0.0.0.0
+      SOLARMINER_AGENT_GPU: ${PC_AGENT_GPU:-none}

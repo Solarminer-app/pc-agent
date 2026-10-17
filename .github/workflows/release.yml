@@ -149,6 +149,9 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64
           push: true
+          build-args: |
+            PC_AGENT_RELEASE_CHANNEL=stable
+            PC_AGENT_RELEASE_TAG=pc-agent-v${{ needs.metadata.outputs.version }}
           tags: |
             ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.version }}
             ${{ needs.metadata.outputs.image }}:latest

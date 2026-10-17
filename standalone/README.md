@@ -1,5 +1,46 @@
 # SolarMiner PC-Agent Standalone
 
+## Agent updates / Agent-Updates
+
+The dashboard checks the installed release channel for a newer PC-Agent release.
+For native Windows and Linux installations started by the release launcher, the
+Update button downloads the matching JAR, verifies its published SHA-256 and
+shows download progress. The launcher replaces the JAR after the Agent exits,
+then starts it again. Open the dashboard on the Agent host via
+`http://127.0.0.1:8084/` to start a native update. A direct `java -jar` or
+development start has no supervising launcher and therefore shows only the
+release notice. Stable stays on Stable; Beta searches only
+`pc-agent-beta-*` prereleases. A failed immediate start restores the previous
+JAR. Miner and proxy processes are stopped through the normal shutdown path;
+mining is not automatically resumed from an old Node power target.
+
+Das Dashboard prüft ausschließlich den installierten Release-Kanal auf neue
+PC-Agent-Versionen. Bei nativen Windows- und Linux-Installationen über den
+Release-Launcher lädt der Update-Knopf die passende JAR mit SHA-256-Prüfung
+herunter und zeigt den Download-Fortschritt. Nach dem Beenden des Agents tauscht
+der Launcher die JAR aus und startet ihn neu. Das Update muss auf dem Agent-Host
+unter `http://127.0.0.1:8084/` gestartet werden. Direkt per `java -jar` oder
+aus der Entwicklung gestartete Agents haben keinen überwachenden Launcher und
+zeigen nur den Release-Hinweis. Stable bleibt bei Stable; Beta sucht nur
+`pc-agent-beta-*`-Vorabversionen. Scheitert der neue Prozess unmittelbar,
+stellt der Launcher die vorige JAR wieder her. Miner und Proxy werden über den
+normalen Shutdown beendet; ein alter Node-Leistungswunsch startet das Mining
+nicht automatisch erneut.
+
+Docker installations show the update notice and a channel-aware Compose
+command instead of trying to update from inside the container. Run it on the
+Docker host in the installation directory. The installer now saves the image
+channel in `.env`, so a later Compose command cannot silently switch a Beta
+installation to Stable. The UI includes the selected NVIDIA or AMD overlay.
+Existing custom Compose deployments must use their own Compose filenames.
+
+Docker-Installationen zeigen den Update-Hinweis und einen zum Kanal passenden
+Compose-Befehl. Er wird auf dem Docker-Host im Installationsordner ausgeführt.
+Der Installer speichert den Image-Kanal jetzt in `.env`, damit ein späterer
+Compose-Aufruf eine Beta-Installation nicht unbemerkt auf Stable umstellt. Die
+Anzeige berücksichtigt das gewählte NVIDIA- oder AMD-Overlay. Bei eigenen
+Compose-Installationen müssen die eigenen Dateinamen verwendet werden.
+
 On every Windows launcher start, a bootstrap checks write access to the install
 folder, the current Administrator token needed for NVIDIA power-limit writes,
 `nvidia-smi` availability and the Defender exclusion state. When the exclusion

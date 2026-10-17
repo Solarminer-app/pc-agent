@@ -53,8 +53,10 @@ if [ "$CHANNEL" = "beta" ]; then
     RELEASE_BASE="https://github.com/Solarminer-app/pc-agent/releases/download/$release_tag"
     INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/solarminer-pc-agent-beta"
 else
-    RELEASE_BASE="https://github.com/Solarminer-app/pc-agent/releases/latest/download"
     INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/solarminer-pc-agent"
+    release_tag="$(curl -fsSL 'https://api.github.com/repos/Solarminer-app/pc-agent/releases/latest' | sed -n 's/.*"tag_name": "\(pc-agent-v[^"]*\)".*/\1/p' | head -n 1)"
+    [ -n "$release_tag" ] || fail "Kein Stable-Release gefunden. / No stable release found."
+    RELEASE_BASE="https://github.com/Solarminer-app/pc-agent/releases/download/$release_tag"
 fi
 RUNTIME_DIR="$INSTALL_DIR/runtime"
 say "Kanal: $CHANNEL / Channel: $CHANNEL"
@@ -88,7 +90,43 @@ actual="$(sha256sum "$tmp_dir/$JAR_NAME" | awk '{print $1}')"
 [ "${#expected}" -eq 64 ] || fail "PC-Agent-Prüfsumme ist ungültig. / PC Agent checksum is invalid."
 [ "$expected" = "$actual" ] || fail "PC-Agent-Prüfsumme stimmt nicht. / PC Agent checksum mismatch."
 mv "$tmp_dir/$JAR_NAME" "$INSTALL_DIR/$JAR_NAME"
+printf '%s\n' "$release_tag" > "$INSTALL_DIR/.update-tag"
 
 say "PC-Agent startet auf http://127.0.0.1:8084/ / PC Agent is starting at http://127.0.0.1:8084/"
 cd "$INSTALL_DIR"
-exec "$RUNTIME_DIR/bin/java" -jar "$JAR_NAME" --solarminer.agent.standalone=true --server.address=0.0.0.0 "$@"
+export SOLARMINER_AGENT_CHANNEL="$CHANNEL" SOLARMINER_AGENT_UPDATE_SUPERVISED=1
+rollback_tag=""
+while :; do
+    SOLARMINER_AGENT_RELEASE_TAG="$(cat .update-tag)"; export SOLARMINER_AGENT_RELEASE_TAG
+    if "$RUNTIME_DIR/bin/java" -jar "$JAR_NAME" --solarminer.agent.standalone=true --server.address=0.0.0.0 "$@"; then
+        exit 0
+    else
+        agent_exit=$?
+    fi
+    if [ "$agent_exit" -ne 42 ]; then
+        if [ -n "$rollback_tag" ] && [ "$(date +%s)" -le "$rollback_deadline" ] && [ -f .update/previous.jar ]; then
+            mv "$JAR_NAME" .update/failed.jar
+            mv .update/previous.jar "$JAR_NAME"
+            printf '%s\n' "$rollback_tag" > .update-tag
+            printf '%s\n' 'update_start_failed' > .update/last-error
+            rollback_tag=""
+            say "Update-Start fehlgeschlagen; vorherige Version wird gestartet. / Update startup failed; restoring previous version."
+            continue
+        fi
+        exit "$agent_exit"
+    fi
+    [ -f .update/request ] && [ -f .update/pending.jar ] || fail "Update-Dateien fehlen. / Update files are missing."
+    pending_tag="$(sed -n '1p' .update/request)"
+    pending_hash="$(sed -n '2p' .update/request)"
+    case "$CHANNEL:$pending_tag" in stable:pc-agent-v*|beta:pc-agent-beta-*) ;; *) fail "Update-Kanal stimmt nicht. / Update channel mismatch." ;; esac
+    actual_hash="$(sha256sum .update/pending.jar | awk '{print $1}')"
+    [ "$actual_hash" = "$pending_hash" ] || fail "Update-Prüfsumme stimmt nicht. / Update checksum mismatch."
+    rollback_tag="$(cat .update-tag)"
+    rollback_deadline="$(($(date +%s) + 60))"
+    mv "$JAR_NAME" .update/previous.jar
+    mv .update/pending.jar "$JAR_NAME"
+    printf '%s\n' "$pending_tag" > .update-tag
+    rm -f .update/request
+    rm -f .update/last-error
+    say "PC-Agent-Update installiert; starte neu … / PC Agent update installed; restarting …"
+done

@@ -84,6 +84,8 @@ esac
 mkdir -p "$INSTALL_DIR"
 curl -fL "$RELEASE_BASE/pc-agent.compose.yml" -o "$INSTALL_DIR/compose.yml"
 if [ -n "$overlay" ]; then curl -fL "$RELEASE_BASE/pc-agent.$GPU.compose.yml" -o "$INSTALL_DIR/$overlay"; fi
+printf 'PC_AGENT_IMAGE=%s\nPC_AGENT_GPU=%s\n' "$PC_AGENT_IMAGE" "$GPU" > "$INSTALL_DIR/.env.tmp"
+mv "$INSTALL_DIR/.env.tmp" "$INSTALL_DIR/.env"
 cd "$INSTALL_DIR"
 if [ -n "$overlay" ]; then
     $DOCKER compose -f compose.yml -f "$overlay" config --quiet

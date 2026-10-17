@@ -1,5 +1,11 @@
 # PC-Agent work log
 
+## 2026-10-17 — Agent update flow
+
+- Added channel-specific release checks and a dashboard update panel. Native supervised starts stage a SHA-256-verified JAR with byte progress, exit cleanly, and let the Windows/Linux launcher replace and restart it. An immediate failed start restores the prior JAR. Docker shows the matching host Compose commands, including the selected GPU overlay; no Docker daemon access is granted to the Agent container.
+- The Docker image now declares deployment channel and release tag. The Docker installer persists Beta/Stable image and GPU selection in `.env`; commands shown by the UI also state the image explicitly for older installs. Native update start requires a loopback browser and the existing same-origin filter. New UI status, errors and accessibility text are in German and English.
+- Verification: JDK 21 `standaloneJar`, focused Beta-selection, Windows process-lifecycle and controller-architecture tests; DE/EN catalog check, browser literal scan, POSIX shell syntax, Beta/NVIDIA and Beta/AMD Compose config, and `git diff --check` passed. The full suite ran 241 tests with one previously documented unrelated `QuanPoolStatsTest` failure. Live Windows/Linux launcher restarts, Docker pull and browser reconnection remain unverified on target systems.
+
 ## 2026-10-17 — Power history usability and GPU efficiency
 
 - Made the five headline metrics a compact responsive row and added estimated electricity cost to the daily table. The estimate uses each agent's current tariff and the chosen display currency only when conversion is available; it is clearly labelled as an estimate of measured component energy.

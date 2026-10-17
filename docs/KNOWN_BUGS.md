@@ -181,6 +181,13 @@ supported native platform.
   owner or merely similar command line is not killed.
 - Docker remains separate: container teardown owns its process namespace and
   does not validate native launcher behaviour.
+- **Update-path review (2026-10-17):** UI-triggered native updates call
+  `SpringApplication.exit` before returning exit code 42 to the supervising
+  launcher. Both Windows launchers keep each Java process in a kill-on-close
+  Job Object across the update loop; Linux keeps a supervising shell process.
+  This code-path check did not reproduce or close the original orphan-process
+  report. The live PID/port capture below remains required after an update as
+  well as after ordinary shutdown.
 
 ### Verification required
 

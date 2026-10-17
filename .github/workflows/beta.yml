@@ -59,6 +59,9 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64
           push: true
+          build-args: |
+            PC_AGENT_RELEASE_CHANNEL=beta
+            PC_AGENT_RELEASE_TAG=pc-agent-beta-${{ needs.metadata.outputs.tag }}
           tags: |
             ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.tag }}-amd64-beta
             ${{ needs.metadata.outputs.image }}:latest-amd64-beta
