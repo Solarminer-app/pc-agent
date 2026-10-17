@@ -2691,3 +2691,15 @@ Vorgehen / Andockpunkte für andere Agenten:
   concurrency argument; they pass against the current controller signature.
 - Verification: focused wire-format, external-controller and efficiency-sweep
   tests passed; the full JDK 21 Gradle suite passed (252 tests).
+
+## 2026-10-17 — Restore saved GPU limit when pausing an automatic worker
+
+- After a successful Workers-page pause of a GPU in an automatic operating mode,
+  the PC-Agent now restores that GPU's saved Power Limits target. If no target
+  is saved, it restores the same driver maximum used by normal manual-mode
+  startup. A failed miner stop does not change the cap; a failed restoration
+  returns the existing bilingual `power_mode_apply_failed` error.
+- Added `LocalGpuPowerService.restoreConfiguredPowerLimit` and wired it into
+  `WorkerAssignmentService.pause`. No new UI text was added; the error uses the
+  existing German/English catalog entry.
+- Verification not run in this turn.

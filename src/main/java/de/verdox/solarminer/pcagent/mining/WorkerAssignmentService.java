@@ -250,7 +250,13 @@ public class WorkerAssignmentService {
 
     public synchronized boolean pause(String deviceId) {
         hardware(deviceId);
-        return mining.stopExternalWorker(deviceId, "Worker pausiert / Worker paused");
+        boolean stopped = mining.stopExternalWorker(deviceId, "Worker pausiert / Worker paused");
+        if (!stopped) return false;
+        if (!WorkerIds.isCpu(deviceId) && workerPowerModes != null
+                && !"MANUAL".equals(controls.get().powerModeFor(deviceId))
+                && !gpuPower.restoreConfiguredPowerLimit(deviceId))
+            throw new IllegalStateException("power_mode_apply_failed");
+        return true;
     }
 
     /**

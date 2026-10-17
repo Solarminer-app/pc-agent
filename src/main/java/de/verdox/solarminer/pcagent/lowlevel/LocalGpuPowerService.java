@@ -406,6 +406,17 @@ public class LocalGpuPowerService {
         return target == current || setTotalPowerTarget(target, List.of(gpu));
     }
 
+    /** Restores the operator's saved Power Limits value after an automatic worker mode stops. */
+    public synchronized boolean restoreConfiguredPowerLimit(String deviceId) {
+        Gpu gpu = refresh().stream().filter(candidate -> candidate.deviceId().equals(deviceId))
+                .findFirst().orElse(null);
+        if (gpu == null) return false;
+        if (!gpu.supportsDynamicPowerScaling()) return true;
+        int target = userPowerLimits.getOrDefault(deviceId, gpu.maxWatts());
+        Integer current = gpu.currentPowerLimitWatts();
+        return current != null && (current == target || setTotalPowerTarget(target, List.of(gpu)));
+    }
+
     /** Sets and pins one temporary sweep cap so miner startup cannot replace it with the saved cap. */
     public synchronized boolean setSweepPowerTarget(long watts, Gpu gpu) {
         if (!setTotalPowerTarget(watts, List.of(gpu))) return false;
