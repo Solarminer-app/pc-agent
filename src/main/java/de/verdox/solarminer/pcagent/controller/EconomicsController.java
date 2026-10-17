@@ -47,6 +47,13 @@ public class EconomicsController {
         return network == null ? energy.history(from, to) : network.networkEnergyHistory(from, to);
     }
 
+    @GetMapping("/history/workers")
+    public java.util.List<EnergyJournalService.WorkerHistory> workerHistory(
+            @org.springframework.web.bind.annotation.RequestParam java.time.Instant from,
+            @org.springframework.web.bind.annotation.RequestParam java.time.Instant to) {
+        return energy.workerHistory(from, to);
+    }
+
     @PostMapping("/settings")
     public EnergyJournalService.Settings settings(@RequestBody EnergyJournalService.Settings settings) {
         EnergyJournalService.Settings saved = energy.updateSettings(settings);

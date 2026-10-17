@@ -13,7 +13,6 @@ import de.verdox.solarminer.pcagent.mining.measurement.MiningPerformanceProfileS
 import de.verdox.solarminer.pcagent.mining.energy.EnergyJournalService;
 import de.verdox.solarminer.pcagent.support.AtomicFileStore;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
@@ -25,7 +24,9 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
-/** Local, explicitly enabled GPU coin and power-target selection based on measured gross USD per kWh. */
+/** Shared measured GPU revenue candidates for operating modes and the read-only benchmark comparison.
+ * Legacy settings and evaluation methods remain for data compatibility but are no longer scheduled or exposed.
+ */
 @Service
 public class CoinHoppingService {
     private static final Duration MAX_PROFILE_AGE = Duration.ofDays(30);
@@ -76,17 +77,6 @@ public class CoinHoppingService {
         this.ledger = ledger;
         this.energy = energy;
         this.settings = load();
-        if (this.settings.enabled()) {
-            try {
-                Instant now = Instant.now();
-                ledger.begin(this.settings.deviceId(), this.settings.targetWatts(), now);
-                ledger.mark(now);
-            }
-            catch (RuntimeException failure) {
-                this.settings = Settings.disabled();
-                this.lastOutcome = "coin_hopping_ledger_save_failed";
-            }
-        }
     }
 
     private Settings load() {
@@ -157,7 +147,7 @@ public class CoinHoppingService {
                 lastOutcome, ledger.summary());
     }
 
-    List<Candidate> candidates(String deviceId, int targetWatts) {
+    public List<Candidate> candidates(String deviceId, int targetWatts) {
         Instant now = Instant.now();
         LocalGpuPowerService.Gpu gpu = power.snapshot().stream()
                 .filter(value -> deviceId.equals(value.deviceId())).findFirst().orElse(null);
@@ -214,8 +204,6 @@ public class CoinHoppingService {
 
     private static boolean positive(Double value) { return value != null && Double.isFinite(value) && value > 0; }
 
-    @Scheduled(initialDelayString = "${solarminer.agent.coin-hopping-interval-ms:600000}",
-            fixedDelayString = "${solarminer.agent.coin-hopping-interval-ms:600000}")
     public synchronized void evaluate() {
         try { evaluateCurrent(); }
         catch (RuntimeException failure) {

@@ -35,10 +35,16 @@ public class WorkerAssignmentService {
     private final PayoutDefaultsService payouts;
     private final ProxyConfigurationService proxy;
     private de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes;
+    private de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService coinRevenueMode;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setWorkerPowerModes(de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes) {
         this.workerPowerModes = workerPowerModes;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCoinRevenueMode(de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService service) {
+        this.coinRevenueMode = service;
     }
 
     public WorkerAssignmentService(AgentControlSettingsService controls, MiningService mining,
@@ -78,7 +84,8 @@ public class WorkerAssignmentService {
         String oldMinerId = oldCoinValue == null || oldCoinValue == Coin.NONE ? null
                 : miners.minerSoftwareForWorker(oldCoinValue, deviceId);
         if ((!oldCoin.equals(coin.id()) || !java.util.Objects.equals(oldMinerId, request.minerSoftwareId()))
-                && !Coin.NONE.id().equals(oldCoin) && !mining.stopExternalWorker(deviceId))
+                && !Coin.NONE.id().equals(oldCoin) && !mining.stopExternalWorker(deviceId,
+                        "Worker-Zuweisung geändert / Worker assignment changed"))
             throw new IllegalStateException("Der laufende Worker konnte nicht angehalten werden");
 
         MinerCatalogService.MinerOption selectedOption = null;
@@ -104,6 +111,22 @@ public class WorkerAssignmentService {
     }
 
     public synchronized boolean start(String deviceId) {
+        return startWithMode(deviceId, false);
+    }
+
+    /** Economic plans already hold the local run lock while applying on/off actions. */
+    public synchronized boolean startUnderEconomicPlan(String deviceId) {
+        return startWithMode(deviceId, true);
+    }
+
+    private boolean startWithMode(String deviceId, boolean lockHeld) {
+        String mode = controls.get().powerModeFor(deviceId);
+        if (!WorkerIds.isCpu(deviceId) && ("REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode))) {
+            if (coinRevenueMode == null) throw new IllegalStateException("power_mode_unavailable");
+            var selected = coinRevenueMode.applyBestStartPoint(deviceId, controls.get().coinFor(deviceId), mode, true, lockHeld);
+            if (!selected.success()) throw new IllegalStateException(selected.error());
+            return true;
+        }
         return start(deviceId, true);
     }
 
@@ -206,7 +229,7 @@ public class WorkerAssignmentService {
 
     public synchronized boolean pause(String deviceId) {
         hardware(deviceId);
-        return mining.stopExternalWorker(deviceId);
+        return mining.stopExternalWorker(deviceId, "Worker pausiert / Worker paused");
     }
 
     /**
@@ -220,7 +243,8 @@ public class WorkerAssignmentService {
         if (coin == null || !coin.assignableTo(hardware.type.equals("CPU"))) return false;
         String oldCoin = controls.get().coinFor(deviceId);
         if (oldCoin.equals(coin.id())) return true;
-        if (!mining.stopExternalWorker(deviceId)) return false;
+        if (!mining.stopExternalWorker(deviceId, "Automatischer Coin-Wechsel / Automatic coin switch: "
+                + oldCoin + " → " + coin.id())) return false;
         Coin old = Coin.byIdOrNull(oldCoin);
         String oldMiner = old == null || old == Coin.NONE ? null : miners.minerSoftwareForWorker(old, deviceId);
         String minerId = coin == Coin.NONE ? null : miners.minerSoftwareForWorker(coin, deviceId);
@@ -251,6 +275,16 @@ public class WorkerAssignmentService {
         String pool = pool(coin, selectedId);
         boolean configured = coin != null && (coin == Coin.NONE || coin.isCpu()
                 || miners.gpuMiner(coin, selectedId).configured());
+        if (live != null && "GPU".equals(type) && !Double.isFinite(live.temperatureCelsius())) {
+            LocalGpuPowerService.Gpu gpu = gpuPower.snapshot().stream()
+                    .filter(card -> deviceId.equals(card.deviceId())).findFirst().orElse(null);
+            Double temperature = gpu == null ? null : gpuPower.readTemperatureC(gpu);
+            if (temperature != null) live = new MinerStats.Worker(live.miningStatus(), live.workerDisplayName(),
+                    live.currentAlgorithm(), live.terahashPerSecond(), temperature, live.powerTargetWatts(),
+                    live.minPowerTarget(), live.defaultPowerTarget(), live.maxPowerTarget(),
+                    live.approximatedPowerUsageWatts(), live.pools(), live.hardwareType(), live.hardwareModel(),
+                    live.deviceId(), live.acceptedShares(), live.rejectedShares(), live.pool());
+        }
         return new WorkerView(deviceId, type, model, vendor, index,
                 coin == null ? Coin.NONE.id() : coin.id(), coin == null ? Coin.NONE.displayName() : coin.displayName(), algorithm,
                 selected == null ? null : selected.id(), selected == null ? null : selected.name(),

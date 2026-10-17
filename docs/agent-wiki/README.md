@@ -31,7 +31,7 @@ Start with [pc-agent.md](pc-agent.md) — the ownership map for the source tree.
 | [frontend-i18n.md](frontend-i18n.md) | German/English catalog contract and verification |
 | [../KNOWN_BUGS.md](../KNOWN_BUGS.md) | Prioritized PC-Agent defect backlog; agents check it after scoping their assigned work when capacity permits |
 | [Economic dispatch (C10)](economic-dispatch.md) | Node capability/short-lived-plan boundary and cold-start policy |
-| [Local coin hopping](coin-hopping.md) | GPU sweep profiles, USD/kWh comparison, local consent and switch gates |
+| [Revenue candidate comparison](coin-hopping.md) | Historical coin-hopping contract, retirement, and the benchmark USD/kWh comparison |
 | [Worker operating modes](worker-power-modes.md) | Per-worker manual, efficiency and revenue modes; local cap ownership and Node on/off contract |
 | [Power Consumption history](power-consumption.md) | Historical measured mining energy, period aggregates and the consent-gated LAN history contract |
 | [MINER-INTEGRATION-GUIDE.md](../../MINER-INTEGRATION-GUIDE.md) | Adding a miner to an existing coin |

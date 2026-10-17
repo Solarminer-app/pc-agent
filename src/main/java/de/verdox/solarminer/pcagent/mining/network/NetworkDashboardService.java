@@ -48,6 +48,12 @@ public class NetworkDashboardService {
     private final MarketDataService ownEarnings;
     private final EnergyJournalService ownEnergy;
     private final WorkerAssignmentService ownWorkers;
+    private de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService coinRevenueMode;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCoinRevenueMode(de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService service) {
+        this.coinRevenueMode = service;
+    }
     private final AgentControlSettingsService ownControls;
     private final AgentStatusService status;
     private final BenchmarkSessionService benchmarks;
@@ -130,9 +136,21 @@ public class NetworkDashboardService {
     }
     private static final class MutablePoint {
         final String at; double kwh, hashrateSeconds; long runtime, measured;
+        final Map<String, Double> costs = new java.util.TreeMap<>();
+        final java.util.Set<String> algorithms = new java.util.TreeSet<>();
+        boolean missingCosts;
+        boolean missingAlgorithms;
         MutablePoint(String at) { this.at = at; }
-        void add(EnergyJournalService.HistoryPoint p) { kwh += p.kilowattHours(); hashrateSeconds += p.averageHashrateHs() * p.runtimeSeconds(); runtime += p.runtimeSeconds(); measured += p.measuredSeconds(); }
-        EnergyJournalService.HistoryPoint point() { return new EnergyJournalService.HistoryPoint(at, kwh, runtime == 0 ? 0 : hashrateSeconds / runtime, runtime, measured); }
+        void add(EnergyJournalService.HistoryPoint p) {
+            kwh += p.kilowattHours(); hashrateSeconds += p.averageHashrateHs() * p.runtimeSeconds(); runtime += p.runtimeSeconds(); measured += p.measuredSeconds();
+            if (p.estimatedCosts() == null || p.estimatedCosts().isEmpty()) missingCosts = true;
+            else p.estimatedCosts().forEach((currency, value) -> costs.merge(currency, value, Double::sum));
+            if (p.runtimeSeconds() > 0 && (p.algorithms() == null || p.algorithms().isEmpty())) missingAlgorithms = true;
+            if (p.algorithms() != null) algorithms.addAll(p.algorithms());
+        }
+        EnergyJournalService.HistoryPoint point() { return new EnergyJournalService.HistoryPoint(at, kwh,
+                runtime == 0 ? 0 : hashrateSeconds / runtime, runtime, measured,
+                missingCosts ? null : Map.copyOf(costs), missingAlgorithms ? null : List.copyOf(algorithms)); }
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -367,7 +385,17 @@ public class NetworkDashboardService {
 
     public boolean controlOwnWorker(String deviceId, boolean enabled) {
         if (!ownControls.workerEnabled(deviceId)) return false;
-        boolean applied = enabled ? ownWorkers.start(deviceId) : ownWorkers.pause(deviceId);
+        String mode = ownControls.get().powerModeFor(deviceId);
+        boolean revenueMode = ("COIN_REVENUE_PER_KWH".equals(mode) || "REVENUE_PER_KWH".equals(mode))
+                && !de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(deviceId);
+        boolean applied;
+        if (enabled && revenueMode) {
+            WorkerAssignmentService.WorkerView worker = ownWorkers.workers().stream()
+                    .filter(value -> deviceId.equals(value.deviceId())).findFirst().orElse(null);
+            applied = worker != null && coinRevenueMode != null
+                    && coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), mode, true).success();
+        } else applied = enabled ? ownWorkers.start(deviceId) : ownWorkers.pause(deviceId);
+        if (applied && !enabled && coinRevenueMode != null) coinRevenueMode.cancelLocalStart(deviceId);
         if (applied) status.invalidate("workers", "overview", "power-control", "energy");
         return applied;
     }

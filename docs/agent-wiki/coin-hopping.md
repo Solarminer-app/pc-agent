@@ -84,3 +84,20 @@ restoration with real drivers/pools. The local unit tests cover candidate
 ranking across sweep/live sources, exact-target filtering, operating-point
 collection, a successful automatic switch, alias lookup and ledger continuity;
 they do not prove live profitability or pool payouts.
+
+## 2026-10-17 — Replaced by worker operating modes
+
+The former local coin-hopping controls and scheduled automatic switcher are retired.
+`COIN_REVENUE_PER_KWH` in the per-worker operating modes owns automatic coin
+and power-point decisions. The `CoinHoppingService` class remains as the shared
+measured candidate calculation used by that mode; its legacy `evaluate()` has
+no scheduler and the settings POST route is removed. A previously saved
+`coin-hopping.json` no longer activates automatic switching on restart.
+
+`/benchmarks.html#comparison` now owns the read-only USD/kWh comparison. Its
+`GET /api/agent/local/benchmarks/comparison?deviceId=...` endpoint returns
+candidate points from the shared eligibility logic. It does not apply a worker
+assignment or GPU limit. The old `/coin-hopping.html` bookmark redirects to the
+new section; the old settings/history UI and route are retired. Historic
+ledger files remain on disk for operator retention; the new page does not
+represent legacy counterfactual history as current operating-mode accounting.

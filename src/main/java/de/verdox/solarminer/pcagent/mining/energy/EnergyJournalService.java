@@ -32,6 +32,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -158,22 +160,79 @@ public class EnergyJournalService {
                 Bucket bucket = hours.computeIfAbsent(cursor, ignored -> new Bucket());
                 Double recordedWh = session.hourlyWattHours() == null ? null : session.hourlyWattHours().get(cursor.toString());
                 if (recordedWh == null) bucket.wattHours += session.wattHours() * seconds / total;
-                else bucket.wattHours += recordedWh * seconds / 3600d;
+                else {
+                    Instant bucketStart = cursor.isAfter(session.startedAt()) ? cursor : session.startedAt();
+                    Instant bucketEnd = cursor.plus(Duration.ofHours(1)).isBefore(session.endedAt())
+                            ? cursor.plus(Duration.ofHours(1)) : session.endedAt();
+                    long bucketSeconds = Math.max(1, Duration.between(bucketStart, bucketEnd).toSeconds());
+                    bucket.wattHours += recordedWh * seconds / bucketSeconds;
+                }
                 bucket.runtime += seconds;
                 bucket.measured += Math.round(session.measuredSeconds() * seconds / (double) total);
                 bucket.hashrateWeighted += session.averageHashrateHs() * seconds;
+                if (session.algorithm() != null && !session.algorithm().isBlank()) bucket.algorithms.add(session.algorithm());
             }
         }
         Map<LocalDate, Bucket> days = new java.util.TreeMap<>();
         hours.forEach((instant, bucket) -> days.computeIfAbsent(instant.atZone(zone).toLocalDate(), ignored -> new Bucket()).add(bucket));
-        return new History(from, to, hours.entrySet().stream().map(e -> e.getValue().point(e.getKey().toString())).toList(),
-                days.entrySet().stream().map(e -> e.getValue().point(e.getKey().toString())).toList());
+        return new History(from, to, hours.entrySet().stream().map(e -> e.getValue().point(e.getKey().toString(), settings)).toList(),
+                days.entrySet().stream().map(e -> e.getValue().point(e.getKey().toString(), settings)).toList());
     }
 
     private static final class Bucket {
-        double wattHours, hashrateWeighted; long runtime, measured;
-        void add(Bucket other) { wattHours += other.wattHours; runtime += other.runtime; measured += other.measured; hashrateWeighted += other.hashrateWeighted; }
-        HistoryPoint point(String at) { return new HistoryPoint(at, wattHours / 1000d, runtime == 0 ? 0 : hashrateWeighted / runtime, runtime, measured); }
+        double wattHours, hashrateWeighted; long runtime, measured; final Set<String> algorithms = new TreeSet<>();
+        void add(Bucket other) { wattHours += other.wattHours; runtime += other.runtime; measured += other.measured; hashrateWeighted += other.hashrateWeighted; algorithms.addAll(other.algorithms); }
+        HistoryPoint point(String at, Settings tariff) {
+            double kwh = wattHours / 1000d;
+            return new HistoryPoint(at, kwh, runtime == 0 ? 0 : hashrateWeighted / runtime, runtime, measured,
+                    Map.of(tariff.currency(), kwh * tariff.pricePerKwh().doubleValue()), List.copyOf(algorithms));
+        }
+    }
+
+    /** Device identifiers never leave the local dashboard boundary. */
+    public synchronized List<WorkerHistory> workerHistory(Instant from, Instant to) {
+        if (from == null || to == null || !to.isAfter(from) || Duration.between(from, to).toDays() > 366)
+            throw new IllegalArgumentException("Invalid energy history range");
+        List<Session> sessions = new ArrayList<>(readSessions());
+        sessions.addAll(active.values().stream().map(value -> value.snapshot(Instant.now())).toList());
+        Map<String, WorkerBucket> workers = new LinkedHashMap<>();
+        for (Session session : sessions) {
+            Instant start = session.startedAt().isAfter(from) ? session.startedAt() : from;
+            Instant end = session.endedAt().isBefore(to) ? session.endedAt() : to;
+            if (!end.isAfter(start)) continue;
+            long seconds = Duration.between(start, end).toSeconds();
+            long total = Math.max(1, Duration.between(session.startedAt(), session.endedAt()).toSeconds());
+            String key = session.deviceId() + "\u0000" + session.algorithm() + "\u0000" + session.coin();
+            WorkerBucket bucket = workers.computeIfAbsent(key, ignored -> new WorkerBucket(session.deviceId(), session.hardwareModel(), session.hardwareType(), session.coin(), session.algorithm()));
+            bucket.runtime += seconds;
+            bucket.measured += Math.round(session.measuredSeconds() * seconds / (double) total);
+            for (Instant cursor = start.truncatedTo(java.time.temporal.ChronoUnit.HOURS); cursor.isBefore(end); cursor = cursor.plus(Duration.ofHours(1))) {
+                Instant sliceStart = cursor.isAfter(start) ? cursor : start;
+                Instant sliceEnd = cursor.plus(Duration.ofHours(1)).isBefore(end) ? cursor.plus(Duration.ofHours(1)) : end;
+                long sliceSeconds = Duration.between(sliceStart, sliceEnd).toSeconds();
+                Double recordedWh = session.hourlyWattHours() == null ? null : session.hourlyWattHours().get(cursor.toString());
+                if (recordedWh == null) bucket.wattHours += session.wattHours() * sliceSeconds / total;
+                else {
+                    Instant bucketStart = cursor.isAfter(session.startedAt()) ? cursor : session.startedAt();
+                    Instant bucketEnd = cursor.plus(Duration.ofHours(1)).isBefore(session.endedAt())
+                            ? cursor.plus(Duration.ofHours(1)) : session.endedAt();
+                    bucket.wattHours += recordedWh * sliceSeconds /
+                            Math.max(1, Duration.between(bucketStart, bucketEnd).toSeconds());
+                }
+            }
+            bucket.hashrateSeconds += session.averageHashrateHs() * seconds;
+        }
+        return workers.values().stream().map(WorkerBucket::point).toList();
+    }
+
+    private static final class WorkerBucket {
+        final String deviceId, hardwareModel, hardwareType, coin, algorithm;
+        double wattHours, hashrateSeconds; long runtime, measured;
+        WorkerBucket(String deviceId, String hardwareModel, String hardwareType, String coin, String algorithm) {
+            this.deviceId = deviceId; this.hardwareModel = hardwareModel; this.hardwareType = hardwareType; this.coin = coin; this.algorithm = algorithm;
+        }
+        WorkerHistory point() { return new WorkerHistory(deviceId, hardwareModel, hardwareType, coin, algorithm,
+                wattHours / 1000d, runtime == 0 ? 0 : hashrateSeconds / runtime, runtime, measured); }
     }
 
     /** Called only by lifecycle/sample/write paths, never by a dashboard GET. */
@@ -299,7 +358,10 @@ public class EnergyJournalService {
     public record Overview(Settings settings, Aggregate today, Aggregate last7Days, Aggregate last30Days,
                            List<Session> activeSessions, List<Session> recentSessions) { }
     public record History(Instant from, Instant to, List<HistoryPoint> hourly, List<HistoryPoint> daily) { }
-    public record HistoryPoint(String at, double kilowattHours, double averageHashrateHs, long runtimeSeconds, long measuredSeconds) { }
+    public record HistoryPoint(String at, double kilowattHours, double averageHashrateHs, long runtimeSeconds,
+                               long measuredSeconds, Map<String, Double> estimatedCosts, List<String> algorithms) { }
+    public record WorkerHistory(String deviceId, String hardwareModel, String hardwareType, String coin, String algorithm,
+                                double kilowattHours, double averageHashrateHs, long runtimeSeconds, long measuredSeconds) { }
     public record Session(String id, String deviceId, String hardwareType, String hardwareModel,
                           String coin, String minerSoftwareId, String algorithm,
                           Instant startedAt, Instant endedAt, long runtimeSeconds, long measuredSeconds,

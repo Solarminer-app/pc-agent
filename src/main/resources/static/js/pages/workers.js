@@ -316,24 +316,37 @@
     const assignment = {
       coin: $('worker-coin').value, minerSoftwareId: $('worker-coin').value === 'none' ? null : $('worker-miner').value
     };
+    const resumeAfterAssignment = worker.status === 'MINING' && assignment.coin !== 'none'
+      && (assignment.coin !== worker.coin || assignment.minerSoftwareId !== worker.minerSoftwareId);
     const powerMode = $('worker-power-mode').value;
     pendingWorkers.add(worker.deviceId);
     $('worker-editor').close();
     selected = null;
     renderTable();
+    let saved = false;
     try {
       const response = await fetch(`/api/agent/local/workers/${encodeURIComponent(worker.deviceId)}/assignment`, {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(assignment)
       });
       if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || `HTTP ${response.status}`); }
+      saved = true;
       if (powerMode !== (worker.powerMode || 'MANUAL')) {
         const modeResponse = await fetch(`/api/agent/local/workers/${encodeURIComponent(worker.deviceId)}/power-mode`, {
           method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode: powerMode})
         });
         if (!modeResponse.ok) { const body = await modeResponse.json().catch(() => null); throw new Error(body?.detail || body?.message || `HTTP ${modeResponse.status}`); }
       }
-      notice('assignment_saved_the_previous_running_worker'); await load();
-    } catch (error) { notice(t('assignment_failed_error', {error: s(error.message)}), true, true); }
+      if (resumeAfterAssignment) {
+        const startResponse = await fetch(`/api/agent/local/workers/${encodeURIComponent(worker.deviceId)}/start`, {method: 'POST'});
+        if (!startResponse.ok) { const body = await startResponse.json().catch(() => null); throw new Error(body?.message || body?.detail || `HTTP ${startResponse.status}`); }
+        if (await startResponse.json() !== true) throw new Error(t('the_worker_action_was_not_applied_check_the'));
+      }
+      notice(resumeAfterAssignment ? t('worker_started', {worker: worker.hardwareModel}) : t('assignment_saved'));
+      await load();
+    } catch (error) {
+      notice(saved ? `${t('worker_action_failed')} ${s(error.message)}` : t('assignment_failed_error', {error: s(error.message)}), true, true);
+      await load();
+    }
     finally {
       pendingWorkers.delete(worker.deviceId);
       renderTable();

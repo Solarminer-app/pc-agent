@@ -136,3 +136,44 @@
 .benchmark-chart-series h4{margin:0 0 11px;color:#c5e8d6;font-size:12px;letter-spacing:.04em}
 @media(max-width:620px){.benchmark-algorithm-summary{padding:14px}.benchmark-algorithm-cards{padding:10px}.benchmark-algorithm-summary strong{font-size:13px}}
 @media(prefers-reduced-motion:reduce){.benchmark-algorithm-summary:before{transition:none}}
+
+/* Dense results, with a focused comparison and controls that stay readable at scale. */
+.benchmark-page .page-title{padding:24px 0 8px}
+.benchmark-page .page-title h1{font-size:clamp(32px,3.2vw,46px);margin-bottom:8px}
+.benchmark-hero-actions{margin-top:16px}
+.benchmark-overview{margin:14px 0 18px}
+.benchmark-overview article{min-height:76px;padding:14px 18px}
+.benchmark-overview strong{font-size:23px;margin-top:6px}
+.benchmark-page .panel{padding:21px 24px;margin-bottom:14px;box-shadow:none}
+.benchmark-page .panel .section-head{margin-bottom:12px}
+.benchmark-comparison{border-color:#477766!important;background:linear-gradient(125deg,#172b32,#101c29 55%)!important}
+.comparison-picker{display:flex;align-items:center;gap:12px;color:#b9cfd1;font-size:12px;margin:10px 0 14px}
+.comparison-picker select,.library-search input{background:#0e1d2a;border:1px solid #4a666b;color:#edf8f2;border-radius:8px;padding:8px 11px;min-height:39px;font:inherit}
+.comparison-picker select{max-width:min(100%,420px);min-width:220px}
+.comparison-picker select:focus-visible,.library-search input:focus-visible{outline:2px solid #8fe9b5;outline-offset:2px}
+.comparison-recommendation{color:#d7f3df;font-weight:650;margin:10px 0}
+.benchmark-comparison .hopping-chart{max-height:360px;overflow-y:auto;margin:10px 0 6px;padding-right:5px}
+.benchmark-comparison .hopping-row{grid-template-columns:minmax(125px,185px) minmax(80px,1fr) 145px;padding:7px 10px;border:1px solid #34545d;border-radius:8px;background:#102632}
+.benchmark-comparison .hopping-row.recommended{border-color:#73c496;background:#1a3b39}
+.benchmark-comparison .hopping-meta{grid-column:1/-1;margin:0;line-height:1.35}
+.benchmark-comparison .hopping-track{height:12px}
+.library-tools{display:flex;flex-wrap:wrap;align-items:end;justify-content:end;gap:12px}
+.library-search{display:grid;gap:5px;color:#a9bdc8;font-size:11px}
+.library-search input{width:min(275px,70vw)}
+.measurement-library>.section-head{padding-bottom:15px}
+.measurement-library>h3{margin:17px 0 9px}
+.library-divider{margin:18px 0 10px;padding-top:14px}
+.benchmark-algorithm-summary{padding:11px 14px}
+.benchmark-algorithm-cards{grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:8px;padding:10px}
+.measurement-library .worker-card{padding:11px 13px;border-radius:8px;box-shadow:none}
+.measurement-library .worker-card strong{font-size:13px;margin-bottom:4px}
+.measurement-library .worker-card p{font-size:12px;line-height:1.35;margin:5px 0}
+.measurement-library .measurement-origin{margin-bottom:5px;padding:3px 6px}
+.measurement-library .efficiency-curve{max-height:170px}
+.measurement-library .benchmark-chart{padding:12px}
+.sweep-live-chart{min-height:0;margin:14px 0;padding:10px}
+.sweep-chart-empty{min-height:105px;padding:14px}
+#measurement-library,#benchmark-run,#sweep-studio,#comparison{scroll-margin-top:20px}
+@media(max-width:700px){.benchmark-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.benchmark-page .panel{padding:16px}.benchmark-page .section-head{align-items:start}.library-tools{justify-content:start;width:100%}.comparison-picker{display:grid}.comparison-picker select{width:100%}.benchmark-comparison .hopping-row{grid-template-columns:1fr 1fr}.benchmark-comparison .hopping-row .hopping-track{grid-column:1/-1;grid-row:2}.benchmark-comparison .hopping-row span{text-align:left;grid-column:2;grid-row:1}.benchmark-comparison .hopping-row .hopping-meta{grid-row:3}.benchmark-modes{grid-template-columns:1fr}}
+[hidden]{display:none!important}
+.benchmark-algorithm-cards{max-height:460px;overflow-y:auto;align-content:start}

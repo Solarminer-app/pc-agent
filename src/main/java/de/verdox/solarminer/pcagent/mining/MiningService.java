@@ -50,10 +50,20 @@ public class MiningService {
     private final LocalGpuPowerService gpuPowerService;
     private final AgentControlSettingsService controls;
     private de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes;
+    private de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService coinRevenueMode;
+    private de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock localRunLock;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setWorkerPowerModes(de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes) {
         this.workerPowerModes = workerPowerModes;
+    }
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCoinRevenueMode(de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService service) {
+        this.coinRevenueMode = service;
+    }
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLocalRunLock(de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock lock) {
+        this.localRunLock = lock;
     }
     private final AgentIdentityService agentIdentity;
     private final Path coinSelectionFile;
@@ -229,7 +239,11 @@ public class MiningService {
                 .filter(card -> card.vendor().equals(vendor) && card.index() == index).findFirst().orElse(null);
         if (gpu == null) return false;
         Optional<GpuCoinMiner> target = miners.gpuMinerForWorker(coinId, gpu.deviceId());
-        if (target.isEmpty()) return false;
+        String mode = controls.get().powerModeFor(gpu.deviceId());
+        boolean revenueMode = "REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode);
+        if (!revenueMode && target.isEmpty()) return false;
+        if (revenueMode && (coinRevenueMode == null
+                || coinRevenueMode.selectBestStartPoint(gpu.deviceId(), coinId, mode).error() != null)) return false;
         Coin targetCoin = Coin.byIdOrNull(coinId);
         String targetSoftware = targetCoin == null ? null : miners.minerSoftwareForWorker(targetCoin, gpu.deviceId());
         boolean stopped = true;
@@ -237,6 +251,10 @@ public class MiningService {
             if (other != targetCoin || !adapter.softwareId().equals(targetSoftware))
                 stopped = adapter.miner().stopGpu(vendor, index) && stopped;
         if (!stopped) return false;
+        if (revenueMode) {
+            boolean economicPlanLock = localRunLock != null && "economic-plan".equals(localRunLock.holder());
+            return coinRevenueMode.applyBestStartPoint(gpu.deviceId(), coinId, mode, true, economicPlanLock).success();
+        }
         if (workerPowerModes != null && workerPowerModes.apply(gpu.deviceId(), coinId).error() != null) return false;
         return target.get().startGpu(vendor, index);
     }
@@ -279,7 +297,11 @@ public class MiningService {
     }
 
     public synchronized boolean stopExternalWorker(String deviceId) {
-        return MinerStopContext.with("Node default configuration changed", () -> {
+        return stopExternalWorker(deviceId, "Node default configuration changed");
+    }
+
+    public synchronized boolean stopExternalWorker(String deviceId, String reason) {
+        return MinerStopContext.with(reason, () -> {
             if (WorkerIds.CPU.equals(deviceId)) {
                 cpu.stopAll();
                 if (cpu.running()) return false;

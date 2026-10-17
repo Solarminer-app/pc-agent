@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -48,6 +49,36 @@ class EnergyJournalServiceTest {
         assertEquals(0, session.wattHours());
         assertEquals(0, session.measuredSeconds());
         assertTrue(session.runtimeSeconds() >= 10);
+    }
+
+    @Test
+    void historyKeepsPartialHourEnergyAndLocalGpuBreakdown() {
+        EnergyJournalService journal = journal();
+        Instant start = Instant.parse("2026-10-06T10:00:00Z");
+        journal.sample(List.of(worker(360)), start);
+        journal.sample(List.of(worker(360)), start.plusSeconds(10));
+        journal.sample(List.of(), start.plusSeconds(11));
+
+        var history = journal.history(start, start.plusSeconds(3600));
+        var hour = history.hourly().getFirst();
+        assertEquals(0.001, hour.kilowattHours(), 0.000001);
+        assertEquals(0.0003, hour.estimatedCosts().get("EUR"), 0.000001);
+        assertTrue(hour.algorithms().contains("PearlHash"));
+        var gpu = journal.workerHistory(start, start.plusSeconds(3600)).getFirst();
+        assertEquals("gpu-0", gpu.deviceId());
+        assertEquals(0.001, gpu.kilowattHours(), 0.000001);
+    }
+
+    @Test
+    void olderPeerHistoryWithoutAdditiveFieldsRemainsReadable() throws Exception {
+        String json = """
+                {"at":"2026-10-06T10:00:00Z","kilowattHours":0.001,
+                 "averageHashrateHs":100,"runtimeSeconds":10,"measuredSeconds":10}
+                """;
+        var point = new ObjectMapper().findAndRegisterModules().readValue(json, EnergyJournalService.HistoryPoint.class);
+        assertEquals(0.001, point.kilowattHours(), 0.000001);
+        assertNull(point.estimatedCosts());
+        assertNull(point.algorithms());
     }
 
     @Test

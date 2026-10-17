@@ -842,7 +842,10 @@ public class MiningController {
     public boolean pauseMiner(@PathVariable String coin) {
         boolean paused = localRunsFree() && miningService.pauseMining(coin);
         if (paused) {
-            if (workerCoinRevenueMode != null) workerCoinRevenueMode.resetCooldownForCoin(coin);
+            if (workerCoinRevenueMode != null) {
+                workerCoinRevenueMode.resetCooldownForCoin(coin);
+                workerCoinRevenueMode.cancelLocalStartsForCoin(coin);
+            }
             reportChanged("overview", "workers", "power-control");
         }
         return paused;
@@ -888,7 +891,10 @@ public class MiningController {
     public boolean pause() {
         boolean paused = localRunsFree() && miningService.pauseAll("Local dashboard global pause request");
         if (paused) {
-            if (workerCoinRevenueMode != null) workerCoinRevenueMode.resetAllCooldowns();
+            if (workerCoinRevenueMode != null) {
+                workerCoinRevenueMode.resetAllCooldowns();
+                workerCoinRevenueMode.cancelAllLocalStarts();
+            }
             reportChanged("overview", "workers", "power-control", "energy");
         }
         return paused;

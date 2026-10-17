@@ -233,6 +233,14 @@ the currently running miner. A start or mode change refreshes the row promptly.
   GPU live read model with an actual miner before marking the report resolved.
 - `scripts/check-i18n.cjs` and `scripts/scan-i18n-literals.cjs` pass for both
   supported languages. A live UI session is still required.
+- A 2026-10-17 start/transition review found that the running-worker mode-change
+  path tried to acquire its own already held run lock and returned `power_mode_busy`.
+  Revenue modes now use the controller's lock. LAN peer starts also use the
+  revenue selection path. A locally started coin-revenue worker that stops
+  unexpectedly is retried on the next scheduler pass; explicit pause paths
+  clear that intent. The switch stop reason is now recorded in the miner
+  console in German and English. Focused service/assignment tests pass, but a
+  live process and pool check is still required before closing this bug.
 
 ### Verification required
 

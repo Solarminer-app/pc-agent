@@ -32,7 +32,7 @@ class EconomicPlanningServiceTest {
                 Map.of(), Map.of("gpu-a", "pearl", "gpu-b", "pearl"),
                 Map.of("gpu-a", "AUTO", "gpu-b", "AUTO")));
         when(assignments.applyEconomicAssignment("gpu-a", "pearl")).thenReturn(true);
-        when(assignments.start("gpu-a")).thenReturn(true);
+        when(assignments.startUnderEconomicPlan("gpu-a")).thenReturn(true);
         when(assignments.pause("gpu-b")).thenReturn(true);
         when(mining.getWorkerStats()).thenReturn(List.of(
                 worker("gpu-a", MinerStats.MinerStatus.STOPPED),
@@ -54,7 +54,7 @@ class EconomicPlanningServiceTest {
                 List.of(new EconomicPlanningService.Assignment("gpu-a", "pearl")), List.of("gpu-a")));
 
         assertTrue(result.accepted(), result.reason());
-        verify(assignments).start("gpu-a");
+        verify(assignments).startUnderEconomicPlan("gpu-a");
         verify(assignments).pause("gpu-b");
         verify(assignments, never()).pause("fixed");
         verify(assignments, never()).start("fixed");

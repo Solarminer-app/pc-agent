@@ -122,7 +122,7 @@ public class WorkerController {
             boolean started;
             String failure = null;
             if (revenueMode) {
-                var applied = coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), request.mode(), false);
+                var applied = coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), request.mode(), false, true);
                 started = applied.success();
                 failure = applied.error();
             } else {
@@ -141,8 +141,10 @@ public class WorkerController {
                         failure == null ? "power_mode_apply_failed" : failure);
             }
         }
-        if (coinRevenueMode != null && !"COIN_REVENUE_PER_KWH".equals(request.mode()))
+        if (coinRevenueMode != null && !"COIN_REVENUE_PER_KWH".equals(request.mode())) {
             coinRevenueMode.resetCooldown(deviceId);
+            coinRevenueMode.cancelLocalStart(deviceId);
+        }
         reportChanged("workers", "power-control", "overview", "settings");
         return workers.workers().stream().filter(value -> deviceId.equals(value.deviceId())).findFirst().orElseThrow();
     }
@@ -154,6 +156,7 @@ public class WorkerController {
                                                           @RequestBody WorkerAssignmentService.Assignment request) {
         try {
             WorkerAssignmentService.WorkerView view = workers.assign(deviceId, request);
+            if (coinRevenueMode != null) coinRevenueMode.cancelLocalStart(deviceId);
             reportChanged("workers", "overview", "settings", "power-control");
             return view;
         }
@@ -190,7 +193,10 @@ public class WorkerController {
     public boolean pause(@PathVariable String deviceId) {
         boolean paused = workers.pause(deviceId);
         if (paused) {
-            if (coinRevenueMode != null) coinRevenueMode.resetCooldown(deviceId);
+            if (coinRevenueMode != null) {
+                coinRevenueMode.resetCooldown(deviceId);
+                coinRevenueMode.cancelLocalStart(deviceId);
+            }
             reportChanged("workers", "overview", "power-control");
         }
         return paused;

@@ -1,5 +1,13 @@
 # PC-Agent work log
 
+## 2026-10-17 — Power history usability and GPU efficiency
+
+- Made the five headline metrics a compact responsive row and added estimated electricity cost to the daily table. The estimate uses each agent's current tariff and the chosen display currency only when conversion is available; it is clearly labelled as an estimate of measured component energy.
+- Added numeric Y axes, correct hourly/daily energy units, hourly X labels, keyboard-focusable point details and visible gaps for missing readings. Mixed or unknown algorithms no longer produce a misleading combined hashrate. Low measurement coverage is highlighted.
+- Added a local-only GPU period table with device, coin, algorithm, hashrate, average measured watts, hashes per watt, energy and coverage. The peer history contract remains aggregate-only; cost and algorithm metadata are additive and older peers remain readable.
+- Corrected partial-hour sensor-bucket apportionment, which had understated energy when a session occupied less than a full hour. Documented the contract and estimate limits in [power-consumption.md](power-consumption.md).
+- Verification: focused `EnergyJournalServiceTest` and `NetworkDashboardServiceTest` passed; JavaScript syntax, DE/EN catalog and literal scan passed. The full suite compiled and ran 236 tests with one previously documented unrelated QuanPoolStatsTest failure. Live browser layout and multi-agent confirmation remain open.
+
 ## 2026-10-17 — Power Consumption detail page and LAN history
 
 - Added `/power.html` with a date range picker, aggregate network metrics, a chart (hour buckets for short ranges, daily buckets for longer ranges), and a daily statistics table. All page text, date labels, accessibility text and status feedback use the German/English catalog.
@@ -2378,3 +2386,40 @@ Vorgehen / Andockpunkte für andere Agenten:
 
 - A user-reported standalone JAR startup failure traced to `EconomicsController` having both a public four-dependency constructor and a package-private three-dependency overload. Spring did not select either and attempted a nonexistent no-argument constructor. Marked the public constructor `@Autowired` so startup uses the complete dependency set; the overload remains available for package tests.
 - Verification: source and stack trace agree on the constructor-selection failure. Tests and a packaged application startup were not run in this diagnosis pass.
+# 2026-10-17 — Worker-GPU-Temperatur aus Treibersensoren ergänzen
+
+- Wenn die Miner-Telemetrie für eine aktive GPU keine endliche Temperatur
+  meldet, ergänzt `WorkerAssignmentService` den Workerwert über
+  `LocalGpuPowerService.readTemperatureC`: NVIDIA nutzt `nvidia-smi`, AMD die
+  verfügbaren Sysfs-/`amd-smi`-Quellen. Ein vorhandener Minerwert bleibt
+  maßgeblich; nicht verfügbare Treiberwerte bleiben fehlend statt geschätzt.
+- Die Ergänzung verwendet vorhandene Treiberzugriffe und fügt keine UI-Texte
+  oder API-Fehler hinzu; daher sind keine Katalogübersetzungen erforderlich.
+- Verifikation: Codepfade und vorhandene Plattformadapter geprüft. Tests und
+  Hardwarevalidierung wurden in dieser Änderung nicht ausgeführt; für Docker
+  müssen Treibergerät und Sensor-Schnittstellen in den Container durchgereicht
+  sein.
+
+## 2026-10-17 — Worker-Modi: Start, Coin-Wechsel und Wiederanlauf
+
+- Der laufende Worker kann jetzt in einen Revenue-Modus wechseln, obwohl der Controller bereits die lokale Laufsperre hält. Lokale, LAN- und Node-Starts wählen denselben gemessenen Revenue-Punkt; ein Coin-Revenue-Start kann zuvor den zugewiesenen Coin wechseln. Ein ökonomischer Node-Plan verwendet dafür seine bereits gehaltene Sperre.
+- Ein lokal gestarteter Coin-Revenue-Worker wird nach unerwartetem Stillstand bei der nächsten Minutenprüfung erneut gestartet, auch innerhalb des Wechsel-Cooldowns. Explizite lokale, LAN- und Node-Pausen löschen diesen flüchtigen Startwunsch. Beim Speichern einer neuen Zuweisung für einen laufenden Worker sendet die Worker-Seite nach der Moduswahl selbst einen Startbefehl und zeigt dessen Fehler an. Automatische Coin-Wechsel geben im Miner-Log einen zweisprachigen Stop-Grund aus; Wechsel- und Wiederherstellungsfehler erscheinen im Agent-Log.
+- Verifikation: JDK-21-`compileJava` und gezielte Tests für Revenue-Modus, Worker-Zuweisung, Economic Planning, Mining, LAN und Power Controller bestanden. `node --check`, beide Deutsch/Englisch-i18n-Prüfungen (1.470 Schlüssel, 11 Seiten, null ungekapselte Browsertexte) und `git diff --check` bestanden. Live GPU, Treiber, Pool-Verbindung und Frontend-Status bleiben zu prüfen; ein grüner Test beweist keine lückenlose Miner-Laufzeit.
+
+## 2026-10-17 — Benchmark workspace and coin-hopping retirement
+
+- Retired the dedicated coin-hopping settings page, navigation entry and
+  settings API. The legacy scheduled evaluator is no longer scheduled;
+  per-worker operating modes remain the active automation path and reuse the
+  measured revenue candidates.
+- Moved the complete read-only `Ertrag pro kWh` network comparison to the
+  benchmark page with GPU selection and a bounded bar chart. Added a compact
+  measurement layout, filterable local profile cards, and bounded algorithm
+  lists for machines with many workers. The retired URL redirects to the
+  comparison anchor.
+- Both German and English catalog entries cover the new controls, empty states
+  and accessibility label. `node scripts/check-i18n.cjs` and
+  `node scripts/scan-i18n-literals.cjs` passed. `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --offline`
+  compiled the project and ran 239 tests; one pre-existing out-of-scope
+  `QuanPoolStatsTest.resolvesEveryConfiguredNvidiaWorkerWithoutAssumingContiguousIndices`
+  failed. No real GPU or pool acceptance was run.

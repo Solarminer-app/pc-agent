@@ -47,6 +47,12 @@ public class EconomicPlanningService {
     /** REST audit R1: fee-route readiness for the read model comes from the health snapshot. */
     private final de.verdox.solarminer.pcagent.mining.proxy.ProxyHealthService proxyHealth;
     private final LocalRunLock runLock;
+    private WorkerCoinRevenueModeService workerCoinRevenueMode;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setWorkerCoinRevenueMode(WorkerCoinRevenueModeService service) {
+        this.workerCoinRevenueMode = service;
+    }
     private final ScheduledExecutorService expiryExecutor = Executors.newSingleThreadScheduledExecutor(
             runnable -> Thread.ofPlatform().name("pc-agent-economic-plan-expiry").daemon(true).unstarted(runnable));
     private volatile AppliedPlan lastPlan;
@@ -233,11 +239,13 @@ public class EconomicPlanningService {
                             entry.getKey().equals(value.deviceId())
                                     && value.miningStatus() == MinerStats.MinerStatus.MINING);
                     if (running == entry.getValue()) continue;
-                    boolean ok = entry.getValue() ? assignments.start(entry.getKey()) : assignments.pause(entry.getKey());
+                    boolean ok = entry.getValue() ? assignments.startUnderEconomicPlan(entry.getKey()) : assignments.pause(entry.getKey());
                     if (!ok) {
                         restore(rollbackCoins, rollbackRunning);
                         return PlanResult.rejected("economic_plan_worker_action_failed");
                     }
+                    if (!entry.getValue() && workerCoinRevenueMode != null)
+                        workerCoinRevenueMode.cancelLocalStart(entry.getKey());
                 } catch (RuntimeException failure) {
                     restore(rollbackCoins, rollbackRunning);
                     return PlanResult.rejected("economic_plan_worker_action_failed");
@@ -266,7 +274,8 @@ public class EconomicPlanningService {
                             && value.miningStatus() == MinerStats.MinerStatus.MINING))) continue;
             try {
                 // A missing Node heartbeat must not restart a worker using stale economics.
-                assignments.pause(previous.getKey());
+                if (assignments.pause(previous.getKey()) && workerCoinRevenueMode != null)
+                    workerCoinRevenueMode.cancelLocalStart(previous.getKey());
             } catch (RuntimeException ignored) { }
         }
         if (applied.plannedTargetWatts() != null && applied.previousTargetWatts() > 0

@@ -29,6 +29,12 @@ public class AgentPowerController {
     private final AgentIdentityService agentIdentity;
     /** Loading plan P3: mutations report affected sections/channels for the event-driven push. */
     private final AgentStatusService status;
+    private de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService workerCoinRevenueMode;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setWorkerCoinRevenueMode(de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService service) {
+        this.workerCoinRevenueMode = service;
+    }
 
     public AgentPowerController(MiningService mining, LocalGpuPowerService gpus, AgentControlSettingsService controls,
                                 BenchmarkSessionService benchmarks, MinerConsoleService consoles,
@@ -114,6 +120,7 @@ public class AgentPowerController {
                 return externalStatus();
             }
             if (!mining.setExternalTarget(watts)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Leistungsziel konnte nicht sicher angewendet werden");
+            if (watts <= 0 && workerCoinRevenueMode != null) workerCoinRevenueMode.cancelAllLocalStarts();
             logExternalChange(watts <= 0 ? "Mining paused remotely (power target 0 W)" : "Power target changed remotely to " + watts + " W");
             reportChanged("overview", "power-control", "workers");
             return externalStatus();
@@ -122,7 +129,10 @@ public class AgentPowerController {
 
     public boolean externalPause() { return withControl(() -> {
         boolean success = mining.pauseExternally();
-        if (success) { logExternalChange("Mining paused remotely"); reportChanged("overview", "power-control", "workers"); }
+        if (success) {
+            if (workerCoinRevenueMode != null) workerCoinRevenueMode.cancelAllLocalStarts();
+            logExternalChange("Mining paused remotely"); reportChanged("overview", "power-control", "workers");
+        }
         return success;
     }, true); }
 

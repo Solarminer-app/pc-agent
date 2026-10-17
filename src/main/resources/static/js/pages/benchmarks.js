@@ -84,6 +84,7 @@ async function loadSavedBenchmarks() {
         const snapshot = await readMeasurements();
         if (revision !== measurementRevision) return;
         const profiles = snapshot.benchmarks || [];
+        updateComparisonDevices(snapshot);
         $('overview-profiles').textContent = new Intl.NumberFormat(window.SolarMinerI18n.locale).format(profiles.length);
         const signature = JSON.stringify(profiles);
         if (signature === savedBenchmarkSignature) return;
@@ -105,8 +106,10 @@ async function loadSavedBenchmarks() {
                 make('p', 'measurement-target', t('benchmark_profile_target', {target})),
                 make('p', 'muted', t('hardware_count_samples', {hardware: profile.hardwareType, count: profile.observations})),
                 make('p', '', `${t('hashrate')}: ${fmtRate(profile.hashrateHps)} · ${t('power_4606f4')}: ${profile.powerWatts} W · ${t('energy_per_hash')}: ${window.SolarMinerUI.efficiency(profile.hashrateHps, profile.powerWatts)}`));
+            card.dataset.filter = [profile.hardwareModel || profile.model, profile.workerId || profile.deviceId, profile.coin, profile.algorithm].join(' ').toLocaleLowerCase();
             groups.get(algorithmGroupLabel(profile)).append(card);
         }
+        applyProfileFilter();
     } catch (e) {
         if (revision !== measurementRevision) return;
         savedBenchmarkSignature = null;
@@ -403,6 +406,7 @@ $('refresh').addEventListener('click', () => {
     window.SolarMinerLive.refresh('benchmark-upload');
     renderSavedBenchmarks();
     renderProfiles();
+    loadComparison();
 });
 function sharingSummary() { $('sharing-summary').textContent = t($('sharing').checked ? 'enabled_cfd095' : 'disabled_139955'); }
 $('sharing').addEventListener('change', async () => {
@@ -685,6 +689,7 @@ async function loadProfiles() {
         const snapshot = await readMeasurements();
         if (revision !== measurementRevision) return;
         const profiles = snapshot.sweeps || [];
+        updateComparisonDevices(snapshot);
         $('overview-efficiency').textContent = new Intl.NumberFormat(window.SolarMinerI18n.locale).format(profiles.length);
         const signature = JSON.stringify(profiles);
         if (signature === lastProfileSignature) return;
@@ -715,8 +720,10 @@ async function loadProfiles() {
                 info.append(details);
             }
             card.append(info);
+            card.dataset.filter = [profile.model, profile.deviceId, profile.coin, profile.algorithm].join(' ').toLocaleLowerCase();
             groups.get(algorithmGroupLabel(profile)).append(card);
         }
+        applyProfileFilter();
     } catch (e) {
         if (revision !== measurementRevision) return;
         lastProfileSignature = null;
@@ -799,6 +806,94 @@ $('sweep-cancel').addEventListener('click', async () => {
     finally { actionBusy = false; $('sweep-cancel').disabled = false; window.SolarMinerLive.refresh('efficiency'); }
 });
 
+
+// The network comparison uses the same measured candidates as the operating modes,
+// but never changes an assignment or a power target.
+let comparisonDevices = '';
+let comparisonRequest = 0;
+function updateComparisonDevices(snapshot) {
+    const devices = new Map();
+    for (const profile of snapshot.sweeps || []) {
+        if ((profile.steps || []).some(step => step.stable && step.medianHashrateHs > 0 && step.avgPowerWatts > 0))
+            devices.set(profile.deviceId, profile.model || profile.deviceId);
+    }
+    for (const profile of snapshot.benchmarks || []) {
+        if (profile.powerTargetWatts > 0 && profile.observations >= 12 && profile.hashrateHps > 0 && profile.powerWatts > 0)
+            devices.set(profile.workerId, profile.hardwareModel || profile.workerId);
+    }
+    const signature = JSON.stringify([...devices]);
+    if (signature === comparisonDevices) return;
+    comparisonDevices = signature;
+    const select = $('comparison-gpu');
+    const previous = select.value;
+    select.replaceChildren();
+    for (const [id, model] of [...devices].sort((a,b) => a[1].localeCompare(b[1], window.SolarMinerI18n.locale)))
+        select.add(new Option(`${model} · ${id}`, id));
+    if (devices.has(previous)) select.value = previous;
+    select.disabled = !devices.size;
+    loadComparison();
+}
+async function loadComparison() {
+    const id = ++comparisonRequest;
+    const deviceId = $('comparison-gpu').value;
+    const chart = $('comparison-chart');
+    chart.replaceChildren();
+    $('comparison-recommendation').textContent = '';
+    $('comparison-updated').textContent = '';
+    if (!deviceId) {
+        chart.append(make('p', 'empty', t('benchmark_comparison_no_device')));
+        return;
+    }
+    try {
+        const response = await fetch(`/api/agent/local/benchmarks/comparison?${new URLSearchParams({deviceId})}`, {cache: 'no-store'});
+        if (!response.ok) throw new Error('benchmark_comparison_load_failed');
+        const candidates = await response.json();
+        if (id !== comparisonRequest) return;
+        if (!candidates.length) {
+            chart.append(make('p', 'empty', t('coin_hopping_no_candidates')));
+            return;
+        }
+        const money = value => window.SolarMinerPreferences.moneyFromUsd(value);
+        const maximum = Math.max(...candidates.map(row => row.usdPerKwh));
+        $('comparison-recommendation').textContent = t('coin_hopping_recommended_point', {
+            coin: candidates[0].coin.toUpperCase(), watts: candidates[0].limitWatts
+        });
+        $('comparison-updated').textContent = t('benchmark_updated_at', {time: new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {hour: '2-digit', minute: '2-digit'}).format(new Date())});
+        for (const [index, candidate] of candidates.entries()) {
+            const row = make('div', `hopping-row${index === 0 ? ' recommended' : ''}`);
+            const track = make('div', 'hopping-track');
+            const fill = make('i', 'hopping-fill');
+            fill.style.width = `${Math.max(2, candidate.usdPerKwh / maximum * 100)}%`;
+            track.append(fill);
+            const measured = new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {dateStyle:'medium', timeStyle:'short'}).format(new Date(candidate.measuredAt));
+            row.append(make('strong', '', `${candidate.coin.toUpperCase()} · ${candidate.limitWatts} W`), track,
+                make('span', '', `${money(candidate.usdPerKwh)} / kWh`),
+                make('small', 'hopping-meta', t('coin_hopping_point_detail', {
+                    source: t(`coin_hopping_source_${candidate.source?.toLowerCase() || 'live'}`),
+                    rate: fmtRate(candidate.hashrateHps), power: Math.round(candidate.measuredWatts), time: measured
+                })));
+            chart.append(row);
+        }
+    } catch (_) {
+        if (id === comparisonRequest) chart.replaceChildren(make('p', 'empty', t('benchmark_comparison_load_failed')));
+    }
+}
+function applyProfileFilter() {
+    const query = $('profile-filter').value.trim().toLocaleLowerCase();
+    for (const group of document.querySelectorAll('#saved-benchmarks .benchmark-algorithm-group, #sweep-results .benchmark-algorithm-group')) {
+        let visible = 0;
+        for (const card of group.querySelectorAll('.worker-card')) {
+            card.hidden = Boolean(query) && !card.dataset.filter.includes(query);
+            if (!card.hidden) visible++;
+        }
+        group.hidden = visible === 0;
+        if (query && visible) group.open = true;
+    }
+}
+$('comparison-gpu').addEventListener('change', loadComparison);
+$('profile-filter').addEventListener('input', applyProfileFilter);
+document.addEventListener('solarminer:preferences-changed', loadComparison);
+
 // Phase 5c: measurement state arrives over the shared SSE stream instead of a 1 s
 // three-fetch polling loop (benchmarks + efficiency + upload-status). The live-data
 // watchdog re-reads a channel over REST only when its push went silent.
@@ -820,5 +915,6 @@ setInterval(() => {
     invalidateMeasurements();
     renderSavedBenchmarks();
     renderProfiles();
+    loadComparison();
 }, 60_000);
 window.SolarMinerLive.start();
