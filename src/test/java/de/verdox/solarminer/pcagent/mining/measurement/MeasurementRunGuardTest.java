@@ -56,6 +56,7 @@ class MeasurementRunGuardTest {
         LocalRunLock lock = new LocalRunLock();
         MeasurementRunGuard guard = new MeasurementRunGuard(lock, "test-run");
         CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch ended = new CountDownLatch(1);
         AtomicBoolean sawCancel = new AtomicBoolean();
 
         assertTrue(guard.begin("benchmark"));
@@ -67,10 +68,11 @@ class MeasurementRunGuardTest {
             }
             sawCancel.set(true);
             guard.end();
+            ended.countDown();
         });
         assertTrue(started.await(5, TimeUnit.SECONDS));
         guard.requestCancel();
-        for (int i = 0; i < 100 && !sawCancel.get(); i++) Thread.sleep(10);
+        assertTrue(ended.await(5, TimeUnit.SECONDS));
         assertTrue(sawCancel.get());
         assertFalse(guard.lockBusy());
         // a following run starts with a clear cancel flag

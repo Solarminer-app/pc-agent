@@ -2987,3 +2987,8 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Added a bilingual start-after-restart checkbox to each local physical Worker row. Per-worker opt-in and manual-stop state persist separately; local or LAN-dashboard manual Pause suppresses boot start until a successful manual Start or explicit re-enable. Unassigned workers cannot be enabled.
 - Boot startup waits for the managed proxy gate, uses the ordinary worker start path and rechecks current operator intent before each attempt. It leaves already running workers alone and stops retrying five minutes after the proxy becomes ready.
 - Added settings persistence, boot orchestration and local action tests. Full offline JDK 21 `gradlew test` passed; JavaScript syntax, both-locale i18n catalog/literal/render checks and `git diff --check` passed. Hardware and real reboot verification remain open.
+
+## 2026-10-18 — Make measurement cancellation test deterministic
+
+- `MeasurementRunGuardTest.cancelFlagIsObservedByTheRunLoopAndResetOnNextStart` previously set its observed-cancel flag immediately before releasing the shared run lock, then asserted on the lock without synchronization. This could fail in the valid interval between those operations.
+- The test now waits on a latch counted down after `guard.end()` before checking that the lock is free. The focused JDK 21 test passed; `git diff --check` passed. No production behavior or user-facing text changed, so locale catalogs are unaffected.
