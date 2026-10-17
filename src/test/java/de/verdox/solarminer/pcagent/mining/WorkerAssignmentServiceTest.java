@@ -77,9 +77,10 @@ class WorkerAssignmentServiceTest {
         LocalGpuPowerService power = mock(LocalGpuPowerService.class);
         when(power.discover()).thenReturn(List.of(first, second));
         MinerCatalogService catalog = mock(MinerCatalogService.class);
-        MinerCatalogService.MinerOption defaultOption = mock(MinerCatalogService.MinerOption.class);
-        when(defaultOption.id()).thenReturn("srbminer-multi");
+        MinerCatalogService.MinerOption defaultOption = gpuOption("srbminer-multi", "quantus");
         when(catalog.selected("quantus")).thenReturn(defaultOption);
+        when(catalog.options("quantus")).thenReturn(List.of(
+                gpuOption("quanpool-miner", "quantus"), defaultOption));
         GpuCoinMinerService srb = mock(GpuCoinMinerService.class);
         when(srb.configuration("quantus")).thenReturn(new MinerConfig("stratum+tcp://pool:9854",
                 "stratum+tcp://127.0.0.1:3339", "wallet", "worker", "NVIDIA:1"));
@@ -119,8 +120,10 @@ class WorkerAssignmentServiceTest {
                 new PayoutDefaultsService.DefaultPayout("ravencoin", "house", "stratum+tcp://pool.example:3333", "wallet.worker", "x")));
         ProxyConfigurationService proxy = mock(ProxyConfigurationService.class);
         when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.RAVENCOIN)).thenReturn("stratum+tcp://127.0.0.1:3336");
+        MinerCatalogService catalog = mock(MinerCatalogService.class);
+        when(catalog.options("ravencoin")).thenReturn(List.of(gpuOption("srbminer-multi", "ravencoin")));
         WorkerAssignmentService service = new WorkerAssignmentService(controls, mock(MiningService.class), power,
-                mock(MinerCatalogService.class), newFactory(mock(PearlMinerService.class), coins, power), payouts, proxy);
+                catalog, newFactory(mock(PearlMinerService.class), coins, power), payouts, proxy);
 
         org.junit.jupiter.api.Assertions.assertTrue(service.start(gpu.deviceId()));
         org.mockito.Mockito.verify(coins).configure(org.mockito.ArgumentMatchers.eq("ravencoin"), any(MinerConfig.class));
@@ -140,8 +143,10 @@ class WorkerAssignmentServiceTest {
                 "pearl", "house", "stratum+tcp://pool.example:3333", "prl1abcdefghijklmnopqrstuvwxyz234567.worker", "x")));
         ProxyConfigurationService proxy = mock(ProxyConfigurationService.class);
         when(proxy.coinUrl(de.verdox.solarminer.pcagent.coin.Coin.PEARL)).thenReturn("stratum+tcp://127.0.0.1:3335");
+        MinerCatalogService catalog = mock(MinerCatalogService.class);
+        when(catalog.options("pearl")).thenReturn(List.of(gpuOption("srbminer-multi", "pearl")));
         WorkerAssignmentService service = new WorkerAssignmentService(mock(AgentControlSettingsService.class), mock(MiningService.class),
-                power, mock(MinerCatalogService.class), newFactory(pearl, mock(GpuCoinMinerService.class), power), payouts, proxy);
+                power, catalog, newFactory(pearl, mock(GpuCoinMinerService.class), power), payouts, proxy);
 
         assertEquals(Map.of(), service.prepareBenchmarkDefaults());
         verify(pearl).applyConfig(any(MinerConfig.class));
@@ -227,6 +232,11 @@ class WorkerAssignmentServiceTest {
 
     private static de.verdox.solarminer.pcagent.miner.MinerFactory newFactory(LocalGpuPowerService power) {
         return newFactory(mock(PearlMinerService.class), mock(GpuCoinMinerService.class), power);
+    }
+
+    private static MinerCatalogService.MinerOption gpuOption(String id, String coin) {
+        return new MinerCatalogService.MinerOption(id, coin, id, "GPU", "test", 0.0, "", "",
+                List.of(), List.of(), "", false, true, "READY", "", true, null);
     }
 
     private static de.verdox.solarminer.pcagent.miner.MinerFactory newFactory(PearlMinerService pearl,

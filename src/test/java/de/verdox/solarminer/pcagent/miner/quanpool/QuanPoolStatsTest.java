@@ -10,6 +10,7 @@ import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
 import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 
@@ -17,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class QuanPoolStatsTest {
+    @TempDir Path directory;
     private final ObjectMapper json = new ObjectMapper();
 
     @Test
@@ -107,7 +109,8 @@ class QuanPoolStatsTest {
         when(power.discover()).thenReturn(java.util.List.of(gpu(0, "GPU-0"), gpu(2, "GPU-2"), gpu(7, "GPU-7")));
         QuanPoolMinerService service = new QuanPoolMinerService(json, mock(ProxyConfigurationService.class),
                 configurations, mock(PearlMinerService.class), power, mock(MinerConsoleService.class),
-                mock(PayoutDefaultsService.class), mock(LocalRunLock.class), mock(QuanPoolDownloadService.class));
+                mock(PayoutDefaultsService.class), mock(LocalRunLock.class), mock(QuanPoolDownloadService.class),
+                directory.resolve("quanpool-config.json").toString());
 
         assertEquals(java.util.List.of(2, 7), service.selectedGpus().stream()
                 .map(LocalGpuPowerService.Gpu::index).toList());
