@@ -58,7 +58,7 @@ public class MiningService {
         this.workerPowerModes = workerPowerModes;
     }
     @org.springframework.beans.factory.annotation.Autowired(required = false)
-    public void setCoinRevenueMode(de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService service) {
+    public void setCoinRevenueMode(@org.springframework.context.annotation.Lazy de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService service) {
         this.coinRevenueMode = service;
     }
     @org.springframework.beans.factory.annotation.Autowired(required = false)

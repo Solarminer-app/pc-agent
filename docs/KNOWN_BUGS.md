@@ -33,6 +33,7 @@ remains. The assigned task always takes precedence.
 | [~] | P1 | BUG-005 | A power-limit sweep may stop its queue before testing a second coin on the same GPU. |
 | [~] | P1 | BUG-006 | The elevated Windows launcher can stall waiting for another administrator prompt. |
 | [~] | P2 | BUG-007 | Dashboard worker status labels benchmark runs as normal mining. |
+| [x] | P1 | BUG-008 | PC-Agent Beta fails to start because worker revenue beans form a Spring dependency cycle. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -366,3 +367,30 @@ paused/stopped/error status.
   zero unkeyed browser literals); `overview.js` passed `node --check`.
 - Confirm on two real agents that a local benchmark and sweep label only the
   mining workers, the remote board follows, and both revert after completion.
+
+## BUG-008 — Break the worker revenue startup dependency cycle
+
+**Status:** Fixed and verified (`[x]`, 2026-10-17)
+**Priority:** P1
+**Area:** Spring application startup, worker revenue wiring
+
+### Observed behaviour and cause
+
+The operator's Windows Beta standalone JAR failed during context initialization:
+`MiningService` setter injection requested `WorkerCoinRevenueModeService`, whose
+constructor requested `CoinHoppingService`, then `EconomicPlanningService`,
+which constructor-injected the still-creating `MiningService`. The revenue
+service also refers back to `WorkerAssignmentService`.
+
+### Remedy and verification
+
+The three optional setter references from `MiningService`,
+`WorkerAssignmentService` and `EconomicPlanningService` to
+`WorkerCoinRevenueModeService` now use lazy injection. The operational methods
+resolve the proxy to the initialized revenue service after context startup.
+
+`standaloneJar` compiled, and the packaged JAR reached `Started
+PcAgentApplication` in a fresh temporary directory with a random HTTP port.
+The complete JDK 21 suite ran 241 tests with one previously documented,
+unrelated QuanPool GPU-selection failure. Focused revenue/assignment tests and
+both language-catalog checks are recorded in the 2026-10-17 work log.

@@ -50,7 +50,7 @@ public class EconomicPlanningService {
     private WorkerCoinRevenueModeService workerCoinRevenueMode;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
-    public void setWorkerCoinRevenueMode(WorkerCoinRevenueModeService service) {
+    public void setWorkerCoinRevenueMode(@org.springframework.context.annotation.Lazy WorkerCoinRevenueModeService service) {
         this.workerCoinRevenueMode = service;
     }
     private final ScheduledExecutorService expiryExecutor = Executors.newSingleThreadScheduledExecutor(

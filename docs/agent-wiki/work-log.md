@@ -2429,3 +2429,23 @@ Vorgehen / Andockpunkte für andere Agenten:
   compiled the project and ran 239 tests; one pre-existing out-of-scope
   `QuanPoolStatsTest.resolvesEveryConfiguredNvidiaWorkerWithoutAssumingContiguousIndices`
   failed. No real GPU or pool acceptance was run.
+
+## 2026-10-17 — Spring-Zyklus beim Beta-Start behoben
+
+- Der gemeldete Windows-Beta-Startabbruch kam von einem Bean-Zyklus zwischen
+  `MiningService`, `WorkerCoinRevenueModeService`, `CoinHoppingService` und
+  `EconomicPlanningService`; auch `WorkerAssignmentService` hat einen
+  Rückverweis auf den Revenue-Service. Die drei optionalen Rückverweise aus
+  Mining, Worker-Zuweisung und Economic Planning werden nun mit Spring `@Lazy`
+  injiziert. Der Revenue-Service und seine Funktionen bleiben aktiv.
+- Der gebaute Standalone-JAR erreichte im isolierten Start mit zufälligem
+  HTTP-Port `Started PcAgentApplication` nach 5,626 Sekunden. Der Prozess wurde
+  anschließend durch das 25-Sekunden-Zeitlimit beendet; ein Windows-Live-Start
+  wurde hier nicht durchgeführt.
+- `test standaloneJar` kompilierte; 241 Tests liefen, mit einem bereits zuvor
+  dokumentierten, unabhängigen QuanPool-GPU-Auswahlfehler. Der gezielte Lauf
+  von `WorkerCoinRevenueModeServiceTest`, `CoinHoppingServiceTest`,
+  `EconomicPlanningServiceTest` und `WorkerAssignmentServiceTest` bestand.
+  Keine UI-/API-Texte wurden geändert; `check-i18n.cjs` bestätigte 1.496
+  Schlüssel auf 11 Seiten in Deutsch/Englisch und `scan-i18n-literals.cjs`
+  fand null ungekapselte Browsertexte. `git diff --check` bestand.
