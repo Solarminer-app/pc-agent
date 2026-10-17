@@ -2742,3 +2742,18 @@ Vorgehen / Andockpunkte für andere Agenten:
   `WorkerAssignmentService.pause`. No new UI text was added; the error uses the
   existing German/English catalog entry.
 - Verification not run in this turn.
+# 2026-10-17 — Schnelle Worker-Starts serialisieren
+
+- Parallele Start-POSTs liefen im `WorkerController` gleichzeitig. Insbesondere
+  Worker im Coin-Revenue-Modus konkurrierten dabei um den exklusiven
+  `LocalRunLock`; nur die erste Anfrage konnte ihn erhalten, während die übrigen
+  mit `power_mode_busy` scheiterten und im UI pausiert blieben.
+- Der Start-Endpunkt serialisiert Startanfragen jetzt am Controller. Die
+  bestehenden pro-Worker `STARTING`-Markierungen bleiben erhalten und jeder
+  Start läuft nach Freigabe des vorherigen Requests durch seine normale
+  Validierung und Betriebsmodus-Auswahl.
+- Keine UI-Texte oder API-Fehler wurden geändert; die bestehende deutsche und
+  englische Fehlerlokalisierung bleibt unverändert.
+- Verifikation: JDK 21 `compileJava --offline` erfolgreich. `git diff --check`
+  erfolgreich nach Bereinigung des Work-Log-Endes. Kein paralleler Live-Start
+  mit mehreren Revenue-Worker wurde auf Hardware ausgeführt.

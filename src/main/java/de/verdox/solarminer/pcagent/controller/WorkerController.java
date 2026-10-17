@@ -171,7 +171,7 @@ public class WorkerController {
     }
 
     @PostMapping("/{deviceId}/start")
-    public boolean start(@PathVariable String deviceId) {
+    public synchronized boolean start(@PathVariable String deviceId) {
         if (mining != null && !mining.beginWorkerStart(deviceId))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "worker_start_in_progress");
         reportChanged("workers", "overview");
