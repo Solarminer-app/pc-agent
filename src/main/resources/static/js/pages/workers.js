@@ -149,7 +149,8 @@
       }
       if (worker.coin !== 'none') {
         const labels = {MANUAL: 'worker_mode_manual', EFFICIENCY: 'worker_mode_efficiency', MAX_HASHRATE: 'worker_mode_max_hashrate',
-          REVENUE_PER_KWH: 'worker_mode_revenue', COIN_REVENUE_PER_KWH: 'worker_mode_coin_revenue'};
+          REVENUE_PER_KWH: 'worker_mode_revenue', COIN_REVENUE_PER_KWH: 'worker_mode_coin_revenue',
+          PROFIT_PER_DAY: 'worker_mode_profit_day', COIN_PROFIT_PER_DAY: 'worker_mode_coin_profit_day'};
         wrap.append(ui.element('span', 'cell-sub', t(labels[worker.powerMode] || labels.MANUAL)));
       }
       return wrap;
@@ -264,6 +265,8 @@
     $('worker-power-mode').value = worker.powerMode || 'MANUAL';
     $('worker-power-mode').querySelector('[value="COIN_REVENUE_PER_KWH"]').disabled = worker.hardwareType === 'CPU';
     $('worker-power-mode').querySelector('[value="MAX_HASHRATE"]').disabled = worker.hardwareType === 'CPU';
+    $('worker-power-mode').querySelector('[value="PROFIT_PER_DAY"]').disabled = worker.hardwareType === 'CPU';
+    $('worker-power-mode').querySelector('[value="COIN_PROFIT_PER_DAY"]').disabled = worker.hardwareType === 'CPU';
     updatePoolSummary(worker.coin, worker.poolUrl, worker.configured);
     coinSelect.onchange = () => { populateMinerSelect(coinSelect.value, null); updatePoolSummary(coinSelect.value, null, false);
       if (coinSelect.value === 'none') $('worker-power-mode').value = 'MANUAL'; };

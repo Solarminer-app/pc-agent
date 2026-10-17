@@ -210,7 +210,8 @@ public class AgentControlSettingsService {
     }
 
     public synchronized boolean setWorkerPowerMode(String workerId, String mode) {
-        if (workerId == null || workerId.isBlank() || !java.util.Set.of("MANUAL", "EFFICIENCY", "MAX_HASHRATE", "REVENUE_PER_KWH", "COIN_REVENUE_PER_KWH").contains(mode)) return false;
+        if (workerId == null || workerId.isBlank() || !java.util.Set.of("MANUAL", "EFFICIENCY", "MAX_HASHRATE",
+                "REVENUE_PER_KWH", "COIN_REVENUE_PER_KWH", "PROFIT_PER_DAY", "COIN_PROFIT_PER_DAY").contains(mode)) return false;
         Map<String, String> next = new java.util.HashMap<>(settings.workerPowerModes());
         if ("MANUAL".equals(mode)) next.remove(workerId);
         else next.put(workerId, mode);

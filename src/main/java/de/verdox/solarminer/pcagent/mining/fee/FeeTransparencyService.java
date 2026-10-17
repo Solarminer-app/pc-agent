@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
@@ -77,10 +78,30 @@ public class FeeTransparencyService {
      * and renders as the same loading state the UI showed for an unreachable proxy.
      */
     private volatile List<FeeOverview> overviewSnapshot = List.of();
+    private volatile Instant overviewSnapshotAt = Instant.EPOCH;
     private volatile DevFeeSummary devFeeSummarySnapshot;
     private volatile boolean feeRefreshQueued = true;
 
     public List<FeeOverview> overviewSnapshot() { return overviewSnapshot; }
+
+    /** Known total fee for a specific coin/miner candidate; null means the net estimate is unsafe. */
+    public Double knownFeePercentage(String coin, String minerSoftwareId) {
+        if (Instant.now().isAfter(overviewSnapshotAt.plus(Duration.ofMinutes(2)))) return null;
+        FeeOverview overview = overviewSnapshot.stream().filter(value -> coin.equals(value.coin())).findFirst().orElse(null);
+        if (overview == null || minerSoftwareId == null) return null;
+        double total = 0;
+        for (FeePart part : overview.parts()) {
+            if ("MINER".equals(part.kind())) continue;
+            if (!part.known() || !Double.isFinite(part.percentage()) || part.percentage() < 0) return null;
+            total += part.percentage();
+        }
+        MinerCatalogService.MinerOption candidate = minerCatalog.options(coin).stream()
+                .filter(option -> minerSoftwareId.equals(option.id())).findFirst().orElse(null);
+        if (candidate == null || candidate.developerFeePercent() == null
+                || !Double.isFinite(candidate.developerFeePercent()) || candidate.developerFeePercent() < 0) return null;
+        total += candidate.developerFeePercent();
+        return total <= 100 ? total : null;
+    }
 
     /**
      * Snapshot read for the header badge. Before the first collection completes this derives
@@ -110,6 +131,7 @@ public class FeeTransparencyService {
         Thread.startVirtualThread(() -> {
             try {
                 overviewSnapshot = List.copyOf(overview());
+                overviewSnapshotAt = Instant.now();
                 devFeeSummarySnapshot = devFeeSummary();
                 feeRefreshQueued = false;
             } catch (RuntimeException failure) {
@@ -125,6 +147,7 @@ public class FeeTransparencyService {
     public void warmFeeSnapshots() {
         Thread.startVirtualThread(() -> {
             overviewSnapshot = List.copyOf(overview());
+            overviewSnapshotAt = Instant.now();
             devFeeSummarySnapshot = devFeeSummary();
         });
     }

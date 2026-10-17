@@ -128,7 +128,8 @@ public class WorkerAssignmentService {
 
     private boolean startWithMode(String deviceId, boolean lockHeld) {
         String mode = controls.get().powerModeFor(deviceId);
-        if (!WorkerIds.isCpu(deviceId) && ("REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode))) {
+        if (!WorkerIds.isCpu(deviceId) && ("REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode)
+                || "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode))) {
             if (coinRevenueMode == null) throw new IllegalStateException("power_mode_unavailable");
             var selected = coinRevenueMode.applyBestStartPoint(deviceId, controls.get().coinFor(deviceId), mode, true, lockHeld);
             if (!selected.success()) throw new IllegalStateException(selected.error());

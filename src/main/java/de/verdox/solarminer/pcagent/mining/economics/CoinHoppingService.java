@@ -49,9 +49,15 @@ public class CoinHoppingService {
     private final EnergyJournalService energy;
     private de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService ownerSettings;
     private MinerCatalogService minerCatalog;
+    private de.verdox.solarminer.pcagent.mining.fee.FeeTransparencyService feeTransparency;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setMinerCatalog(MinerCatalogService minerCatalog) { this.minerCatalog = minerCatalog; }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setFeeTransparency(de.verdox.solarminer.pcagent.mining.fee.FeeTransparencyService feeTransparency) {
+        this.feeTransparency = feeTransparency;
+    }
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setOwnerSettings(de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService ownerSettings) {
@@ -215,9 +221,19 @@ public class CoinHoppingService {
                 || forecast.updatedAt().isBefore(now.minus(MAX_MARKET_AGE))
                 || !positive(forecast.usdPerDay()) || !positive(forecast.coinsPerDay())) return;
         double usdPerKwh = forecast.usdPerDay() / (measuredWatts * 24.0 / 1000.0);
+        Double profitUsdPerDay = null;
+        Double feePercentage = feeTransparency == null ? null
+                : feeTransparency.knownFeePercentage(coin.id(), softwareId);
+        EnergyJournalService.Settings tariff = energy.overview().settings();
+        Double tariffUsd = tariff == null ? null : market.toUsd(tariff.pricePerKwh().doubleValue(), tariff.currency());
+        if (feePercentage != null && tariffUsd != null && Double.isFinite(tariffUsd) && tariffUsd >= 0) {
+            profitUsdPerDay = forecast.usdPerDay() * (1 - feePercentage / 100.0)
+                    - measuredWatts * 24.0 / 1000.0 * tariffUsd;
+            if (!Double.isFinite(profitUsdPerDay)) profitUsdPerDay = null;
+        }
         if (positive(usdPerKwh)) result.add(new Candidate(coin.id(), targetWatts, measuredWatts,
                 hashrateHps, usdPerKwh, measuredAt, forecast.updatedAt(), source,
-                forecast.coinsPerDay(), forecast.usdPerDay(), softwareId));
+                forecast.coinsPerDay(), forecast.usdPerDay(), softwareId, feePercentage, profitUsdPerDay));
     }
 
     private static boolean positive(Double value) { return value != null && Double.isFinite(value) && value > 0; }
@@ -343,12 +359,19 @@ public class CoinHoppingService {
     private record Persisted(Settings settings, Instant lastSwitchAt) { }
     public record Candidate(String coin, int limitWatts, double measuredWatts, double hashrateHps,
                             double usdPerKwh, Instant measuredAt, Instant marketAt, String source,
-                            double coinsPerDay, double usdPerDay, String minerSoftwareId) {
+                            double coinsPerDay, double usdPerDay, String minerSoftwareId,
+                            Double feePercentage, Double profitUsdPerDay) {
+        public Candidate(String coin, int limitWatts, double measuredWatts, double hashrateHps,
+                         double usdPerKwh, Instant measuredAt, Instant marketAt, String source,
+                         double coinsPerDay, double usdPerDay, String minerSoftwareId) {
+            this(coin, limitWatts, measuredWatts, hashrateHps, usdPerKwh, measuredAt, marketAt, source,
+                    coinsPerDay, usdPerDay, minerSoftwareId, null, null);
+        }
         public Candidate(String coin, int limitWatts, double measuredWatts, double hashrateHps,
                          double usdPerKwh, Instant measuredAt, Instant marketAt, String source,
                          double coinsPerDay, double usdPerDay) {
             this(coin, limitWatts, measuredWatts, hashrateHps, usdPerKwh, measuredAt, marketAt, source,
-                    coinsPerDay, usdPerDay, null);
+                    coinsPerDay, usdPerDay, null, null, null);
         }
     }
     public record View(Settings settings, List<Candidate> candidates, String recommendedCoin,

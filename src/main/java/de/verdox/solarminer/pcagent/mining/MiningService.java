@@ -246,7 +246,8 @@ public class MiningService {
         if (gpu == null) return false;
         Optional<GpuCoinMiner> target = miners.gpuMinerForWorker(coinId, gpu.deviceId());
         String mode = controls.get().powerModeFor(gpu.deviceId());
-        boolean revenueMode = "REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode);
+        boolean revenueMode = "REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode)
+                || "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode);
         if (!revenueMode && target.isEmpty()) return false;
         if (revenueMode && (coinRevenueMode == null
                 || coinRevenueMode.selectBestStartPoint(gpu.deviceId(), coinId, mode).error() != null)) return false;

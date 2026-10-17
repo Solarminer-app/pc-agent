@@ -47,7 +47,8 @@ public class WorkerPowerModeService {
         if ("MAX_HASHRATE".equals(mode) && WorkerIds.isCpu(deviceId))
             return new Selection(mode, null, "power_mode_requires_gpu");
         if (WorkerIds.isCpu(deviceId)) {
-            if (coin == null || !coin.isCpu() || "COIN_REVENUE_PER_KWH".equals(mode))
+            if (coin == null || !coin.isCpu() || "COIN_REVENUE_PER_KWH".equals(mode)
+                    || "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode))
                 return new Selection(mode, null, "power_mode_requires_gpu_coin");
             return benchmarks.all().stream()
                     .filter(profile -> deviceId.equals(profile.workerId()) && coin.id().equals(profile.coin())

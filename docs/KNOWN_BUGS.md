@@ -254,6 +254,10 @@ the currently running miner. A start or mode change refreshes the row promptly.
   localized status and suppress a second Start action; completion or failure
   clears it. Focused read-model and dashboard tests pass. CPU/GPU hardware timing
   and visual confirmation remain part of the live verification below.
+- The two Beta daily-profit modes use the same Worker mode-change, start and
+  worker-refresh paths as existing GPU revenue modes. This implementation did
+  not reproduce a new stale-row issue; live GPU mode switching and immediate row
+  refresh still require the hardware/browser verification listed below.
 
 ### Verification required
 

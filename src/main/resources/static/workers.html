@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/css/agent.css">
     <link rel="stylesheet" href="/css/workspace.css">
     <link rel="stylesheet" href="/css/design.css?v=20261017-power-sweep-status">
-    <script src="/js/core/i18n-catalog.js?v=20261017-power-sweep-status" defer></script>
+    <script src="/js/core/i18n-catalog.js?v=20261017-profit-modes" defer></script>
     <script src="/js/core/i18n.js?v=20261011-agent-dictionary-directions-v2" defer></script>
     <script src="/js/core/live-data.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/core/mining-cache.js?v=20261011-agent-dictionary-directions-v2" defer></script>
@@ -18,7 +18,7 @@
     <script src="/js/chrome/workspace.js?v=20261017-gpu-results" defer></script>
     <script src="/js/chrome/wallet-strip.js?v=20261011-agent-dictionary-directions-v2" defer></script>
     <script src="/js/chrome/telemetry-gate.js?v=20261011-agent-dictionary-directions-v2" defer></script>
-    <script src="/js/pages/workers.js?v=20261017-worker-profit" defer></script>
+    <script src="/js/pages/workers.js?v=20261017-profit-modes" defer></script>
 </head>
 <body class="workers-page">
 <div class="shell">
@@ -72,7 +72,9 @@
                     <option value="MAX_HASHRATE" data-i18n="worker_mode_max_hashrate">Maximale Hashrate · temperaturbegrenzt</option>
                     <option value="REVENUE_PER_KWH" data-i18n="worker_mode_revenue">Ertrag pro kWh · fester Coin</option>
                     <option value="COIN_REVENUE_PER_KWH" data-i18n="worker_mode_coin_revenue">Coin &amp; Ertrag pro kWh</option>
-                </select><small id="worker-power-mode-help" class="muted" data-i18n="worker_mode_help">Automatische Modi benötigen lokale Messpunkte. Effizienz wählt Hashes pro Watt; maximale Hashrate den schnellsten stabilen GPU-Sweep-Punkt. Bei Hitze oder fehlendem Temperaturwert stoppt dieser Modus. Ertrag pro kWh wählt den besten Messpunkt für den festen Coin. Coin &amp; Ertrag pro kWh darf auch einen anderen Coin wählen. Die Node steuert dann nur Ein/Aus.</small></label>
+                    <option value="PROFIT_PER_DAY" data-i18n="worker_mode_profit_day">Gewinn pro Tag · fester Coin</option>
+                    <option value="COIN_PROFIT_PER_DAY" data-i18n="worker_mode_coin_profit_day">Coin &amp; Gewinn pro Tag</option>
+                </select><small id="worker-power-mode-help" class="muted" data-i18n="worker_mode_help">Automatische Modi benötigen lokale Messpunkte. Effizienz wählt Hashes pro Watt; maximale Hashrate den schnellsten stabilen GPU-Sweep-Punkt. Ertrag pro kWh maximiert die Effizienz; Gewinn pro Tag maximiert den geschätzten Nettogewinn nach bekannten Gebühren und Stromkosten. Die Tagesgewinn-Modi benötigen bekannte Gebühren, einen Tarif und aktuelle Marktdaten; beide sind GPU-Modi. Die Node steuert nur Ein/Aus.</small></label>
                 <label class="field"><span data-i18n="coin_algorithm">Coin & Algorithmus</span><select id="worker-coin"></select></label>
                 <label class="field"><span data-i18n="miner_software">Miner-Software</span><select id="worker-miner"></select>
                     <small id="worker-miner-help" class="muted"></small>

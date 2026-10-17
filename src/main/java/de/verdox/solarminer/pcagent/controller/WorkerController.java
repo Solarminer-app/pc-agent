@@ -94,16 +94,20 @@ public class WorkerController {
     }
 
     private WorkerAssignmentService.WorkerView savePowerMode(String deviceId, PowerModeRequest request) {
-        if (request == null || !java.util.Set.of("MANUAL", "EFFICIENCY", "MAX_HASHRATE", "REVENUE_PER_KWH", "COIN_REVENUE_PER_KWH").contains(request.mode()))
+        if (request == null || !java.util.Set.of("MANUAL", "EFFICIENCY", "MAX_HASHRATE", "REVENUE_PER_KWH",
+                "COIN_REVENUE_PER_KWH", "PROFIT_PER_DAY", "COIN_PROFIT_PER_DAY").contains(request.mode()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "power_mode_invalid");
         WorkerAssignmentService.WorkerView worker = workers.workers().stream()
                 .filter(value -> deviceId.equals(value.deviceId())).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "gpu_not_found"));
         if (!"MANUAL".equals(request.mode())) {
-            if ("CPU".equals(worker.hardwareType()) && ("COIN_REVENUE_PER_KWH".equals(request.mode()) || "MAX_HASHRATE".equals(request.mode())))
+            if ("CPU".equals(worker.hardwareType()) && ("COIN_REVENUE_PER_KWH".equals(request.mode())
+                    || "COIN_PROFIT_PER_DAY".equals(request.mode()) || "PROFIT_PER_DAY".equals(request.mode())
+                    || "MAX_HASHRATE".equals(request.mode())))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "power_mode_requires_gpu");
             boolean revenueMode = "REVENUE_PER_KWH".equals(request.mode())
-                    || "COIN_REVENUE_PER_KWH".equals(request.mode());
+                    || "COIN_REVENUE_PER_KWH".equals(request.mode()) || "PROFIT_PER_DAY".equals(request.mode())
+                    || "COIN_PROFIT_PER_DAY".equals(request.mode());
             if (revenueMode && "GPU".equals(worker.hardwareType())) {
                 if (coinRevenueMode == null)
                     throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "power_mode_unavailable");
@@ -124,6 +128,7 @@ public class WorkerController {
         if (worker.status() == de.verdox.solarminer.pcagent.dto.MinerStats.MinerStatus.MINING && powerModes != null) {
             boolean revenueMode = "GPU".equals(worker.hardwareType())
                     && ("REVENUE_PER_KWH".equals(request.mode()) || "COIN_REVENUE_PER_KWH".equals(request.mode()));
+            revenueMode = revenueMode || "PROFIT_PER_DAY".equals(request.mode()) || "COIN_PROFIT_PER_DAY".equals(request.mode());
             boolean started;
             String failure = null;
             if (revenueMode) {
@@ -146,7 +151,8 @@ public class WorkerController {
                         failure == null ? "power_mode_apply_failed" : failure);
             }
         }
-        if (coinRevenueMode != null && !"COIN_REVENUE_PER_KWH".equals(request.mode())) {
+        if (coinRevenueMode != null && !"COIN_REVENUE_PER_KWH".equals(request.mode())
+                && !"COIN_PROFIT_PER_DAY".equals(request.mode())) {
             coinRevenueMode.resetCooldown(deviceId);
             coinRevenueMode.cancelLocalStart(deviceId);
         }
@@ -181,7 +187,8 @@ public class WorkerController {
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "gpu_not_found"));
             String mode = controls.get().powerModeFor(deviceId);
             boolean revenueMode = "GPU".equals(worker.hardwareType())
-                    && ("REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode));
+                    && ("REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode)
+                    || "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode));
             boolean started;
             if (revenueMode) {
                 if (coinRevenueMode == null)

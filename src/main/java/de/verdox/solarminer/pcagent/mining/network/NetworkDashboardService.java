@@ -396,7 +396,8 @@ public class NetworkDashboardService {
         if (enabled) status.invalidate("workers", "overview");
         try {
             String mode = ownControls.get().powerModeFor(deviceId);
-            boolean revenueMode = ("COIN_REVENUE_PER_KWH".equals(mode) || "REVENUE_PER_KWH".equals(mode))
+            boolean revenueMode = ("COIN_REVENUE_PER_KWH".equals(mode) || "REVENUE_PER_KWH".equals(mode)
+                    || "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode))
                     && !de.verdox.solarminer.pcagent.coin.WorkerIds.isCpu(deviceId);
             boolean applied;
             if (enabled && revenueMode) {

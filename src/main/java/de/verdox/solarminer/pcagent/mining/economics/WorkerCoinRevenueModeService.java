@@ -46,7 +46,7 @@ public class WorkerCoinRevenueModeService {
             fixedDelayString = "${solarminer.agent.worker-revenue-interval-ms:60000}")
     public void evaluate() {
         for (Map.Entry<String, String> entry : controls.get().workerPowerModes().entrySet()) {
-            if (!"COIN_REVENUE_PER_KWH".equals(entry.getValue())) continue;
+            if (!scheduledMode(entry.getValue())) continue;
             try { evaluateWorker(entry.getKey()); }
             catch (RuntimeException failure) { log.warn("Worker revenue evaluation failed for {}", entry.getKey(), failure); }
         }
@@ -54,6 +54,10 @@ public class WorkerCoinRevenueModeService {
 
     private void evaluateWorker(String id) {
         Instant now = Instant.now();
+        String mode = controls.get().powerModeFor(id);
+        boolean dailyProfitMode = "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode);
+        boolean fixedCoinMode = "PROFIT_PER_DAY".equals(mode);
+        boolean coinProfitMode = "COIN_PROFIT_PER_DAY".equals(mode);
         if (planning.capabilities().activePlanExpiresAt() != null) return;
         WorkerAssignmentService.WorkerView worker = assignments.workers().stream()
                 .filter(value -> id.equals(value.deviceId())).findFirst().orElse(null);
@@ -61,9 +65,11 @@ public class WorkerCoinRevenueModeService {
         if (worker.status() != MinerStats.MinerStatus.MINING) {
             if (locallyStarted.contains(id) && runLock.tryBegin("worker-coin-revenue-recovery")) {
                 try {
-                    if (locallyStarted.contains(id) && "COIN_REVENUE_PER_KWH".equals(controls.get().powerModeFor(id))) {
+                    String currentMode = controls.get().powerModeFor(id);
+                    if (locallyStarted.contains(id) && automaticRevenueMode(currentMode)
+                            && !"REVENUE_PER_KWH".equals(currentMode)) {
                         log.warn("Worker {} stopped unexpectedly; attempting to resume the best measured coin", id);
-                        StartResult recovery = applyBestStartPoint(id, worker.coin(), "COIN_REVENUE_PER_KWH", true, true);
+                        StartResult recovery = applyBestStartPoint(id, worker.coin(), currentMode, true, true);
                         if (!recovery.success()) log.warn("Worker {} could not resume: {}", id, recovery.error());
                     }
                 } finally { runLock.end(); }
@@ -74,29 +80,35 @@ public class WorkerCoinRevenueModeService {
         LocalGpuPowerService.Gpu gpu = gpus.snapshot().stream()
                 .filter(value -> id.equals(value.deviceId())).findFirst().orElse(null);
         if (gpu == null || gpu.currentPowerLimitWatts() == null) return;
-        List<CoinHoppingService.Candidate> choices = hopping.candidates(id, 0);
-        if (choices.size() < 2) return;
+        List<CoinHoppingService.Candidate> choices = hopping.candidates(id, 0).stream()
+                .filter(value -> !dailyProfitMode || value.profitUsdPerDay() != null)
+                .filter(value -> !fixedCoinMode || worker.coin().equals(value.coin()))
+                .filter(value -> !"PROFIT_PER_DAY".equals(mode)
+                        || java.util.Objects.equals(worker.minerSoftwareId(), value.minerSoftwareId()))
+                .toList();
+        if (choices.isEmpty() || ("COIN_REVENUE_PER_KWH".equals(mode) || coinProfitMode) && choices.size() < 2) return;
         CoinHoppingService.Candidate current = choices.stream().filter(value -> worker.coin().equals(value.coin())
                 && java.util.Objects.equals(worker.minerSoftwareId(), value.minerSoftwareId())
                 && gpu.currentPowerLimitWatts() == value.limitWatts()).findFirst().orElse(null);
-        CoinHoppingService.Candidate best = choices.getFirst();
-        if (current == null || best.usdPerKwh() <= current.usdPerKwh() * (1 + MIN_GAIN)) return;
+        CoinHoppingService.Candidate best = bestCandidate(choices, mode);
+        if (current == null || best == null || !worthSwitching(score(current, mode), score(best, mode))) return;
         if (!runLock.tryBegin("worker-coin-revenue")) return;
         try {
-            if (!"COIN_REVENUE_PER_KWH".equals(controls.get().powerModeFor(id))) return;
+            if (!mode.equals(controls.get().powerModeFor(id))) return;
             try {
                 boolean minerChanged = !java.util.Objects.equals(best.minerSoftwareId(), current.minerSoftwareId());
-                if ((!best.coin().equals(current.coin()) || minerChanged)
+                boolean fixedDailyProfit = "PROFIT_PER_DAY".equals(mode);
+                if (!fixedDailyProfit && (!best.coin().equals(current.coin()) || minerChanged)
                         && !assignments.applyEconomicAssignment(id, best.coin(), best.minerSoftwareId())) {
                     log.warn("Worker {} could not stop and assign miner {} for revenue switch", id, best.coin());
                     return;
                 }
                 boolean applied = gpus.setTotalPowerTarget(best.limitWatts(), List.of(gpu));
-                if (applied && (!best.coin().equals(current.coin()) || minerChanged))
+                if (applied && !fixedDailyProfit && (!best.coin().equals(current.coin()) || minerChanged))
                     applied = assignments.startAtCurrentPowerTarget(id);
                 if (applied) {
-                    log.info("Worker {} selected {} at {} W instead of {} at {} W for higher measured USD/kWh",
-                            id, best.coin(), best.limitWatts(), current.coin(), current.limitWatts());
+                    log.info("Worker {} selected {} at {} W instead of {} at {} W for mode {}",
+                            id, best.coin(), best.limitWatts(), current.coin(), current.limitWatts(), mode);
                     switchedAt.put(id, Instant.now());
                     return;
                 }
@@ -104,8 +116,8 @@ public class WorkerCoinRevenueModeService {
                 log.warn("Worker {} could not switch from {} to {}; restoring the previous miner", id, current.coin(), best.coin(), failure);
             }
             try {
-                boolean changed = !best.coin().equals(current.coin())
-                        || !java.util.Objects.equals(best.minerSoftwareId(), current.minerSoftwareId());
+                boolean changed = !"PROFIT_PER_DAY".equals(mode) && (!best.coin().equals(current.coin())
+                        || !java.util.Objects.equals(best.minerSoftwareId(), current.minerSoftwareId()));
                 boolean restored = !changed || assignments.applyEconomicAssignment(id, current.coin(), current.minerSoftwareId());
                 if (!restored)
                     log.error("Worker {} could not restore assignment {}", id, current.coin());
@@ -143,13 +155,53 @@ public class WorkerCoinRevenueModeService {
 
     public StartSelection selectBestStartPoint(String workerId, String assignedCoin, String mode) {
         List<CoinHoppingService.Candidate> choices = hopping.candidates(workerId, 0);
-        if ("REVENUE_PER_KWH".equals(mode))
+        if ("REVENUE_PER_KWH".equals(mode) || "PROFIT_PER_DAY".equals(mode))
             choices = choices.stream().filter(candidate -> assignedCoin.equals(candidate.coin())).toList();
-        else if (!"COIN_REVENUE_PER_KWH".equals(mode))
+        else if (!"COIN_REVENUE_PER_KWH".equals(mode) && !"COIN_PROFIT_PER_DAY".equals(mode))
             return new StartSelection(null, "power_mode_invalid");
-        return choices.isEmpty()
-                ? new StartSelection(null, "power_mode_no_measured_point")
-                : new StartSelection(choices.getFirst(), null);
+        if ("PROFIT_PER_DAY".equals(mode)) {
+            WorkerAssignmentService.WorkerView worker = assignments.workers().stream()
+                    .filter(value -> workerId.equals(value.deviceId())).findFirst().orElse(null);
+            if (worker != null) choices = choices.stream()
+                    .filter(candidate -> java.util.Objects.equals(worker.minerSoftwareId(), candidate.minerSoftwareId())).toList();
+        }
+        if ("PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode))
+            choices = choices.stream().filter(candidate -> candidate.profitUsdPerDay() != null).toList();
+        CoinHoppingService.Candidate best = bestCandidate(choices, mode);
+        return best == null
+                ? new StartSelection(null, dailyProfitMode(mode) ? "power_mode_profit_unavailable" : "power_mode_no_measured_point")
+                : new StartSelection(best, null);
+    }
+
+    private static boolean dailyProfitMode(String mode) {
+        return "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode);
+    }
+
+    private static boolean automaticRevenueMode(String mode) {
+        return scheduledMode(mode);
+    }
+
+    private static boolean scheduledMode(String mode) {
+        return "COIN_REVENUE_PER_KWH".equals(mode) || "PROFIT_PER_DAY".equals(mode)
+                || "COIN_PROFIT_PER_DAY".equals(mode);
+    }
+
+    private static CoinHoppingService.Candidate bestCandidate(List<CoinHoppingService.Candidate> candidates, String mode) {
+        if (candidates.isEmpty()) return null;
+        if ("PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode))
+            return candidates.stream().filter(candidate -> candidate.profitUsdPerDay() != null)
+                    .max(java.util.Comparator.comparingDouble(CoinHoppingService.Candidate::profitUsdPerDay)).orElse(null);
+        return candidates.stream().max(java.util.Comparator.comparingDouble(CoinHoppingService.Candidate::usdPerKwh)).orElse(null);
+    }
+
+    private static double score(CoinHoppingService.Candidate candidate, String mode) {
+        return "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode)
+                ? candidate.profitUsdPerDay() : candidate.usdPerKwh();
+    }
+
+    private static boolean worthSwitching(double current, double candidate) {
+        if (!Double.isFinite(current) || !Double.isFinite(candidate) || candidate <= current) return false;
+        return current <= 0 ? true : candidate > current * (1 + MIN_GAIN);
     }
 
     /** Applies the best measured revenue point and optionally starts/restarts its miner. */

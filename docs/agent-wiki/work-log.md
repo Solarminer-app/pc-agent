@@ -1,5 +1,36 @@
 # PC-Agent work log
 
+## 2026-10-17 — Implement daily-profit GPU modes
+
+- Added selectable `PROFIT_PER_DAY` (fixed coin and miner) and
+  `COIN_PROFIT_PER_DAY` (coin/miner/power selection) modes. Both select from
+  stable measured GPU candidates and rank estimated USD/day after measured
+  electricity cost and known SolarMiner/referrer, pool and miner fee rates.
+- Net estimates require fresh network data, a configured tariff, current fiat
+  conversion when needed and a fee snapshot no older than two minutes. Missing
+  cost evidence rejects activation with a localized explanation. The daily
+  modes retune on a 60-second interval, use the existing 5% improvement gate
+  and 30-minute cooldown, and are treated as locally managed by Node/LAN
+  controls. The fixed mode preserves coin/miner assignment; the coin mode may
+  change both. The existing gross revenue-per-kWh modes retain their ranking.
+- Updated the bilingual Worker selector, mode labels, help/error text, cache
+  versions and architecture/draft records. Both daily-profit modes are GPU-only
+  because selection relies on measured GPU power points.
+- Verification: JDK 21 `compileJava --offline` passed; German/English catalog
+  (1,571 keys, 12 pages), both-locale render simulation, `workers.js` syntax and
+  `git diff --check` passed. Unit tests and real GPU/pool/electricity comparison
+  were not run; these estimates still require hardware and pool validation.
+
+## 2026-10-17 — Draft daily-profit operating modes
+
+- Added a bilingual proposal for fixed-coin and coin-selecting operating modes
+  that maximize estimated net profit per day, distinct from the existing
+  gross-revenue-per-kWh efficiency modes. It covers formulas, evidence gates,
+  switching behavior, energy assumptions, UI transparency and acceptance
+  criteria. The proposal is explicitly marked as not implemented.
+- Linked the draft from the repository wiki index. No code or API contract
+  changed; no tests were run.
+
 ## 2026-10-17 — GPU model details on worker hover
 
 - Hovering a GPU model in the local Workers table now shows its driver-reported

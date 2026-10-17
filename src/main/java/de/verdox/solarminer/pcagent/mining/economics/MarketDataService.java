@@ -101,6 +101,17 @@ public class MarketDataService {
     /** Returns the last completed fiat snapshot; dashboard reads never call the upstream. */
     public Snapshot rates() { return fiatCached; }
 
+    /** Converts a stored fiat amount to USD using today's completed cached exchange snapshot. */
+    public Double toUsd(double amount, String currency) {
+        if (!Double.isFinite(amount) || currency == null) return null;
+        String code = currency.toUpperCase(java.util.Locale.ROOT);
+        if ("USD".equals(code)) return amount;
+        Snapshot snapshot = fiatCached;
+        if (snapshot.stale() || !LocalDate.now(ZoneOffset.UTC).equals(snapshot.dataUtcDate())) return null;
+        Double rate = snapshot.rates().get(code);
+        return rate != null && Double.isFinite(rate) && rate > 0 ? amount / rate : null;
+    }
+
     /** Warms every market cache away from the first browser request (REST audit R4). */
     @EventListener(ApplicationReadyEvent.class)
     public void warmCaches() {
