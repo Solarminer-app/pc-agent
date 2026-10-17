@@ -2671,3 +2671,14 @@ Vorgehen / Andockpunkte für andere Agenten:
   repeated renders. Market/network quotes were already cached by
   `MarketDataService`; this change does not extend their freshness window.
 - Verification not run in this turn.
+
+## 2026-10-17 — Keep transient worker startup status off the Node wire
+
+- The full test report exposed that internal `MinerStatus.STARTING` expanded the
+  enum consumed by the separate Node repository, whose contract still has four
+  values. The external status controller now maps transient top-level and
+  worker `STARTING` to `STOPPED`; local dashboard status remains `STARTING`.
+- The Sweep controller tests already had local changes for the new nullable
+  concurrency argument; they pass against the current controller signature.
+- Verification: focused wire-format, external-controller and efficiency-sweep
+  tests passed; the full JDK 21 Gradle suite passed (252 tests).

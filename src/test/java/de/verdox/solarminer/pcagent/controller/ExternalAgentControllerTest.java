@@ -2,6 +2,7 @@ package de.verdox.solarminer.pcagent.controller;
 
 import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.mining.fee.FeeTierService;
+import de.verdox.solarminer.pcagent.dto.MinerStats;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -14,6 +15,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
@@ -54,5 +56,20 @@ class ExternalAgentControllerTest {
         api.perform(post("/api/agent/pause")).andExpect(status().isForbidden());
 
         verify(power).externalPause();
+    }
+
+    @Test
+    void externalStatusKeepsLocalStartingStateCompatibleWithNodeEnum() throws Exception {
+        MinerStats.Worker starting = new MinerStats.Worker(MinerStats.MinerStatus.STARTING,
+                "GPU", "kawpow", 0, 0, 120, 60, 120, 170, 0, java.util.List.of(),
+                "GPU", "NVIDIA", "gpu-0", null, null, null);
+        when(mining.getMiningStats()).thenReturn(new MinerStats(new MinerStats.MinerIdentity("uid", "mac", "pc-agent"),
+                "PC-Agent", MinerStats.MinerStatus.STARTING, 120, 60, 120, 170, 0, 0, 0,
+                java.util.List.of(), java.util.List.of(starting)));
+
+        api(false).perform(get("/api/agent/external/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.miningStatus").value("STOPPED"))
+                .andExpect(jsonPath("$.workers[0].miningStatus").value("STOPPED"));
     }
 }

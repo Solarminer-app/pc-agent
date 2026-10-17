@@ -98,7 +98,33 @@ public class ExternalAgentController {
     public List<MiningController.WalletTarget> walletTargets() { return mining.walletTargets(); }
 
     @GetMapping("/status")
-    public MinerStats status() { return mining.getMiningStats(); }
+    public MinerStats status() {
+        MinerStats current = mining.getMiningStats();
+        if (current == null) return null;
+        // The Node's closed MinerStatus enum predates the Agent's local STARTING
+        // state. Keep that transient UI state local to avoid an unknown enum value
+        // on the LAN wire; STOPPED is the safe Node-side interpretation until start completes.
+        MinerStats.MinerStatus global = nodeStatus(current.miningStatus());
+        List<MinerStats.Worker> workers = current.workers().stream().map(worker -> {
+            MinerStats.MinerStatus state = nodeStatus(worker.miningStatus());
+            if (state == worker.miningStatus()) return worker;
+            return new MinerStats.Worker(state, worker.workerDisplayName(), worker.currentAlgorithm(),
+                    worker.terahashPerSecond(), worker.temperatureCelsius(), worker.powerTargetWatts(),
+                    worker.minPowerTarget(), worker.defaultPowerTarget(), worker.maxPowerTarget(),
+                    worker.approximatedPowerUsageWatts(), worker.pools(), worker.hardwareType(),
+                    worker.hardwareModel(), worker.deviceId(), worker.acceptedShares(), worker.rejectedShares(),
+                    worker.pool());
+        }).toList();
+        if (global == current.miningStatus() && workers.equals(current.workers())) return current;
+        return new MinerStats(current.minerIdentity(), current.name(), global, current.powerTargetWatts(),
+                current.minPowerTarget(), current.defaultPowerTarget(), current.maxPowerTarget(),
+                current.approximatedPowerUsageWatts(), current.terahashPerSecond(), current.temperatureCelsius(),
+                current.pools(), workers);
+    }
+
+    private static MinerStats.MinerStatus nodeStatus(MinerStats.MinerStatus status) {
+        return status == MinerStats.MinerStatus.STARTING ? MinerStats.MinerStatus.STOPPED : status;
+    }
 
     @GetMapping("/power-control")
     public AgentPowerController.PowerStatus powerControl() { return power.externalStatus(); }

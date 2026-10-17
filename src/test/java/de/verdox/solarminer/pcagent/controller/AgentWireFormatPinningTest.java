@@ -54,8 +54,8 @@ class AgentWireFormatPinningTest {
     }
 
     @Test
-    void minerStatusEnumKeepsItsFourWireNames() {
-        assertEquals(List.of("MINING", "STOPPED", "PAUSED", "ERROR"),
+    void minerStatusEnumIncludesTheLocalStartingState() {
+        assertEquals(List.of("MINING", "STARTING", "STOPPED", "PAUSED", "ERROR"),
                 List.of(MinerStats.MinerStatus.values()).stream().map(Enum::name).toList());
     }
 
