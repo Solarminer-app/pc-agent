@@ -485,9 +485,17 @@ public class EfficiencySweepService {
         LocalGpuPowerService.Gpu fresh = power.refresh().stream()
                 .filter(gpu -> gpu.deviceId().equals(target.gpu().deviceId())).findFirst()
                 .orElseThrow(() -> new IllegalStateException("GPU wurde während des Tests getrennt"));
-        // A full sweep always starts at the operator's configured per-GPU power target
-        // (Gpu.maxWatts), even if an automatic mode temporarily lowered the live cap.
-        int current = fresh.maxWatts();
+        int current;
+        if (requestedLimits != null) {
+            current = activeLimit(fresh);
+        } else {
+            Integer driverDefault = fresh.driverDefaultWatts();
+            if (driverDefault == null)
+                throw new IllegalStateException("gpu_driver_default_power_target_unavailable");
+            if (driverDefault > fresh.maxWatts())
+                throw new IllegalStateException("gpu_driver_default_power_target_exceeds_configured_limit");
+            current = driverDefault;
+        }
         List<Integer> limits = requestedLimits == null
                 ? candidateLimits(fresh.minWatts(), current, stepWatts) : requestedLimits;
         setPlannedLimits(target, limits, mode, mode == SweepMode.FULL ? "Vollständige GPU-Kurve" : "Parallele Gerätevalidierung");
