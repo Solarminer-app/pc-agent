@@ -2659,3 +2659,15 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Verification: `node --check`, the catalog check (1,555 keys), two-locale
   render simulation, literal scan (zero unkeyed strings) and `git diff --check`
   passed. Browser visual review and real sweep data review remain open.
+
+## 2026-10-17 — Cache benchmark revenue comparison requests
+
+- The results page can call the comparison loader from multiple render/update
+  paths, including when its device list has not changed. Added a per-GPU
+  30-second browser cache and in-flight request sharing; profile invalidation
+  after a new measurement clears the cache. No labels changed, so locale
+  catalogs are unaffected.
+- This removes duplicate local API calls and candidate recalculation during
+  repeated renders. Market/network quotes were already cached by
+  `MarketDataService`; this change does not extend their freshness window.
+- Verification not run in this turn.

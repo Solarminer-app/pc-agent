@@ -78,6 +78,8 @@ function invalidateMeasurements() {
     measurementRevision++;
     measurementSnapshot = null;
     measurementRequest = null;
+    comparisonCacheRevision++;
+    comparisonCache.clear();
 }
 
 function readMeasurements() {
@@ -1106,6 +1108,11 @@ $('sweep-cancel').addEventListener('click', async () => {
 // but never changes an assignment or a power target.
 let comparisonDevices = '';
 let comparisonRequest = 0;
+let comparisonRenderedDevice = '';
+const comparisonCache = new Map();
+const comparisonRequests = new Map();
+const COMPARISON_CACHE_MS = 30_000;
+let comparisonCacheRevision = 0;
 function updateComparisonDevices(snapshot) {
     const devices = new Map();
     if (resultsPage) {
@@ -1159,18 +1166,45 @@ async function loadComparison() {
     const id = ++comparisonRequest;
     const deviceId = $('comparison-gpu').value;
     const chart = $('comparison-chart');
-    chart.replaceChildren();
-    $('comparison-recommendation').textContent = '';
-    $('comparison-updated').textContent = '';
+    if (comparisonRenderedDevice !== deviceId) {
+        comparisonRenderedDevice = deviceId;
+        chart.replaceChildren();
+        $('comparison-recommendation').textContent = '';
+        $('comparison-updated').textContent = '';
+    }
     if (!deviceId) {
+        chart.replaceChildren();
+        $('comparison-recommendation').textContent = '';
+        $('comparison-updated').textContent = '';
         chart.append(make('p', 'empty', t('benchmark_comparison_no_device')));
         return;
     }
     try {
-        const response = await fetch(`/api/agent/local/benchmarks/comparison?${new URLSearchParams({deviceId})}`, {cache: 'no-store'});
-        if (!response.ok) throw new Error('benchmark_comparison_load_failed');
-        const candidates = await response.json();
+        let entry = comparisonCache.get(deviceId);
+        let candidates;
+        if (entry && entry.expiresAt > Date.now()) {
+            candidates = entry.candidates;
+        } else {
+            let request = comparisonRequests.get(deviceId);
+            if (!request) {
+                const cacheRevision = comparisonCacheRevision;
+                request = fetch(`/api/agent/local/benchmarks/comparison?${new URLSearchParams({deviceId})}`, {cache: 'no-store'})
+                    .then(response => { if (!response.ok) throw new Error('benchmark_comparison_load_failed'); return response.json(); })
+                    .then(value => {
+                        if (cacheRevision === comparisonCacheRevision)
+                            comparisonCache.set(deviceId, {candidates: value, expiresAt: Date.now() + COMPARISON_CACHE_MS});
+                        return value;
+                    })
+                    .finally(() => comparisonRequests.delete(deviceId));
+                comparisonRequests.set(deviceId, request);
+            }
+            candidates = await request;
+        }
         if (id !== comparisonRequest) return;
+        comparisonRenderedDevice = deviceId;
+        chart.replaceChildren();
+        $('comparison-recommendation').textContent = '';
+        $('comparison-updated').textContent = '';
         if (!candidates.length) {
             chart.append(make('p', 'empty', t('coin_hopping_no_candidates')));
             return;
@@ -1197,7 +1231,11 @@ async function loadComparison() {
             chart.append(row);
         }
     } catch (_) {
-        if (id === comparisonRequest) chart.replaceChildren(make('p', 'empty', t('benchmark_comparison_load_failed')));
+        if (id === comparisonRequest) {
+            chart.replaceChildren(make('p', 'empty', t('benchmark_comparison_load_failed')));
+            $('comparison-recommendation').textContent = '';
+            $('comparison-updated').textContent = '';
+        }
     }
 }
 function applyProfileFilter() {

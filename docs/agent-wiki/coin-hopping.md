@@ -122,3 +122,11 @@ assignment or GPU limit. The old `/coin-hopping.html` bookmark redirects to the
 new section; the old settings/history UI and route are retired. Historic
 ledger files remain on disk for operator retention; the new page does not
 represent legacy counterfactual history as current operating-mode accounting.
+
+The browser keeps comparison candidates per GPU for 30 seconds and shares an
+in-flight request. This avoids re-fetching/recomputing on the repeated render
+signals from the results page. A completed benchmark or sweep clears the cache;
+otherwise the short lifetime lets refreshed market data appear without making
+the displayed quote stale for long. Currency/network quotes themselves are
+already collected in the background by `MarketDataService` and are not fetched
+by this comparison endpoint.
