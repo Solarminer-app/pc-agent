@@ -63,11 +63,22 @@
   }
 
   function dashboardWorkers(data) {
+    const profitPerDay = (row, settings, localFallback = false) => {
+      const tariffSettings = settings || (localFallback ? energy?.settings : null);
+      if (!tariffSettings || !(Number(row.watts) > 0)) return null;
+      const forecast = Number(row.usdPerDay);
+      const tariffUsd = preferences.convert(tariffSettings.pricePerKwh, tariffSettings.currency, 'USD');
+      if (!(forecast > 0) || !Number.isFinite(tariffUsd)) return null;
+      return {value: forecast - Number(row.watts) * 24 / 1000 * tariffUsd,
+        usedLocalTariff: !settings && localFallback};
+    };
     const localRows = ui.operatingRows(ui.workerRows(data, telemetry)).map(row => {
       const forecast = (data.earnings || []).find(item => item.coin === row.coin && item.available);
       const usdPerDay = ui.workerUsdPerDay(row.hashrateHps, forecast);
+      const profitEstimate = profitPerDay({ ...row, usdPerDay }, energy?.settings);
       return {...row, status: row.status === 'MINING' ? sweepWorkerIds.has(row.deviceId) ? 'POWER_SWEEP' : benchmarkRunning ? 'BENCHMARKING' : 'MINING' : row.status,
         agent: agentName || t('this_pc_agent'), local: true, usdPerDay,
+        profitUsdPerDay: profitEstimate?.value ?? null, usedLocalTariff: false,
         revenuePerKwh: ui.revenuePerKwh(usdPerDay, row.watts)};
     });
     const remoteRows = (networkAgents?.agents || []).filter(agent => !agent.own && agent.reachable)
@@ -78,10 +89,12 @@
         const rawForecast = (agent.earnings || []).find(item => item.coin === coin);
         const forecast = rawForecast ? {...rawForecast, available: rawForecast.available !== false} : null;
         const usdPerDay = ui.workerUsdPerDay(Number(row.hashrateHps), forecast);
+        const profitEstimate = profitPerDay({ ...row, usdPerDay }, agent.energy?.settings, true);
         return {...row, coin, status: row.status === 'MINING' ? row.sweeping === true ? 'POWER_SWEEP' : row.benchmarking === true ? 'BENCHMARKING' : 'MINING' : row.status,
           agent: agent.name || t('pc_agent'), agentId: agent.agentId,
           dashboardUrl: peerDashboardUrl(agent),
           local: false, controlEnabled: Boolean(agent.controlEnabled), usdPerDay,
+          profitUsdPerDay: profitEstimate?.value ?? null, usedLocalTariff: profitEstimate?.usedLocalTariff === true,
           revenuePerKwh: ui.revenuePerKwh(usdPerDay, Number(row.watts))};
       }));
     return [...localRows, ...remoteRows];
@@ -119,6 +132,11 @@
     const activeRows = rows.filter(row => row.status === 'MINING' || row.status === 'BENCHMARKING' || row.status === 'POWER_SWEEP' || row.status === 'ERROR');
     const totalWatts = activeRows.reduce((sum, row) => sum + (Number(row.watts) || 0), 0);
     const totalUsdPerDay = activeRows.reduce((sum, row) => sum + (Number(row.usdPerDay) || 0), 0);
+    const miningRows = activeRows.filter(row => ['MINING', 'BENCHMARKING', 'POWER_SWEEP'].includes(row.status));
+    const profitIsComplete = miningRows.length > 0 && miningRows.every(row => Number.isFinite(row.profitUsdPerDay));
+    const totalProfitPerDay = profitIsComplete
+      ? miningRows.reduce((sum, row) => sum + row.profitUsdPerDay, 0) : null;
+    const localTariffFallbackCount = miningRows.filter(row => row.usedLocalTariff).length;
     const efficiencies = activeRows.map(row => row.revenuePerKwh).filter(Number.isFinite);
     const averageRevenuePerKwh = efficiencies.length
       ? efficiencies.reduce((sum, value) => sum + value, 0) / efficiencies.length : null;
@@ -126,6 +144,8 @@
       ui.metric({label: 'active_workers', value: String(activeRows.length), detail: t('local_and_shared_workers')}),
       ui.metric({label: 'total_power', value: ui.power(totalWatts), detail: t('sum_of_running_workers')}),
       ui.metric({label: 'earnings', value: totalUsdPerDay > 0 ? t('value_day', {value: preferences.moneyFromUsd(totalUsdPerDay)}) : '—', detail: t('sum_of_running_workers')}),
+      ui.metric({label: 'profit_per_day', value: totalProfitPerDay == null ? '—' : t('value_day', {value: preferences.moneyFromUsd(totalProfitPerDay)}), detail: localTariffFallbackCount
+        ? t('local_tariff_approximation_count', {count: localTariffFallbackCount}) : t('estimated_profit_after_electricity')}),
       ui.metric({label: 'average_earnings_per_kwh', value: ui.moneyPerKwh(averageRevenuePerKwh), detail: t('average_of_workers_with_data')}));
     root.replaceChildren(ui.table({
       columns: [
@@ -137,6 +157,12 @@
         {label: 'hashrate', align: 'right', render: row => ui.hashrate(Number(row.hashrateHps))},
         {label: 'power_4606f4', align: 'right', render: row => ui.power(Number(row.watts))},
         {label: 'earnings', align: 'right', render: row => row.usdPerDay != null ? t('value_day', {value: preferences.moneyFromUsd(row.usdPerDay)}) : '—'},
+        {label: 'estimated_profit_24h', align: 'right', render: row => {
+          if (row.profitUsdPerDay == null) return '—';
+          const cell = ui.cellLines(t('value_day', {value: preferences.moneyFromUsd(row.profitUsdPerDay)}),
+            row.usedLocalTariff ? t('local_tariff_approximation') : '');
+          return cell;
+        }},
         {label: 'earnings_per_kwh', align: 'right', render: row => ui.moneyPerKwh(row.revenuePerKwh)},
         {label: 'action', align: 'right', render: row => {
           if (row.local) return null;
@@ -305,6 +331,7 @@
             : 'connection_failed';
       } else { energy = data; energyError = null; }
       renderEnergy();
+      if (overview) renderDashboardWorkers(overview);
     });
   window.SolarMinerLive.channel('ui', {endpoint: '/api/agent/local/status/ui', maxAgeMs: 30000, transport: 'rest', initial: false})
     .subscribe((data, meta) => { agentUi = meta.error ? null : data; if (overview) renderAlerts(agentUi); });

@@ -330,6 +330,10 @@ window.SolarMinerI18nCatalog = {
             en: "Workers on this and shared agents"
         },
         "average_earnings_per_kwh": {de: "Ø Ertrag pro kWh", en: "Avg. earnings per kWh"},
+        "profit_per_day": {de: "Gewinn / day", en: "Profit / day"},
+        "estimated_profit_after_electricity": {de: "Schätzung nach Stromkosten", en: "Estimate after electricity cost"},
+        "local_tariff_approximation": {de: "Lokaler Tarif als Näherung", en: "Using local tariff as estimate"},
+        "local_tariff_approximation_count": {de: "Lokaler Tarif als Näherung für {count} Worker", en: "Local tariff estimated for {count} workers"},
         "average_of_workers_with_data": {de: "Durchschnitt der Worker mit Daten", en: "Average of workers with data"},
         "local_and_shared_workers": {de: "lokale und freigegebene Worker", en: "local and shared workers"},
         "network_mining": {de: "MINING IM NETZWERK", en: "NETWORK MINING"},
@@ -1064,6 +1068,8 @@ window.SolarMinerI18nCatalog = {
             en: "Earnings forecasts appear once a miner is configured and reports hashrate."
         },
         "earnings_per_kwh": {de: "Ertrag pro kWh", en: "Earnings per kWh"},
+        "estimated_profit_24h": {de: "Geschätzter Gewinn / 24 h", en: "Estimated profit / 24 h"},
+        "estimated_profit_24h_detail": {de: "Einnahmen minus Stromkosten · Prognose", en: "Earnings minus electricity cost · forecast"},
         "edit_miner": {de: "Miner anpassen", en: "Edit miner"},
         "edit_miner_bc7f5d": {de: "Miner anpassen →", en: "Edit miner →"},
         "edit_wallet_pool": {de: "Wallet & Pool bearbeiten →", en: "Edit wallet & pool →"},

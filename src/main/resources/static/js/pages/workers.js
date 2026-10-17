@@ -5,7 +5,7 @@
   const t = ui.t;
   const s = ui.s;
   const preferences = window.SolarMinerPreferences;
-  let workers = [], miners = [], energy = null, sensors = null;
+  let workers = [], miners = [], energy = null, earnings = [], sensors = null;
   let benchmarkRunning = false, sweepWorkerIds = new Set();
   let search = '', coin = null, hardware = 'all', selected = null;
   const pendingWorkers = new Set();
@@ -28,6 +28,17 @@
   };
   const activeEnergy = worker => energy?.activeSessions?.find(session => session.deviceId === worker.deviceId);
   const money = value => preferences.money(value, energy?.settings?.currency || preferences.currency);
+  const dailyProfit = worker => {
+    if (worker.status !== 'MINING' || !energy?.settings || !(watts(worker) > 0)) return null;
+    const coin = runningCoin(worker) || worker.coin;
+    const forecast = earnings.find(item => item.coin === coin && item.available);
+    const grossUsd = ui.workerUsdPerDay(hps(worker), forecast);
+    const tariff = preferences.convert(energy.settings.pricePerKwh, energy.settings.currency);
+    if (!(grossUsd > 0) || !Number.isFinite(tariff)) return null;
+    const gross = preferences.convert(grossUsd, 'USD');
+    if (!Number.isFinite(gross)) return null;
+    return gross - watts(worker) * 24 / 1000 * tariff;
+  };
   const duration = seconds => {
     const hours = Math.floor((seconds || 0) / 3600), minutes = Math.floor(((seconds || 0) % 3600) / 60);
     return hours ? `${hours} h ${minutes} min` : `${minutes} min`;
@@ -151,8 +162,15 @@
       const wrap = ui.element('div'); wrap.append(ui.element('strong', '', ui.hashrate(hps(worker))));
       wrap.append(ui.element('span', 'cell-sub', `${watts(worker) ? ui.power(watts(worker)) : t('power_ce610e')} · ${temperature(worker) != null ? ui.temperature(temperature(worker)) : t('temperature_2500e7')}`)); return wrap;
     }},
-    {label: 'session_energy', key: 'energy', width: '18%', render: energyCell},
-    {label: 'action', key: 'status', width: '18%', align: 'right', render: worker => {
+    {label: 'session_energy', key: 'energy', width: '13%', render: energyCell},
+    {label: 'estimated_profit_24h', key: 'profit', width: '15%', align: 'right', render: worker => {
+      const profit = dailyProfit(worker);
+      const wrap = ui.element('div');
+      wrap.append(ui.element('strong', '', profit == null ? '—' : money(profit)));
+      wrap.append(ui.element('span', 'cell-sub', t('estimated_profit_24h_detail')));
+      return wrap;
+    }},
+    {label: 'action', key: 'status', width: '15%', align: 'right', render: worker => {
       const wrap = ui.element('div', 'row-actions');
       const configure = ui.element('button', 'button subtle', worker.coin === 'none' ? 'set_up' : 'change'); configure.type = 'button'; configure.disabled = !catalogReady || pendingWorkers.has(worker.deviceId);
       configure.addEventListener('click', event => { event.stopPropagation(); openEditor(worker); }); wrap.append(configure);
@@ -466,6 +484,8 @@
     });
   window.SolarMinerLive.channel('energy', {endpoint: '/api/agent/local/economics', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
     .subscribe(value => { if (value) { energy = value; renderKpis(); renderTable(); } });
+  window.SolarMinerLive.channel('earnings', {endpoint: '/api/agent/local/earnings', maxAgeMs: 60000, transport: 'rest', pollMs: 60000})
+    .subscribe(value => { if (value) { earnings = value; renderTable(); } });
   window.SolarMinerLive.channel('benchmarks', {endpoint: '/api/agent/local/benchmarks', maxAgeMs: 8000, persist: false})
     .subscribe((value, meta) => {
       benchmarkRunning = !meta.error && !meta.stale && value?.running === true;

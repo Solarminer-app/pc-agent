@@ -1624,7 +1624,7 @@ th[aria-sort=descending] .table-sort::after {
 /* One operation list covers this PC and LAN peers. Remote rows are display-only. */
 .network-worker-kpis {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 7px;
     margin: 0 0 12px
 }

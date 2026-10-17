@@ -2757,3 +2757,31 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Verifikation: JDK 21 `compileJava --offline` erfolgreich. `git diff --check`
   erfolgreich nach Bereinigung des Work-Log-Endes. Kein paralleler Live-Start
   mit mehreren Revenue-Worker wurde auf Hardware ausgeführt.
+# 2026-10-17 — Approximate 24-hour worker profit
+
+- Added a localized per-worker estimate to the physical Workers table. For an
+  actively mining worker, the UI assigns the coin's forecast earnings by its
+  share of coin hashrate and subtracts 24 hours of measured worker power at the
+  configured electricity tariff. The amount uses the selected display currency.
+- The estimate is unavailable when the worker is stopped, required market
+  forecast or power is missing, or the tariff cannot be converted. It is a
+  forecast rather than pool accounting. Narrowed the session-energy and action
+  columns to fit the added metric in the existing horizontally scrollable table.
+- Added German and English catalog entries. Verification: `node
+  scripts/check-i18n.cjs` passed (1,564 keys, 12 pages, both locales).
+
+## 2026-10-17 — Network dashboard profit summary
+
+- The local and LAN worker table now estimates per-worker profit for 24 hours
+  by subtracting each worker's measured-power electricity cost from its gross
+  daily earnings forecast. Local rows use the local tariff; remote rows use
+  that agent's tariff already present in its consent-gated network snapshot.
+- Added the aggregate “Profit / day” KPI beside Earnings. It is shown only when
+  every actively mining row has a usable forecast, power reading and convertible
+  tariff, avoiding a partial total. Added the per-worker profit column and
+  responsive fifth KPI slot.
+- No wire contract changed. German and English labels are catalogued.
+- When a remote peer snapshot has no tariff (for example, an older Agent), its
+  profit estimate now uses this PC-Agent's tariff as an explicit approximation.
+  The affected worker rows and summary card identify that fallback in both
+  supported languages.
