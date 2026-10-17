@@ -112,6 +112,7 @@ jobs:
           cp docker-compose.pc-agent.yml build/distributions/pc-agent.compose.yml
           cp docker-compose.pc-agent.nvidia.yml build/distributions/pc-agent.nvidia.compose.yml
           cp docker-compose.pc-agent.amd.yml build/distributions/pc-agent.amd.compose.yml
+          cp docker-compose.pc-agent.intel.yml build/distributions/pc-agent.intel.compose.yml
           sh -n build/distributions/install-linux.sh
           sh -n build/distributions/install-docker.sh
           pwsh -NoProfile -Command '$failed=$false; @("standalone/install-windows.ps1", "standalone/start-agent.ps1") | ForEach-Object { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($_, [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count) { $failed=$true; $errors | ForEach-Object { Write-Error $_ } } }; if ($failed) { exit 1 }'
@@ -164,6 +165,23 @@ jobs:
           IMAGE: ${{ needs.metadata.outputs.image }}
           VERSION: ${{ needs.metadata.outputs.version }}
         run: docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+
+      - name: Build and publish Intel-enabled image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: final-intel
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            PC_AGENT_RELEASE_CHANNEL=stable
+            PC_AGENT_RELEASE_TAG=pc-agent-v${{ needs.metadata.outputs.version }}
+          tags: |
+            ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.version }}-amd64-intel
+            ${{ needs.metadata.outputs.image }}:latest-intel
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   publish-github-release:
     name: Publish PC-Agent GitHub release

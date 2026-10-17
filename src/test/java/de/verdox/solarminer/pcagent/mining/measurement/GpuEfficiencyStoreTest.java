@@ -35,4 +35,17 @@ class GpuEfficiencyStoreTest {
         assertNull(store.all().stream().filter(profile -> profile.testedAt().equals(failed.testedAt()))
                 .findFirst().orElseThrow().bestStableWatts());
     }
+
+    @Test
+    void sameCoinSweepKeepsBothMinerProfiles() {
+        var store = new GpuEfficiencyStore(new ObjectMapper().findAndRegisterModules(),
+                tempDir.resolve("miners.json").toString());
+        Instant at = Instant.parse("2026-10-17T10:00:00Z");
+        store.save(new GpuEfficiencyStore.Profile("GPU-1", "RTX", "quantus", "quantus",
+                180, 100d, 150d, 0.67d, at, List.of(), "srbminer-multi"));
+        store.save(new GpuEfficiencyStore.Profile("GPU-1", "RTX", "quantus", "quantus",
+                180, 106d, 150d, 0.71d, at, List.of(), "quanpool-miner"));
+        assertEquals(2, store.all().size());
+        assertEquals("quanpool-miner", store.find("GPU-1", "quantus", "quanpool-miner").minerSoftwareId());
+    }
 }

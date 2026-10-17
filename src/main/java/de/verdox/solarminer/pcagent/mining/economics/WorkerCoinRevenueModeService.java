@@ -77,6 +77,7 @@ public class WorkerCoinRevenueModeService {
         List<CoinHoppingService.Candidate> choices = hopping.candidates(id, 0);
         if (choices.size() < 2) return;
         CoinHoppingService.Candidate current = choices.stream().filter(value -> worker.coin().equals(value.coin())
+                && java.util.Objects.equals(worker.minerSoftwareId(), value.minerSoftwareId())
                 && gpu.currentPowerLimitWatts() == value.limitWatts()).findFirst().orElse(null);
         CoinHoppingService.Candidate best = choices.getFirst();
         if (current == null || best.usdPerKwh() <= current.usdPerKwh() * (1 + MIN_GAIN)) return;
@@ -84,12 +85,15 @@ public class WorkerCoinRevenueModeService {
         try {
             if (!"COIN_REVENUE_PER_KWH".equals(controls.get().powerModeFor(id))) return;
             try {
-                if (!best.coin().equals(current.coin()) && !assignments.applyEconomicAssignment(id, best.coin())) {
+                boolean minerChanged = !java.util.Objects.equals(best.minerSoftwareId(), current.minerSoftwareId());
+                if ((!best.coin().equals(current.coin()) || minerChanged)
+                        && !assignments.applyEconomicAssignment(id, best.coin(), best.minerSoftwareId())) {
                     log.warn("Worker {} could not stop and assign miner {} for revenue switch", id, best.coin());
                     return;
                 }
                 boolean applied = gpus.setTotalPowerTarget(best.limitWatts(), List.of(gpu));
-                if (applied && !best.coin().equals(current.coin())) applied = assignments.startAtCurrentPowerTarget(id);
+                if (applied && (!best.coin().equals(current.coin()) || minerChanged))
+                    applied = assignments.startAtCurrentPowerTarget(id);
                 if (applied) {
                     log.info("Worker {} selected {} at {} W instead of {} at {} W for higher measured USD/kWh",
                             id, best.coin(), best.limitWatts(), current.coin(), current.limitWatts());
@@ -100,12 +104,14 @@ public class WorkerCoinRevenueModeService {
                 log.warn("Worker {} could not switch from {} to {}; restoring the previous miner", id, current.coin(), best.coin(), failure);
             }
             try {
-                boolean restored = best.coin().equals(current.coin()) || assignments.applyEconomicAssignment(id, current.coin());
+                boolean changed = !best.coin().equals(current.coin())
+                        || !java.util.Objects.equals(best.minerSoftwareId(), current.minerSoftwareId());
+                boolean restored = !changed || assignments.applyEconomicAssignment(id, current.coin(), current.minerSoftwareId());
                 if (!restored)
                     log.error("Worker {} could not restore assignment {}", id, current.coin());
                 if (!gpus.setTotalPowerTarget(current.limitWatts(), List.of(gpu)))
                     log.error("Worker {} could not restore power target {} W", id, current.limitWatts());
-                if (restored && !best.coin().equals(current.coin()) && !assignments.startAtCurrentPowerTarget(id))
+                if (restored && changed && !assignments.startAtCurrentPowerTarget(id))
                     log.error("Worker {} could not restart previous miner {}", id, current.coin());
             } catch (RuntimeException failure) { log.error("Worker {} could not restore miner {}", id, current.coin(), failure); }
         } finally { runLock.end(); }
@@ -166,20 +172,23 @@ public class WorkerCoinRevenueModeService {
             if (worker == null || gpu == null || gpu.currentPowerLimitWatts() == null)
                 return new StartResult(false, "gpu_not_found", null, null);
             String oldCoin = worker.coin();
+            String oldMiner = worker.minerSoftwareId();
             int oldLimit = gpu.currentPowerLimitWatts();
             boolean wasMining = worker.status() == MinerStats.MinerStatus.MINING;
             String targetCoin = selection.candidate().coin();
             boolean coinChanged = !targetCoin.equals(oldCoin);
+            boolean minerChanged = !java.util.Objects.equals(selection.candidate().minerSoftwareId(), oldMiner);
             boolean assignmentChanged = false;
             try {
-                if (coinChanged) {
-                    if (!assignments.applyEconomicAssignment(workerId, targetCoin))
+                if (coinChanged || minerChanged) {
+                    if (!assignments.applyEconomicAssignment(workerId, targetCoin, selection.candidate().minerSoftwareId()))
                         return new StartResult(false, "power_mode_apply_failed", null, null);
                     assignmentChanged = true;
                 }
                 if (!gpus.setTotalPowerTarget(selection.candidate().limitWatts(), List.of(gpu)))
                     throw new IllegalStateException("power_mode_apply_failed");
-                if ((startWorker || (wasMining && coinChanged)) && !assignments.startAtCurrentPowerTarget(workerId))
+                if ((startWorker || (wasMining && (coinChanged || minerChanged)))
+                        && !assignments.startAtCurrentPowerTarget(workerId))
                     throw new IllegalStateException("power_mode_apply_failed");
                 if (startWorker || wasMining) locallyStarted.add(workerId);
                 switchedAt.put(workerId, Instant.now());
@@ -187,7 +196,7 @@ public class WorkerCoinRevenueModeService {
             } catch (RuntimeException failure) {
                 log.warn("Worker {} could not apply revenue point {} at {} W; restoring {} at {} W",
                         workerId, targetCoin, selection.candidate().limitWatts(), oldCoin, oldLimit, failure);
-                boolean restored = !assignmentChanged || assignments.applyEconomicAssignment(workerId, oldCoin);
+                boolean restored = !assignmentChanged || assignments.applyEconomicAssignment(workerId, oldCoin, oldMiner);
                 if (!restored)
                     log.error("Worker {} could not restore assignment {}", workerId, oldCoin);
                 if (!gpus.setTotalPowerTarget(oldLimit, List.of(gpu)))

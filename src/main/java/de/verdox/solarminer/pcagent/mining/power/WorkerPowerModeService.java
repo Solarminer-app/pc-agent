@@ -20,6 +20,10 @@ public class WorkerPowerModeService {
     private final LocalGpuPowerService gpus;
     private final GpuEfficiencyStore sweeps;
     private final MiningPerformanceProfileStore benchmarks;
+    private de.verdox.solarminer.pcagent.miner.MinerFactory miners;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMinerFactory(de.verdox.solarminer.pcagent.miner.MinerFactory miners) { this.miners = miners; }
     private final double maxHashrateTemperatureC;
 
     public WorkerPowerModeService(AgentControlSettingsService controls, LocalGpuPowerService gpus,
@@ -55,6 +59,7 @@ public class WorkerPowerModeService {
                     .orElseGet(() -> new Selection(mode, null, "power_mode_no_measured_point"));
         }
         if (coin == null || !coin.isGpu()) return new Selection(mode, null, "power_mode_requires_gpu_coin");
+        String softwareId = miners == null ? null : miners.minerSoftwareForWorker(coin, deviceId);
         LocalGpuPowerService.Gpu gpu = gpus.discover().stream().filter(card -> deviceId.equals(card.deviceId())).findFirst().orElse(null);
         if (gpu == null || !gpu.supportsDynamicPowerScaling()) return new Selection(mode, null, "gpu_power_control_unavailable");
         if ("MAX_HASHRATE".equals(mode)) {
@@ -62,7 +67,7 @@ public class WorkerPowerModeService {
             if (currentTemperature == null || !Double.isFinite(currentTemperature)
                     || currentTemperature >= maxHashrateTemperatureC - 10)
                 return new Selection(mode, null, "power_mode_temperature_unavailable_or_high");
-            GpuEfficiencyStore.Profile profile = sweeps.find(deviceId, coin.assignmentAlgorithm());
+            GpuEfficiencyStore.Profile profile = sweeps.find(deviceId, coin.assignmentAlgorithm(), softwareId);
             if (profile == null || !coin.id().equals(profile.coin()) || profile.steps() == null)
                 return new Selection(mode, null, "power_mode_no_safe_hashrate_point");
             return profile.steps().stream()
@@ -76,7 +81,7 @@ public class WorkerPowerModeService {
                     .orElseGet(() -> new Selection(mode, null, "power_mode_no_safe_hashrate_point"));
         }
         List<Point> points = new ArrayList<>();
-        GpuEfficiencyStore.Profile sweep = sweeps.find(deviceId, coin.assignmentAlgorithm());
+        GpuEfficiencyStore.Profile sweep = sweeps.find(deviceId, coin.assignmentAlgorithm(), softwareId);
         if (sweep != null && coin.id().equals(sweep.coin()) && sweep.steps() != null) {
             for (GpuEfficiencyStore.StepResult step : sweep.steps()) {
                 if (step.stable() && positive(step.medianHashrateHs()) && positive(step.avgPowerWatts()))
@@ -86,6 +91,8 @@ public class WorkerPowerModeService {
         for (MiningPerformanceProfileStore.Profile benchmark : benchmarks.all()) {
             if (!deviceId.equals(benchmark.workerId()) || !coin.id().equals(benchmark.coin())
                     || !coin.matchesAlgorithm(benchmark.algorithm()) || benchmark.powerTargetWatts() == null
+                    || (softwareId != null && benchmark.minerSoftwareId() != null
+                    && !softwareId.equals(benchmark.minerSoftwareId()))
                     || benchmark.observations() < 12 || !positive(benchmark.hashrateHps())
                     || benchmark.powerWatts() <= 0) continue;
             points.add(new Point(benchmark.powerTargetWatts(), benchmark.hashrateHps() / benchmark.powerWatts()));

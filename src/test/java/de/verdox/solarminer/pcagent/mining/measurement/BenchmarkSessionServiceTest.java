@@ -69,7 +69,7 @@ class BenchmarkSessionServiceTest {
 
         BenchmarkSessionService service = new BenchmarkSessionService(mining, miners,
                 mock(BenchmarkSharingService.class), mock(MinerConsoleService.class), lock,
-                mock(MiningPerformanceProfileStore.class), assignments);
+                mock(MiningPerformanceProfileStore.class), assignments, mock(de.verdox.solarminer.pcagent.mining.MinerCatalogService.class));
 
         assertDoesNotThrow(() -> service.start("INSTALLED"));
         service.cancel();
@@ -91,7 +91,7 @@ class BenchmarkSessionServiceTest {
 
         BenchmarkSessionService service = new BenchmarkSessionService(mock(MiningService.class), miners,
                 mock(BenchmarkSharingService.class), mock(MinerConsoleService.class), mock(LocalRunLock.class),
-                mock(MiningPerformanceProfileStore.class), assignments);
+                mock(MiningPerformanceProfileStore.class), assignments, mock(de.verdox.solarminer.pcagent.mining.MinerCatalogService.class));
 
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> service.start("INSTALLED"));
         assertEquals("Benchmark cannot start: pearl (SolarMiner default payout for pearl is unavailable. Check the proxy and fee target.)",
@@ -137,7 +137,8 @@ class BenchmarkSessionServiceTest {
                         mock(PearlMinerService.class), mock(de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService.class),
                         mock(de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService.class)),
                 mock(BenchmarkSharingService.class), mock(MinerConsoleService.class), mock(LocalRunLock.class),
-                mock(MiningPerformanceProfileStore.class), mock(WorkerAssignmentService.class));
+                mock(MiningPerformanceProfileStore.class), mock(WorkerAssignmentService.class),
+                mock(de.verdox.solarminer.pcagent.mining.MinerCatalogService.class));
 
         assertThrows(IllegalArgumentException.class, () -> service.start("INSTALLED", List.of("notacoin")));
         assertEquals(Set.of("pearl"), BenchmarkSessionService.validateCoinSelection(List.of("pearl")));

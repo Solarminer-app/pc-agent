@@ -9,6 +9,7 @@ import de.verdox.solarminer.pcagent.miner.GpuCoinMiner;
 import de.verdox.solarminer.pcagent.miner.MinerFactory;
 import de.verdox.solarminer.pcagent.mining.MiningService;
 import de.verdox.solarminer.pcagent.mining.WorkerAssignmentService;
+import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
 import de.verdox.solarminer.pcagent.mining.measurement.MeasurementRunGuard;
 import de.verdox.solarminer.pcagent.mining.measurement.SampleCollector;
 import jakarta.annotation.PreDestroy;
@@ -40,16 +41,27 @@ public class BenchmarkSessionService {
     private final MinerConsoleService consoles;
     private final MiningPerformanceProfileStore performanceProfiles;
     private final WorkerAssignmentService assignments;
+    private final MinerCatalogService catalog;
     private final MeasurementRunGuard guard;
     private volatile Session session = Session.idle();
 
+    @org.springframework.beans.factory.annotation.Autowired
     public BenchmarkSessionService(MiningService mining, MinerFactory miners,
                                    BenchmarkSharingService sharing, MinerConsoleService consoles, LocalRunLock lock,
-                                   MiningPerformanceProfileStore performanceProfiles, WorkerAssignmentService assignments) {
+                                   MiningPerformanceProfileStore performanceProfiles, WorkerAssignmentService assignments,
+                                   MinerCatalogService catalog) {
         this.mining = mining; this.miners = miners; this.sharing = sharing; this.consoles = consoles;
         this.performanceProfiles = performanceProfiles;
         this.assignments = assignments;
+        this.catalog = catalog;
         this.guard = new MeasurementRunGuard(lock, "pc-agent-benchmark");
+    }
+
+    /** Focused test contexts predating the software catalog. */
+    public BenchmarkSessionService(MiningService mining, MinerFactory miners,
+                                   BenchmarkSharingService sharing, MinerConsoleService consoles, LocalRunLock lock,
+                                   MiningPerformanceProfileStore performanceProfiles, WorkerAssignmentService assignments) {
+        this(mining, miners, sharing, consoles, lock, performanceProfiles, assignments, null);
     }
 
     public synchronized Session start(String mode) { return start(mode, null); }
@@ -70,7 +82,9 @@ public class BenchmarkSessionService {
             });
         }
         List<String> phases = parsed == BenchmarkMode.INSTALLED ? installedPhases(selection) : List.of(PHASE_LIVE);
-        if (phases.isEmpty()) {
+        List<GpuBenchmarkBatch> plannedBatches = parsed == BenchmarkMode.INSTALLED ? gpuBenchmarkBatches(phases) : List.of();
+        if (phases.isEmpty() || parsed == BenchmarkMode.INSTALLED
+                && !phases.contains(Coin.MONERO.id()) && plannedBatches.isEmpty()) {
             String detail = setupSkipped.isEmpty()
                     ? "Install and configure at least one miner before running this benchmark"
                     : "Benchmark cannot start: " + String.join("; ", setupSkipped);
@@ -79,9 +93,11 @@ public class BenchmarkSessionService {
         if (!guard.begin("benchmark")) throw new IllegalStateException("Ein anderer Messlauf (Effizienz-Sweep) läuft gerade; der Benchmark wartet, bis er beendet ist");
         guard.resetCancel();
         Instant start = Instant.now();
-        int phaseCount = phases.size();
+        int phaseCount = parsed == BenchmarkMode.INSTALLED
+                ? (phases.contains(Coin.MONERO.id()) ? 1 : 0) + plannedBatches.size()
+                : phases.size();
         session = new Session(true, parsed.wireName(), "Preparing", start, null, null, 0, phaseCount, List.of(), null);
-        guard.submit(() -> run(parsed, phases, setupSkipped, selection));
+        guard.submit(() -> run(parsed, phases, plannedBatches, setupSkipped, selection));
         return session;
     }
 
@@ -121,9 +137,12 @@ public class BenchmarkSessionService {
         return Set.copyOf(selection);
     }
 
-    private void run(BenchmarkMode mode, List<String> phases, List<String> setupSkipped, Set<String> selection) {
+    private void run(BenchmarkMode mode, List<String> phases, List<GpuBenchmarkBatch> gpuBatches,
+                     List<String> setupSkipped, Set<String> selection) {
         boolean installed = mode == BenchmarkMode.INSTALLED;
-        boolean externalMiner = Coin.miningCoins().stream().anyMatch(coin -> miners.miner(coin).hasExternalMinerProcess());
+        boolean externalMiner = Coin.miningCoins().stream().anyMatch(coin -> coin.isGpu()
+                ? miners.gpuMinerAdapters(coin).stream().anyMatch(adapter -> adapter.miner().hasExternalMinerProcess())
+                : miners.miner(coin).hasExternalMinerProcess());
         if (installed && externalMiner) {
             Session old = session;
             session = new Session(false, mode.wireName(), "Sequential benchmark skipped: externally started miners cannot be safely paused and restored",
@@ -138,23 +157,27 @@ public class BenchmarkSessionService {
         // reports PAUSED while it is connecting to the pool, although its managed process
         // is already running. Phase 3: one generic capture/restore seam for every GPU
         // adapter — no Pearl special case.
-        Map<Coin, GpuCoinMiner.WorkerPauseSnapshot> gpuSnapshots = new LinkedHashMap<>();
-        for (GpuCoinMiner miner : miners.gpuMiners()) gpuSnapshots.put(miner.coin(), miner.captureState());
+        Map<String, GpuCoinMiner.WorkerPauseSnapshot> adapterSnapshots = new LinkedHashMap<>();
         Map<String, List<MinerStats.Worker>> observations = new LinkedHashMap<>();
         List<String> skipped = new ArrayList<>(setupSkipped);
+        int totalPhases = installed ? (phases.contains(Coin.MONERO.id()) ? 1 : 0) + gpuBatches.size() : phases.size();
         int index = 0;
         String error = null;
         try {
+            for (Coin coin : Coin.gpuCoins()) for (MinerFactory.GpuMinerAdapter adapter : miners.gpuMinerAdapters(coin))
+                adapterSnapshots.put(coin.id() + "|" + adapter.softwareId(), adapter.miner().captureState());
             for (String skippedSetup : setupSkipped)
                 benchmarkLog(Coin.PEARL.id(), "Benchmark setup skipped: " + skippedSetup);
             if (installed) {
-                update(mode, "Pausing current miners", 0, phases.size(), observations);
+                update(mode, "Pausing current miners", 0, totalPhases, observations);
                 if (xmrWasMining) pauseForBenchmark(Coin.MONERO.id(), "capturing the pre-benchmark state");
-                for (Map.Entry<Coin, GpuCoinMiner.WorkerPauseSnapshot> snapshot : gpuSnapshots.entrySet())
+                for (Map.Entry<String, GpuCoinMiner.WorkerPauseSnapshot> snapshot : adapterSnapshots.entrySet())
                     if (!snapshot.getValue().runningDeviceIds().isEmpty())
-                        pauseForBenchmark(snapshot.getKey().id(), "capturing the pre-benchmark state");
+                        MinerStopContext.with("Benchmark: capturing the pre-benchmark state", () -> {
+                            String[] parts = snapshot.getKey().split("\\|", 2);
+                            return miners.gpuMiner(Coin.byIdOrNull(parts[0]), parts[1]).stopAll();
+                        });
             }
-            List<GpuBenchmarkBatch> gpuBatches = installed ? gpuBenchmarkBatches(phases) : List.of();
             for (String phase : phases) {
                 // GPU work is scheduled below in model-aware batches.  Leaving the CPU phase
                 // here preserves the existing CPU lifecycle and its independent XMRig rules.
@@ -173,7 +196,7 @@ public class BenchmarkSessionService {
                 // In INSTALLED mode a just-started miner must be a candidate before its first API/pool
                 // health sample. LIVE intentionally keeps its existing "only currently mining" semantics.
                 List<MinerStats.Worker> candidates = phaseWorkers(phase, mode == BenchmarkMode.LIVE, selection);
-                Set<String> expected = candidates.stream().map(BenchmarkSessionService::key).collect(java.util.stream.Collectors.toSet());
+                Set<String> expected = candidates.stream().map(this::key).collect(java.util.stream.Collectors.toSet());
                 if (expected.isEmpty()) {
                     String reason = mode == BenchmarkMode.LIVE
                             ? " (no active workers)" : " (no configured workers detected)";
@@ -191,11 +214,11 @@ public class BenchmarkSessionService {
                 Set<String> observedMining = new HashSet<>();
                 Instant startupDeadline = Instant.now().plus(WORKER_STARTUP_GRACE);
                 update(mode, phaseLabel(phase) + " · 0/" + (expected.size() * REQUIRED_SAMPLES_PER_WORKER) + " Messpunkte",
-                        index, phases.size(), observations);
+                        index, totalPhases, observations);
                 while (!guard.cancelRequested()) {
                     List<MinerStats.Worker> current = phaseWorkers(phase, false, selection);
                     Map<String, MinerStats.Worker> currentByKey = current.stream()
-                            .collect(java.util.stream.Collectors.toMap(BenchmarkSessionService::key, worker -> worker, (first, ignored) -> first));
+                            .collect(java.util.stream.Collectors.toMap(this::key, worker -> worker, (first, ignored) -> first));
                     for (MinerStats.Worker worker : current.stream().filter(BenchmarkSessionService::isMining).toList()) {
                         String workerKey = key(worker);
                         if (!expected.contains(workerKey)) continue;
@@ -222,7 +245,7 @@ public class BenchmarkSessionService {
                     if (complete) break;
                     int collected = expected.stream().mapToInt(k -> observations.getOrDefault(k, List.of()).size()).sum();
                     update(mode, phaseLabel(phase) + " · " + collected + "/" + (expected.size() * REQUIRED_SAMPLES_PER_WORKER) + " Messpunkte",
-                            index, phases.size(), observations);
+                            index, totalPhases, observations);
                     Thread.sleep(SAMPLE_INTERVAL_MILLIS);
                 }
                 int collected = expected.stream().mapToInt(k -> observations.getOrDefault(k, List.of()).size()).sum();
@@ -232,12 +255,12 @@ public class BenchmarkSessionService {
                     benchmarkLog(phase, "Benchmark pauses miner after measurement to restore the previous state.");
                     pauseForBenchmark(phase, "measurement phase complete");
                 }
-                update(mode, "Summarizing", index, phases.size(), observations);
+                update(mode, "Summarizing", index, totalPhases, observations);
             }
             for (GpuBenchmarkBatch batch : gpuBatches) {
                 if (guard.cancelRequested()) break;
                 index++;
-                measureGpuBatch(mode, batch, index, phases.size(), observations, skipped);
+                measureGpuBatch(mode, batch, index, totalPhases, observations, skipped);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt(); error = "Benchmark interrupted";
@@ -249,8 +272,10 @@ public class BenchmarkSessionService {
                     boolean restored = true;
                     if (xmrWasMining) restored = mining.resumeMining(Coin.MONERO.id());
                     else mining.restoreCpuPauseState(cpuPausedBefore);
-                    for (Map.Entry<Coin, GpuCoinMiner.WorkerPauseSnapshot> snapshot : gpuSnapshots.entrySet())
-                        restored = miners.gpuMiner(snapshot.getKey()).restoreState(snapshot.getValue()) && restored;
+                    for (Map.Entry<String, GpuCoinMiner.WorkerPauseSnapshot> snapshot : adapterSnapshots.entrySet()) {
+                        String[] parts = snapshot.getKey().split("\\|", 2);
+                        restored = miners.gpuMiner(Coin.byIdOrNull(parts[0]), parts[1]).restoreState(snapshot.getValue()) && restored;
+                    }
                     if (!restored) error = "Could not fully restore miner state";
                     benchmarkLog(Coin.MONERO.id(), restored ? "Previous miner state restored."
                             : "Previous miner state could not be fully restored.");
@@ -276,7 +301,8 @@ public class BenchmarkSessionService {
             Session old = session;
             String result = error != null ? "Error: " + error : guard.cancelRequested() ? "Cancelled; previous miner state restored"
                     : "Complete; previous miner state restored" + (skipped.isEmpty() ? "" : "; skipped: " + String.join(", ", skipped));
-            session = new Session(false, mode.wireName(), result, old.startedAt(), Instant.now(), null, phases.size(), phases.size(), summarize(observations), null);
+            session = new Session(false, mode.wireName(), result, old.startedAt(), Instant.now(), null,
+                    old.phaseCount(), old.phaseCount(), summarize(observations), null);
         }
     }
 
@@ -290,13 +316,28 @@ public class BenchmarkSessionService {
      * models are planned independently and therefore share a batch without being serialized.
      */
     private List<GpuBenchmarkBatch> gpuBenchmarkBatches(List<String> phases) {
-        Map<Coin, List<LocalGpuPowerService.Gpu>> cardsByCoin = new LinkedHashMap<>();
+        Map<String, Map<Coin, List<LocalGpuPowerService.Gpu>>> bySoftware = new LinkedHashMap<>();
         for (String phase : phases) {
             Coin coin = Coin.byIdOrNull(phase);
             if (coin == null || !coin.isGpu()) continue;
-            cardsByCoin.put(coin, miners.gpuMiner(coin).selectedGpus());
+            List<MinerCatalogService.MinerOption> options = catalog == null ? List.of() : catalog.options(coin.id());
+            if (options.isEmpty()) {
+                bySoftware.computeIfAbsent("srbminer-multi", ignored -> new LinkedHashMap<>())
+                        .put(coin, miners.gpuMiner(coin).selectedGpus());
+            }
+            for (MinerCatalogService.MinerOption option : options) {
+                if (!option.installed() || !option.selectable()) continue;
+                GpuCoinMiner miner = miners.gpuMiner(coin, option.id());
+                if (!miner.binaryAvailable() || !miner.configured()) continue;
+                List<LocalGpuPowerService.Gpu> cards = miner.selectedGpus().stream()
+                        .filter(gpu -> MinerCatalogService.supportsHardware(option, "GPU", gpu.vendor())).toList();
+                if (!cards.isEmpty()) bySoftware.computeIfAbsent(option.id(), ignored -> new LinkedHashMap<>())
+                        .put(coin, cards);
+            }
         }
-        return planGpuBatches(cardsByCoin).stream().map(GpuBenchmarkBatch::new).toList();
+        List<GpuBenchmarkBatch> batches = new ArrayList<>();
+        bySoftware.forEach((software, cards) -> planGpuBatches(cards).forEach(wave -> batches.add(new GpuBenchmarkBatch(software, wave))));
+        return List.copyOf(batches);
     }
 
     /** Pure planner, kept package-visible so model/coin parallelism is regression-testable. */
@@ -347,7 +388,7 @@ public class BenchmarkSessionService {
         Set<String> expected = new LinkedHashSet<>();
         try {
             for (Map.Entry<Coin, List<LocalGpuPowerService.Gpu>> entry : batch.assignments().entrySet()) {
-                GpuCoinMiner miner = miners.gpuMiner(entry.getKey());
+                GpuCoinMiner miner = miners.gpuMiner(entry.getKey(), batch.softwareId());
                 MinerConfig base = miner.configuration();
                 if (base == null) {
                     continue;
@@ -355,15 +396,17 @@ public class BenchmarkSessionService {
                 String devices = entry.getValue().stream().map(gpu -> gpu.vendor() + ":" + gpu.index())
                         .collect(java.util.stream.Collectors.joining(","));
                 miner.setBenchmarkOverride(new MinerConfig(base.poolUrl(), base.proxyUrl(), base.wallet(), base.worker(), devices));
-                if (!mining.resumeMining(entry.getKey().id())) {
-                    String detail = mining.lastStartError(entry.getKey().id());
-                    if (detail != null && !detail.isBlank()) skipped.add(entry.getKey().id() + " (" + detail + ")");
+                for (LocalGpuPowerService.Gpu gpu : entry.getValue()) miners.setBenchmarkSoftware(gpu.deviceId(), batch.softwareId());
+                for (LocalGpuPowerService.Gpu gpu : entry.getValue()) if (!miner.resumeGpu(gpu.vendor(), gpu.index())) {
+                    String detail = miner.lastError();
+                    skipped.add(entry.getKey().id() + "/" + batch.softwareId() + " (" +
+                            (detail == null || detail.isBlank() ? "Miner did not start" : detail) + ")");
                 }
             }
             for (Map.Entry<Coin, List<LocalGpuPowerService.Gpu>> entry : batch.assignments().entrySet()) {
                 Set<String> ids = entry.getValue().stream().map(LocalGpuPowerService.Gpu::deviceId).collect(java.util.stream.Collectors.toSet());
                 phaseWorkers(entry.getKey().id(), false).stream().filter(worker -> ids.contains(worker.deviceId()))
-                        .map(BenchmarkSessionService::key).forEach(expected::add);
+                        .map(this::key).forEach(expected::add);
             }
             if (expected.isEmpty()) {
                 return;
@@ -399,8 +442,10 @@ public class BenchmarkSessionService {
             // mark a temporarily assigned card as manually paused before the saved state is
             // restored.
             for (Coin coin : batch.assignments().keySet())
-                MinerStopContext.with("Benchmark: measurement phase complete", () -> miners.gpuMiner(coin).stopAll());
-            for (Coin coin : batch.assignments().keySet()) miners.gpuMiner(coin).clearBenchmarkOverride();
+                MinerStopContext.with("Benchmark: measurement phase complete", () -> miners.gpuMiner(coin, batch.softwareId()).stopAll());
+            for (Coin coin : batch.assignments().keySet()) miners.gpuMiner(coin, batch.softwareId()).clearBenchmarkOverride();
+            for (List<LocalGpuPowerService.Gpu> cards : batch.assignments().values())
+                for (LocalGpuPowerService.Gpu gpu : cards) miners.clearBenchmarkSoftware(gpu.deviceId());
         }
     }
     private List<MinerStats.Worker> phaseWorkers(String phase, boolean miningOnly, Set<String> selection) {
@@ -445,14 +490,21 @@ public class BenchmarkSessionService {
         session = new Session(true, mode.wireName(), phase, old.startedAt(), null, null, index, count, summarize(observations), null);
     }
     private static boolean isMining(MinerStats.Worker w) { return w.miningStatus() == MinerStats.MinerStatus.MINING; }
-    private static String key(MinerStats.Worker w) { return String.join("|", Objects.toString(w.deviceId(), ""), Objects.toString(w.currentAlgorithm(), "")); }
+    private String key(MinerStats.Worker w) {
+        Coin coin = Coin.byAlgorithm(w.currentAlgorithm()).orElse(Coin.NONE);
+        return String.join("|", Objects.toString(w.deviceId(), ""), Objects.toString(w.currentAlgorithm(), ""),
+                coin == Coin.NONE ? "unknown" : miners.minerSoftwareForWorker(coin, w.deviceId()));
+    }
     private static List<Result> summarize(Map<String, List<MinerStats.Worker>> observations) {
-        return observations.values().stream().map(values -> {
+        return observations.entrySet().stream().map(entry -> {
+            List<MinerStats.Worker> values = entry.getValue();
             MinerStats.Worker w = values.getFirst();
             double[] rates = values.stream().mapToDouble(v -> v.terahashPerSecond() * 1_000_000_000_000d).toArray();
             double median = SampleCollector.median(rates);
             double watts = values.stream().mapToLong(MinerStats.Worker::approximatedPowerUsageWatts).filter(v -> v > 0).average().orElse(0);
-            return new Result(w.hardwareType(), w.hardwareModel(), w.currentAlgorithm(), median, watts, watts > 0 ? median / watts : 0, values.size());
+            return new Result(w.hardwareType(), w.hardwareModel(), w.currentAlgorithm(), median, watts,
+                    watts > 0 ? median / watts : 0, values.size(),
+                    entry.getKey().substring(entry.getKey().lastIndexOf('|') + 1));
         }).toList();
     }
     private static List<MinerStats.Worker> aggregateWorkers(Map<String, List<MinerStats.Worker>> observations) {
@@ -470,7 +522,8 @@ public class BenchmarkSessionService {
 
     private void persistPerformanceProfiles(Map<String, List<MinerStats.Worker>> observations) {
         Instant measuredAt = Instant.now();
-        for (List<MinerStats.Worker> values : observations.values()) {
+        for (Map.Entry<String, List<MinerStats.Worker>> entry : observations.entrySet()) {
+            List<MinerStats.Worker> values = entry.getValue();
             if (values.size() < REQUIRED_SAMPLES_PER_WORKER) continue;
             MinerStats.Worker worker = values.getFirst();
             // A changed cap during LIVE measurement must not blend two operating points.
@@ -484,7 +537,8 @@ public class BenchmarkSessionService {
             if (!(hashrate > 0) || watts <= 0) continue;
             performanceProfiles.save(new MiningPerformanceProfileStore.Profile(worker.deviceId(), worker.hardwareType(),
                     worker.hardwareModel(), coin, worker.currentAlgorithm(), hashrate, watts, values.size(), measuredAt, "BENCHMARK",
-                    worker.powerTargetWatts() > 0 ? Math.toIntExact(worker.powerTargetWatts()) : null));
+                    worker.powerTargetWatts() > 0 ? Math.toIntExact(worker.powerTargetWatts()) : null,
+                    entry.getKey().substring(entry.getKey().lastIndexOf('|') + 1)));
         }
     }
 
@@ -494,7 +548,7 @@ public class BenchmarkSessionService {
     }
     @PreDestroy public void close() { guard.close(); }
 
-    private record GpuBenchmarkBatch(Map<Coin, List<LocalGpuPowerService.Gpu>> assignments) {
+    private record GpuBenchmarkBatch(String softwareId, Map<Coin, List<LocalGpuPowerService.Gpu>> assignments) {
         private GpuBenchmarkBatch {
             Map<Coin, List<LocalGpuPowerService.Gpu>> copy = new LinkedHashMap<>();
             assignments.forEach((coin, cards) -> copy.put(coin, List.copyOf(cards)));
@@ -502,7 +556,8 @@ public class BenchmarkSessionService {
         }
     }
 
-    public record Result(String hardwareType, String hardwareModel, String algorithm, double hashrateHs, double powerWatts, double hashesPerWatt, int observations) { }
+    public record Result(String hardwareType, String hardwareModel, String algorithm, double hashrateHs,
+                         double powerWatts, double hashesPerWatt, int observations, String minerSoftwareId) { }
     public record Session(boolean running, String mode, String phase, Instant startedAt, Instant phaseEndsAt, Instant totalEndsAt,
                           int phaseIndex, int phaseCount, List<Result> results, Long secondsRemaining) {
         static Session idle() { return new Session(false, "", "Idle", null, null, null, 0, 0, List.of(), 0L); }

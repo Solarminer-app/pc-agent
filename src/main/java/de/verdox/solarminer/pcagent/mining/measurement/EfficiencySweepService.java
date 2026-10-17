@@ -488,7 +488,8 @@ public class EfficiencySweepService {
             profile = new GpuEfficiencyStore.Profile(
                     target.gpu().deviceId(), target.gpu().model(), target.coin(), target.algorithm(),
                     best.limitWatts(), best.medianHashrateHs(), best.avgPowerWatts(),
-                    best.medianHashrateHs() / best.avgPowerWatts(), Instant.now(), List.copyOf(steps));
+                    best.medianHashrateHs() / best.avgPowerWatts(), Instant.now(), List.copyOf(steps),
+                    miners.minerSoftwareForWorker(Coin.byIdOrNull(target.coin()), target.gpu().deviceId()));
             sweepLog(target, label + (guard.cancelRequested() ? ": bisher bester Messwert " : ": bester stabiler Wert ")
                     + best.limitWatts() + " W ("
                     + formatRate(best.medianHashrateHs()) + ", " + Math.round(best.medianHashrateHs() / best.avgPowerWatts()) + " H/J)");
@@ -499,7 +500,8 @@ public class EfficiencySweepService {
             sweepLog(target, label + ": kein stabiler Undervolt-Wert gefunden");
             if (!steps.isEmpty())
                 profile = new GpuEfficiencyStore.Profile(target.gpu().deviceId(), target.gpu().model(),
-                        target.coin(), target.algorithm(), null, null, null, null, Instant.now(), List.copyOf(steps));
+                        target.coin(), target.algorithm(), null, null, null, null, Instant.now(), List.copyOf(steps),
+                        miners.minerSoftwareForWorker(Coin.byIdOrNull(target.coin()), target.gpu().deviceId()));
             finishRun(target, guard.cancelRequested() ? SweepRunState.CANCELLED : SweepRunState.FAILED, guard.cancelRequested() ? "Abgebrochen" : "Kein stabiler Wert gefunden");
         }
         // Keep failed profiles too: their per-step notes and telemetry are the operator's

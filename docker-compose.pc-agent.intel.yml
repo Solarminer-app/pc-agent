@@ -1,6 +1,6 @@
 services:
   pc-agent:
-    # Makes Intel DRM devices visible for hardware discovery. PearlHash itself
-    # is not supported on Intel by the currently integrated SRBMiner release.
+    # Requires the Intel-enabled image, which bundles XPU-SMI user-space tools.
+    # The matching kernel driver stays installed on the Linux host.
     devices:
       - /dev/dri:/dev/dri

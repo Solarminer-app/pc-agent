@@ -73,11 +73,37 @@ also be limited by host permissions. A first energy sample establishes a
 baseline; a later sample produces watts. The bind mount is telemetry-only and
 does not grant GPU power-cap write permission.
 
-The Intel overlay only exposes `/dev/dri` to the agent. It is useful for host
-hardware discovery, but must not be used to claim Pearl mining: SRBMiner's
-current PearlHash support matrix lists AMD and NVIDIA, not Intel. A verified
-Intel PearlHash miner and end-to-end pool test are required before enabling
-that route.
+For Intel, use the Intel-enabled image and expose the host DRM devices:
+
+```sh
+docker compose -f ../docker-compose.pc-agent.yml -f ../docker-compose.pc-agent.intel.yml up -d
+```
+
+The Intel image bundles `xpu-smi` from Intel's Ubuntu graphics PPA and uses
+Ubuntu 24.04 user space. The host still needs a working Intel kernel/graphics
+driver and `/dev/dri`; the container does not install or replace host drivers.
+XPU-SMI support depends on the GPU family and compatible host driver. Power
+limits are exposed only when the device reports a valid range and accepts
+readback. Intel support is experimental until tested on the target card.
+
+For a mixed NVIDIA + Intel rig, include both overlays and use the Intel-enabled
+image (the installer does this automatically):
+
+```sh
+docker compose -f ../docker-compose.pc-agent.yml \
+  -f ../docker-compose.pc-agent.nvidia.yml \
+  -f ../docker-compose.pc-agent.intel.yml up -d
+```
+
+The installer accepts a comma-separated `--gpu` list such as
+`--gpu nvidia,intel` or `--gpu amd,intel`. It checks each vendor's concrete
+host prerequisite and combines only those overlays. For Intel, `/dev/dri` is
+shared with other DRM vendors and is added only once by Compose.
+
+Intel monitoring support does not imply Intel Pearl mining support:
+SRBMiner's current PearlHash path is limited to AMD and NVIDIA. A verified
+Intel PearlHash miner and end-to-end pool test are still required before
+enabling that route.
 
 The agent UI on port `8084` must not be exposed to the public internet. The
 recommended Linux Compose profile uses host networking so proxy discovery on

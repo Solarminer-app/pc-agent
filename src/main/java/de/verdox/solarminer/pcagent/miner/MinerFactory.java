@@ -28,6 +28,7 @@ public class MinerFactory {
     private final QuanPoolMinerService quanPool;
     private final MinerCatalogService catalog;
     private final AgentControlSettingsService controls;
+    private final java.util.concurrent.ConcurrentMap<String, String> benchmarkSoftware = new java.util.concurrent.ConcurrentHashMap<>();
 
     @org.springframework.beans.factory.annotation.Autowired
     public MinerFactory(XmrMinerService xmr, PearlMinerService pearl, GpuCoinMinerService gpuCoins,
@@ -93,15 +94,21 @@ public class MinerFactory {
         if (coin == null || !coin.isGpu()) return Optional.empty();
         String fallback = catalog == null || catalog.selected(coin.id()) == null
                 ? "srbminer-multi" : catalog.selected(coin.id()).id();
-        String minerId = controls == null ? fallback : controls.get().minerFor(deviceId, fallback);
+        String minerId = benchmarkSoftware.getOrDefault(deviceId,
+                controls == null ? fallback : controls.get().minerFor(deviceId, fallback));
         return Optional.of(gpuMiner(coin, minerId));
     }
 
     public String minerSoftwareForWorker(Coin coin, String deviceId) {
         String fallback = catalog == null || catalog.selected(coin.id()) == null
                 ? (coin == Coin.MONERO ? "xmrig" : "srbminer-multi") : catalog.selected(coin.id()).id();
-        return controls == null ? fallback : controls.get().minerFor(deviceId, fallback);
+        return benchmarkSoftware.getOrDefault(deviceId,
+                controls == null ? fallback : controls.get().minerFor(deviceId, fallback));
     }
+
+    /** Only the locked benchmark may temporarily attribute a GPU to another installed adapter. */
+    public void setBenchmarkSoftware(String deviceId, String softwareId) { benchmarkSoftware.put(deviceId, softwareId); }
+    public void clearBenchmarkSoftware(String deviceId) { benchmarkSoftware.remove(deviceId); }
 
     public boolean workerUses(Coin coin, String deviceId, String minerSoftwareId) {
         return controls != null && coin.id().equals(controls.get().coinFor(deviceId))

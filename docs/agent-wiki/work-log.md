@@ -2456,3 +2456,80 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Die bekannten Zuordnungen folgen den vorhandenen Coin-/Miner-Integrationsnotizen: QuanPool QTC auf NVIDIA; SRBMiner QTC und PearlHash auf NVIDIA/AMD; RVN und ETC mit SRBMiner auf NVIDIA/AMD/Intel; Decred mit SRBMiner auf NVIDIA/AMD und TeamRedMiner auf AMD. Das ist Hersteller-/Familienfilterung; modell- und treiberspezifische Mindestanforderungen bleiben als Minerhinweise sichtbar und erfordern weiterhin Hardwareprüfung.
 - Aktualisiert den PC-Agent-Miner-Integrationsleitfaden: jede neue Miner-Option benötigt Coin-/GPU-Kompatibilitätsdaten, UI-Filter und Backend-Prüfung.
 - Verifikation: `compileJava --offline` erfolgreich; `check-i18n.cjs` bestätigte 1.504 Schlüssel über 11 Seiten in Deutsch/Englisch, Literal-Scan fand null ungekapselte Browsertexte; beide geänderten JavaScript-Dateien bestehen `node --check`. Keine GPU- oder Pooltests ausgeführt.
+# 2026-10-17 — Intel GPU power controls and telemetry
+
+- Added optional Intel XPU-SMI discovery by PCI BDF, power/current-range reads,
+  power draw, and core-temperature sampling. `--powerlimit` is exposed to the
+  existing cap allocator only when the driver reports a valid range and current
+  cap; capability still requires a same-value write and readback. Persisted
+  recovery and configured caps use the stable BDF key. Cards visible to XPU-SMI
+  without a usable cap remain observable but are not marked controllable.
+- The telemetry page now renders Intel core temperatures; system GPU power
+  aggregation includes Intel board power. No API fields or new localized
+  messages were added. The existing vendor label/catalog already includes
+  Intel in German and English.
+- Intel XPU-SMI's documented CLI provides discovery JSON, configuration/range
+  output, `config --powerlimit`, and dump metrics for GPU power and core
+  temperature: [Intel XPU Manager / XPU-SMI](https://github.com/intel/xpumanager),
+  [XPU-SMI user guide](https://github.com/intel/xpumanager/blob/master/doc/smi_user_guide.md).
+  Telemetry and configuration remain driver-, card-family- and OS-dependent;
+  Intel documents a reduced Windows feature set. No Intel GPU is attached here,
+  so live-device write/readback, crash recovery and sensor checks remain open.
+- Verification: `compileJava --offline` passed; `node --check` passed for
+  `telemetry.js`; both German/English i18n checks passed (1,504 keys, 11 pages,
+  zero unkeyed browser literals). No test suite or Intel hardware probe was run.
+
+## 2026-10-17 — Intel Docker image and mixed-GPU setup
+
+- Added an Intel Compose overlay and a separate `final-intel` image target. The
+  Intel image uses Ubuntu 24.04 user space with Intel `xpu-smi`; host kernel GPU
+  drivers remain untouched. Stable and Beta workflows publish the matching
+  `latest-intel` / `latest-beta-intel` image tags and attach the Intel overlay.
+- The Docker installer accepts canonical vendor lists (`nvidia,amd,intel`),
+  checks each selected vendor's actual host prerequisite, downloads each
+  matching overlay and uses the Intel image whenever Intel is selected. The
+  landing page lets operators select any combination and explains prerequisites
+  in German and English.
+- Intel telemetry support remains experimental and does not enable Pearl
+  mining on Intel. XPU-SMI card/driver support and Intel device writes still
+  require validation on physical hardware.
+- Verification: `sh -n standalone/install-docker.sh`, `docker compose ... config
+  --quiet` with NVIDIA, AMD and Intel overlays, and `git diff --check` passed.
+  Landing-page `npx tsc --noEmit`, targeted ESLint and `git diff --check` passed.
+  No test suite, image build, release publish or GPU hardware validation was run.
+
+## 2026-10-17 — PC-Agent CI test repair
+
+- Updated `WorkerAssignmentServiceTest` GPU catalog fixtures to include the
+  compatible software options now required at start. Updated benchmark test
+  constructors for the catalog dependency.
+- Isolated the QuanPool selection test from a persisted local configuration;
+  it now loads its legacy fixture from a temporary config path. Updated
+  coin-hopping and revenue-mode mocks for the software-aware assignment call.
+- Coin hopping now reads a nullable worker software ID without passing null
+  through `Stream.findFirst`, which had produced an evaluation failure for
+  legacy measurements.
+- Verification: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test
+  --offline --max-workers=1 --console=plain` passed (241 tests); `git diff
+  --check` passed. An overlapping Gradle run briefly removed classes from the
+  shared build directory during an earlier attempt. No new UI/API copy was
+  introduced by these repairs.
+
+## 2026-10-17 — Miner-aware GPU benchmarks and revenue modes
+
+- Installed benchmarks now prepare each selectable GPU adapter, schedule compatible
+  vendor/card batches per software ID, keep separate samples for the same GPU/coin,
+  and restore all managed adapter states. Persisted benchmark, ordinary-mining and
+  sweep profiles carry the miner software ID; old profiles remain readable.
+- The USD/kWh comparison retains separate coin/miner/power candidates and shows the
+  software ID. Fixed-coin and coin-switch revenue modes can assign the measured
+  software ID before starting, including a same-coin miner change. Fixed power
+  modes do not use a different miner's measured cap.
+- The Worker UI disables Save for an incompatible miner/GPU vendor, an empty
+  benchmark/sweep coin filter no longer expands to all coins, and unavailable
+  TeamRedMiner entries no longer inherit SRBMiner's installed state.
+- Verification: JDK 21 `sh gradlew test --offline --max-workers=1 --console=plain`
+  passed (244 tests); `scripts/check-i18n.cjs`, `scripts/scan-i18n-literals.cjs`
+  and `git diff --check` passed. No physical GPU/kernel or pool test was run;
+  catalog vendor compatibility is a coarse filter, and actual architecture
+  compatibility remains determined by a successful miner start and samples.

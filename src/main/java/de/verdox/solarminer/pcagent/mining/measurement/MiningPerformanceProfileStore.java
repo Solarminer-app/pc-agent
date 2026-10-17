@@ -61,7 +61,8 @@ public class MiningPerformanceProfileStore {
 
     public synchronized void save(Profile profile) {
         Map<String, Profile> next = new LinkedHashMap<>(profiles);
-        next.put(key(profile.workerId(), profile.coin(), profile.algorithm(), profile.powerTargetWatts()), profile);
+        next.put(key(profile.workerId(), profile.coin(), profile.algorithm(), profile.powerTargetWatts())
+                + "|" + java.util.Objects.toString(profile.minerSoftwareId(), "legacy"), profile);
         if (!write(next)) throw new IllegalStateException("Performance profile could not be persisted");
         profiles = Map.copyOf(next);
     }
@@ -83,6 +84,13 @@ public class MiningPerformanceProfileStore {
 
     public record Profile(String workerId, String hardwareType, String hardwareModel, String coin, String algorithm,
                           double hashrateHps, long powerWatts, int observations, Instant measuredAt, String source,
-                          Integer powerTargetWatts) { }
+                          Integer powerTargetWatts, String minerSoftwareId) {
+        public Profile(String workerId, String hardwareType, String hardwareModel, String coin, String algorithm,
+                       double hashrateHps, long powerWatts, int observations, Instant measuredAt, String source,
+                       Integer powerTargetWatts) {
+            this(workerId, hardwareType, hardwareModel, coin, algorithm, hashrateHps, powerWatts,
+                    observations, measuredAt, source, powerTargetWatts, null);
+        }
+    }
     public record StorageStatus(String file, boolean exists, int profiles, String loadError) { }
 }

@@ -22,10 +22,12 @@ remains `https://currency.solarminer.app/api/v1/public/mining-networks` in
   or twelve consistent five-second samples during ordinary mining. All three
   use the same eligibility rules: the same GPU, a measured power target,
   positive measured hashrate and watts, and a point no older than 30 days.
-  The newest valid point per coin and target wins regardless of source. Ordinary mining
+  The newest valid point per coin, miner software and target wins regardless of source. Ordinary mining
   samples are stored locally only and never trigger benchmark sharing.
-  The coin/algorithm must match the closed `Coin` catalogue. The miner and
-  fee/proxy route must be ready in C10 capabilities.
+  The coin/algorithm must match the closed `Coin` catalogue. The measured miner
+  must still be installed, selectable and GPU-vendor compatible; the coin's
+  fee/proxy route must be ready in C10 capabilities. Legacy points without
+  software identity resolve to the current worker selection.
 - Network data must be available, non-stale, and no older than two hours.
   Gross USD/kWh is `forecast.usdPerDay / (measuredWatts * 24 / 1000)`.
   This is gross revenue before pool/miner fees and electricity cost. Every
@@ -33,14 +35,22 @@ remains `https://currency.solarminer.app/api/v1/public/mining-networks` in
   for the same coin.
 - Evaluation runs every ten minutes. It changes only an actively mining GPU
   when its current coin and driver cap match an eligible measured point and
-  another measured coin/target point exceeds the configured
+  another measured coin/miner/target point exceeds the configured
   gain threshold, and the configured cooldown has elapsed since the last
   switch. It defers during benchmarks, efficiency sweeps, and active Node plans.
   The shared `LocalRunLock` serializes the actual switch with measurements and
   Node economic-plan writes. A failed switch attempts to restore the prior
-  assignment, cap, and miner start. A same-coin target adjustment applies the
+  assignment, software, cap, and miner start. A same-coin target adjustment applies the
   verified GPU cap without restarting the miner. A stopped worker is never restarted merely
   because coin hopping is enabled.
+
+The sequential benchmark measures each installed and configured GPU adapter on compatible
+catalog vendors. It temporarily attributes worker telemetry to the adapter under test,
+then clears that attribution and restores managed processes. Measurements are stored with
+software identity, so two miners for the same coin and GPU retain distinct points. The
+comparison UI shows the miner ID alongside the coin and cap. Vendor filtering is only a
+coarse eligibility check; a GPU architecture without a working kernel is exposed as a
+failed/skipped measurement and needs real hardware validation.
 
 ## Action and revenue history
 

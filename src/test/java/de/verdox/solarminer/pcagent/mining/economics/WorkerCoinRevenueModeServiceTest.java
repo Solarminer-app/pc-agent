@@ -17,6 +17,32 @@ import static org.mockito.Mockito.*;
 
 class WorkerCoinRevenueModeServiceTest {
     @Test
+    void fixedCoinRevenueStartSelectsMeasuredAlternativeMiner() {
+        AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
+        CoinHoppingService hopping = mock(CoinHoppingService.class);
+        WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
+        LocalGpuPowerService gpus = mock(LocalGpuPowerService.class);
+        String id = "GPU-test";
+        WorkerCoinRevenueModeService service = new WorkerCoinRevenueModeService(controls, hopping, assignments,
+                gpus, new LocalRunLock(), mock(EconomicPlanningService.class));
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, id, "RTX", 100, 300,
+                100, 300, 180, 170d, "measured", true, null);
+        when(gpus.snapshot()).thenReturn(List.of(gpu));
+        when(gpus.setTotalPowerTarget(eq(150L), anyList())).thenReturn(true);
+        when(assignments.workers()).thenReturn(List.of(new WorkerAssignmentService.WorkerView(id, "GPU", "RTX",
+                "NVIDIA", 0, "quantus", "Quantus", "quantus", "srbminer-multi", "SRBMiner", true,
+                true, null, true, MinerStats.MinerStatus.MINING, null, "REVENUE_PER_KWH")));
+        when(hopping.candidates(id, 0)).thenReturn(List.of(new CoinHoppingService.Candidate("quantus", 150,
+                150, 106, 2, Instant.now(), Instant.now(), "BENCHMARK", 1, 2, "quanpool-miner")));
+        when(assignments.applyEconomicAssignment(id, "quantus", "quanpool-miner")).thenReturn(true);
+        when(assignments.startAtCurrentPowerTarget(id)).thenReturn(true);
+
+        assertTrue(service.applyBestStartPoint(id, "quantus", "REVENUE_PER_KWH", true).success());
+        verify(assignments).applyEconomicAssignment(id, "quantus", "quanpool-miner");
+        verify(assignments).startAtCurrentPowerTarget(id);
+    }
+
+    @Test
     void modeChangeCanStartWhileControllerHoldsLockAndRecoversAfterUnexpectedStop() {
         AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
         CoinHoppingService hopping = mock(CoinHoppingService.class);
@@ -35,7 +61,7 @@ class WorkerCoinRevenueModeServiceTest {
                 100, 300, 180, 170d, "measured", true, null);
         when(gpus.snapshot()).thenReturn(List.of(gpu));
         when(gpus.setTotalPowerTarget(eq(150L), anyList())).thenReturn(true);
-        when(assignments.applyEconomicAssignment(id, "pearl")).thenReturn(true);
+        when(assignments.applyEconomicAssignment(id, "pearl", null)).thenReturn(true);
         when(assignments.startAtCurrentPowerTarget(id)).thenReturn(true);
         when(hopping.candidates(id, 0)).thenReturn(List.of(new CoinHoppingService.Candidate(
                 "pearl", 150, 140, 1000, 2, Instant.now(), Instant.now(), "SWEEP", 1, 2)));

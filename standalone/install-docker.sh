@@ -6,7 +6,7 @@ GPU="none"
 
 say() { printf '%s\n' "$1"; }
 fail() { printf 'Fehler / Error: %s\n' "$1" >&2; exit 1; }
-usage() { say "Nutzung / Usage: $0 [--channel stable|beta] [--gpu none|nvidia|amd]"; }
+usage() { say "Nutzung / Usage: $0 [--channel stable|beta] [--gpu none|nvidia,amd,intel]"; }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -16,7 +16,10 @@ while [ "$#" -gt 0 ]; do
         *) usage; fail "Unbekannte Option: $1 / Unknown option: $1" ;;
     esac
 done
-case "$GPU" in none|nvidia|amd) ;; *) usage; fail "Unbekannte GPU: $GPU / Unknown GPU: $GPU" ;; esac
+case "$GPU" in
+    none|nvidia|amd|intel|nvidia,amd|nvidia,intel|amd,intel|nvidia,amd,intel) ;;
+    *) usage; fail "Unbekannte GPU-Auswahl: $GPU / Unknown GPU selection: $GPU" ;;
+esac
 case "$CHANNEL" in stable|beta) ;; *) usage; fail "Unbekannter Kanal: $CHANNEL / Unknown channel: $CHANNEL" ;; esac
 case "$(uname -s):$(uname -m)" in Linux:x86_64|Linux:amd64) ;; *) fail "Das Docker-Image unterstützt derzeit nur Linux x64. / The Docker image currently supports Linux x64 only." ;; esac
 
@@ -68,30 +71,41 @@ if ! docker info >/dev/null 2>&1; then
     DOCKER="sudo docker"
 fi
 
-case "$GPU" in
-    nvidia)
+overlays=""
+case ",$GPU," in
+    *,nvidia,*)
         command -v nvidia-smi >/dev/null 2>&1 || fail "NVIDIA-Treiber fehlt. / NVIDIA driver is missing."
         $DOCKER info --format '{{json .Runtimes}}' | grep -q nvidia || fail "NVIDIA Container Toolkit fehlt: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html / NVIDIA Container Toolkit is missing."
-        overlay="nvidia.yml"
+        overlays="$overlays nvidia"
         ;;
-    amd)
+esac
+case ",$GPU," in
+    *,amd,*)
         [ -e /dev/kfd ] && [ -e /dev/dri ] || fail "AMDGPU/ROCm-Geräte fehlen (/dev/kfd, /dev/dri). / AMDGPU/ROCm devices are missing (/dev/kfd, /dev/dri)."
-        overlay="amd.yml"
+        overlays="$overlays amd"
         ;;
-    none) overlay="" ;;
+esac
+case ",$GPU," in
+    *,intel,*)
+        [ -e /dev/dri ] || fail "Intel-DRM-Geräte fehlen (/dev/dri). Prüfe den Intel-Grafiktreiber auf dem Host. / Intel DRM devices are missing (/dev/dri). Check the host Intel graphics driver."
+        overlays="$overlays intel"
+        case "$CHANNEL" in
+            beta) export PC_AGENT_IMAGE="verdox/solar-miner-pc-agent:latest-beta-intel" ;;
+            stable) export PC_AGENT_IMAGE="verdox/solar-miner-pc-agent:latest-intel" ;;
+        esac
+        ;;
 esac
 
 mkdir -p "$INSTALL_DIR"
 curl -fL "$RELEASE_BASE/pc-agent.compose.yml" -o "$INSTALL_DIR/compose.yml"
-if [ -n "$overlay" ]; then curl -fL "$RELEASE_BASE/pc-agent.$GPU.compose.yml" -o "$INSTALL_DIR/$overlay"; fi
+set -- -f compose.yml
+for vendor in $overlays; do
+    curl -fL "$RELEASE_BASE/pc-agent.$vendor.compose.yml" -o "$INSTALL_DIR/$vendor.yml"
+    set -- "$@" -f "$vendor.yml"
+done
 printf 'PC_AGENT_IMAGE=%s\nPC_AGENT_GPU=%s\n' "$PC_AGENT_IMAGE" "$GPU" > "$INSTALL_DIR/.env.tmp"
 mv "$INSTALL_DIR/.env.tmp" "$INSTALL_DIR/.env"
 cd "$INSTALL_DIR"
-if [ -n "$overlay" ]; then
-    $DOCKER compose -f compose.yml -f "$overlay" config --quiet
-    $DOCKER compose -f compose.yml -f "$overlay" up -d
-else
-    $DOCKER compose -f compose.yml config --quiet
-    $DOCKER compose -f compose.yml up -d
-fi
+$DOCKER compose "$@" config --quiet
+$DOCKER compose "$@" up -d
 say "PC-Agent läuft auf http://127.0.0.1:8084/ / PC Agent is running at http://127.0.0.1:8084/"

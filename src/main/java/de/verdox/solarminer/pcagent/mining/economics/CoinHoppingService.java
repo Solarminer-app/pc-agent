@@ -5,6 +5,7 @@ import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.mining.WorkerAssignmentService;
+import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
 import de.verdox.solarminer.pcagent.mining.measurement.BenchmarkSessionService;
 import de.verdox.solarminer.pcagent.mining.measurement.EfficiencySweepService;
 import de.verdox.solarminer.pcagent.mining.measurement.GpuEfficiencyStore;
@@ -47,6 +48,10 @@ public class CoinHoppingService {
     private final CoinHoppingLedger ledger;
     private final EnergyJournalService energy;
     private de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService ownerSettings;
+    private MinerCatalogService minerCatalog;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMinerCatalog(MinerCatalogService minerCatalog) { this.minerCatalog = minerCatalog; }
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setOwnerSettings(de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService ownerSettings) {
@@ -166,7 +171,7 @@ public class CoinHoppingService {
                         || (targetWatts > 0 && step.limitWatts() != targetWatts)
                         || !positive(step.medianHashrateHs()) || !positive(step.avgPowerWatts())) continue;
                 addCandidate(result, capabilities, coin, step.limitWatts(), step.avgPowerWatts(), step.medianHashrateHs(),
-                        profile.testedAt(), "SWEEP", now);
+                        profile.testedAt(), "SWEEP", profile.minerSoftwareId(), gpu.vendor(), deviceId, now);
             }
         }
         for (MiningPerformanceProfileStore.Profile profile : performanceProfiles.all()) {
@@ -177,18 +182,31 @@ public class CoinHoppingService {
             Coin coin = Coin.byIdOrNull(profile.coin());
             if (coin == null || !coin.isGpu() || !coin.matchesAlgorithm(profile.algorithm())) continue;
             addCandidate(result, capabilities, coin, profile.powerTargetWatts(), (double) profile.powerWatts(), profile.hashrateHps(),
-                    profile.measuredAt(), profile.source(), now);
+                    profile.measuredAt(), profile.source(), profile.minerSoftwareId(), gpu.vendor(), deviceId, now);
         }
         // Preserve every measured target; only replace an older observation of the same point.
         return result.stream().collect(java.util.stream.Collectors.toMap(
-                        value -> value.coin() + "|" + value.limitWatts(), value -> value,
+                        value -> value.coin() + "|" + value.minerSoftwareId() + "|" + value.limitWatts(), value -> value,
                         (left, right) -> left.measuredAt().isAfter(right.measuredAt()) ? left : right))
                 .values().stream().sorted(Comparator.comparingDouble(Candidate::usdPerKwh).reversed()).toList();
     }
 
     private void addCandidate(List<Candidate> result, List<EconomicPlanningService.CoinCapability> capabilities,
                               Coin coin, int targetWatts, double measuredWatts, double hashrateHps,
-                              Instant measuredAt, String source, Instant now) {
+                              Instant measuredAt, String source, String softwareId, String gpuVendor,
+                              String deviceId, Instant now) {
+        if (softwareId == null || softwareId.isBlank()) {
+            WorkerAssignmentService.WorkerView assigned = assignments.workers().stream()
+                    .filter(worker -> deviceId.equals(worker.deviceId()) && coin.id().equals(worker.coin()))
+                    .findFirst().orElse(null);
+            softwareId = assigned == null ? null : assigned.minerSoftwareId();
+        }
+        if (minerCatalog != null) {
+            String selected = softwareId;
+            if (selected == null || minerCatalog.options(coin.id()).stream().noneMatch(option ->
+                    option.id().equals(selected) && option.installed() && option.selectable()
+                            && MinerCatalogService.supportsHardware(option, "GPU", gpuVendor))) return;
+        }
         if (!positive(measuredWatts) || !positive(hashrateHps)
                 || capabilities.stream().noneMatch(value -> coin.id().equals(value.coin())
                 && value.configured() && value.feeRouteReady())) return;
@@ -199,7 +217,7 @@ public class CoinHoppingService {
         double usdPerKwh = forecast.usdPerDay() / (measuredWatts * 24.0 / 1000.0);
         if (positive(usdPerKwh)) result.add(new Candidate(coin.id(), targetWatts, measuredWatts,
                 hashrateHps, usdPerKwh, measuredAt, forecast.updatedAt(), source,
-                forecast.coinsPerDay(), forecast.usdPerDay()));
+                forecast.coinsPerDay(), forecast.usdPerDay(), softwareId));
     }
 
     private static boolean positive(Double value) { return value != null && Double.isFinite(value) && value > 0; }
@@ -241,7 +259,11 @@ public class CoinHoppingService {
         }
         List<Candidate> safeChoices = choices.stream().filter(value -> value.limitWatts() >= gpu.minWatts()
                 && value.limitWatts() <= gpu.maxWatts()).toList();
+        WorkerAssignmentService.WorkerView assigned = assignments.workers().stream()
+                .filter(value -> current.deviceId().equals(value.deviceId())).findFirst().orElse(null);
+        String currentSoftware = assigned == null ? null : assigned.minerSoftwareId();
         Candidate existing = safeChoices.stream().filter(value -> value.coin().equals(worker.selectedCoin())
+                && Objects.equals(value.minerSoftwareId(), currentSoftware)
                 && value.limitWatts() == gpu.currentPowerLimitWatts()).findFirst().orElse(null);
         Candidate best = safeChoices.isEmpty() ? null : safeChoices.getFirst();
         if (existing == null) { lastOutcome = "coin_hopping_current_unmeasured"; markLedger(now); return; }
@@ -252,7 +274,8 @@ public class CoinHoppingService {
                 .map(EnergyJournalService.Session::startedAt).findFirst().orElse(null);
         try { ledger.account(now, existing.coin(), existing.limitWatts(), activeStartedAt, safeChoices); }
         catch (RuntimeException failure) { lastOutcome = "coin_hopping_ledger_save_failed"; return; }
-        if ((best.coin().equals(existing.coin()) && best.limitWatts() == existing.limitWatts())
+        if ((best.coin().equals(existing.coin()) && Objects.equals(best.minerSoftwareId(), existing.minerSoftwareId())
+                && best.limitWatts() == existing.limitWatts())
                 || !worthHop(existing.usdPerKwh(), best.usdPerKwh(), current.thresholdPercent())) {
             lastOutcome = "coin_hopping_best_already_selected"; return;
         }
@@ -267,16 +290,17 @@ public class CoinHoppingService {
             if (planning.capabilities().activePlanExpiresAt() != null) {
                 lastOutcome = "coin_hopping_measurement_or_plan_active"; return;
             }
-            if (!best.coin().equals(existing.coin())
-                    && !assignments.applyEconomicAssignment(current.deviceId(), best.coin()))
+            boolean minerChanged = !Objects.equals(best.minerSoftwareId(), existing.minerSoftwareId());
+            if ((!best.coin().equals(existing.coin()) || minerChanged)
+                    && !assignments.applyEconomicAssignment(current.deviceId(), best.coin(), best.minerSoftwareId()))
                 throw new IllegalStateException("coin_hopping_switch_failed");
             if (!power.setTotalPowerTarget(best.limitWatts(), List.of(gpu)))
                 throw new IllegalStateException("coin_hopping_target_failed");
-            if (!best.coin().equals(existing.coin()) && !assignments.start(current.deviceId()))
+            if ((!best.coin().equals(existing.coin()) || minerChanged) && !assignments.start(current.deviceId()))
                 throw new IllegalStateException("coin_hopping_switch_failed");
             lastSwitchAt = Instant.now();
             lastOutcome = AtomicFileStore.writeJson(file, new Persisted(current, lastSwitchAt), json, "coin-hopping-")
-                    ? (best.coin().equals(existing.coin()) ? "coin_hopping_power_adjusted" : "coin_hopping_switched")
+                    ? (best.coin().equals(existing.coin()) && !minerChanged ? "coin_hopping_power_adjusted" : "coin_hopping_switched")
                     : "coin_hopping_switch_not_persisted";
             try { ledger.action(lastSwitchAt, lastOutcome, existing.coin(), best.coin(), best.limitWatts(),
                     (best.usdPerKwh() / existing.usdPerKwh() - 1) * 100,
@@ -284,11 +308,11 @@ public class CoinHoppingService {
             catch (RuntimeException ignored) { lastOutcome = "coin_hopping_switch_not_recorded"; }
         } catch (RuntimeException failure) {
             boolean restored = false;
-            try { restored = best.coin().equals(existing.coin())
-                    || assignments.applyEconomicAssignment(current.deviceId(), existing.coin()); }
+            try { restored = assignments.applyEconomicAssignment(current.deviceId(), existing.coin(), existing.minerSoftwareId()); }
             catch (RuntimeException ignored) { }
             try { power.setTotalPowerTarget(previousLimit, List.of(gpu)); } catch (RuntimeException ignored) { }
-            if (restored && !best.coin().equals(existing.coin())) {
+            if (restored && (!best.coin().equals(existing.coin())
+                    || !Objects.equals(best.minerSoftwareId(), existing.minerSoftwareId()))) {
                 try { assignments.start(current.deviceId()); } catch (RuntimeException ignored) { }
             }
             lastOutcome = "coin_hopping_switch_failed";
@@ -319,7 +343,14 @@ public class CoinHoppingService {
     private record Persisted(Settings settings, Instant lastSwitchAt) { }
     public record Candidate(String coin, int limitWatts, double measuredWatts, double hashrateHps,
                             double usdPerKwh, Instant measuredAt, Instant marketAt, String source,
-                            double coinsPerDay, double usdPerDay) { }
+                            double coinsPerDay, double usdPerDay, String minerSoftwareId) {
+        public Candidate(String coin, int limitWatts, double measuredWatts, double hashrateHps,
+                         double usdPerKwh, Instant measuredAt, Instant marketAt, String source,
+                         double coinsPerDay, double usdPerDay) {
+            this(coin, limitWatts, measuredWatts, hashrateHps, usdPerKwh, measuredAt, marketAt, source,
+                    coinsPerDay, usdPerDay, null);
+        }
+    }
     public record View(Settings settings, List<Candidate> candidates, String recommendedCoin,
                        Instant lastSwitchAt, String lastOutcome, CoinHoppingLedger.Summary summary) { }
 }

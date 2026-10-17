@@ -56,6 +56,10 @@ class MinerCatalogServiceTest {
         assertEquals(1, restarted.options("monero").size());
         assertFalse(restarted.options("ravencoin").stream().filter(value -> value.id().equals("teamredminer"))
                 .findFirst().orElseThrow().selectable());
+        MinerCatalogService.MinerOption unsupported = restarted.options("ravencoin").stream()
+                .filter(value -> value.id().equals("teamredminer")).findFirst().orElseThrow();
+        assertFalse(unsupported.installed());
+        assertEquals("NOT_INTEGRATED", unsupported.downloadStatus());
     }
 
     @Test

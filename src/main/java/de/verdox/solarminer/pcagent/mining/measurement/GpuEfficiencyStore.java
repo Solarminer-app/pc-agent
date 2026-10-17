@@ -40,7 +40,8 @@ public class GpuEfficiencyStore {
 
     public synchronized void save(Profile profile) {
         Map<String, Profile> next = new LinkedHashMap<>(profiles);
-        String profileKey = key(profile.deviceId(), profile.algorithm());
+        String profileKey = key(profile.deviceId(), profile.algorithm()) + "|"
+                + java.util.Objects.toString(profile.minerSoftwareId(), "legacy");
         // Keep failed attempts as history without replacing the latest usable profile
         // consumed by economic planning through find(deviceId, algorithm).
         String storageKey = profile.bestStableWatts() == null
@@ -65,13 +66,21 @@ public class GpuEfficiencyStore {
     }
 
     public Profile find(String deviceId, String algorithm) {
-        Profile direct = profiles.get(key(deviceId, algorithm));
-        if (direct != null) return direct;
         de.verdox.solarminer.pcagent.coin.Coin coin = de.verdox.solarminer.pcagent.coin.Coin.byAlgorithm(algorithm).orElse(null);
         if (coin == null) return null;
         return profiles.values().stream()
                 .filter(profile -> profile.bestStableWatts() != null && deviceId.equals(profile.deviceId())
                         && coin.matchesAlgorithm(profile.algorithm()))
+                .max(java.util.Comparator.comparing(Profile::testedAt)).orElse(null);
+    }
+
+    public Profile find(String deviceId, String algorithm, String softwareId) {
+        de.verdox.solarminer.pcagent.coin.Coin coin = de.verdox.solarminer.pcagent.coin.Coin.byAlgorithm(algorithm).orElse(null);
+        if (coin == null) return null;
+        return profiles.values().stream().filter(profile -> profile.bestStableWatts() != null
+                        && deviceId.equals(profile.deviceId()) && coin.matchesAlgorithm(profile.algorithm())
+                        && (softwareId == null || profile.minerSoftwareId() == null
+                        || softwareId.equals(profile.minerSoftwareId())))
                 .max(java.util.Comparator.comparing(Profile::testedAt)).orElse(null);
     }
 
@@ -93,7 +102,14 @@ public class GpuEfficiencyStore {
 
     public record Profile(String deviceId, String model, String coin, String algorithm,
                           Integer bestStableWatts, Double bestHashrateHs, Double bestPowerWatts,
-                          Double bestHashesPerWatt, Instant testedAt, List<StepResult> steps) {
+                          Double bestHashesPerWatt, Instant testedAt, List<StepResult> steps,
+                          String minerSoftwareId) {
+        public Profile(String deviceId, String model, String coin, String algorithm,
+                       Integer bestStableWatts, Double bestHashrateHs, Double bestPowerWatts,
+                       Double bestHashesPerWatt, Instant testedAt, List<StepResult> steps) {
+            this(deviceId, model, coin, algorithm, bestStableWatts, bestHashrateHs,
+                    bestPowerWatts, bestHashesPerWatt, testedAt, steps, null);
+        }
     }
 
     public record StorageStatus(String file, boolean exists, int profiles, String loadError) { }

@@ -23,6 +23,10 @@ public class OperatingPointService {
     private final MiningService mining;
     private final LocalRunLock runLock;
     private final MiningPerformanceProfileStore profiles;
+    private de.verdox.solarminer.pcagent.miner.MinerFactory miners;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMinerFactory(de.verdox.solarminer.pcagent.miner.MinerFactory miners) { this.miners = miners; }
     private final Map<String, Window> windows = new HashMap<>();
 
     public OperatingPointService(MiningService mining, LocalRunLock runLock, MiningPerformanceProfileStore profiles) {
@@ -57,7 +61,8 @@ public class OperatingPointService {
             Long accepted = worker.acceptedShares(), rejected = worker.rejectedShares();
             if (accepted != null && rejected != null && rejected > 0
                     && rejected / (double) Math.max(1, accepted + rejected) > 0.02) continue;
-            String key = worker.deviceId() + "|" + coin.id() + "|" + worker.powerTargetWatts();
+            String software = miners == null ? null : miners.minerSoftwareForWorker(coin, worker.deviceId());
+            String key = worker.deviceId() + "|" + coin.id() + "|" + worker.powerTargetWatts() + "|" + software;
             seen.add(key);
             Window window = windows.computeIfAbsent(key, ignored -> new Window());
             if (window.lastAt != null && Duration.between(window.lastAt, now).compareTo(MAX_GAP) > 0) window.samples.clear();
@@ -70,7 +75,7 @@ public class OperatingPointService {
             if (watts > 0 && median > 0 && java.util.Arrays.stream(rates).allMatch(rate -> rate >= median * 0.8 && rate <= median * 1.2)) {
                 profiles.save(new MiningPerformanceProfileStore.Profile(worker.deviceId(), worker.hardwareType(),
                         worker.hardwareModel(), coin.id(), coin.algorithm(), median, watts, SAMPLES, now, "LIVE",
-                        (int) worker.powerTargetWatts()));
+                        (int) worker.powerTargetWatts(), software));
             }
             window.samples.clear();
         }

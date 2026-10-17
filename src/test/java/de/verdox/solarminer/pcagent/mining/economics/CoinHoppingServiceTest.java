@@ -107,7 +107,7 @@ class CoinHoppingServiceTest {
         when(power.snapshot()).thenReturn(List.of(gpu));
         when(power.setTotalPowerTarget(150, List.of(gpu))).thenReturn(true);
         when(lock.tryBegin("coin-hopping")).thenReturn(true);
-        when(assignments.applyEconomicAssignment("gpu-1", "quantus")).thenReturn(true);
+        when(assignments.applyEconomicAssignment("gpu-1", "quantus", null)).thenReturn(true);
         when(assignments.start("gpu-1")).thenReturn(true);
         WorkerAssignmentService.WorkerView view = mock(WorkerAssignmentService.WorkerView.class);
         MinerStats.Worker worker = mock(MinerStats.Worker.class);
@@ -137,7 +137,7 @@ class CoinHoppingServiceTest {
         service.evaluate();
 
         assertEquals("coin_hopping_switched", service.view().lastOutcome());
-        verify(assignments).applyEconomicAssignment("gpu-1", "quantus");
+        verify(assignments).applyEconomicAssignment("gpu-1", "quantus", null);
         verify(power).setTotalPowerTarget(150, List.of(gpu));
         verify(assignments).start("gpu-1");
         verify(lock).end();

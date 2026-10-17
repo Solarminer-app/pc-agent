@@ -197,7 +197,8 @@
       : t('install_compatible_software_in_the_miner_sof');
     $('worker-miner-install').hidden = coinId === 'none' || !chosen?.selectable
       || !compatibleWithWorker(chosen) || Boolean(chosen?.installed);
-    $('worker-save').disabled = (coinId !== 'none' && (!chosen || !chosen.selectable || !chosen.installed))
+    $('worker-save').disabled = (coinId !== 'none' && (!chosen || !chosen.selectable || !chosen.installed
+      || !compatibleWithWorker(chosen)))
       || (coinId === 'none' && $('worker-power-mode').value !== 'MANUAL');
     select.disabled = coinId === 'none';
   }

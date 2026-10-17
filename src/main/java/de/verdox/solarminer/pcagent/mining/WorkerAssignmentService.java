@@ -205,16 +205,23 @@ public class WorkerAssignmentService {
         Map<String, String> unavailable = new LinkedHashMap<>();
         List<LocalGpuPowerService.Gpu> cards = gpuPower.discover();
         if (cards.isEmpty()) return Map.of();
-        String devices = cards.stream().map(gpu -> gpu.vendor() + ":" + gpu.index()).collect(java.util.stream.Collectors.joining(","));
-        LocalGpuPowerService.Gpu first = cards.getFirst();
         for (Coin coin : Coin.gpuCoins()) {
             if (!selectedCoinIds.isEmpty() && !selectedCoinIds.contains(coin.id())) continue;
-            GpuCoinMiner miner = miners.gpuMiner(coin);
-            if (miner.configured() || !miner.binaryAvailable()) continue;
-            try {
-                ensureGpuDefault(coin, miner, new Hardware("GPU", first.vendor(), first.index()), devices);
-            } catch (IllegalStateException failure) {
-                unavailable.put(coin.id(), failure.getMessage());
+            for (MinerCatalogService.MinerOption option : catalog.options(coin.id())) {
+                if (!option.installed() || !option.selectable()) continue;
+                List<LocalGpuPowerService.Gpu> compatible = cards.stream()
+                        .filter(gpu -> MinerCatalogService.supportsHardware(option, "GPU", gpu.vendor())).toList();
+                if (compatible.isEmpty()) continue;
+                GpuCoinMiner miner = miners.gpuMiner(coin, option.id());
+                if (miner.configured() || !miner.binaryAvailable()) continue;
+                String devices = compatible.stream().map(gpu -> gpu.vendor() + ":" + gpu.index())
+                        .collect(java.util.stream.Collectors.joining(","));
+                LocalGpuPowerService.Gpu first = compatible.getFirst();
+                try {
+                    ensureGpuDefault(coin, miner, new Hardware("GPU", first.vendor(), first.index()), devices);
+                } catch (IllegalStateException failure) {
+                    unavailable.put(coin.id() + "/" + option.id(), failure.getMessage());
+                }
             }
         }
         return Map.copyOf(unavailable);
@@ -224,8 +231,10 @@ public class WorkerAssignmentService {
     public synchronized List<String> benchmarkGpuPhases() {
         List<String> phases = new ArrayList<>();
         for (Coin coin : Coin.gpuCoins()) {
-            GpuCoinMiner miner = miners.gpuMiner(coin);
-            if (miner.binaryAvailable() && miner.configured()) phases.add(coin.id());
+            if (catalog.options(coin.id()).stream().anyMatch(option -> option.installed() && option.selectable()
+                    && miners.gpuMiner(coin, option.id()).configured()
+                    && miners.gpuMiner(coin, option.id()).selectedGpus().stream().anyMatch(gpu ->
+                    MinerCatalogService.supportsHardware(option, "GPU", gpu.vendor())))) phases.add(coin.id());
         }
         return List.copyOf(phases);
     }
@@ -262,6 +271,17 @@ public class WorkerAssignmentService {
         } catch (IOException | RuntimeException failure) {
             controls.setWorkerAssignment(deviceId, oldCoin, oldMiner);
             try { synchronizeConfiguredDevices(coin, minerId); } catch (IOException | RuntimeException ignored) { }
+            return false;
+        }
+    }
+
+    /** Selects the measured miner as well as its coin, using normal assignment validation. */
+    public synchronized boolean applyEconomicAssignment(String deviceId, String coinId, String minerSoftwareId) {
+        if (minerSoftwareId == null || minerSoftwareId.isBlank()) return applyEconomicAssignment(deviceId, coinId);
+        try {
+            assign(deviceId, new Assignment(coinId, minerSoftwareId));
+            return true;
+        } catch (IOException | RuntimeException failure) {
             return false;
         }
     }

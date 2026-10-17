@@ -30,4 +30,17 @@ class MiningPerformanceProfileStoreTest {
         assertEquals(otherTarget, restored);
         assertEquals(2, restarted.all().size());
     }
+
+    @Test void sameGpuCoinAndPowerKeepSeparateMinerMeasurements() {
+        Path file = directory.resolve("miners.json");
+        var mapper = new ObjectMapper().findAndRegisterModules();
+        var store = new MiningPerformanceProfileStore(mapper, file.toString());
+        Instant at = Instant.parse("2026-10-17T10:00:00Z");
+        store.save(new MiningPerformanceProfileStore.Profile("GPU-1", "GPU", "RTX", "quantus", "quantus",
+                100, 150, 12, at, "BENCHMARK", 180, "srbminer-multi"));
+        store.save(new MiningPerformanceProfileStore.Profile("GPU-1", "GPU", "RTX", "quantus", "quantus",
+                106, 150, 12, at, "BENCHMARK", 180, "quanpool-miner"));
+        var restarted = new MiningPerformanceProfileStore(mapper, file.toString());
+        assertEquals(2, restarted.all().size());
+    }
 }

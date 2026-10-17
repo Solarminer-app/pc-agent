@@ -251,14 +251,15 @@ public class MinerCatalogService {
     private MinerOption state(MinerOption definition) {
         boolean xmr = definition.id().equals("xmrig");
         boolean quan = definition.id().equals("quanpool-miner");
+        boolean srbMiner = definition.id().equals("srbminer-multi");
         // Snapshot flags only (audit R5): the filesystem probe lives in refreshInstallState().
-        boolean installed = xmr ? xmrigInstalled : quan ? quanPoolInstalled : srbInstalled;
+        boolean installed = xmr ? xmrigInstalled : quan ? quanPoolInstalled : srbMiner && srbInstalled;
         String downloadStatus = xmr ? xmrig.status() : quan ? quanPool == null ? "NOT_INTEGRATED" : quanPool.status()
-                : srbUpdateRequired ? "UPDATE_REQUIRED" : srb.status();
+                : srbMiner ? srbUpdateRequired ? "UPDATE_REQUIRED" : srb.status() : definition.downloadStatus();
         // The UI owns the localized update explanation. Do not expose an untranslated
         // backend detail string for this expected migration state.
         String downloadDetail = xmr ? xmrig.detail() : quan ? quanPool == null ? "Not technically integrated yet" : quanPool.detail()
-                : srbUpdateRequired ? "" : srb.detail();
+                : srbMiner ? srbUpdateRequired ? "" : srb.detail() : definition.downloadDetail();
         boolean platformSupported = !quan || quanPool != null && quanPoolPlatformSupported();
         return new MinerOption(definition.id(), definition.coin(),
                 java.util.Optional.ofNullable(de.verdox.solarminer.pcagent.coin.Coin.byIdOrNull(definition.coin()))

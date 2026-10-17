@@ -102,11 +102,11 @@ async function loadSavedBenchmarks() {
             const target = profile.powerTargetWatts > 0
                 ? `${profile.powerTargetWatts} W` : t('benchmark_target_not_recorded');
             card.append(make('small', 'measurement-origin', t(`coin_hopping_source_${origin}`)),
-                make('strong', '', `${profile.hardwareModel || profile.workerId} · ${profile.coin} · ${profile.algorithm}`),
+                make('strong', '', `${profile.hardwareModel || profile.workerId} · ${profile.coin} · ${profile.algorithm}${profile.minerSoftwareId ? ` · ${profile.minerSoftwareId}` : ''}`),
                 make('p', 'measurement-target', t('benchmark_profile_target', {target})),
                 make('p', 'muted', t('hardware_count_samples', {hardware: profile.hardwareType, count: profile.observations})),
                 make('p', '', `${t('hashrate')}: ${fmtRate(profile.hashrateHps)} · ${t('power_4606f4')}: ${profile.powerWatts} W · ${t('energy_per_hash')}: ${window.SolarMinerUI.efficiency(profile.hashrateHps, profile.powerWatts)}`));
-            card.dataset.filter = [profile.hardwareModel || profile.model, profile.workerId || profile.deviceId, profile.coin, profile.algorithm].join(' ').toLocaleLowerCase();
+            card.dataset.filter = [profile.hardwareModel || profile.model, profile.workerId || profile.deviceId, profile.coin, profile.algorithm, profile.minerSoftwareId].join(' ').toLocaleLowerCase();
             groups.get(algorithmGroupLabel(profile)).append(card);
         }
         applyProfileFilter();
@@ -175,7 +175,7 @@ function renderChart(results, running) {
         const maximum = Math.max(...rows.map(row => Number(row.hashrateHs) || 0), 1);
         for (const row of rows) {
             const line = make('div', 'benchmark-bar-row');
-            const label = make('span', 'benchmark-bar-label', row.hardwareModel);
+            const label = make('span', 'benchmark-bar-label', `${row.hardwareModel}${row.minerSoftwareId ? ` · ${row.minerSoftwareId}` : ''}`);
             const track = make('div', 'benchmark-bar-track');
             track.setAttribute('role', 'progressbar'); track.setAttribute('aria-label', `${algorithm} · ${label.textContent}: ${fmtRate(row.hashrateHs)}`);
             track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', String(maximum)); track.setAttribute('aria-valuenow', String(row.hashrateHs || 0));
@@ -204,7 +204,7 @@ async function renderResults(results, running = false, phase = '') {
     for (const [index, row] of results.entries()) {
         const card = make('article', 'worker-card');
         const info = make('div', '');
-        info.append(make('strong', '', `${row.hardwareModel} · ${row.algorithm}`), make('p', 'muted', t('hardware_count_samples', {hardware: row.hardwareType, count: row.observations})));
+        info.append(make('strong', '', `${row.hardwareModel} · ${row.algorithm}${row.minerSoftwareId ? ` · ${row.minerSoftwareId}` : ''}`), make('p', 'muted', t('hardware_count_samples', {hardware: row.hardwareType, count: row.observations})));
         info.append(make('p', '', `${t('hashrate')}: ${fmtRate(row.hashrateHs)} · ${t('power_4606f4')}: ${row.powerWatts > 0 ? new Intl.NumberFormat(window.SolarMinerI18n.locale, {maximumFractionDigits: 0}).format(row.powerWatts) + ' W' : t('unavailable_6d094b')} · ${t('energy_per_hash')}: ${window.SolarMinerUI.efficiency(row.hashrateHs, row.powerWatts)}`));
         card.append(info);
         groups.get(algorithmGroupLabel(row)).append(card);
@@ -293,6 +293,9 @@ function showUploadStatus(id, status, label) {
 }
 
 async function start(mode) {
+    if (catalogCoins.length && !document.querySelector('#coin-options input:checked')) {
+        notice('benchmark_select_coin', true); return;
+    }
     if (actionBusy) return; actionBusy = true;
     $('run-live').disabled = $('run-installed').disabled = true;
     try {
@@ -336,7 +339,8 @@ function renderCoinOptions(catalog) {
         input.disabled = !entry.binaryAvailable;
         input.checked = entry.binaryAvailable && (stored ? stored.includes(entry.id) : true);
         input.addEventListener('change', () => {
-            try { localStorage.setItem(coinSelectionKey, JSON.stringify(selectedCoins())); } catch (_) { }
+            try { localStorage.setItem(coinSelectionKey, JSON.stringify(
+                [...document.querySelectorAll('#coin-options input:checked')].map(option => option.value))); } catch (_) { }
         });
         const text = make('span', '');
         text.append(make('strong', '', `${entry.name} · ${entry.device}`));
@@ -705,7 +709,7 @@ async function loadProfiles() {
         for (const profile of profiles) {
             const card = make('article', 'worker-card');
             const info = make('div', '');
-            info.append(make('strong', '', `${profile.model} · ${profile.algorithm}`),
+            info.append(make('strong', '', `${profile.model} · ${profile.algorithm}${profile.minerSoftwareId ? ` · ${profile.minerSoftwareId}` : ''}`),
                 make('p', 'muted', t('coin_tested_date', {coin: profile.coin, date: new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(profile.testedAt))})));
             if (profile.bestStableWatts != null) {
                 info.append(make('p', '', t('best_stable_value_watts_w_hashrate_power_w_e', {watts: profile.bestStableWatts, hashrate: fmtRate(profile.bestHashrateHs), power: Math.round(profile.bestPowerWatts), efficiency: window.SolarMinerUI.efficiency(profile.bestHashrateHs, profile.bestPowerWatts)})));
@@ -720,7 +724,7 @@ async function loadProfiles() {
                 info.append(details);
             }
             card.append(info);
-            card.dataset.filter = [profile.model, profile.deviceId, profile.coin, profile.algorithm].join(' ').toLocaleLowerCase();
+            card.dataset.filter = [profile.model, profile.deviceId, profile.coin, profile.algorithm, profile.minerSoftwareId].join(' ').toLocaleLowerCase();
             groups.get(algorithmGroupLabel(profile)).append(card);
         }
         applyProfileFilter();
@@ -783,6 +787,9 @@ function efficiencyChart(profile) {
 }
 
 async function startSweep(mode = 'restart') {
+    if (catalogCoins.length && !document.querySelector('#coin-options input:checked')) {
+        notice('benchmark_select_coin', true); return;
+    }
     if (actionBusy) return; actionBusy = true;
     $('run-sweep').disabled = true;
     $('resume-sweep').disabled = true;
@@ -856,7 +863,7 @@ async function loadComparison() {
         const money = value => window.SolarMinerPreferences.moneyFromUsd(value);
         const maximum = Math.max(...candidates.map(row => row.usdPerKwh));
         $('comparison-recommendation').textContent = t('coin_hopping_recommended_point', {
-            coin: candidates[0].coin.toUpperCase(), watts: candidates[0].limitWatts
+            coin: candidates[0].coin.toUpperCase(), miner: candidates[0].minerSoftwareId || '—', watts: candidates[0].limitWatts
         });
         $('comparison-updated').textContent = t('benchmark_updated_at', {time: new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {hour: '2-digit', minute: '2-digit'}).format(new Date())});
         for (const [index, candidate] of candidates.entries()) {
@@ -866,7 +873,7 @@ async function loadComparison() {
             fill.style.width = `${Math.max(2, candidate.usdPerKwh / maximum * 100)}%`;
             track.append(fill);
             const measured = new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {dateStyle:'medium', timeStyle:'short'}).format(new Date(candidate.measuredAt));
-            row.append(make('strong', '', `${candidate.coin.toUpperCase()} · ${candidate.limitWatts} W`), track,
+            row.append(make('strong', '', `${candidate.coin.toUpperCase()} · ${candidate.minerSoftwareId || '—'} · ${candidate.limitWatts} W`), track,
                 make('span', '', `${money(candidate.usdPerKwh)} / kWh`),
                 make('small', 'hopping-meta', t('coin_hopping_point_detail', {
                     source: t(`coin_hopping_source_${candidate.source?.toLowerCase() || 'live'}`),
