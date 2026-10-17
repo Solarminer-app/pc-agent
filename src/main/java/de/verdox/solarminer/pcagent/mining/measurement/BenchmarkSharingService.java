@@ -262,7 +262,9 @@ public class BenchmarkSharingService {
         try {
             return json.readValue(Files.readString(consentFile), State.class);
         } catch (Exception ignored) {
-            return new State(false, false);
+            // New installs share benchmark telemetry by default; a persisted choice,
+            // including an explicit opt-out, is honored by the successful read above.
+            return new State(false, true);
         }
     }
 

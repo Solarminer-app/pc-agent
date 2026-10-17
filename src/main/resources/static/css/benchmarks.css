@@ -114,6 +114,9 @@
 .benchmark-results-page .prominent-sweep-chart{min-height:470px;padding:22px;margin:8px 0 0}
 .benchmark-results-page .prominent-sweep-chart svg{max-height:none;height:clamp(380px,52vw,620px)}
 .benchmark-results-page .sweep-chart-tabs{display:flex;gap:9px;overflow-x:auto;padding:2px 0 14px}
+.benchmark-results-page .sweep-view-controls{display:flex;gap:8px;margin:12px 0 4px}
+.benchmark-results-page .sweep-view-button{border:1px solid #42615f;border-radius:9px;background:#142731;color:#c7d9dc;padding:10px 15px;font:inherit;font-weight:650;cursor:pointer}
+.benchmark-results-page .sweep-view-button.selected{background:#245042;border-color:#8fe9b5;color:#f1fff7;box-shadow:0 0 0 2px #8fe9b526}
 .benchmark-results-page .sweep-algorithm-tab{flex:0 0 auto;border:1px solid #42615f;border-radius:9px;background:#142731;color:#c7d9dc;padding:11px 16px;font:inherit;font-weight:650;cursor:pointer}
 .benchmark-results-page .sweep-algorithm-tab.selected{background:#245042;border-color:#8fe9b5;color:#f1fff7;box-shadow:0 0 0 2px #8fe9b526}
 .benchmark-results-page .sweep-curve-point{r:9;cursor:help;transition:r .12s ease,filter .12s ease}

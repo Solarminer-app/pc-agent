@@ -548,6 +548,12 @@ window.SolarMinerI18nCatalog = {
         "solarminer_benchmark": {de: "SolarMiner · Benchmark", en: "SolarMiner · Benchmark"},
         "benchmark_current_sweep": {de: "Aktueller Power Sweep", en: "Current power sweep"},
         "benchmark_current_sweep_intro": {de: "Wähle einen Coin und Algorithmus, um die gemessene Worker-Kurve zu sehen.", en: "Choose a coin and algorithm to view the measured worker curve."},
+        "benchmark_sweep_curve_heading": {de: "Power-Sweep-Kurve", en: "Power sweep curve"},
+        "benchmark_sweep_curve_intro": {de: "Schalte zwischen dem laufenden Sweep und gespeicherten Profilen um. Wähle einen Algorithmus, um seine Kurve groß zu sehen.", en: "Switch between the running sweep and saved profiles. Select an algorithm to view its curve large."},
+        "benchmark_sweep_view": {de: "Power-Sweep-Ansicht", en: "Power sweep view"},
+        "benchmark_sweep_live_view": {de: "Aktueller Sweep", en: "Current sweep"},
+        "benchmark_sweep_saved_view": {de: "Gespeichertes Profil", en: "Saved profile"},
+        "benchmark_sweep_no_saved_curve": {de: "Für diese GPU ist noch kein gespeichertes Power-Sweep-Profil vorhanden.", en: "This GPU does not have a saved power sweep profile yet."},
         "benchmark_no_gpu_available": {de: "Keine GPU verfügbar", en: "No GPU available"},
         "benchmark_no_gpu_run_result": {de: "Für diese GPU liegen im aktuellen Messlauf keine Ergebnisse vor.", en: "The current run has no results for this GPU."},
         "benchmark_open_gpu_results": {de: "GPU-Ergebnisse und Kurven ansehen", en: "View GPU results and curves"},
@@ -1804,9 +1810,9 @@ window.SolarMinerI18nCatalog = {
             de: "Beobachtet Miner, die bereits laufen. Startet oder pausiert keine Worker. Ideal, um deine aktuelle Konfiguration zu prüfen.",
             en: "Observes miners that are already running. Does not start or pause workers. Use it to check your current configuration."
         },
-        "off_by_default_turning_it_off_later_sends_a": {
-            de: "Standardmäßig deaktiviert. Eine spätere Deaktivierung sendet eine Widerrufsmeldung.",
-            en: "Off by default. Turning it off later sends a withdrawal notification."
+        "on_by_default_turning_it_off_later_sends_a": {
+            de: "Standardmäßig aktiviert. Eine spätere Deaktivierung sendet eine Widerrufsmeldung.",
+            en: "On by default. Turning it off later sends a withdrawal notification."
         },
         "offline": {de: "Offline", en: "Offline"},
         "on_this_pc": {de: "AUF DIESEM PC", en: "ON THIS PC"},
@@ -3983,7 +3989,7 @@ window.SolarMinerI18nCatalog = {
         "Sprache wählen": "Choose language",
         "Stand": "As of",
         "Standard für den Node": "Default for the Node",
-        "Standardmäßig deaktiviert. Eine spätere Deaktivierung sendet eine Widerrufsmeldung.": "Off by default. Turning it off later sends a withdrawal notification.",
+        "Standardmäßig aktiviert. Eine spätere Deaktivierung sendet eine Widerrufsmeldung.": "On by default. Turning it off later sends a withdrawal notification.",
         "Standardroute": "Default route",
         "Standardziel": "Default destination",
         "Starten": "Start",

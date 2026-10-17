@@ -1,5 +1,20 @@
 # PC-Agent work log
 
+## 2026-10-17 — Default benchmark and sweep sharing
+
+- Confirmed that completed efficiency sweeps call `reportEfficiencyResults`; when
+  sharing is enabled, every measured point is pseudonymized and posted to the
+  admin portal's `POST /api/telemetry/standalone-benchmarks` endpoint in batches
+  of at most 512. With sharing disabled, points are not sent.
+- Fresh PC-Agent installs now default benchmark sharing to enabled. A persisted
+  user choice, including opt-out, remains authoritative. The sharing explanation
+  on both benchmark pages now states the enabled default in German and English;
+  the existing opt-out still submits withdrawal on the next scheduled report.
+- Updated the admin-portal benchmark service documentation to reflect the fresh
+  install default. Existing explicit opt-out behavior remains unchanged.
+- Verification: `check-i18n.cjs`, `simulate-i18n-render.cjs`,
+  `scan-i18n-literals.cjs` and `git diff --check` passed. Java tests were not run.
+
 ## 2026-10-17 — Per-GPU benchmark and efficiency curves
 
 - The installed-miner benchmark now schedules every eligible coin on each physical GPU,
@@ -2680,6 +2695,19 @@ Vorgehen / Andockpunkte für andere Agenten:
   repeated renders. Market/network quotes were already cached by
   `MarketDataService`; this change does not extend their freshness window.
 - Verification not run in this turn.
+
+## 2026-10-17 — Switch between live and saved power-sweep curves
+
+- The prominent curve on Benchmark Results now switches between the current
+  sweep session and the saved efficiency profile for the selected GPU. Saved
+  profiles reuse the same large chart and algorithm tabs, including the full
+  per-device recorded curve; the default remains the live view.
+- Added German and English labels and an accessible name for the view control.
+  The selected GPU continues to scope both views, and switching modes resets
+  the algorithm selection so each view picks its own available curve.
+- Verification: JavaScript syntax, catalog validation (1,561 keys), both-locale
+  render simulation, literal scan (zero unkeyed strings), and `git diff --check`
+  passed. No browser visual review or live sweep data review was run.
 
 ## 2026-10-17 — Keep transient worker startup status off the Node wire
 

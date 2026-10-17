@@ -26,6 +26,7 @@ let availableWorkers = [];
 let availableWorkerById = new Map();
 let latestBenchmarkState = null;
 let latestSweepState = null;
+let sweepViewMode = 'live';
 const selectedGpu = () => resultsPage ? $('comparison-gpu').value : null;
 const forSelectedGpu = rows => resultsPage ? (rows || []).filter(row =>
     (row.deviceId || row.workerId) === selectedGpu()) : (rows || []);
@@ -740,16 +741,36 @@ function applySweepState(state) {
         }
         if (resultsPage) {
             renderSweepRuns(forSelectedGpu(state.runs), state.running);
-            renderLiveSweepChart(forSelectedGpu(state.runs), state.running);
+            renderSweepView();
         }
 }
 
 let selectedSweepRunId = null;
 let lastLiveSweepSignature = null;
-function renderLiveSweepChart(runs, running) {
+function renderSweepView() {
+    const liveButton = $('sweep-view-live');
+    const savedButton = $('sweep-view-saved');
+    if (!liveButton || !savedButton) return;
+    for (const [button, mode] of [[liveButton, 'live'], [savedButton, 'saved']]) {
+        const active = sweepViewMode === mode;
+        button.classList.toggle('selected', active);
+        button.setAttribute('aria-pressed', String(active));
+    }
+    if (sweepViewMode === 'live') {
+        renderLiveSweepChart(forSelectedGpu(latestSweepState?.runs || []), Boolean(latestSweepState?.running));
+        return;
+    }
+    const runs = forSelectedGpu(measurementSnapshot?.sweeps || []).map(profile => ({
+        ...profile,
+        id: `saved|${profile.deviceId}|${profile.algorithm}|${profile.minerSoftwareId || ''}|${profile.coin}`,
+        plannedLimits: (profile.steps || []).map(step => step.limitWatts)
+    }));
+    renderLiveSweepChart(runs, false, true);
+}
+function renderLiveSweepChart(runs, running, saved = false) {
     const root = $('sweep-live-chart');
     if (!root) return;
-    const signature = JSON.stringify({running, selectedSweepRunId, runs: runs.map(run =>
+    const signature = JSON.stringify({running, saved, selectedSweepRunId, runs: runs.map(run =>
         ({id: run.id, status: run.status, limits: run.plannedLimits, steps: run.steps}))});
     if (signature === lastLiveSweepSignature) return;
     lastLiveSweepSignature = signature;
@@ -759,8 +780,9 @@ function renderLiveSweepChart(runs, running) {
         .sort((a, b) => a.x - b.x)})).filter(line => line.points.length);
     root.replaceChildren();
     if (!available.length) {
-        root.append(make('div', 'sweep-chart-empty', t(running
-            ? 'benchmark_sweep_waiting_points' : 'benchmark_sweep_no_live_curve')));
+        root.append(make('div', 'sweep-chart-empty', saved
+            ? t('benchmark_sweep_no_saved_curve')
+            : t(running ? 'benchmark_sweep_waiting_points' : 'benchmark_sweep_no_live_curve')));
         return;
     }
     const selected = available.find(line => line.run.id === selectedSweepRunId)
@@ -982,6 +1004,7 @@ async function loadProfiles() {
         if (resultsPage) updateComparisonDevices(snapshot);
         const profiles = forSelectedGpu(snapshot.sweeps);
         $('overview-efficiency').textContent = new Intl.NumberFormat(window.SolarMinerI18n.locale).format(profiles.length);
+        renderSweepView();
         const signature = JSON.stringify(profiles);
         if (signature === lastProfileSignature) return;
         lastProfileSignature = signature;
@@ -1156,10 +1179,19 @@ function refreshGpuResults() {
     if (latestBenchmarkState) renderResults(latestBenchmarkState.results, latestBenchmarkState.running, latestBenchmarkState.phase);
     if (latestSweepState) {
         renderSweepRuns(forSelectedGpu(latestSweepState.runs), latestSweepState.running);
-        renderLiveSweepChart(forSelectedGpu(latestSweepState.runs), latestSweepState.running);
+        renderSweepView();
     }
     renderSavedBenchmarks();
     renderProfiles();
+}
+if (resultsPage) {
+    $('sweep-view-live').addEventListener('click', () => {
+        sweepViewMode = 'live'; selectedSweepRunId = null; lastLiveSweepSignature = null; renderSweepView();
+    });
+    $('sweep-view-saved').addEventListener('click', () => {
+        sweepViewMode = 'saved'; selectedSweepRunId = null; lastLiveSweepSignature = null; renderSweepView();
+        renderProfiles();
+    });
 }
 async function loadComparison() {
     if (!resultsPage) return;

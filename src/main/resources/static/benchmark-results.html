@@ -7,8 +7,8 @@
     <title data-i18n="solarminer_benchmark_results">SolarMiner · Ergebnisse</title>
     <link rel="stylesheet" href="/css/agent.css">
     <link rel="stylesheet" href="/css/workspace.css">
-    <link rel="stylesheet" href="/css/benchmarks.css?v=20261017-results-layout">
-    <script src="/js/core/i18n-catalog.js?v=20261017-results-layout" defer></script>
+    <link rel="stylesheet" href="/css/benchmarks.css?v=20261017-saved-sweep-view">
+    <script src="/js/core/i18n-catalog.js?v=20261017-saved-sweep-view" defer></script>
     <script src="/js/core/i18n.js?v=20261012-benchmark-live-dashboard" defer></script>
     <script src="/js/core/live-data.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/core/components.js?v=20261012-benchmark-live-dashboard" defer></script>
@@ -16,7 +16,7 @@
     <script src="/js/chrome/fee-tier-badge.js?v=20261012-benchmark-live-dashboard" defer></script>
     <script src="/js/chrome/wallet-strip.js?v=20261016-global-wallet-strip" defer></script>
     <script src="/js/chrome/workspace.js?v=20261017-gpu-concurrency" defer></script>
-    <script src="/js/pages/benchmarks.js?v=20261017-results-layout" defer></script>
+    <script src="/js/pages/benchmarks.js?v=20261017-saved-sweep-view" defer></script>
 </head>
 <body class="benchmark-page benchmark-results-page">
 <div class="shell">
@@ -50,7 +50,11 @@
             <p id="comparison-detail" class="muted" data-i18n="coin_hopping_gross_note">Brutto-Prognose vor Poolgebühren, Minergebühren und Stromkosten. Sweep- und Betriebsmessungen mit frischen Netzwerkkursen werden gleich behandelt.</p>
         </section>
         <section class="panel current-sweep-panel">
-            <div class="section-head"><div><p class="kicker" data-i18n="power_limit_sweep">POWER-LIMIT-SWEEP</p><h2 data-i18n="benchmark_current_sweep">Aktueller Power Sweep</h2><p class="muted" data-i18n="benchmark_current_sweep_intro">Wähle einen Coin und Algorithmus, um die gemessene Worker-Kurve zu sehen.</p></div></div>
+            <div class="section-head"><div><p class="kicker" data-i18n="power_limit_sweep">POWER-LIMIT-SWEEP</p><h2 data-i18n="benchmark_sweep_curve_heading">Power-Sweep-Kurve</h2><p class="muted" data-i18n="benchmark_sweep_curve_intro">Schalte zwischen dem laufenden Sweep und gespeicherten Profilen um. Wähle einen Algorithmus, um seine Kurve groß zu sehen.</p></div></div>
+            <div class="sweep-view-controls" role="group" data-i18n-aria-label="benchmark_sweep_view" aria-label="Power-Sweep-Ansicht">
+                <button id="sweep-view-live" class="sweep-view-button selected" type="button" aria-pressed="true" data-i18n="benchmark_sweep_live_view">Aktueller Sweep</button>
+                <button id="sweep-view-saved" class="sweep-view-button" type="button" aria-pressed="false" data-i18n="benchmark_sweep_saved_view">Gespeichertes Profil</button>
+            </div>
             <div id="sweep-live-chart" class="sweep-live-chart prominent-sweep-chart" role="region" data-i18n-aria-label="benchmark_sweep_curve_aria" aria-label="Effizienzkurve während des Power-Limit-Tests"></div>
             <div id="sweep-runs" class="benchmark-results" hidden></div>
         </section>
@@ -116,7 +120,7 @@
             </div>
             <label class="control-setting"><input id="sharing" type="checkbox"><span><strong data-i18n="share_anonymous_performance_data">Anonyme Leistungswerte teilen</strong><small data-i18n="the_pc_agent_periodically_sends_active_hashr">Der PC-Agent sendet regelmäßig aktive Hashrate sowie verfügbare Leistungsaufnahme und Leistungsziel. Hardwaremodell und Algorithmus werden für den Vergleich benötigt. Keine Wallets, Pool-Zugangsdaten, IP-Adresse oder sonstige Sensordaten.</small></span><span
                     class="toggle"></span></label>
-            <p id="sharing-note" class="muted" data-i18n="off_by_default_turning_it_off_later_sends_a">Standardmäßig deaktiviert. Eine spätere Deaktivierung sendet eine
+            <p id="sharing-note" class="muted" data-i18n="on_by_default_turning_it_off_later_sends_a">Standardmäßig aktiviert. Eine spätere Deaktivierung sendet eine
                 Widerrufsmeldung.</p></section></details>
         <dialog id="share-prompt" class="worker-editor">
             <form method="dialog">

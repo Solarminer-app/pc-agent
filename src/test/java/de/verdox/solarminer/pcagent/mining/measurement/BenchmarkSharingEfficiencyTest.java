@@ -20,6 +20,7 @@ class BenchmarkSharingEfficiencyTest {
     void retainsEverySweepStepForTheConsentGatedUpload() {
         BenchmarkSharingService sharing = new BenchmarkSharingService(mock(MiningService.class), new ObjectMapper(),
                 RestClient.builder(), "http://127.0.0.1:1", temp.resolve("sharing.json").toString());
+        sharing.setSharingEnabled(false);
         var stable = new GpuEfficiencyStore.StepResult(320, 90_000_000d, 310d, 72d, true, null);
         var unstable = new GpuEfficiencyStore.StepResult(250, null, null, 78d, false, "instabil");
         var profile = new GpuEfficiencyStore.Profile("GPU-one", "TITAN RTX", "ravencoin", "KAWPOW",
