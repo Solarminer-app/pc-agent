@@ -1,5 +1,16 @@
 # PC-Agent work log
 
+## 2026-10-17 — GPU model details on worker hover
+
+- Hovering a GPU model in the local Workers table now shows its driver-reported
+  model, vendor, GPU index and device ID. The detail is localized in German and
+  English. Board variants such as Founders Edition or Aorus are not inferred;
+  current inventory discovery does not guarantee those retail identifiers.
+- Verification: `node --check` for `workers.js`, German/English catalog check
+  (1,562 keys, 12 pages), two-locale render simulation, literal scan (zero
+  unkeyed browser strings) and `git diff --check` passed. No GPU hardware or
+  browser visual pass was run.
+
 ## 2026-10-17 — Default benchmark and sweep sharing
 
 - Confirmed that completed efficiency sweeps call `reportEfficiencyResults`; when

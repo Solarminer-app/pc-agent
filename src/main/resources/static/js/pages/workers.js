@@ -109,7 +109,17 @@
 
   const columns = [
     {label: 'component', key: 'hardwareModel', width: '19%', render: worker => {
-      const wrap = ui.element('div'); wrap.append(ui.element('strong', '', worker.hardwareModel));
+      const wrap = ui.element('div');
+      const model = ui.element('strong', '', worker.hardwareModel);
+      if (worker.hardwareType === 'GPU') {
+        model.title = t('worker_hardware_details', {
+          model: worker.hardwareModel || worker.deviceId,
+          vendor: worker.vendor || 'GPU',
+          index: worker.index ?? '—',
+          device: worker.deviceId
+        });
+      }
+      wrap.append(model);
       wrap.append(ui.element('span', 'cell-sub', worker.deviceId)); return wrap;
     }},
     {label: 'assignment', key: 'coinName', width: '18%', render: worker => {

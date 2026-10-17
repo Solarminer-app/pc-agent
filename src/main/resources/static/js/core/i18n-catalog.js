@@ -711,6 +711,10 @@ window.SolarMinerI18nCatalog = {
         "complete_setup": {de: "Einrichtung abschließen", en: "Complete setup"},
         "completed_runs_count": {de: "Abgeschlossene Läufe ({count})", en: "Completed runs ({count})"},
         "component": {de: "Komponente", en: "Component"},
+        "worker_hardware_details": {
+            de: "Erkanntes Modell: {model} · Hersteller: {vendor} · GPU {index} · Gerätekennung: {device}",
+            en: "Detected model: {model} · Vendor: {vendor} · GPU {index} · Device ID: {device}"
+        },
         "component_consumption_from_available_cpu_pac": {
             de: "Komponentenverbrauch aus verfügbaren CPU-Package- und GPU-Board-Sensoren · Tarif {tariff} {currency}/kWh. Netzteil- und übrige Systemverluste können fehlen.",
             en: "Component consumption from available CPU package and GPU board sensors · Rate {tariff} {currency}/kWh. Power supply and other system losses may be missing."
