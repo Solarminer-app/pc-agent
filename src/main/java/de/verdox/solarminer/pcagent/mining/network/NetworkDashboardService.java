@@ -406,6 +406,10 @@ public class NetworkDashboardService {
                 applied = worker != null && coinRevenueMode != null
                         && coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), mode, true).success();
             } else applied = enabled ? ownWorkers.start(deviceId) : ownWorkers.pause(deviceId);
+            if (applied && enabled && ownControls.get().manuallyStopped(deviceId))
+                applied = ownControls.setWorkerManuallyStopped(deviceId, false);
+            if (applied && !enabled && ownControls.get().startsOnBoot(deviceId))
+                applied = ownControls.setWorkerManuallyStopped(deviceId, true);
             if (applied && !enabled && coinRevenueMode != null) coinRevenueMode.cancelLocalStart(deviceId);
             if (applied) status.invalidate("workers", "overview", "power-control", "energy");
             return applied;

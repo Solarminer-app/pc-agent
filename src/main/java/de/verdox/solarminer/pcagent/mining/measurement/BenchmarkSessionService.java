@@ -201,13 +201,14 @@ public class BenchmarkSessionService {
                 benchmarkLog(Coin.PEARL.id(), "Benchmark setup skipped: " + skippedSetup);
             if (installed) {
                 update(mode, "Pausing current miners", 0, totalPhases, observations);
-                if (xmrWasMining) pauseForBenchmark(Coin.MONERO.id(), "capturing the pre-benchmark state");
+                if (xmrWasMining && !pauseForBenchmark(Coin.MONERO.id(), "capturing the pre-benchmark state"))
+                    throw new IllegalStateException("benchmark_stop_failed");
                 for (Map.Entry<String, GpuCoinMiner.WorkerPauseSnapshot> snapshot : adapterSnapshots.entrySet())
                     if (!snapshot.getValue().runningDeviceIds().isEmpty())
-                        MinerStopContext.with("Benchmark: capturing the pre-benchmark state", () -> {
+                        if (!MinerStopContext.with("Benchmark: capturing the pre-benchmark state", () -> {
                             String[] parts = snapshot.getKey().split("\\|", 2);
                             return miners.gpuMiner(Coin.byIdOrNull(parts[0]), parts[1]).stopAll();
-                        });
+                        })) throw new IllegalStateException("benchmark_stop_failed");
             }
             for (String phase : phases) {
                 // GPU work is scheduled below in per-device batches. Leaving the CPU phase
@@ -235,7 +236,8 @@ public class BenchmarkSessionService {
                     benchmarkLog(phase, "Phase skipped:" + reason);
                     if (installed) {
                         benchmarkLog(phase, "Benchmark pauses miner after skipped phase.");
-                        pauseForBenchmark(phase, "skipped phase");
+                        if (!pauseForBenchmark(phase, "skipped phase"))
+                            throw new IllegalStateException("benchmark_stop_failed");
                     }
                     continue;
                 }
@@ -284,7 +286,8 @@ public class BenchmarkSessionService {
                         + " valid samples." + (unavailable.isEmpty() ? "" : " Unavailable workers: " + String.join(", ", unavailable)));
                 if (installed) {
                     benchmarkLog(phase, "Benchmark pauses miner after measurement to restore the previous state.");
-                    pauseForBenchmark(phase, "measurement phase complete");
+                    if (!pauseForBenchmark(phase, "measurement phase complete"))
+                        throw new IllegalStateException("benchmark_stop_failed");
                 }
                 update(mode, "Summarizing", index, totalPhases, observations);
             }
@@ -326,24 +329,29 @@ public class BenchmarkSessionService {
                 error = "Could not save local benchmark profiles";
             }
             List<AutoStartResult> autoStartResults = List.of();
+            boolean cancelledBeforeAutoStart;
             try {
                 try {
                     sharing.reportManualResults(captured);
                 } catch (RuntimeException sharingFailure) {
                     if (error == null) error = "Could not prepare benchmark sharing";
                 }
+                cancelledBeforeAutoStart = guard.cancelRequested();
                 if (startMiningAfterBenchmark) {
-                    autoStartResults = guard.cancelRequested()
-                            ? skippedAutoStarts(workers, "benchmark_auto_start_cancelled")
-                            : !measurementSucceeded || !restoreSucceeded
-                            ? skippedAutoStarts(workers, "benchmark_auto_start_failed_run")
-                            : startConfiguredWorkers(workers);
+                    if (cancelledBeforeAutoStart)
+                        autoStartResults = skippedAutoStarts(workers, "benchmark_auto_start_cancelled");
+                    else if (!measurementSucceeded || !restoreSucceeded)
+                        autoStartResults = skippedAutoStarts(workers, "benchmark_auto_start_failed_run");
+                    else {
+                        update(mode, "benchmark_auto_start_verifying", totalPhases, totalPhases, observations);
+                        autoStartResults = confirmAutoStarts(startConfiguredWorkers(workers), Duration.ofSeconds(240));
+                    }
                 }
             } finally {
                 guard.end();
             }
             Session old = session;
-            String result = error != null ? "Error: " + error : guard.cancelRequested() ? "Cancelled; previous miner state restored"
+            String result = error != null ? "Error: " + error : cancelledBeforeAutoStart ? "Cancelled; previous miner state restored"
                     : "Complete; previous miner state restored" + (skipped.isEmpty() ? "" : "; skipped: " + String.join(", ", skipped));
             session = new Session(false, mode.wireName(), result, old.startedAt(), Instant.now(), null,
                     old.phaseCount(), old.phaseCount(), summarize(observations), null,
@@ -359,7 +367,7 @@ public class BenchmarkSessionService {
                 continue;
             }
             try {
-                if (!assignments.pause(deviceId)) throw new IllegalStateException("benchmark_auto_start_stop_failed");
+                if (!assignments.stopForBenchmarkRestart(deviceId)) throw new IllegalStateException("benchmark_auto_start_stop_failed");
                 if (!assignments.startWithHeldRunLock(deviceId))
                     throw new IllegalStateException("benchmark_auto_start_start_failed");
                 outcomes.add(new AutoStartResult(deviceId, "STARTED", null));
@@ -369,6 +377,45 @@ public class BenchmarkSessionService {
             }
         }
         return List.copyOf(outcomes);
+    }
+
+    /** A successful start call is provisional until live telemetry reports positive hashrate. */
+    List<AutoStartResult> confirmAutoStarts(List<AutoStartResult> starts, Duration timeout) {
+        Map<String, AutoStartResult> results = new LinkedHashMap<>();
+        starts.forEach(result -> results.put(result.deviceId(), result));
+        Set<String> pending = new LinkedHashSet<>();
+        starts.stream().filter(result -> "STARTED".equals(result.status()))
+                .map(AutoStartResult::deviceId).forEach(pending::add);
+        Instant deadline = Instant.now().plus(timeout);
+        while (!pending.isEmpty()) {
+            Map<String, List<MinerStats.Worker>> live = new LinkedHashMap<>();
+            try {
+                for (MinerStats.Worker worker : mining.getWorkerStats())
+                    live.computeIfAbsent(worker.deviceId(), ignored -> new ArrayList<>()).add(worker);
+            } catch (RuntimeException telemetryFailure) {
+                // A transient miner API read must not erase a successful start. Retry until
+                // the shared verification deadline, then report the unconfirmed workers.
+            }
+            for (Iterator<String> iterator = pending.iterator(); iterator.hasNext(); ) {
+                String deviceId = iterator.next();
+                List<MinerStats.Worker> workers = live.getOrDefault(deviceId, List.of());
+                if (workers.stream().anyMatch(worker -> worker.miningStatus() == MinerStats.MinerStatus.MINING
+                        && hasValidHashrate(worker))) {
+                    iterator.remove();
+                } else if (!workers.isEmpty() && workers.stream()
+                        .allMatch(worker -> worker.miningStatus() == MinerStats.MinerStatus.ERROR)) {
+                    results.put(deviceId, new AutoStartResult(deviceId, "FAILED", "benchmark_auto_start_miner_error"));
+                    iterator.remove();
+                }
+            }
+            if (pending.isEmpty()) break;
+            if (guard.cancelRequested() || !Instant.now().isBefore(deadline)) break;
+            try { Thread.sleep(SAMPLE_INTERVAL_MILLIS); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
+        }
+        for (String deviceId : pending)
+            results.put(deviceId, new AutoStartResult(deviceId, "FAILED", "benchmark_auto_start_no_hashrate"));
+        return List.copyOf(results.values());
     }
 
     private static List<AutoStartResult> skippedAutoStarts(Set<String> workerIds, String reason) {
@@ -526,11 +573,14 @@ public class BenchmarkSessionService {
             // This is an orchestration stop, not an operator pause.  In particular, do not
             // mark a temporarily assigned card as manually paused before the saved state is
             // restored.
+            boolean stopped = true;
             for (Coin coin : batch.assignments().keySet())
-                MinerStopContext.with("Benchmark: measurement phase complete", () -> miners.gpuMiner(coin, batch.softwareId()).stopAll());
+                stopped = MinerStopContext.with("Benchmark: measurement phase complete",
+                        () -> miners.gpuMiner(coin, batch.softwareId()).stopAll()) && stopped;
             for (Coin coin : batch.assignments().keySet()) miners.gpuMiner(coin, batch.softwareId()).clearBenchmarkOverride();
             for (List<LocalGpuPowerService.Gpu> cards : batch.assignments().values())
                 for (LocalGpuPowerService.Gpu gpu : cards) miners.clearBenchmarkSoftware(gpu.deviceId());
+            if (!stopped) throw new IllegalStateException("benchmark_stop_failed");
         }
     }
     private List<MinerStats.Worker> phaseWorkers(String phase, boolean miningOnly, Set<String> selection, Set<String> selectedWorkers) {

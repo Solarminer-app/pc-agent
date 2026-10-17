@@ -281,10 +281,9 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
         if (MinerProcessRegistry.gpuCoinUsesDevice(gpu.deviceId()))
             return fail(run, "This GPU is already mining RVN or ETC; pause that GPU worker first");
         if (hasExternalMiner()) {
-            run.status = MinerStats.MinerStatus.MINING;
-            run.detail = "SRBMiner is running externally; no second process started";
-            run.error = null;
-            return true;
+            fail(run, "External SRBMiner blocks Pearl / Externer SRBMiner blockiert Pearl");
+            lastError = "pearl_external_miner_blocks_start";
+            return false;
         }
         refreshDefaultPayout();
         MinerConfig route = effectiveConfig();

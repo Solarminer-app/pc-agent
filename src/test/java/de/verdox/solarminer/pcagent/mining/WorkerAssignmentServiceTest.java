@@ -31,6 +31,25 @@ class WorkerAssignmentServiceTest {
     @TempDir Path directory;
 
     @Test
+    void benchmarkRestartStopsWorkerWithoutResettingItsPowerModeTarget() {
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test GPU", 100, 250,
+                100, 250, 200, 150.0, "measured", true, null);
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        when(power.discover()).thenReturn(List.of(gpu));
+        MiningService mining = mock(MiningService.class);
+        when(mining.stopExternalWorker("GPU-a", "Benchmark: worker restart / Worker-Neustart")).thenReturn(true);
+        WorkerAssignmentService service = new WorkerAssignmentService(mock(AgentControlSettingsService.class),
+                mining, power, mock(MinerCatalogService.class),
+                mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class),
+                mock(PayoutDefaultsService.class), mock(ProxyConfigurationService.class));
+
+        org.junit.jupiter.api.Assertions.assertTrue(service.stopForBenchmarkRestart("GPU-a"));
+
+        verify(mining).stopExternalWorker("GPU-a", "Benchmark: worker restart / Worker-Neustart");
+        verify(power, never()).restoreConfiguredPowerLimit("GPU-a");
+    }
+
+    @Test
     void assigningQuanPoolToOneGpuDoesNotChangeAnotherGpu() throws Exception {
         var first = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "First GPU", 100, 250,
                 100, 250, 200, 150.0, "measured", true, null);

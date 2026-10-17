@@ -85,9 +85,11 @@ public final class SrbGpuCoinView implements GpuCoinMiner {
             String[] parts = gpuKey.split(":");
             success = service.pauseGpu(key(), parts[0], Integer.parseInt(parts[1])) && success;
         }
+        if (!success) return false;
         if (runningBefore != null) for (String deviceId : runningBefore) {
-            power.discover().stream().filter(gpu -> gpu.deviceId().equals(deviceId)).findFirst().ifPresent(gpu ->
-                    service.resumeGpu(key(), gpu.vendor(), gpu.index()));
+            LocalGpuPowerService.Gpu gpu = power.discover().stream()
+                    .filter(card -> card.deviceId().equals(deviceId)).findFirst().orElse(null);
+            success = gpu != null && service.resumeGpu(key(), gpu.vendor(), gpu.index()) && success;
         }
         return success;
     }

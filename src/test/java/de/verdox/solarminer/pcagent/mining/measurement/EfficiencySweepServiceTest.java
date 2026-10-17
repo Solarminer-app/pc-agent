@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.time.Instant;
 import java.util.Set;
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -15,8 +16,77 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
+import de.verdox.solarminer.pcagent.miner.GpuCoinMiner;
+import de.verdox.solarminer.pcagent.miner.MinerConfig;
+import de.verdox.solarminer.pcagent.miner.MinerFactory;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.when;
 
 class EfficiencySweepServiceTest {
+    @Test
+    void referenceStartRespectsUserMaximumAndUsesCurrentCapWithoutDriverDefault() {
+        var capped = new LocalGpuPowerService.Gpu("NVIDIA", 0, "one", "GPU", 100, 320,
+                100, 200, 180, 25.0, "measured", true, null, 300);
+        var noDefault = new LocalGpuPowerService.Gpu("NVIDIA", 0, "one", "GPU", 100, 320,
+                100, 200, 180, 25.0, "measured", true, null);
+
+        assertEquals(200, EfficiencySweepService.referenceStartLimit(capped));
+        assertEquals(180, EfficiencySweepService.referenceStartLimit(noDefault));
+    }
+
+    @Test
+    void firstCoinStartupFailureStillRunsSecondCoinOnSameGpu() throws Exception {
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "one", "GPU", 100, 320,
+                200, 200, 200, 25.0, "measured", true, null, 300);
+        MinerFactory miners = mock(MinerFactory.class);
+        when(miners.srbBinaryAvailable()).thenReturn(true);
+        GpuCoinMiner inactive = mock(GpuCoinMiner.class);
+        GpuCoinMiner pearl = mock(GpuCoinMiner.class);
+        GpuCoinMiner raven = mock(GpuCoinMiner.class);
+        when(miners.gpuMiner(any(Coin.class))).thenReturn(inactive);
+        when(miners.gpuMiner(Coin.PEARL)).thenReturn(pearl);
+        when(miners.gpuMiner(Coin.RAVENCOIN)).thenReturn(raven);
+        for (GpuCoinMiner miner : List.of(pearl, raven)) {
+            when(miner.configuration()).thenReturn(new MinerConfig("pool", "proxy", "wallet", "worker", "NVIDIA:0"));
+            when(miner.selectedGpus()).thenReturn(List.of(gpu));
+            when(miner.stopGpu("NVIDIA", 0)).thenReturn(true);
+        }
+        when(inactive.stopGpu("NVIDIA", 0)).thenReturn(true);
+        when(pearl.restoreState(isNull())).thenReturn(true);
+        when(pearl.reportedAlgorithm()).thenReturn("PearlHash");
+        when(raven.reportedAlgorithm()).thenReturn("KAWPOW");
+        when(pearl.resumeGpu("NVIDIA", 0)).thenReturn(false);
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        when(power.discover()).thenReturn(List.of(gpu));
+        when(power.refresh()).thenReturn(List.of(gpu));
+        when(power.restorePowerLimits(any())).thenReturn(true);
+        when(power.setSweepPowerTarget(eq(200L), eq(gpu))).thenReturn(true, false);
+        var service = new EfficiencySweepService(miners, power, mock(de.verdox.solarminer.pcagent.miner.MinerConsoleService.class),
+                mock(de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService.class),
+                mock(de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService.class),
+                mock(GpuEfficiencyStore.class), mock(BenchmarkSharingService.class), new LocalRunLock(),
+                15, 85, 0.1, 240);
+
+        service.start(List.of("pearl", "ravencoin"), List.of("one"), 1);
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            while (service.status().running()) Thread.sleep(10);
+        });
+
+        var runs = service.status().runs();
+        assertTrue(service.status().phase().startsWith("Fertig"));
+        assertEquals(List.of("pearl", "ravencoin"), runs.stream().map(EfficiencySweepService.RunStatus::coin).toList());
+        assertTrue(runs.stream().allMatch(run -> run.status() == SweepRunState.FAILED && run.steps().size() == 1));
+        assertTrue(runs.getFirst().steps().getFirst().note().contains("Miner konnte nicht gestartet werden"));
+        verify(pearl).resumeGpu("NVIDIA", 0);
+        verify(power, times(2)).setSweepPowerTarget(eq(200L), eq(gpu));
+    }
+
     @Test
     void candidateLimitsSweepDownwardFromCurrentAndAlwaysEndAtTheEffectiveMinimum() {
         List<Integer> limits = EfficiencySweepService.candidateLimits(65, 120, 15);

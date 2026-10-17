@@ -8,6 +8,7 @@ import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,12 +29,12 @@ class BenchmarkSessionServiceTest {
     @Test
     void autoStartUsesConfiguredWorkerPathAndKeepsFailuresPerWorker() {
         WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
-        when(assignments.pause("cpu")).thenReturn(true);
+        when(assignments.stopForBenchmarkRestart("cpu")).thenReturn(true);
         when(assignments.startWithHeldRunLock("cpu")).thenReturn(true);
-        when(assignments.pause("gpu-a")).thenReturn(true);
+        when(assignments.stopForBenchmarkRestart("gpu-a")).thenReturn(true);
         when(assignments.startWithHeldRunLock("gpu-a"))
                 .thenThrow(new IllegalStateException("power_mode_no_measured_point"));
-        when(assignments.pause("gpu-b")).thenReturn(false);
+        when(assignments.stopForBenchmarkRestart("gpu-b")).thenReturn(false);
         BenchmarkSessionService service = new BenchmarkSessionService(mock(MiningService.class),
                 mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class),
                 mock(BenchmarkSharingService.class), mock(MinerConsoleService.class), mock(LocalRunLock.class),
@@ -52,6 +53,35 @@ class BenchmarkSessionServiceTest {
         org.mockito.Mockito.verify(assignments).startWithHeldRunLock("gpu-a");
         org.mockito.Mockito.verify(assignments, org.mockito.Mockito.never()).startWithHeldRunLock("gpu-b");
         service.close();
+    }
+
+    @Test
+    void autoStartOnlyReportsSuccessAfterPositiveLiveHashrate() {
+        MiningService mining = mock(MiningService.class);
+        when(mining.getWorkerStats()).thenReturn(List.of(
+                autoStartWorker("gpu-a", MinerStats.MinerStatus.MINING, 0.000000000002),
+                autoStartWorker("gpu-b", MinerStats.MinerStatus.MINING, 0),
+                autoStartWorker("gpu-c", MinerStats.MinerStatus.ERROR, 0),
+                autoStartWorker("gpu-a", MinerStats.MinerStatus.ERROR, 0)));
+        BenchmarkSessionService service = new BenchmarkSessionService(mining,
+                mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class),
+                mock(BenchmarkSharingService.class), mock(MinerConsoleService.class), new LocalRunLock(),
+                mock(MiningPerformanceProfileStore.class), mock(WorkerAssignmentService.class));
+
+        var results = service.confirmAutoStarts(List.of(
+                new BenchmarkSessionService.AutoStartResult("gpu-a", "STARTED", null),
+                new BenchmarkSessionService.AutoStartResult("gpu-b", "STARTED", null),
+                new BenchmarkSessionService.AutoStartResult("gpu-c", "STARTED", null)), Duration.ZERO);
+
+        assertEquals("STARTED", results.get(0).status());
+        assertEquals("benchmark_auto_start_no_hashrate", results.get(1).message());
+        assertEquals("benchmark_auto_start_miner_error", results.get(2).message());
+        service.close();
+    }
+
+    private static MinerStats.Worker autoStartWorker(String id, MinerStats.MinerStatus status, double rate) {
+        return new MinerStats.Worker(status, id, "KAWPOW", rate, 60, 200, 100, 200, 300,
+                180, List.of(), "GPU", "Test GPU", id, null, null, MinerStats.PoolTelemetry.unavailable());
     }
 
     @Test

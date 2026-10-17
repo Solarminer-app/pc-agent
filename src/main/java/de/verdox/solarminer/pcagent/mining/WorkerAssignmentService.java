@@ -260,6 +260,12 @@ public class WorkerAssignmentService {
         return true;
     }
 
+    /** Benchmark cleanup only needs to stop a restored process; start reapplies the saved mode. */
+    public synchronized boolean stopForBenchmarkRestart(String deviceId) {
+        hardware(deviceId);
+        return mining.stopExternalWorker(deviceId, "Benchmark: worker restart / Worker-Neustart");
+    }
+
     /**
      * Used only after {@link de.verdox.solarminer.pcagent.mining.economics.EconomicPlanningService}
      * has validated a short-lived Node plan.
@@ -330,7 +336,8 @@ public class WorkerAssignmentService {
                 selected == null ? null : selected.id(), selected == null ? null : selected.name(),
                 selected != null && selected.installed(), configured, pool,
                 controls.get().workerEnabled(deviceId), live == null ? MinerStats.MinerStatus.STOPPED : live.miningStatus(), live,
-                controls.get().powerModeFor(deviceId));
+                controls.get().powerModeFor(deviceId), controls.get().startsOnBoot(deviceId),
+                controls.get().manuallyStopped(deviceId));
     }
 
     private void synchronizeConfiguredDevices(Object... changedAssignments) throws IOException {
@@ -384,13 +391,24 @@ public class WorkerAssignmentService {
     public record WorkerView(String deviceId, String hardwareType, String hardwareModel, String vendor, Integer index,
                              String coin, String coinName, String algorithm, String minerSoftwareId, String minerSoftwareName,
                              boolean minerInstalled, boolean configured, String poolUrl, boolean externalControlEnabled,
-                             MinerStats.MinerStatus status, MinerStats.Worker telemetry, String powerMode) {
+                             MinerStats.MinerStatus status, MinerStats.Worker telemetry, String powerMode,
+                             boolean startOnBoot, boolean manuallyStopped) {
+        public WorkerView(String deviceId, String hardwareType, String hardwareModel, String vendor, Integer index,
+                          String coin, String coinName, String algorithm, String minerSoftwareId, String minerSoftwareName,
+                          boolean minerInstalled, boolean configured, String poolUrl, boolean externalControlEnabled,
+                          MinerStats.MinerStatus status, MinerStats.Worker telemetry, String powerMode) {
+            this(deviceId, hardwareType, hardwareModel, vendor, index, coin, coinName, algorithm, minerSoftwareId,
+                    minerSoftwareName, minerInstalled, configured, poolUrl, externalControlEnabled, status, telemetry,
+                    powerMode, false, false);
+        }
+
         public WorkerView(String deviceId, String hardwareType, String hardwareModel, String vendor, Integer index,
                           String coin, String coinName, String algorithm, String minerSoftwareId, String minerSoftwareName,
                           boolean minerInstalled, boolean configured, String poolUrl, boolean externalControlEnabled,
                           MinerStats.MinerStatus status, MinerStats.Worker telemetry) {
             this(deviceId, hardwareType, hardwareModel, vendor, index, coin, coinName, algorithm, minerSoftwareId,
-                    minerSoftwareName, minerInstalled, configured, poolUrl, externalControlEnabled, status, telemetry, "MANUAL");
+                    minerSoftwareName, minerInstalled, configured, poolUrl, externalControlEnabled, status, telemetry,
+                    "MANUAL", false, false);
         }
     }
 }

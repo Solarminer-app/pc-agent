@@ -34,6 +34,7 @@ remains. The assigned task always takes precedence.
 | [~] | P1 | BUG-006 | The elevated Windows launcher can stall waiting for another administrator prompt. |
 | [~] | P2 | BUG-007 | Dashboard worker status labels benchmark runs as normal mining. |
 | [x] | P1 | BUG-008 | PC-Agent Beta fails to start because worker revenue beans form a Spring dependency cycle. |
+| [~] | P1 | BUG-009 | “Start mining after benchmark” can report a start while no worker is hashing. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -299,11 +300,27 @@ abort the sweep safely.
   with a limit of one GPU task, but focused queue tests still cannot establish
   why a reported live second-coin run did not begin. Live run status and miner
   logs remain required before changing failure continuation.
+- 2026-10-18: found a reproducible plan/execution mismatch. The initial run
+  plan used the current, user-bounded GPU cap, but execution required a driver
+  default and threw when it was absent or above the configured maximum. That
+  exception cancelled the queue and marked untouched coins failed. Both paths
+  now use a shared, user-bounded reference start cap; a missing driver default
+  uses the verified current cap. A two-coin service test confirms both runs are
+  attempted sequentially on one GPU when the first coin cannot start and the
+  second coin's power point fails. Whether this
+  explains the operator's live report still needs live status and miner logs.
+- A read-only `nvidia-smi` probe on the workspace host found five GPUs with
+  current caps below their driver defaults (for example 145 W vs 280 W). This
+  makes the mismatch plausible on this host, but does not reveal each Agent
+  user's configured maximum or prove the reported run hit that exception.
 
 ### Verification required
 
 - Run two configured coins on one writable GPU and confirm both start and
-  finish; repeat with a first-coin startup failure and verify safe continuation.
+  finish; repeat with a first-coin startup failure and verify safe continuation
+  on real miner and driver processes.
+- Capture `RunStatus` and the miner console if the queue still stops; a failed
+  miner stop remains a safety-critical whole-session abort.
 
 ## BUG-006 — Avoid a second Windows elevation request
 
@@ -410,3 +427,46 @@ PcAgentApplication` in a fresh temporary directory with a random HTTP port.
 The complete JDK 21 suite ran 241 tests with one previously documented,
 unrelated QuanPool GPU-selection failure. Focused revenue/assignment tests and
 both language-catalog checks are recorded in the 2026-10-17 work log.
+
+## BUG-009 — Verify mining after the benchmark
+
+**Status:** Under investigation (`[~]`, 2026-10-18)
+**Priority:** P1
+**Area:** Benchmark restoration and post-run worker start
+
+### Observed behaviour
+
+The operator sees “Start ausgelöst” but no mining after the benchmark. The
+previous result only reflected a successful start method return; it did not
+check subsequent miner telemetry or positive hashrate.
+
+### Investigation and remedy
+
+- After a successful start call, the benchmark now checks all selected workers
+  against live telemetry under one shared 240-second deadline. Only a `MINING`
+  worker with positive hashrate receives the confirmed result. Miner errors and
+  absent hashrate produce separate localized reasons. A transient stats read
+  is retried rather than erasing a start.
+- The restart path now stops a restored process without the ordinary operator
+  pause's extra configured-power reset. The saved operating mode reapplies its
+  own target at start.
+- `SrbGpuCoinView.restoreWorkerState` previously ignored the return value of
+  `resumeGpu` and a missing device, reporting success after a failed restore.
+  Both conditions now fail restoration so the benchmark skips unsafe auto-start.
+- Pearl's `startGpu` previously returned success when it saw an externally
+  started SRBMiner, even though it launched no PC-Agent process. This is a
+  direct false-success path consistent with the reported Pearl symptom. It now
+  fails with a concrete, localized blocking reason. Whether that branch caused
+  the operator's specific run is unproven without its miner console. A focused
+  test reproduces the false-success branch with an externally detected process.
+- The benchmark now checks stop results before starting measurements and after
+  GPU batches. It reports a stop failure instead of treating a possibly live
+  process as safely stopped.
+
+### Verification required
+
+- On a real agent, complete a benchmark with auto-start for CPU and GPU
+  separately, then with multiple GPUs. Confirm positive hashrate and pool jobs,
+  as well as both German and English result text.
+- Reproduce a miner that exits after its start call. Confirm the result names
+  the miner error or missing hashrate and includes no false success.

@@ -489,12 +489,7 @@ public class EfficiencySweepService {
         if (requestedLimits != null) {
             current = activeLimit(fresh);
         } else {
-            Integer driverDefault = fresh.driverDefaultWatts();
-            if (driverDefault == null)
-                throw new IllegalStateException("gpu_driver_default_power_target_unavailable");
-            if (driverDefault > fresh.maxWatts())
-                throw new IllegalStateException("gpu_driver_default_power_target_exceeds_configured_limit");
-            current = driverDefault;
+            current = referenceStartLimit(fresh);
         }
         List<Integer> limits = requestedLimits == null
                 ? candidateLimits(fresh.minWatts(), current, stepWatts) : requestedLimits;
@@ -522,7 +517,8 @@ public class EfficiencySweepService {
             if (!step.stable()) {
                 // Validation walks upward from the reference value; an unstable result
                 // there must not unlock a still higher power target on the same GPU.
-                if (mode != SweepMode.FULL || !mayContinueAfterUnstableStep(target, step)) break;
+                if (mode != SweepMode.FULL || limit == limits.getLast()
+                        || !mayContinueAfterUnstableStep(target, step)) break;
             }
             if (step.stable() && (best == null || step.medianHashrateHs() / step.avgPowerWatts() > best.medianHashrateHs() / best.avgPowerWatts()))
                 best = step;
@@ -622,6 +618,13 @@ public class EfficiencySweepService {
     private static int activeLimit(LocalGpuPowerService.Gpu gpu) {
         return gpu.currentPowerLimitWatts() == null ? gpu.minWatts()
                 : Math.min(gpu.maxWatts(), gpu.currentPowerLimitWatts());
+    }
+
+    /** Use the driver default when available, always respecting the operator's cap. */
+    static int referenceStartLimit(LocalGpuPowerService.Gpu gpu) {
+        Integer driverDefault = gpu.driverDefaultWatts();
+        return driverDefault == null ? activeLimit(gpu)
+                : Math.max(gpu.minWatts(), Math.min(gpu.maxWatts(), driverDefault));
     }
 
     /**
@@ -788,7 +791,7 @@ public class EfficiencySweepService {
                     Target target = group.get(index);
                     boolean reference = index == 0;
                     List<Integer> limits = reference
-                            ? candidateLimits(target.gpu().minWatts(), activeLimit(target.gpu()), stepWatts) : List.of();
+                            ? candidateLimits(target.gpu().minWatts(), referenceStartLimit(target.gpu()), stepWatts) : List.of();
                     runs.add(new RunStatus(runId(target), target.gpu().deviceId(), target.gpu().model(), target.coin(),
                             target.algorithm(), reference ? SweepMode.FULL : SweepMode.VALIDATION, SweepRunState.QUEUED, null, limits,
                             List.of(), 0, SAMPLES_PER_STEP, reference ? batchIndex : null,

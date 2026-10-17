@@ -197,7 +197,11 @@ public class WorkerController {
                 if (!result.success()) throw new ResponseStatusException(HttpStatus.CONFLICT, result.error());
                 started = true;
             } else started = workers.start(deviceId);
-            if (started) reportChanged("workers", "overview", "power-control");
+            if (started) {
+                if (controls.get().manuallyStopped(deviceId) && !controls.setWorkerManuallyStopped(deviceId, false))
+                    throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "worker_boot_setting_save_failed");
+                reportChanged("workers", "overview", "power-control");
+            }
             return started;
         }
         catch (IllegalArgumentException failure) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, failure.getMessage()); }
@@ -212,6 +216,8 @@ public class WorkerController {
     public boolean pause(@PathVariable String deviceId) {
         boolean paused = workers.pause(deviceId);
         if (paused) {
+            if (controls.get().startsOnBoot(deviceId) && !controls.setWorkerManuallyStopped(deviceId, true))
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "worker_boot_setting_save_failed");
             if (coinRevenueMode != null) {
                 coinRevenueMode.resetCooldown(deviceId);
                 coinRevenueMode.cancelLocalStart(deviceId);
@@ -219,6 +225,19 @@ public class WorkerController {
             reportChanged("workers", "overview", "power-control");
         }
         return paused;
+    }
+
+    @PostMapping("/{deviceId}/start-on-boot")
+    public WorkerAssignmentService.WorkerView startOnBoot(@PathVariable String deviceId, @RequestParam boolean enabled) {
+        WorkerAssignmentService.WorkerView worker = workers.workers().stream()
+                .filter(value -> deviceId.equals(value.deviceId())).findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "gpu_not_found"));
+        if (enabled && "none".equals(worker.coin()))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "worker_boot_requires_assignment");
+        if (!controls.setWorkerStartOnBoot(deviceId, enabled))
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "worker_boot_setting_save_failed");
+        reportChanged("workers", "settings");
+        return workers.workers().stream().filter(value -> deviceId.equals(value.deviceId())).findFirst().orElseThrow();
     }
 
     /**

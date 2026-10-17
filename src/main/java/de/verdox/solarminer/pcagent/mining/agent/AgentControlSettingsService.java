@@ -32,13 +32,24 @@ public class AgentControlSettingsService {
                            Map<String, Boolean> workerExternalControl, Map<String, String> workerCoins,
                            Map<String, String> workerCoinPolicies, Boolean networkSharingEnabled,
                            Boolean walletTargetSharingEnabled, Map<String, String> workerMiners,
-                           Map<String, String> workerPowerModes) {
+                           Map<String, String> workerPowerModes, Map<String, Boolean> workerStartOnBoot,
+                           Map<String, Boolean> workerManualStop) {
         public Settings {
             workerExternalControl = workerExternalControl == null ? Map.of() : Map.copyOf(workerExternalControl);
             workerCoins = workerCoins == null ? null : Map.copyOf(workerCoins);
             workerCoinPolicies = workerCoinPolicies == null ? Map.of() : Map.copyOf(workerCoinPolicies);
             workerMiners = workerMiners == null ? Map.of() : Map.copyOf(workerMiners);
             workerPowerModes = workerPowerModes == null ? Map.of() : Map.copyOf(workerPowerModes);
+            workerStartOnBoot = workerStartOnBoot == null ? Map.of() : Map.copyOf(workerStartOnBoot);
+            workerManualStop = workerManualStop == null ? Map.of() : Map.copyOf(workerManualStop);
+        }
+
+        /** Existing profile/API constructor; startup settings are local and preserved by update(). */
+        public Settings(boolean scaling, boolean external, Map<String, Boolean> workers, Map<String, String> coins,
+                        Map<String, String> policies, Boolean networkSharing, Boolean walletSharing,
+                        Map<String, String> miners, Map<String, String> powerModes) {
+            this(scaling, external, workers, coins, policies, networkSharing, walletSharing, miners,
+                    powerModes, Map.of(), Map.of());
         }
 
         public Settings(boolean scaling, boolean external, Map<String, Boolean> workers, Map<String, String> coins,
@@ -117,6 +128,14 @@ public class AgentControlSettingsService {
             return workerPowerModes.getOrDefault(workerId, "MANUAL");
         }
 
+        public boolean startsOnBoot(String workerId) {
+            return Boolean.TRUE.equals(workerStartOnBoot.get(workerId));
+        }
+
+        public boolean manuallyStopped(String workerId) {
+            return Boolean.TRUE.equals(workerManualStop.get(workerId));
+        }
+
         public boolean hasAutomaticPowerMode() {
             return workerPowerModes.entrySet().stream().anyMatch(entry -> !"MANUAL".equals(entry.getValue())
                     && !Coin.NONE.id().equals(coinFor(entry.getKey())));
@@ -144,7 +163,8 @@ public class AgentControlSettingsService {
                 value.workerCoinPolicies() == null ? settings.workerCoinPolicies() : Map.copyOf(value.workerCoinPolicies()),
                 value.networkSharingEnabled() == null ? settings.networkSharingEnabled() : value.networkSharingEnabled(),
                 value.walletTargetSharingEnabled() == null ? settings.walletTargetSharingEnabled() : value.walletTargetSharingEnabled(),
-                settings.workerMiners(), settings.workerPowerModes());
+                settings.workerMiners(), settings.workerPowerModes(),
+                settings.workerStartOnBoot(), settings.workerManualStop());
         if (!persist(value)) return false;
         settings = value;
         Runnable listener = feeTierListener;
@@ -192,7 +212,8 @@ public class AgentControlSettingsService {
         else miners.put(workerId, minerSoftwareId);
         Settings next = new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(),
                 settings.workerExternalControl(), coins, settings.workerCoinPolicies(), settings.networkSharingEnabled(),
-                settings.walletTargetSharingEnabled(), miners, settings.workerPowerModes());
+                settings.walletTargetSharingEnabled(), miners, settings.workerPowerModes(),
+                settings.workerStartOnBoot(), settings.workerManualStop());
         if (!persist(next)) return false;
         settings = next;
         return true;
@@ -217,9 +238,39 @@ public class AgentControlSettingsService {
         else next.put(workerId, mode);
         Settings updated = new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(),
                 settings.workerExternalControl(), settings.workerCoins(), settings.workerCoinPolicies(),
-                settings.networkSharingEnabled(), settings.walletTargetSharingEnabled(), settings.workerMiners(), next);
+                settings.networkSharingEnabled(), settings.walletTargetSharingEnabled(), settings.workerMiners(), next,
+                settings.workerStartOnBoot(), settings.workerManualStop());
         if (!persist(updated)) return false;
         settings = updated;
+        return true;
+    }
+
+    /** Opt-in per physical worker. Enabling clears a prior manual stop so the intent is explicit. */
+    public synchronized boolean setWorkerStartOnBoot(String workerId, boolean enabled) {
+        if (workerId == null || workerId.isBlank()) return false;
+        Map<String, Boolean> starts = new java.util.HashMap<>(settings.workerStartOnBoot());
+        Map<String, Boolean> stopped = new java.util.HashMap<>(settings.workerManualStop());
+        if (enabled) { starts.put(workerId, true); stopped.remove(workerId); }
+        else { starts.remove(workerId); stopped.remove(workerId); }
+        return saveStartupState(starts, stopped);
+    }
+
+    /** A local operator pause disarms the next boot until the operator starts this worker. */
+    public synchronized boolean setWorkerManuallyStopped(String workerId, boolean stopped) {
+        if (workerId == null || workerId.isBlank()) return false;
+        Map<String, Boolean> next = new java.util.HashMap<>(settings.workerManualStop());
+        if (stopped) next.put(workerId, true);
+        else next.remove(workerId);
+        return saveStartupState(settings.workerStartOnBoot(), next);
+    }
+
+    private boolean saveStartupState(Map<String, Boolean> starts, Map<String, Boolean> stopped) {
+        Settings next = new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(),
+                settings.workerExternalControl(), settings.workerCoins(), settings.workerCoinPolicies(),
+                settings.networkSharingEnabled(), settings.walletTargetSharingEnabled(), settings.workerMiners(),
+                settings.workerPowerModes(), starts, stopped);
+        if (!persist(next)) return false;
+        settings = next;
         return true;
     }
 

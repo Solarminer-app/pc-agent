@@ -185,13 +185,26 @@
           const update = ui.element('button', 'button primary', 'update_srbminer'); update.type = 'button';
           update.disabled = pendingWorkers.has(worker.deviceId);
           update.addEventListener('click', event => { event.stopPropagation(); updateMiner(worker, miner); }); wrap.append(update);
-          return wrap;
+        } else {
+          const starting = worker.status === 'STARTING' || pendingStarts.has(worker.deviceId);
+          const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, starting ? 'miner_starting' : running ? 'pause' : 'start');
+          toggle.type = 'button'; toggle.disabled = pendingWorkers.has(worker.deviceId) || starting || (!running && (worker.coin === 'none' || !worker.minerInstalled));
+          toggle.addEventListener('click', event => { event.stopPropagation(); action(worker, running ? 'pause' : 'start'); }); wrap.append(toggle);
         }
-        const starting = worker.status === 'STARTING' || pendingStarts.has(worker.deviceId);
-        const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, starting ? 'miner_starting' : running ? 'pause' : 'start');
-        toggle.type = 'button'; toggle.disabled = pendingWorkers.has(worker.deviceId) || starting || (!running && (worker.coin === 'none' || !worker.minerInstalled));
-        toggle.addEventListener('click', event => { event.stopPropagation(); action(worker, running ? 'pause' : 'start'); }); wrap.append(toggle);
       }
+      const bootLabel = ui.element('label', 'worker-boot-option');
+      const bootCheckbox = document.createElement('input'); bootCheckbox.type = 'checkbox';
+      bootCheckbox.checked = worker.startOnBoot === true;
+      bootCheckbox.setAttribute('aria-description', t('worker_start_on_boot_help'));
+      bootCheckbox.disabled = pendingWorkers.has(worker.deviceId) || (worker.coin === 'none' && !bootCheckbox.checked);
+      bootCheckbox.addEventListener('click', event => event.stopPropagation());
+      bootCheckbox.addEventListener('change', event => { event.stopPropagation(); void setStartOnBoot(worker, bootCheckbox.checked); });
+      bootLabel.append(bootCheckbox, ui.element('span', '', 'worker_start_on_boot'));
+      bootLabel.title = t('worker_start_on_boot_help');
+      bootLabel.addEventListener('click', event => event.stopPropagation());
+      wrap.append(bootLabel);
+      if (worker.startOnBoot && worker.manuallyStopped)
+        wrap.append(ui.element('span', 'cell-sub', 'worker_boot_paused_by_user'));
       return wrap;
     }}
   ];
@@ -398,6 +411,25 @@
     finally {
       pendingWorkers.delete(worker.deviceId);
       renderTable();
+    }
+  }
+
+  async function setStartOnBoot(worker, enabled) {
+    if (pendingWorkers.has(worker.deviceId)) return;
+    pendingWorkers.add(worker.deviceId); renderTable();
+    try {
+      const response = await fetch(`/api/agent/local/workers/${encodeURIComponent(worker.deviceId)}/start-on-boot?enabled=${enabled}`, {method: 'POST'});
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || body?.detail || `HTTP ${response.status}`);
+      }
+      notice(enabled ? 'worker_boot_enabled' : 'worker_boot_disabled');
+      await load();
+    } catch (error) {
+      notice(t('worker_action_failed') + ' ' + s(error.message), true, true);
+      await load();
+    } finally {
+      pendingWorkers.delete(worker.deviceId); renderTable();
     }
   }
 

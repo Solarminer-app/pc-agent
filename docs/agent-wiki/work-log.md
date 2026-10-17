@@ -1,5 +1,45 @@
 # PC-Agent work log
 
+## 2026-10-18 — Verify mining after benchmark
+
+- The optional post-benchmark start now stops restored workers without an
+  unnecessary power-target reset, then verifies all selected starts against
+  live positive hashrate within a shared 240-second window. The UI reports
+  confirmed mining or a localized miner-error/no-hashrate result instead of
+  treating an accepted start call as mining. / Der optionale Start prüft die
+  Live-Hashrate und zeigt Fehler pro Worker in Deutsch und Englisch.
+- SRBMiner restore now returns failure when a previously running GPU cannot be
+  found or restarted. Benchmark initial and batch stops now check their result.
+- Pearl no longer returns a successful start when an unmanaged SRBMiner is
+  present and no PC-Agent miner was launched; the start path reports the actual
+  external-process blocker in both locales. `PearlMinerExternalProcessTest`
+  reproduces the previous false-success branch.
+- Focused tests cover auto-start outcomes, positive-hashrate confirmation,
+  SRBMiner restore failure, and the dedicated restart stop. Real miner and
+  pool verification remains open under `docs/KNOWN_BUGS.md` BUG-009.
+- Verification / Prüfung: complete JDK 21 test suite, German/English
+  catalog check, both-locale render simulation, JavaScript syntax check and
+  `git diff --check` passed. Hardware confirmation remains open.
+
+## 2026-10-18 — Multi-coin power sweep reference cap
+
+- Fixed the mismatch between the queued sweep plan and execution: both now
+  start each reference curve at the driver default within the user's maximum,
+  or the verified current cap if no driver default is reported. Previously a
+  default above the user maximum or an absent default threw from a GPU task,
+  cancelled the entire queue and left later coins untested. / Planung und
+  Ausführung nutzen jetzt denselben begrenzten Startwert. Fehlende oder zu
+  hohe Treiber-Standardwerte brechen die Coin-Warteschlange nicht mehr ab.
+- Verification / Prüfung: focused `EfficiencySweepServiceTest` passed, including
+  a two-coin, one-GPU execution with first-coin miner startup failure and a
+  rejected power point for the next coin. The sweep skips its cooldown wait
+  after the final candidate power limit has already failed.
+  The full Java test suite, the 1,630-key German/English i18n catalog check and
+  `git diff --check` passed. A read-only `nvidia-smi` query confirmed five host
+  GPUs currently run below their reported driver defaults.
+  A live writable-GPU run and first-coin startup-failure check remain open in
+  `docs/KNOWN_BUGS.md` BUG-005.
+
 ## 2026-10-17 — Manual baseline in Results / Manueller Vergleichspunkt
 
 - Added `MANUAL` as a third Results comparison card using the selected GPU's
@@ -2941,3 +2981,9 @@ Vorgehen / Andockpunkte für andere Agenten:
   and `node --check` for both changed JavaScript files passed.
 - Native PC-Agent updates can now be started from a same-origin dashboard over the LAN. Removed the redundant loopback-only service check and frontend hostname gate; the existing same-origin write filter, supervised-launcher requirement, and release verification remain in force. Updated the German and English notice for installations without a supervised launcher. Verification: `node scripts/check-i18n.cjs` (1,628 keys, 13 pages, both locales), `node scripts/scan-i18n-literals.cjs` (zero literals), `node --check src/main/resources/static/js/pages/update.js`, and `git diff --check` passed. No live LAN update or native launcher restart was run.
 - The full GPU efficiency sweep now starts each card at the standard power target reported by its graphics driver (`Gpu.driverDefaultWatts`) before descending through lower limits. It fails with a localized reason when the driver does not report that value or when it exceeds the configured GPU limit; sweep restoration is unchanged. The German and English description names the driver as the source. Verification: both-language `check-i18n.cjs`, `scan-i18n-literals.cjs` (zero literals), `simulate-i18n-render.cjs` (all pages translated in both locales), `node --check` for `benchmarks.js`, and `git diff --check` passed. No GPU sweep was run on hardware.
+
+## 2026-10-18 — Per-worker miner start after PC-Agent restart
+
+- Added a bilingual start-after-restart checkbox to each local physical Worker row. Per-worker opt-in and manual-stop state persist separately; local or LAN-dashboard manual Pause suppresses boot start until a successful manual Start or explicit re-enable. Unassigned workers cannot be enabled.
+- Boot startup waits for the managed proxy gate, uses the ordinary worker start path and rechecks current operator intent before each attempt. It leaves already running workers alone and stops retrying five minutes after the proxy becomes ready.
+- Added settings persistence, boot orchestration and local action tests. Full offline JDK 21 `gradlew test` passed; JavaScript syntax, both-locale i18n catalog/literal/render checks and `git diff --check` passed. Hardware and real reboot verification remain open.
