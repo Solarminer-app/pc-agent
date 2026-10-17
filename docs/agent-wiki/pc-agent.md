@@ -29,12 +29,12 @@ Checked against `pc-agent/src/main/java` on 2026-10-02. This describes source st
   algorithm catalogue (including aliases) and treats the peer's already
   filtered earnings rows as available when the field is absent. Older peers have no control
   metadata and therefore remain view-only.
-- LAN worker rows also carry nullable `benchmarking`. A current agent sets it for
-  active mining workers while its benchmark or efficiency sweep is running, so
-  remote dashboards can show the localized measurement status without changing
-  the miner's `MINING` process state. Older peers omit the field and retain the
-  ordinary status display; local dashboard rows use the benchmark/sweep SSE
-  sessions for prompt updates.
+- LAN worker rows carry nullable `benchmarking` and `sweeping` flags. A current
+  agent sets `sweeping` for a mining worker whose device ID appears in an active
+  efficiency sweep; `benchmarking` retains the benchmark status. Local dashboard
+  and physical Workers rows use the benchmark/sweep SSE sessions for prompt
+  updates. The localized status is display-only: the miner remains `MINING`.
+  Older peers omit either field and retain the ordinary status display.
 - XMRig and SRBMiner worker status includes nullable `acceptedShares` and `rejectedShares`. `MinerShareTelemetry` normalizes XMRig good/total values and SRBMiner's direct or nested share objects; values are reset for each process session and hidden for stopped workers. The Core and Node miner-details contracts preserve these counters verbatim; missing counters mean the miner API does not report them, not zero accepted shares. External Node status reports every local worker independently of control permission so aggregate power remains complete; command paths still enforce the global and per-worker gates. `MinerShareTelemetryTest` and `MinerAgentControllerConfigurationTest` cover parsing and transport, but live miner/pool comparison is still required. This is miner-native telemetry, not a pool-accounting source of truth.
 - All power-control commands are serialized with benchmark admission through `BenchmarkSessionService`. While a benchmark is running, local `/target` and Node `/external/*` target/pause/resume requests return HTTP 409; serialization closes the race where a command passed an idle check just as a benchmark began.
 - The physical Workers read model treats a live GPU process as the source of occupancy and telemetry even when it differs from the saved worker assignment. The assignment remains the configured target; the row separately identifies the live miner/algorithm. Pausing a GPU worker stops its managed runtime adapter by device ID before falling back to the assigned coin, so stale or changed assignments cannot leave the visible active process running.

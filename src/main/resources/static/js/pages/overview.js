@@ -8,7 +8,7 @@
   const preferences = window.SolarMinerPreferences;
   let overview, telemetry, settings, assessment, energy, agentUi = null, energyError = null, uiRequested = false;
   let networkAgents = null;
-  let benchmarkRunning = false, sweepRunning = false;
+  let benchmarkRunning = false, sweepWorkerIds = new Set();
   const pendingNetworkWorkers = new Set();
   let networkActionMessage = '', networkActionError = false;
   let savedAt = null, fresh = true;
@@ -65,7 +65,7 @@
     const localRows = ui.operatingRows(ui.workerRows(data, telemetry)).map(row => {
       const forecast = (data.earnings || []).find(item => item.coin === row.coin && item.available);
       const usdPerDay = ui.workerUsdPerDay(row.hashrateHps, forecast);
-      return {...row, status: row.status === 'MINING' && (benchmarkRunning || sweepRunning) ? 'BENCHMARKING' : row.status,
+      return {...row, status: row.status === 'MINING' ? sweepWorkerIds.has(row.deviceId) ? 'POWER_SWEEP' : benchmarkRunning ? 'BENCHMARKING' : 'MINING' : row.status,
         agent: agentName || t('this_pc_agent'), local: true, usdPerDay,
         revenuePerKwh: ui.revenuePerKwh(usdPerDay, row.watts)};
     });
@@ -77,7 +77,7 @@
         const rawForecast = (agent.earnings || []).find(item => item.coin === coin);
         const forecast = rawForecast ? {...rawForecast, available: rawForecast.available !== false} : null;
         const usdPerDay = ui.workerUsdPerDay(Number(row.hashrateHps), forecast);
-        return {...row, coin, status: row.status === 'MINING' && row.benchmarking === true ? 'BENCHMARKING' : row.status,
+        return {...row, coin, status: row.status === 'MINING' ? row.sweeping === true ? 'POWER_SWEEP' : row.benchmarking === true ? 'BENCHMARKING' : 'MINING' : row.status,
           agent: agent.name || t('pc_agent'), agentId: agent.agentId,
           dashboardUrl: peerDashboardUrl(agent),
           local: false, controlEnabled: Boolean(agent.controlEnabled), usdPerDay,
@@ -115,7 +115,7 @@
     const kpis = $('network-worker-kpis');
     const note = $('network-workers-note');
     const rows = dashboardWorkers(data);
-    const activeRows = rows.filter(row => row.status === 'MINING' || row.status === 'BENCHMARKING' || row.status === 'ERROR');
+    const activeRows = rows.filter(row => row.status === 'MINING' || row.status === 'BENCHMARKING' || row.status === 'POWER_SWEEP' || row.status === 'ERROR');
     const totalWatts = activeRows.reduce((sum, row) => sum + (Number(row.watts) || 0), 0);
     const totalUsdPerDay = activeRows.reduce((sum, row) => sum + (Number(row.usdPerDay) || 0), 0);
     const efficiencies = activeRows.map(row => row.revenuePerKwh).filter(Number.isFinite);
@@ -138,7 +138,7 @@
         {label: 'earnings_per_kwh', align: 'right', render: row => ui.moneyPerKwh(row.revenuePerKwh)},
         {label: 'action', align: 'right', render: row => {
           if (row.local) return null;
-          const active = row.status === 'MINING' || row.status === 'BENCHMARKING' || row.status === 'ERROR';
+          const active = row.status === 'MINING' || row.status === 'BENCHMARKING' || row.status === 'POWER_SWEEP' || row.status === 'ERROR';
           const key = `${row.agentId}:${row.deviceId}`;
           const button = ui.element('button', `button ${active ? 'subtle' : 'primary'}`, active ? 'pause' : 'start');
           button.type = 'button';
@@ -318,7 +318,8 @@
   window.SolarMinerLive.channel('efficiency',
     {endpoint: '/api/agent/local/efficiency', maxAgeMs: 8000, persist: false})
     .subscribe((data, meta) => {
-      sweepRunning = !meta.error && !meta.stale && data?.running === true;
+      sweepWorkerIds = !meta.error && !meta.stale && data?.running === true
+        ? new Set((data.runs || []).map(run => run.deviceId)) : new Set();
       if (overview) renderDashboardWorkers(overview);
     });
 

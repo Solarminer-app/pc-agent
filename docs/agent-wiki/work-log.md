@@ -2614,3 +2614,15 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Verification: focused `BenchmarkSessionServiceTest` and
   `BenchmarkControllerSelectionTest` passed on JDK 21. UI syntax, locale render
   and literal checks passed. No physical miner or browser visual pass was run.
+## 2026-10-17 — Separate worker status during power sweep
+
+- The physical Workers table and the network dashboard now show “Power Sweep läuft”
+  or “Power sweep running” for a mining worker whose device ID is in an active
+  sweep run. Other workers keep their actual status; the miner process state is
+  unchanged. Benchmarking retains its separate label.
+- LAN snapshots add nullable `sweeping` beside the existing `benchmarking` flag.
+  Old peer payloads remain readable. The status pill has its own color, and the
+  new label is in both frontend locales.
+- Verification: focused `NetworkDashboardServiceTest`, JavaScript syntax,
+  `check-i18n.cjs` and `simulate-i18n-render.cjs` passed. Real hardware and
+  cross-agent visual confirmation remain open.

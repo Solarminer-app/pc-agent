@@ -107,6 +107,16 @@
     background: var(--accent)
 }
 
+.pill.status-power_sweep {
+    color: #a9d7f5;
+    border-color: #42637b;
+    background: #17232d
+}
+
+.pill.status-power_sweep .pill-dot {
+    background: #83c4ed
+}
+
 .pill.status-paused {
     color: #f0d3a4;
     border-color: #6d5a3c;

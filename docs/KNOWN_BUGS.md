@@ -344,18 +344,18 @@ same ambiguity can occur during a power-limit sweep.
 
 ### Expected behaviour
 
-An active worker participating in a benchmark or sweep shows “Benchmarking” in
-English and “Benchmark läuft” in German. Idle workers retain their actual
-paused/stopped/error status.
+An active worker participating in a benchmark shows “Benchmarking” / “Benchmark
+läuft”; one participating in a power sweep shows “Power sweep running” / “Power
+Sweep läuft”. Idle workers retain their actual paused/stopped/error status.
 
 ### Investigation and remedy
 
-- The dashboard only had miner process state, with no measurement-run context.
-  It now subscribes to the local benchmark and sweep SSE channels and overrides
-  a `MINING` row's display status while either local run is active.
-- LAN snapshots add nullable `benchmarking` to each worker row. A new peer sets
-  it only for active workers during a benchmark/sweep. Older peers omit it and
-  keep the previous status display. The dashboard polls its cached LAN board
+- The dashboard and physical Workers page subscribe to local benchmark and sweep
+  SSE channels. A mining worker in a sweep run receives its own display status,
+  based on the run's device ID, while the underlying miner state remains `MINING`.
+- LAN snapshots retain nullable `benchmarking` for benchmarks and add nullable
+  `sweeping` for active workers in a sweep run. Older peers omit the new field
+  and keep the previous status display. The dashboard polls its cached LAN board
   every five seconds, matching the service's five-second refresh cycle.
 - The status label uses the closed German/English catalog; the protocol field
   is additive and does not change the miner's actual `MINING` process state.
@@ -367,6 +367,9 @@ paused/stopped/error status.
   zero unkeyed browser literals); `overview.js` passed `node --check`.
 - Confirm on two real agents that a local benchmark and sweep label only the
   mining workers, the remote board follows, and both revert after completion.
+- On 2026-10-17, focused `NetworkDashboardServiceTest` passed for sweep targets,
+  stopped workers and the existing benchmark flag. Both locale checks and the
+  static render simulation passed; real miner/browser verification remains open.
 
 ## BUG-008 — Break the worker revenue startup dependency cycle
 

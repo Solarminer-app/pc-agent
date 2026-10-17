@@ -520,6 +520,7 @@ window.SolarMinerI18nCatalog = {
         "benchmark_run": {de: "MESSLAUF", en: "BENCHMARK RUN"},
         "benchmark_running": {de: "Benchmark läuft", en: "Benchmark running"},
         "benchmarking": {de: "Benchmark läuft", en: "Benchmarking"},
+        "power_sweep_running": {de: "Power Sweep läuft", en: "Power sweep running"},
         "benchmark_runs_until_enough_observations_are": {
             de: "Benchmark läuft bis genügend Messpunkte vorliegen",
             en: "Benchmark runs until enough observations are collected"

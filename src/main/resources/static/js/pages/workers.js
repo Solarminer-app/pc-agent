@@ -6,6 +6,7 @@
   const s = ui.s;
   const preferences = window.SolarMinerPreferences;
   let workers = [], miners = [], energy = null, sensors = null;
+  let benchmarkRunning = false, sweepWorkerIds = new Set();
   let search = '', coin = null, hardware = 'all', selected = null;
   const pendingWorkers = new Set();
   let loading = false, catalogReady = false;
@@ -131,7 +132,8 @@
       }
       return wrap;
     }},
-    {label: 'status_bae7d5', key: 'status', width: '11%', render: worker => ui.statusPill(worker.status)},
+    {label: 'status_bae7d5', key: 'status', width: '11%', render: worker => ui.statusPill(
+      worker.status === 'MINING' ? sweepWorkerIds.has(worker.deviceId) ? 'POWER_SWEEP' : benchmarkRunning ? 'BENCHMARKING' : 'MINING' : worker.status)},
     {label: 'Live', key: 'telemetry', width: '16%', render: worker => {
       if (worker.status !== 'MINING') return null;
       const wrap = ui.element('div'); wrap.append(ui.element('strong', '', ui.hashrate(hps(worker))));
@@ -449,6 +451,17 @@
     });
   window.SolarMinerLive.channel('energy', {endpoint: '/api/agent/local/economics', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
     .subscribe(value => { if (value) { energy = value; renderKpis(); renderTable(); } });
+  window.SolarMinerLive.channel('benchmarks', {endpoint: '/api/agent/local/benchmarks', maxAgeMs: 8000, persist: false})
+    .subscribe((value, meta) => {
+      benchmarkRunning = !meta.error && !meta.stale && value?.running === true;
+      if (workers.length) renderTable();
+    });
+  window.SolarMinerLive.channel('efficiency', {endpoint: '/api/agent/local/efficiency', maxAgeMs: 8000, persist: false})
+    .subscribe((value, meta) => {
+      sweepWorkerIds = !meta.error && !meta.stale && value?.running === true
+        ? new Set((value.runs || []).map(run => run.deviceId)) : new Set();
+      if (workers.length) renderTable();
+    });
   window.SolarMinerLive.start();
   load();
 })();

@@ -28,6 +28,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -182,9 +183,13 @@ public class NetworkDashboardService {
     private AgentCard ownCard() {
         List<MinerStats.Worker> workers = ownMining.getWorkerStats();
         List<MarketDataService.Forecast> forecasts = ownEarnings.forecasts(workers);
+        EfficiencySweepService.Session sweep = sweeps.status();
+        Set<String> sweepWorkerIds = sweep.running() ? sweep.runs().stream()
+                .map(EfficiencySweepService.RunStatus::deviceId)
+                .collect(java.util.stream.Collectors.toSet()) : Set.of();
         return new AgentCard(discovery.agentId(), ownIdentity.displayName(), null, ownDashboardPort,
                 true, true, null, assignedWorkerRows(ownWorkers.workers(),
-                        benchmarks.status().running() || sweeps.status().running()), earningsRows(forecasts),
+                        benchmarks.status().running(), sweepWorkerIds), earningsRows(forecasts),
                 totals(workers, forecasts), sharedEnergy(ownEnergy.overview()),
                 ownControls.get().externalControlEnabled(), Instant.now());
     }
@@ -267,16 +272,16 @@ public class NetworkDashboardService {
                         worker.terahashPerSecond() * 1e12,
                         worker.approximatedPowerUsageWatts(), worker.miningStatus().name(),
                         Coin.byAlgorithm(worker.currentAlgorithm()).map(Coin::id).orElse(null),
-                        worker.deviceId(), true, true, true, false))
+                        worker.deviceId(), true, true, true, false, false))
                 .toList();
     }
 
     static List<WorkerRow> assignedWorkerRows(List<WorkerAssignmentService.WorkerView> workers) {
-        return assignedWorkerRows(workers, false);
+        return assignedWorkerRows(workers, false, Set.of());
     }
 
     static List<WorkerRow> assignedWorkerRows(List<WorkerAssignmentService.WorkerView> workers,
-                                              boolean measurementRunning) {
+                                              boolean benchmarkRunning, Set<String> sweepWorkerIds) {
         return workers.stream().filter(worker -> !Coin.NONE.id().equals(worker.coin()))
                 .map(worker -> {
                     MinerStats.Worker telemetry = worker.telemetry();
@@ -285,7 +290,9 @@ public class NetworkDashboardService {
                             telemetry == null ? 0 : telemetry.approximatedPowerUsageWatts(),
                             worker.status().name(), worker.coin(), worker.deviceId(),
                             worker.configured(), worker.minerInstalled(), worker.externalControlEnabled(),
-                            measurementRunning && worker.status() == MinerStats.MinerStatus.MINING);
+                            benchmarkRunning && worker.status() == MinerStats.MinerStatus.MINING,
+                            sweepWorkerIds.contains(worker.deviceId())
+                                    && worker.status() == MinerStats.MinerStatus.MINING);
                 }).toList();
     }
 
@@ -325,7 +332,7 @@ public class NetworkDashboardService {
     public record WorkerRow(String name, String algorithm, String hardwareType, String hardwareModel,
                             double hashrateHps, long watts, String status, String coin,
                             String deviceId, Boolean configured, Boolean minerInstalled,
-                            Boolean controlAllowed, Boolean benchmarking) { }
+                            Boolean controlAllowed, Boolean benchmarking, Boolean sweeping) { }
 
     /** Nullable for backward-compatible deserialization of snapshots from older LAN peers. */
     public record EarningsRow(String coin, String ticker, double hashrateHps, double usdPerDay,

@@ -78,8 +78,10 @@ class NetworkDashboardServiceTest {
         assertEquals("gpu-0", row.deviceId());
         assertTrue(row.controlAllowed());
         assertEquals(0, row.hashrateHps());
-        assertEquals(false, NetworkDashboardService.assignedWorkerRows(List.of(stopped), true)
+        assertEquals(false, NetworkDashboardService.assignedWorkerRows(List.of(stopped), true, java.util.Set.of("gpu-0"))
                 .getFirst().benchmarking());
+        assertEquals(false, NetworkDashboardService.assignedWorkerRows(List.of(stopped), false, java.util.Set.of("gpu-0"))
+                .getFirst().sweeping());
     }
 
     @Test
@@ -89,10 +91,14 @@ class NetworkDashboardServiceTest {
                 "kawpow", "srbminer", "SRBMiner", true, true, "pool.example", true,
                 MinerStats.MinerStatus.MINING, null);
 
-        assertEquals(true, NetworkDashboardService.assignedWorkerRows(List.of(mining), true)
+        assertEquals(true, NetworkDashboardService.assignedWorkerRows(List.of(mining), true, java.util.Set.of())
                 .getFirst().benchmarking());
-        assertEquals(false, NetworkDashboardService.assignedWorkerRows(List.of(mining), false)
+        assertEquals(false, NetworkDashboardService.assignedWorkerRows(List.of(mining), false, java.util.Set.of())
                 .getFirst().benchmarking());
+        assertEquals(true, NetworkDashboardService.assignedWorkerRows(List.of(mining), false, java.util.Set.of("gpu-0"))
+                .getFirst().sweeping());
+        assertEquals(false, NetworkDashboardService.assignedWorkerRows(List.of(mining), false, java.util.Set.of("gpu-1"))
+                .getFirst().sweeping());
     }
 
     @Test
