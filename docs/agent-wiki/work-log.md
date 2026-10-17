@@ -2876,3 +2876,24 @@ Vorgehen / Andockpunkte für andere Agenten:
   profit estimate now uses this PC-Agent's tariff as an explicit approximation.
   The affected worker rows and summary card identify that fallback in both
   supported languages.
+
+## 2026-10-17 — Coin-hopping comparison test fixture
+
+- The comparison test now supplies an energy overview without a configured
+  tariff. `CoinHoppingService.addCandidate` reads the overview settings while
+  calculating optional net profit; an unstubbed Mockito service returned null
+  and caused the reported exception.
+- The focused `CoinHoppingServiceTest` passed on JDK 21 (3 tests). Full `:test`
+  ran 256 tests; two unrelated `RestControllerArchitectureTest` checks fail
+  because `FleetComparisonController` performs HTTP calls and joins futures on
+  its request path.
+- This changes only test setup. No user-facing text or locale behavior changed;
+  the German and English catalogs need no new entries.
+
+## 2026-10-17 — Dedicated fleet operating-point comparison
+
+- Added `/fleet.html` and the optimization-navigation entry for network-wide 24-hour scenario totals. The local `/benchmark-results.html` comparison remains device-specific.
+- Added a consent-gated read-only LAN comparison route. `FleetComparisonService` collects candidate data and peer responses on a scheduled background refresh; the REST controller only reads cached snapshots. This resolves the architecture-test failures mentioned in the preceding entry.
+- Expanded the existing LAN-visibility explanation in both languages to name the tariff and GPU measurements now shared by the comparison route.
+- Three mode totals use the same set of GPUs with complete manual, efficiency and daily-profit points. The view shows unavailable peers and workers lacking measurements, and uses each agent's tariff and estimated fee-adjusted profit. CPU workers remain excluded because these modes are GPU-only.
+- All new page text and accessibility labels have German and English entries. Verification: full offline `gradlew test` passed on JDK 21; frontend i18n, literal scan and render simulation passed for 13 pages. Live LAN, real GPU and browser verification remain outstanding.

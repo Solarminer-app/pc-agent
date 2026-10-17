@@ -325,8 +325,8 @@ window.SolarMinerI18nCatalog = {
             en: "— and its workers appear here."
         },
         "another_pc_agent_shares_only_read_only_wo": {
-            de: "Ein anderer PC-Agent teilt Worker, Ertrag und zusammengefasste Energiewerte. Wenn dort die externe Steuerung aktiv ist, kannst du seine Worker hier ohne weiteren Bestätigungsdialog starten und pausieren.",
-            en: "Another PC agent shares workers, earnings and aggregate energy values. If external control is enabled there, you can start and pause its workers here without another confirmation dialog."
+            de: "Ein anderer PC-Agent teilt Worker, Ertrag, Tarif, zusammengefasste Energiewerte und GPU-Messpunkte für den Flottenvergleich. Wenn dort die externe Steuerung aktiv ist, kannst du seine Worker hier ohne weiteren Bestätigungsdialog starten und pausieren.",
+            en: "Another PC Agent shares workers, earnings, its electricity rate, aggregate energy values and GPU measurements for the fleet comparison. If external control is enabled there, you can start and pause its workers here without another confirmation dialog."
         },
         "active_workers_on_this_and_shared_agents": {
             de: "Worker auf diesem und freigegebenen Agents",
@@ -385,12 +385,12 @@ window.SolarMinerI18nCatalog = {
             en: "LAN visibility enabled. Searching the local network."
         },
         "lan_visibility_is_off_this_agent_shows_no": {
-            de: "LAN-Sichtbarkeit ist deaktiviert. Andere PC-Agents sehen diesen PC, aber nicht seine Worker, seinen Ertrag oder seine Energiewerte.",
-            en: "LAN visibility is off. Other PC agents see this PC but not its workers, earnings or energy values."
+            de: "LAN-Sichtbarkeit ist deaktiviert. Andere PC-Agents sehen diesen PC, aber nicht seine Worker, Erträge, Tarife, Energiewerte oder GPU-Messpunkte.",
+            en: "LAN visibility is off. Other PC Agents see this PC but not its workers, earnings, electricity rate, energy values or GPU measurements."
         },
         "lan_visibility_off_peers_stay_listed_without": {
-            de: "LAN-Sichtbarkeit ist deaktiviert: Andere Agents bleiben hier sichtbar; eigene Worker, Erträge und Energiewerte bleiben verborgen.",
-            en: "LAN visibility is off: other agents stay listed here; your own workers, earnings and energy values stay hidden."
+            de: "LAN-Sichtbarkeit ist deaktiviert: Andere Agents bleiben hier sichtbar; eigene Worker, Erträge, Tarife, Energiewerte und GPU-Messpunkte bleiben verborgen.",
+            en: "LAN visibility is off: other Agents stay listed here; your own workers, earnings, electricity rate, energy values and GPU measurements stay hidden."
         },
         "no_other_pc_agents_found_searching_the_local": {
             de: "Keine weiteren PC-Agents gefunden — die Suche im lokalen Netzwerk läuft.",
@@ -404,8 +404,8 @@ window.SolarMinerI18nCatalog = {
         },
         "shared_network": {de: "GEMEINSAMES NETZWERK", en: "SHARED NETWORK"},
         "show_this_agent_to_other_pc_agents_in_th": {
-            de: "Diesen Agenten anderen PC-Agents im selben Netzwerk anzeigen (Worker, Ertrag und Energiewerte)",
-            en: "Show this agent to other PC agents in the same network (workers, earnings and energy values)"
+            de: "Diesen Agenten anderen PC-Agents im selben Netzwerk anzeigen (Worker, Ertrag, Tarif, Energiewerte und GPU-Messpunkte)",
+            en: "Show this Agent to other PC Agents on the same network (workers, earnings, electricity rate, energy values and GPU measurements)"
         },
         "lan_control": {de: "LAN-Steuerung", en: "LAN control"},
         "view_only": {de: "nur Ansicht", en: "view only"},
@@ -574,6 +574,30 @@ window.SolarMinerI18nCatalog = {
         "worker_mode_comparison_hashes_watt": {de: "Hashes pro Watt", en: "Hashes per watt"},
         "worker_mode_comparison_source": {de: "Messpunkt: {source} · {time}", en: "Measurement: {source} · {time}"},
         "worker_mode_comparison_same_point": {de: "Effizienz und Tagesgewinn wählen denselben Messpunkt.", en: "Efficiency and daily profit select the same measured point."},
+        "fleet_title": {de: "SolarMiner · Flotte", en: "SolarMiner · Fleet"},
+        "fleet_nav": {de: "Flotte", en: "Fleet"},
+        "fleet_kicker": {de: "GESAMTÜBERSICHT", en: "FLEET OVERVIEW"},
+        "fleet_heading": {de: "Flottenvergleich", en: "Fleet comparison"},
+        "fleet_intro": {de: "GPU-Worker aller erreichbaren freigegebenen PC-Agents: ein fester Coin, drei Betriebsarten und die geschätzten Summen pro 24 Stunden.", en: "GPU workers on all reachable shared PC Agents: one fixed coin, three operating modes, and estimated totals per 24 hours."},
+        "fleet_totals": {de: "Flottensummen", en: "Fleet totals"},
+        "fleet_workers": {de: "Worker im Vergleich", en: "Workers in comparison"},
+        "fleet_worker_intro": {de: "Jeder Worker verwendet seinen eigenen Tarif. Für alle drei Betriebsarten gilt sein eingestellter Miner, falls für den Coin Messwerte vorliegen; sonst der gemessene Miner mit dem höchsten Tagesgewinn.", en: "Each worker uses its own rate. All three modes use its configured miner when measured for the coin; otherwise they use the measured miner with the highest daily profit."},
+        "fleet_note": {de: "≈ ist eine 24-Stunden-Hochrechnung mit aktuellen Netzwerkkursen. Die drei Summen verwenden dieselben GPU-Worker mit vollständigen Messpunkten; CPU-Worker und fehlende Daten werden nicht geschätzt. PV-Strom und künftige Coin-Wechsel sind nicht prognostiziert.", en: "≈ is a 24-hour projection using current network quotes. All three totals use the same GPU workers with complete measurements; CPU workers and missing data are not estimated. Solar power and future coin switches are not forecast."},
+        "fleet_coverage": {de: "{count} lokale und freigegebene GPU-Worker gefunden.", en: "Found {count} local and shared GPU workers."},
+        "fleet_missing_agents": {de: "{count} Netzwerk-Agent(s) nicht erreichbar oder nicht freigegeben. Die Summen sind unvollständig.", en: "{count} network agent(s) unavailable or not shared. Totals are incomplete."},
+        "fleet_no_workers": {de: "Keine GPU-Worker mit Vergleichsdaten gefunden.", en: "No GPU workers with comparison data found."},
+        "fleet_complete": {de: "Vollständig: {count} von {total} GPU-Workern", en: "Complete: {count} of {total} GPU workers"},
+        "fleet_partial": {de: "Teilsumme: {count} von {total} GPU-Workern", en: "Partial total: {count} of {total} GPU workers"},
+        "fleet_gain_vs_manual": {de: "Zusätzlicher Gewinn gegenüber Manuell: {amount} pro 24 h", en: "Extra profit versus manual: {amount} per 24 h"},
+        "fleet_fees_day": {de: "Berücksichtigte Gebühren pro 24 h", en: "Fees included per 24 h"},
+        "fleet_no_miner": {de: "Kein Miner für diesen Coin", en: "No miner for this coin"},
+        "fleet_worker_tariff": {de: "Tarif: {rate} {currency}/kWh · manuelles Ziel: {watts} W", en: "Rate: {rate} {currency}/kWh · manual target: {watts} W"},
+        "fleet_tariff_missing": {de: "Stromtarif fehlt", en: "Electricity rate missing"},
+        "fleet_no_coin_point": {de: "Kein nutzbarer Messpunkt für diesen Coin", en: "No eligible measurement for this coin"},
+        "fleet_no_mode_point": {de: "Kein passender Messpunkt für diesen Modus", en: "No matching measurement for this mode"},
+        "fleet_no_profit_point": {de: "Gebühren oder Tarif für Gewinnschätzung fehlen", en: "Fees or rate missing for profit estimate"},
+        "fleet_agent_unavailable": {de: "Nicht erreichbar oder LAN-Sichtbarkeit deaktiviert", en: "Unavailable or LAN visibility disabled"},
+        "fleet_load_failed": {de: "Flottenvergleich konnte nicht geladen werden.", en: "Could not load fleet comparison."},
         "solarminer_benchmark_results": {de: "SolarMiner · Ergebnisse", en: "SolarMiner · Results"},
         "solarminer_benchmark": {de: "SolarMiner · Benchmark", en: "SolarMiner · Benchmark"},
         "benchmark_current_sweep": {de: "Aktueller Power Sweep", en: "Current power sweep"},

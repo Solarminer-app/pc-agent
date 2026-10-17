@@ -221,3 +221,11 @@ Clearly label the result as **estimated** profit. Let the operator inspect the a
 6. Simulator/unit verification followed by real GPU, pool-share and power-use comparisons documents how closely selection matches observed results. A successful build alone does not prove profitability.
 
 The Java code compiled, and German/English catalog and render checks passed. Unit tests and comparisons against real GPU, pool-share and power-use results were not run in this change. Selection remains an estimate until that evidence is available.
+
+### Fleet scenario view (2026-10-17)
+
+`/fleet.html` is a separate network-wide view; `/benchmark-results.html` remains a local GPU results page. For one fixed GPU coin, the fleet view compares manual, efficiency and daily-profit points across the discovered LAN agents. Each worker keeps one miner across all three scenarios: its configured miner when measured for that coin, otherwise the measured miner with the highest estimated daily profit. Manual uses that worker's saved maximum power target; efficiency uses maximum hashes per measured watt; daily profit uses maximum estimated net USD per day. The sum includes only GPUs with all three valid points, so all three totals cover the same devices. Partial coverage and unavailable peers remain visible.
+
+`GET /api/agent/local/network/fleet-comparison` reads a 30-second background snapshot. The collector reads `GET /api/agent/external/fleet-comparison` from reachable peers; the external route is guarded by the existing LAN visibility consent, independent of remote control permission. The shared shape contains the agent tariff, GPU identity, saved manual target, configured miner and current eligible measured candidates. It contains no wallet or pool credentials. An older peer without this route is displayed as unavailable rather than silently excluded from a full-fleet total. Each peer computes candidate net profit with its own tariff and known fees before sharing. The UI sums USD values and converts only for display.
+
+The view remains a 24-hour projection at current quotes and fixed tariffs. It does not forecast intermittent PV power or later coin switches. CPU workers are outside the current GPU operating-point model. Live LAN and hardware validation remains outstanding.

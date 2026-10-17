@@ -68,7 +68,8 @@ public class AgentWriteAccessFilter extends OncePerRequestFilter {
             // own explicit LAN-sharing consent, not by the Node-control gate.
             if ("GET".equalsIgnoreCase(request.getMethod())
                     && (path.equals(EXTERNAL_API + "/network-snapshot")
-                    || path.equals(EXTERNAL_API + "/energy-history"))) {
+                    || path.equals(EXTERNAL_API + "/energy-history")
+                    || path.equals(EXTERNAL_API + "/fleet-comparison"))) {
                 if (controls.get().networkSharingActive()) {
                     filterChain.doFilter(request, response);
                 } else {

@@ -110,6 +110,13 @@ class AgentWriteAccessFilterTest {
         assertThat(hiddenResponse.getStatus()).isEqualTo(403);
         assertThat(hiddenChain.getRequest()).isNull();
 
+        MockHttpServletRequest fleetHidden = request("GET", "/api/agent/external/fleet-comparison");
+        MockHttpServletResponse fleetHiddenResponse = new MockHttpServletResponse();
+        MockFilterChain fleetHiddenChain = new MockFilterChain();
+        filter.doFilter(fleetHidden, fleetHiddenResponse, fleetHiddenChain);
+        assertThat(fleetHiddenResponse.getStatus()).isEqualTo(403);
+        assertThat(fleetHiddenChain.getRequest()).isNull();
+
         when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(
                 true, false, Map.of(), Map.of(), Map.of(), true));
         MockHttpServletRequest shared = request("GET", "/api/agent/external/network-snapshot");
@@ -118,6 +125,11 @@ class AgentWriteAccessFilterTest {
         filter.doFilter(shared, sharedResponse, sharedChain);
         assertThat(sharedResponse.getStatus()).isEqualTo(200);
         assertThat(sharedChain.getRequest()).isSameAs(shared);
+
+        MockHttpServletRequest fleetShared = request("GET", "/api/agent/external/fleet-comparison");
+        MockFilterChain fleetSharedChain = new MockFilterChain();
+        filter.doFilter(fleetShared, new MockHttpServletResponse(), fleetSharedChain);
+        assertThat(fleetSharedChain.getRequest()).isSameAs(fleetShared);
 
         // Sharing alone must never open either Node control or peer worker control.
         MockHttpServletRequest pause = request("POST", "/api/agent/external/pause");
