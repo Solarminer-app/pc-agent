@@ -539,6 +539,7 @@ function selectedGpuLimit() {
     return value;
 }
 let catalogCoins = [];
+let comparisonCatalog = [];
 let workersLoaded = false;
 
 function selectedWorkers() {
@@ -611,6 +612,7 @@ function selectedCoins() {
 }
 
 function renderCoinOptions(catalog) {
+    comparisonCatalog = catalog;
     catalogCoins = catalog.filter(entry => entry.binaryAvailable);
     const root = $('coin-options');
     root.replaceChildren();
@@ -632,6 +634,7 @@ function renderCoinOptions(catalog) {
         label.append(input, text);
         root.append(label);
     }
+    if (resultsPage) renderModeComparison();
 }
 
 fetch('/api/agent/local/miner-catalog', {cache: 'no-store'}).then(async response => {
@@ -1153,28 +1156,37 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
     same.hidden = true;
     const usable = candidates.filter(row => row.coin && row.minerSoftwareId && Number(row.hashrateHps) > 0
         && Number(row.measuredWatts) > 0 && Number(row.usdPerKwh) > 0);
-    const coins = [...new Set(usable.map(row => row.coin))].sort((a, b) => a.localeCompare(b, window.SolarMinerI18n.locale));
+    const gpuCatalog = comparisonCatalog.filter(entry => entry.device !== 'CPU');
+    const coins = [...new Set([...gpuCatalog.map(entry => entry.id),
+        ...window.SolarMinerUI.coinCatalog.filter(entry => entry.device === 'GPU').map(entry => entry.id),
+        ...usable.map(row => row.coin)])].sort((a, b) => a.localeCompare(b, window.SolarMinerI18n.locale));
     const worker = availableWorkerById.get(selectedGpu());
     const previousCoin = coinSelect.value;
     coinSelect.replaceChildren();
     for (const coin of coins) {
-        const name = window.SolarMinerUI.coinCatalog.find(item => item.id === coin)?.name || coin;
-        coinSelect.add(new Option(name, coin));
+        const entry = gpuCatalog.find(item => item.id === coin)
+            || window.SolarMinerUI.coinCatalog.find(item => item.id === coin);
+        coinSelect.add(new Option(entry?.algorithm ? `${entry.name} · ${entry.algorithm}` : entry?.name || coin, coin));
     }
     coinSelect.value = coins.includes(previousCoin) ? previousCoin : coins.includes(worker?.coin) ? worker.coin : coins[0] || '';
     coinSelect.disabled = !coins.length;
-    const miners = [...new Set(usable.filter(row => row.coin === coinSelect.value)
-        .map(row => row.minerSoftwareId))].sort();
+    const catalogEntry = gpuCatalog.find(entry => entry.id === coinSelect.value);
+    const miners = [...new Set([...(catalogEntry?.miners || []).map(miner => miner.id),
+        ...usable.filter(row => row.coin === coinSelect.value).map(row => row.minerSoftwareId)])].sort();
     const previousMiner = minerSelect.value;
     minerSelect.replaceChildren();
-    for (const miner of miners) minerSelect.add(new Option(miner, miner));
+    for (const miner of miners) {
+        const option = catalogEntry?.miners?.find(item => item.id === miner);
+        minerSelect.add(new Option(option?.name || miner, miner));
+    }
     minerSelect.value = miners.includes(previousMiner) ? previousMiner
-        : miners.includes(worker?.minerSoftwareId) ? worker.minerSoftwareId : miners[0] || '';
+        : miners.includes(worker?.minerSoftwareId) ? worker.minerSoftwareId
+            : miners.includes(catalogEntry?.selectedMinerId) ? catalogEntry.selectedMinerId : miners[0] || '';
     minerSelect.disabled = !miners.length;
     cards.replaceChildren();
     if (!selectedGpu()) {
         context.textContent = '';
-        cards.append(make('p', 'empty', t('benchmark_comparison_no_device')));
+        cards.append(make('p', 'empty', t('worker_mode_comparison_no_gpu')));
         return;
     }
     const rate = tariff?.settings;
@@ -1188,7 +1200,11 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
         ? t('worker_mode_comparison_manual_target', {watts: manualTarget})
         : t('worker_mode_comparison_manual_unavailable'));
     const points = usable.filter(row => row.coin === coinSelect.value && row.minerSoftwareId === minerSelect.value);
-    const manual = manualTargetKnown ? points.find(row => Number(row.limitWatts) === manualTarget) : null;
+    const exactManual = manualTargetKnown ? points.find(row => Number(row.limitWatts) === manualTarget) : null;
+    const sweepProxy = manualTargetKnown && !exactManual ? points.filter(row => row.source === 'SWEEP'
+        && Number(row.limitWatts) < manualTarget)
+        .reduce((best, row) => !best || Number(row.limitWatts) > Number(best.limitWatts) ? row : best, null) : null;
+    const manual = exactManual || sweepProxy;
     const efficiency = points.reduce((best, row) => !best || row.hashrateHps / row.measuredWatts
         > best.hashrateHps / best.measuredWatts ? row : best, null);
     const profit = points.filter(row => Number.isFinite(row.profitUsdPerDay))
@@ -1197,7 +1213,7 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
     const prefs = window.SolarMinerPreferences;
     const number = (value, digits = 2) => new Intl.NumberFormat(window.SolarMinerI18n.locale,
         {maximumFractionDigits: digits}).format(value);
-    const addCard = (title, point, missing) => {
+    const addCard = (title, point, missing, note = null) => {
         const card = make('article', 'worker-mode-card');
         card.append(make('h3', '', t(title)));
         if (!point) { card.append(make('p', 'empty', missing)); cards.append(card); return; }
@@ -1219,8 +1235,6 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
         metric('worker_mode_comparison_cost_day', cost === '—' ? cost : `≈ ${cost}`);
         metric('worker_mode_comparison_gross_kwh', ui.moneyPerKwh(point.usdPerKwh));
         metric('worker_mode_comparison_gross_day', `≈ ${prefs.moneyFromUsd(point.usdPerDay)}`);
-        metric('worker_mode_comparison_fees', point.feePercentage == null ? '—'
-            : `${number(point.feePercentage, 2)} %`);
         metric('worker_mode_comparison_net_day', point.profitUsdPerDay == null ? '—'
             : `≈ ${prefs.moneyFromUsd(point.profitUsdPerDay)}`);
         card.append(grid);
@@ -1229,11 +1243,13 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
         card.append(make('p', 'muted', t('worker_mode_comparison_source', {
             source: t(`coin_hopping_source_${point.source?.toLowerCase() || 'live'}`), time: measured
         })));
+        if (note) card.append(make('p', 'muted', note));
         cards.append(card);
     };
     addCard('worker_mode_manual', manual, manualTargetKnown
         ? t('worker_mode_comparison_manual_unmeasured', {watts: manualTarget})
-        : t('worker_mode_comparison_manual_unavailable'));
+        : t('worker_mode_comparison_manual_unavailable'), sweepProxy
+        ? t('worker_mode_comparison_manual_sweep_proxy', {target: manualTarget, measured: sweepProxy.limitWatts}) : null);
     addCard('worker_mode_efficiency', efficiency, t('worker_mode_comparison_no_points'));
     addCard('worker_mode_profit_day', profit, t(points.length
         ? 'worker_mode_comparison_no_profit' : 'worker_mode_comparison_no_points'));

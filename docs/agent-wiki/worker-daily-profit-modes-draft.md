@@ -5,6 +5,11 @@ additional goals alongside the existing revenue-per-kWh modes. Both currently
 require a GPU; the fixed-coin mode retains its coin and miner, while the second
 may choose a different GPU route.
 
+**Current profit estimate (2026-10-17):** gross revenue minus electricity
+cost, marked `≈`. Fees are excluded and never block the calculation. A usable
+electricity rate remains required. The dated review below records earlier
+behaviour and is superseded on this point.
+
 ## Review of commit `c8bd75f` / Prüfung des Commits `c8bd75f` (2026-10-17)
 
 **Deutsch:** Die Grundauswahl ist eingebaut: GPU-Messpunkte werden mit eigener
@@ -82,18 +87,18 @@ solar valuation are not implemented.
 **Deutsch:** `/benchmark-results.html` vergleicht für eine gewählte GPU einen
 festen Coin und Miner anhand derselben aktuell nutzbaren Kandidaten. Der
 Effizienzpunkt maximiert gemessene Hashes/Watt, der Tagesgewinnpunkt den vom
-Backend geschätzten Nettogewinn/24 h. Die Ansicht nennt Hashrate, GPU-Limit,
+Backend geschätzten Ertrag nach Stromkosten/24 h. Die Ansicht nennt Hashrate, GPU-Limit,
 gemessene Watt, kWh und Stromkosten je 24 h, Bruttoertrag/kWh und /24 h sowie
-die Gebührenannahme und den geschätzten Nettogewinn. Der Tarif stammt aus dem lokalen Economics-Read-
+den ungefähren Ertrag nach Stromkosten. Gebühren werden nicht abgezogen. Der Tarif stammt aus dem lokalen Economics-Read-
 Model; fehlt er oder ein Gewinnkandidat, erscheinen keine erfundenen Nullwerte.
 Die Ansicht ist eine 24-Stunden-Hochrechnung und keine PV-Zeitplanung.
 
 **English:** `/benchmark-results.html` compares one selected GPU, fixed coin
 and miner over the same currently eligible candidates. The efficiency point
 maximizes measured hashes/watt; the daily-profit point maximizes backend
-estimated net profit/24 h. It displays hashrate, GPU limit, measured watts,
-kWh and electricity cost per 24 h, gross revenue/kWh and /24 h, and estimated
-net profit with the fee assumption. The tariff comes from the local economics read model; missing
+estimated revenue after electricity cost/24 h. It displays hashrate, GPU limit, measured watts,
+kWh and electricity cost per 24 h, gross revenue/kWh and /24 h, and approximate
+revenue after electricity cost. Fees are not deducted. The tariff comes from the local economics read model; missing
 tariff or profit inputs remain unavailable rather than becoming zero. This is
 a 24-hour projection, not a solar schedule.
 
@@ -103,16 +108,20 @@ a 24-hour projection, not a solar schedule.
 kommt aus `GET /api/agent/local/power-control`, Feld
 `gpus[].userMaxPowerLimitWatts` für die ausgewählte GPU. Dieses Limit wird
 auch beim manuellen Worker-Start verwendet. Hashrate, gemessene Watt und
-Ertragswerte erscheinen nur, wenn für exakt dieses Limit und denselben Coin
-und Miner ein aktuell nutzbarer Messpunkt existiert. Ein nächstgelegener
-Messpunkt wird nicht als manuelles Ergebnis ausgegeben.
+Ertragswerte stammen bevorzugt aus einem aktuell nutzbaren Messpunkt für
+exakt dieses Limit und denselben Coin und Miner. Der nächstgelegene stabile
+Power-Sweep-Messpunkt unterhalb des manuellen Limits dient
+als gekennzeichnete Näherung, wenn der exakte Punkt fehlt. Angezeigt werden
+das tatsächliche Sweep-Limit und das manuelle Ziel; der Vergleich extrapoliert
+keine Hashrate auf das höhere Limit.
 
 **English:** Results also show `MANUAL`. The power target comes from
 `GET /api/agent/local/power-control`, field `gpus[].userMaxPowerLimitWatts`
 for the selected GPU. Manual worker startup uses this limit too. Hashrate,
-measured watts and revenue appear only when a currently eligible measurement
-matches that exact limit, coin and miner. A nearby point is never presented
-as the manual result.
+measured watts and revenue first use a currently eligible measurement that
+matches that exact limit, coin and miner. If the exact point is missing, the closest stable
+power sweep point below the manual limit is shown as an explicitly labeled
+approximation, with both limits visible. Hashrate is not extrapolated.
 
 ## Deutsch
 
@@ -120,8 +129,8 @@ as the manual result.
 
 | Proposed ID | UI label | Auswahlziel |
 | --- | --- | --- |
-| `PROFIT_PER_DAY` | Gewinn pro Tag · fester Coin | GPU-only. Wählt für den zugewiesenen Coin und Miner den gemessenen Power-Punkt mit dem höchsten geschätzten Nettogewinn pro 24 Stunden. |
-| `COIN_PROFIT_PER_DAY` | Coin & Gewinn pro Tag | GPU-only. Wählt aus den verfügbaren Coin-, Miner- und Power-Kombinationen den Betriebspunkt mit dem höchsten geschätzten Nettogewinn pro 24 Stunden. |
+| `PROFIT_PER_DAY` | Gewinn pro Tag · fester Coin | GPU-only. Wählt für den zugewiesenen Coin und Miner den gemessenen Power-Punkt mit dem höchsten geschätzten Ertrag nach Stromkosten pro 24 Stunden. |
+| `COIN_PROFIT_PER_DAY` | Coin & Gewinn pro Tag | GPU-only. Wählt aus den verfügbaren Coin-, Miner- und Power-Kombinationen den Betriebspunkt mit dem höchsten geschätzten Ertrag nach Stromkosten pro 24 Stunden. |
 
 Die bestehenden Modi `REVENUE_PER_KWH` und `COIN_REVENUE_PER_KWH` bleiben Effizienzziele. Die neuen Modi maximieren den Geldbetrag pro Tag. Bei gleichem Coin und identischem Stromverbrauch führen beide Ziele in der Regel zur gleichen Auswahl; bei unterschiedlichen Power-Limits können sie andere Betriebspunkte wählen.
 
@@ -130,13 +139,13 @@ Die bestehenden Modi `REVENUE_PER_KWH` und `COIN_REVENUE_PER_KWH` bleiben Effizi
 Für jeden Kandidaten wird dieselbe 24-Stunden-Periode verwendet:
 
 ```text
-Netto-Gewinn/Tag = Brutto-Ertrag/Tag × (1 − bekannte Gebühren/100)
-                  − (gemessene Watt × 24 / 1000 × Strompreis pro kWh)
+≈ Gewinn/Tag = Brutto-Ertrag/Tag
+               − (gemessene Watt × 24 / 1000 × Strompreis pro kWh)
 ```
 
 Der Brutto-Ertrag wird aus dem gemessenen Kandidaten-Hashrate-Profil und den aktuellen Netzwerk-, Blockreward- und Kursdaten geschätzt. Der Vergleich nutzt den Kandidaten-eigenen gemessenen Verbrauch, nicht einen gemeinsamen Wattwert. Währung und Umrechnung müssen für alle Kandidaten gleich sein.
 
-Wenn Gebühren nicht zuverlässig bekannt sind, darf die Automatik sie nicht als null ausgeben. Die Implementierung vergleicht Kandidaten nur, wenn die anwendbaren Gebühren bekannt sind; andernfalls ist die Auswahl nicht verfügbar.
+Gebühren werden nicht abgezogen und sind keine Voraussetzung für die Auswahl. Das Ergebnis trägt `≈`, weil tatsächliche Auszahlungen abweichen können. Ein fehlender oder nicht umrechenbarer Stromtarif verhindert die Gewinnberechnung; die separate Miner-Route muss zum Starten weiterhin betriebsbereit sein.
 
 ### Kandidatenauswahl und Laufzeit
 
@@ -147,21 +156,21 @@ Wenn Gebühren nicht zuverlässig bekannt sind, darf die Automatik sie nicht als
 - `COIN_PROFIT_PER_DAY` ist zunächst GPU-only und darf Coin, Miner und Power-Punkt gemeinsam wählen. CPU-Coinwechsel bleiben ausgeschlossen.
 - Beim Start wird der Kandidaten-Coin (falls erlaubt) und das Power-Limit vor dem Minerstart angewendet und verifiziert.
 - Im laufenden Betrieb darf nur nach einer vollständigen Neuberechnung gewechselt werden. Die vorhandene Hysterese (Mindestverbesserung und Cooldown) soll gegen häufiges Umschalten schützen; konkrete Werte müssen vor Implementierung festgelegt werden.
-- Ein explizites Pause-Signal, ein laufender Benchmark/Sweep oder ein nicht verifizierbares Power-Limit verhindern den Wechsel. Tarif-, Gebühren- oder Marktfeed-Ausfall darf keinen Nullpreis und damit keinen scheinbar maximalen Profit erzeugen.
+- Ein explizites Pause-Signal, ein laufender Benchmark/Sweep oder ein nicht verifizierbares Power-Limit verhindern den Wechsel. Tarif- oder Marktfeed-Ausfall darf keinen Nullpreis und damit keinen scheinbar maximalen Profit erzeugen.
 
 ### Energieannahme
 
-Diese Modi passen zur Auswahl des höchsten täglichen Nettogewinns, wenn die Energie aus dem Netz kommt und der Tarif für die betrachteten 24 Stunden gilt. Bei PV, Batterie, Einspeisevergütung, zeitvariablen Tarifen oder Node-Dispatch kann der wirtschaftliche Wert einer kWh variieren. In diesem Fall soll der PC-Agent weiterhin lokale Kandidatenwerte melden; eine zentrale Planung muss den tatsächlichen marginalen Energiewert berücksichtigen.
+Diese Modi passen zur Auswahl des höchsten täglichen Ertrags nach Stromkosten, wenn die Energie aus dem Netz kommt und der Tarif für die betrachteten 24 Stunden gilt. Bei PV, Batterie, Einspeisevergütung, zeitvariablen Tarifen oder Node-Dispatch kann der wirtschaftliche Wert einer kWh variieren. In diesem Fall soll der PC-Agent weiterhin lokale Kandidatenwerte melden; eine zentrale Planung muss den tatsächlichen marginalen Energiewert berücksichtigen.
 
 ### UI und Nachvollziehbarkeit
 
-Die Auswahl muss als **geschätzter** Gewinn erkennbar sein. Für den aktiven Kandidaten sollten Coin, Hashrate, Watt, Tarif, tägliche Energiekosten, Gebührenannahme, geschätzter Brutto-Ertrag und geschätzter Nettogewinn einsehbar sein. Fehlende Eingaben zeigen „nicht verfügbar“ mit Ursache und dürfen nicht durch null ersetzt werden.
+Die Auswahl muss als **ungefährer** Gewinn erkennbar sein. Für den aktiven Kandidaten sollten Coin, Hashrate, Watt, Tarif, tägliche Energiekosten, geschätzter Brutto-Ertrag und geschätzter Ertrag nach Stromkosten einsehbar sein. Gebühren sind ausdrücklich als nicht eingerechnet zu kennzeichnen. Fehlende Eingaben zeigen „nicht verfügbar“ mit Ursache und dürfen nicht durch null ersetzt werden.
 
 ### Verifikation und verbleibende Rollout-Nachweise
 
-1. Eine Rechnung mit zwei Power-Punkten belegt, dass der gewählte Punkt den höheren Nettogewinn pro Tag hat, auch wenn er nicht den höchsten Gewinn pro kWh hat.
+1. Eine Rechnung mit zwei Power-Punkten belegt, dass der gewählte Punkt den höheren Ertrag nach Stromkosten pro Tag hat, auch wenn er nicht den höchsten Ertrag pro kWh hat.
 2. Ein fester-Coin-Modus ändert keine Coin-Zuweisung; der Coin-Modus kann zwischen zulässigen GPU-Coin-Routen wechseln.
-3. Tarif, Gebühren, Fiat-Umrechnung, stale Marktdaten, fehlende Messwerte und negative Gewinne sind definiert und sichtbar.
+3. Tarif, ausgelassene Gebühren, Fiat-Umrechnung, stale Marktdaten, fehlende Messwerte und negative Ergebnisse sind definiert und sichtbar.
 4. Start, Umschaltung, Abbruch und Wiederherstellung von Power-Limit und Miner-Zustand sind serialisiert und fehlersicher.
 5. Deutsche und englische Modusnamen, Erklärungen, Fehler und Barrierefreiheitstexte sind katalogisiert.
 6. Simulator-/Unit-Verifikation und anschließend echte GPU-, Pool-Share- und Stromverbrauchsvergleiche dokumentieren, dass die Auswahl dem beobachteten Ergebnis nahekommt. Ein erfolgreicher Build allein ist kein Profitabilitätsnachweis.
@@ -174,8 +183,8 @@ Der Java-Code wurde kompiliert, und die deutsche/englische Katalog- und Renderpr
 
 | Proposed ID | UI label | Selection goal |
 | --- | --- | --- |
-| `PROFIT_PER_DAY` | Profit per day · fixed coin | GPU-only. Selects the measured power point with the highest estimated net profit per 24 hours for the assigned coin and miner. |
-| `COIN_PROFIT_PER_DAY` | Coin & profit per day | GPU-only. Selects the coin, miner and power combination with the highest estimated net profit per 24 hours. |
+| `PROFIT_PER_DAY` | Profit per day · fixed coin | GPU-only. Selects the measured power point with the highest estimated revenue after electricity cost per 24 hours for the assigned coin and miner. |
+| `COIN_PROFIT_PER_DAY` | Coin & profit per day | GPU-only. Selects the coin, miner and power combination with the highest estimated revenue after electricity cost per 24 hours. |
 
 The existing `REVENUE_PER_KWH` and `COIN_REVENUE_PER_KWH` modes remain efficiency goals. The new modes maximize money per day. For the same coin and identical power use, both goals usually select the same point; when power limits differ, they can choose different points.
 
@@ -184,13 +193,13 @@ The existing `REVENUE_PER_KWH` and `COIN_REVENUE_PER_KWH` modes remain efficienc
 Use the same 24-hour period for every candidate:
 
 ```text
-Net profit/day = gross revenue/day × (1 − known fees/100)
-                 − (measured watts × 24 / 1000 × electricity rate per kWh)
+≈ Profit/day = gross revenue/day
+               − (measured watts × 24 / 1000 × electricity rate per kWh)
 ```
 
 Estimate gross revenue from the candidate's measured hashrate profile and current network, block reward and market data. Use each candidate's own measured consumption rather than a shared watt value. Currency and conversion must be consistent across candidates.
 
-If applicable fees are not known reliably, the selector does not silently treat them as zero. It compares candidates only when their applicable fee parts are known; otherwise, selection is unavailable and the UI explains that fees, tariff or current data are missing.
+Fees are not deducted in this approximation and are not a selection prerequisite. The result is explicitly marked `≈` because actual payouts may differ. A missing or unconvertible electricity rate prevents the profit calculation; the separate miner route must still be operational before mining can start.
 
 ### Candidate selection and runtime
 
@@ -201,21 +210,21 @@ If applicable fees are not known reliably, the selector does not silently treat 
 - `COIN_PROFIT_PER_DAY` is GPU-only initially and may choose coin, miner and power point together. CPU coin switching remains out of scope.
 - At start, apply and verify the candidate coin (where allowed) and power limit before starting the miner.
 - During a run, recalculate regularly and use a minimum improvement threshold and cooldown to prevent oscillation.
-- An explicit pause, active benchmark/sweep or unverifiable power limit prevents switching. A tariff, fee or market-feed failure must not become zero cost and a falsely optimal profit.
+- An explicit pause, active benchmark/sweep or unverifiable power limit prevents switching. A tariff or market-feed failure must not become zero cost and a falsely optimal profit.
 
 ### Energy assumption
 
-These modes target the highest daily net profit when energy comes from the grid and the tariff applies across the evaluated 24 hours. With PV, batteries, export compensation, time-of-use rates or Node dispatch, the economic value of energy can vary. In those cases, the PC-Agent should continue reporting local candidate data while central planning accounts for the actual marginal energy value.
+These modes target the highest daily revenue after electricity cost when energy comes from the grid and the tariff applies across the evaluated 24 hours. With PV, batteries, export compensation, time-of-use rates or Node dispatch, the economic value of energy can vary. In those cases, the PC-Agent should continue reporting local candidate data while central planning accounts for the actual marginal energy value.
 
 ### UI and auditability
 
-Clearly label the result as **estimated** profit. Let the operator inspect the active candidate's coin, hashrate, watts, tariff, daily energy cost, fee assumption, estimated gross revenue and estimated net profit. Missing inputs show “unavailable” with the reason and must not be replaced with zero.
+Clearly label the result as **approximate** profit. Let the operator inspect the active candidate's coin, hashrate, watts, tariff, daily energy cost, estimated gross revenue and estimated revenue after electricity cost. Explicitly note that fees are not included. Missing inputs show “unavailable” with the reason and must not be replaced with zero.
 
 ### Verification and remaining rollout evidence
 
-1. A calculation with two power points proves that the selected point has higher net profit per day, even if it does not have the highest profit per kWh.
+1. A calculation with two power points proves that the selected point has higher revenue after electricity cost per day, even if it does not have the highest revenue per kWh.
 2. The fixed-coin mode never changes coin assignment; the coin mode can switch among allowed GPU routes.
-3. Tariff, fees, fiat conversion, stale market data, missing measurements and negative profit are defined and visible.
+3. Tariff, omitted fees, fiat conversion, stale market data, missing measurements and negative outcomes are defined and visible.
 4. Start, switch, cancel and restoration of power limit and miner state are serialized and fail-safe.
 5. German and English mode names, explanations, errors and accessibility text are catalogued.
 6. Simulator/unit verification followed by real GPU, pool-share and power-use comparisons documents how closely selection matches observed results. A successful build alone does not prove profitability.
@@ -224,8 +233,10 @@ The Java code compiled, and German/English catalog and render checks passed. Uni
 
 ### Fleet scenario view (2026-10-17)
 
-`/fleet.html` is a separate network-wide view; `/benchmark-results.html` remains a local GPU results page. For one fixed GPU coin, the fleet view compares manual, efficiency and daily-profit points across the discovered LAN agents. Each worker keeps one miner across all three scenarios: its configured miner when measured for that coin, otherwise the measured miner with the highest estimated daily profit. Manual uses that worker's saved maximum power target; efficiency uses maximum hashes per measured watt; daily profit uses maximum estimated net USD per day. The sum includes only GPUs with all three valid points, so all three totals cover the same devices. Partial coverage and unavailable peers remain visible.
+`/fleet.html` is a separate network-wide view; `/benchmark-results.html` remains a local GPU results page. For one fixed GPU coin, the fleet view compares manual, efficiency and daily-profit points across the discovered LAN agents. Each worker keeps one miner across all three scenarios: its configured miner when measured for that coin, otherwise the measured miner with the highest estimated daily profit. Manual uses that worker's saved maximum power target and prefers an exact eligible measurement; a lower stable sweep point may serve as a labeled approximation when the exact point is missing. Efficiency uses maximum hashes per measured watt; daily profit uses maximum estimated revenue after electricity cost per day. The sum includes only GPUs with all three valid points, so all three totals cover the same devices. Partial coverage and unavailable peers remain visible.
 
-`GET /api/agent/local/network/fleet-comparison` reads a 30-second background snapshot. The collector reads `GET /api/agent/external/fleet-comparison` from reachable peers; the external route is guarded by the existing LAN visibility consent, independent of remote control permission. The shared shape contains the agent tariff, GPU identity, saved manual target, configured miner and current eligible measured candidates. It contains no wallet or pool credentials. An older peer without this route is displayed as unavailable rather than silently excluded from a full-fleet total. Each peer computes candidate net profit with its own tariff and known fees before sharing. The UI sums USD values and converts only for display.
+`GET /api/agent/local/network/fleet-comparison` reads a 30-second background snapshot. The collector reads `GET /api/agent/external/fleet-comparison` from reachable peers; the external route is guarded by the existing LAN visibility consent, independent of remote control permission. The shared shape contains the agent tariff, GPU identity, saved manual target, configured miner and current eligible measured candidates. It contains no wallet or pool credentials. An older peer without this route is displayed as unavailable rather than silently excluded from a full-fleet total. Each peer computes approximate revenue after electricity cost using its own tariff; `REVENUE_MINUS_ELECTRICITY` prevents mixing this estimate with older fee-adjusted peers. The UI sums USD values and converts only for display.
 
 The view remains a 24-hour projection at current quotes and fixed tariffs. It does not forecast intermittent PV power or later coin switches. CPU workers are outside the current GPU operating-point model. Live LAN and hardware validation remains outstanding.
+
+The fixed coin and miner selectors on the local results page now use the installed agent's coin/miner catalog, not only eligible measured candidates. The fleet page likewise offers all catalogued GPU coins and a fleet-wide miner choice or automatic selection per worker. A choice without eligible measurements remains selectable and is reported as missing data in the comparison. A peer returning HTTP 404 for the fleet route is identified as needing an agent update, rather than shown as generically unreachable.

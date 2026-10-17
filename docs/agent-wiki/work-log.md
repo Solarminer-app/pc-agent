@@ -2897,3 +2897,22 @@ Vorgehen / Andockpunkte für andere Agenten:
 - Expanded the existing LAN-visibility explanation in both languages to name the tariff and GPU measurements now shared by the comparison route.
 - Three mode totals use the same set of GPUs with complete manual, efficiency and daily-profit points. The view shows unavailable peers and workers lacking measurements, and uses each agent's tariff and estimated fee-adjusted profit. CPU workers remain excluded because these modes are GPU-only.
 - All new page text and accessibility labels have German and English entries. Verification: full offline `gradlew test` passed on JDK 21; frontend i18n, literal scan and render simulation passed for 13 pages. Live LAN, real GPU and browser verification remain outstanding.
+
+## 2026-10-17 — Make scenario selectors independent of measured candidates
+
+- Fixed empty coin/miner selectors on `/benchmark-results.html`: their options now come from the GPU coin and miner catalog even when no eligible candidate exists. The page explains when the local agent has no GPU.
+- Added a fleet-wide miner selector (`automatic per worker` or one explicit software choice). The fleet coin selector likewise uses the GPU catalog instead of requiring an already eligible remote measurement. Selecting an unmeasured combination shows missing-point states rather than removing the option.
+- LAN inspection on this host found one local CPU worker and no local GPU. All seven discovered peers expose the network snapshot but return HTTP 404 for `/api/agent/external/fleet-comparison`; their installed versions need the fleet endpoint before mode totals can include them. The fleet response now identifies that case as `update_required` and the UI gives an actionable localized explanation.
+- German and English catalog/render checks and the full offline Java test suite passed. Focused Node VM smoke checks exercised both selector render paths with no measurements and confirmed that an explicit fleet miner is used. Real browser and updated-peer verification are still outstanding.
+
+## 2026-10-17 — Daily-profit estimates no longer require known fees
+
+- `CoinHoppingService` now sets `profitUsdPerDay` to forecast gross USD/day minus measured 24-hour electricity cost whenever the tariff is usable. Missing or known fee percentages neither block nor alter the score used by `PROFIT_PER_DAY` and `COIN_PROFIT_PER_DAY`; separate fee-route readiness for actually starting a miner remains enforced.
+- The local results and fleet comparisons use the same fee-excluded estimate. Their UI labels and notes in German and English show `≈`, name electricity as the deduction and state that fees are omitted. The fleet electricity-cost sum is now derived as gross minus this estimate, without subtracting fees twice.
+- The LAN comparison payload declares `profitModel=REVENUE_MINUS_ELECTRICITY`; peers with an older fee-adjusted payload are shown as requiring an update, so fleet totals do not mix formulas.
+- Focused tests prove the result is unchanged between missing and known fee data and becomes unavailable when the tariff is absent. Verification: JDK 21 full offline `gradlew test` passed; JavaScript syntax, i18n catalog, unkeyed-literal scan and both-locale render simulation passed for 13 pages. Live GPU, pool and updated LAN peers were not available for this check.
+
+## 2026-10-17 — Use stable sweep measurements for the manual comparison baseline
+
+- The local results and fleet views continue to prefer an eligible point at the exact saved manual GPU cap. When that point is missing, they use the nearest eligible stable Power Sweep point below the cap for the same GPU, coin and miner, and label the measured and manual limits in German and English. They do not extrapolate the sweep hashrate or present the proxy as an exact manual measurement.
+- This is a comparison-only fallback; actual manual mode power control and automatic mode selection are unchanged. JavaScript syntax, i18n catalog, unkeyed-literal scan, both-locale render simulation and diff checks passed. Live GPU/browser verification is still outstanding.

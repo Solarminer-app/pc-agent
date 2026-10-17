@@ -84,7 +84,7 @@ public class FeeTransparencyService {
 
     public List<FeeOverview> overviewSnapshot() { return overviewSnapshot; }
 
-    /** Known total fee for a specific coin/miner candidate; null means the net estimate is unsafe. */
+    /** Known total fee for a specific coin/miner candidate; null means fee data is unavailable. */
     public Double knownFeePercentage(String coin, String minerSoftwareId) {
         if (Instant.now().isAfter(overviewSnapshotAt.plus(Duration.ofMinutes(2)))) return null;
         FeeOverview overview = overviewSnapshot.stream().filter(value -> coin.equals(value.coin())).findFirst().orElse(null);

@@ -10,14 +10,17 @@ import de.verdox.solarminer.pcagent.mining.measurement.GpuEfficiencyStore;
 import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
 import de.verdox.solarminer.pcagent.mining.measurement.MiningPerformanceProfileStore;
 import de.verdox.solarminer.pcagent.mining.energy.EnergyJournalService;
+import de.verdox.solarminer.pcagent.mining.fee.FeeTransparencyService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -67,6 +70,8 @@ class CoinHoppingServiceTest {
         EnergyJournalService energy = mock(EnergyJournalService.class);
         EnergyJournalService.Overview overview = mock(EnergyJournalService.Overview.class);
         when(energy.overview()).thenReturn(overview);
+        when(overview.settings()).thenReturn(new EnergyJournalService.Settings(new BigDecimal("0.30"), "EUR"));
+        when(market.toUsd(0.30, "EUR")).thenReturn(0.30);
         CoinHoppingService service = new CoinHoppingService(new ObjectMapper().findAndRegisterModules(), directory.resolve("hopping.json").toString(),
                 profiles, performance, market, planning, mock(WorkerAssignmentService.class), power,
                 mock(BenchmarkSessionService.class), mock(EfficiencySweepService.class), mock(LocalRunLock.class),
@@ -79,6 +84,19 @@ class CoinHoppingServiceTest {
         assertEquals("LIVE", view.candidates().get(1).source());
         assertTrue(view.candidates().getFirst().usdPerKwh() > view.candidates().get(1).usdPerKwh());
         assertEquals(3, service.view("gpu-1", 0).candidates().size());
+
+        double withoutKnownFees = service.candidates("gpu-1", 180).getFirst().profitUsdPerDay();
+        assertEquals(10 - 200 * 24.0 / 1000.0 * 0.30, withoutKnownFees, 0.000001);
+        FeeTransparencyService fees = mock(FeeTransparencyService.class);
+        when(fees.knownFeePercentage(anyString(), org.mockito.ArgumentMatchers.nullable(String.class)))
+                .thenReturn(25.0);
+        service.setFeeTransparency(fees);
+        var withKnownFees = service.candidates("gpu-1", 180).getFirst();
+        assertEquals(25.0, withKnownFees.feePercentage());
+        assertEquals(withoutKnownFees, withKnownFees.profitUsdPerDay());
+
+        when(overview.settings()).thenReturn(null);
+        assertNull(service.candidates("gpu-1", 180).getFirst().profitUsdPerDay());
     }
 
     @Test

@@ -13,34 +13,40 @@
     return node;
   };
   let agents = [];
+  let catalog = [];
   let loading = false;
   let startupRetries = 0;
 
-  function choosePoints(worker, coin) {
+  function choosePoints(worker, coin, requestedMiner) {
     const options = (worker.candidates || []).filter(point => point.coin === coin
       && point.minerSoftwareId && point.hashrateHps > 0 && point.measuredWatts > 0
       && point.usdPerKwh > 0);
     const miners = [...new Set(options.map(point => point.minerSoftwareId))];
-    const miner = miners.includes(worker.configuredMiner) ? worker.configuredMiner
+    const miner = requestedMiner || (miners.includes(worker.configuredMiner) ? worker.configuredMiner
       : miners.sort((a, b) => {
         const best = id => Math.max(...options.filter(point => point.minerSoftwareId === id)
           .map(point => point.profitUsdPerDay ?? -Infinity));
         return best(b) - best(a) || a.localeCompare(b);
-      })[0];
+      })[0]);
     const points = options.filter(point => point.minerSoftwareId === miner);
-    const manual = points.find(point => point.limitWatts === worker.manualTargetWatts) || null;
+    const exactManual = points.find(point => point.limitWatts === worker.manualTargetWatts) || null;
+    const sweepProxy = !exactManual ? points.filter(point => point.source === 'SWEEP'
+      && point.limitWatts < worker.manualTargetWatts)
+      .reduce((best, point) => !best || point.limitWatts > best.limitWatts ? point : best, null) : null;
+    const manual = exactManual || sweepProxy;
     const efficiency = points.reduce((best, point) => !best || point.hashrateHps / point.measuredWatts
       > best.hashrateHps / best.measuredWatts ? point : best, null);
     const profit = points.filter(point => Number.isFinite(point.profitUsdPerDay))
       .reduce((best, point) => !best || point.profitUsdPerDay > best.profitUsdPerDay ? point : best, null);
-    return {miner, manual, efficiency, profit};
+    return {miner, manual, manualSweepProxy: Boolean(sweepProxy), efficiency, profit};
   }
 
   function render() {
     const coin = $('fleet-coin').value;
+    const miner = $('fleet-miner').value;
     const workers = agents.filter(agent => agent.available && agent.points)
       .flatMap(agent => (agent.points.workers || []).map(worker => ({agent, worker,
-        selected: choosePoints(worker, coin)})));
+        selected: choosePoints(worker, coin, miner)})));
     const unavailable = agents.filter(agent => !agent.available || !agent.points);
     const total = workers.length;
     $('fleet-coverage').textContent = unavailable.length
@@ -59,7 +65,6 @@
       const sum = key => valid.reduce((value, point) => value + point[key], 0);
       const watts = sum('measuredWatts');
       const gross = sum('usdPerDay');
-      const fees = valid.reduce((value, point) => value + point.usdPerDay * point.feePercentage / 100, 0);
       const profit = sum('profitUsdPerDay');
       const card = make('article', 'fleet-mode');
       card.append(make('h2', '', t(title)), make('p', 'fleet-profit', valid.length ? money(profit) : '—'),
@@ -74,11 +79,10 @@
         ['hashrate', valid.length ? ui.hashrate(sum('hashrateHps')) : '—'],
         ['worker_mode_comparison_measured_power', valid.length ? ui.power(watts) : '—'],
         ['worker_mode_comparison_energy_day', valid.length ? `${number(watts * 24 / 1000, 3)} kWh` : '—'],
-        ['worker_mode_comparison_cost_day', valid.length ? money(gross - fees - profit) : '—'],
+        ['worker_mode_comparison_cost_day', valid.length ? money(gross - profit) : '—'],
         ['worker_mode_comparison_gross_day', valid.length ? money(gross) : '—'],
         ['worker_mode_comparison_gross_kwh', valid.length && watts > 0
-          ? ui.moneyPerKwh(gross / (watts * 24 / 1000)) : '—'],
-        ['fleet_fees_day', valid.length ? money(fees) : '—']
+          ? ui.moneyPerKwh(gross / (watts * 24 / 1000)) : '—']
       ]) {
         const item = make('div'); item.append(make('dt', '', t(label)), make('dd', '', value)); metrics.append(item);
       }
@@ -101,6 +105,9 @@
         if (point && Number.isFinite(point.profitUsdPerDay)) {
           cell.append(make('span', '', money(point.profitUsdPerDay)),
             make('span', 'muted', `${ui.hashrate(point.hashrateHps)} · ${ui.power(point.measuredWatts)} · ${point.limitWatts} W`));
+          if (field === 'manual' && selected.manualSweepProxy)
+            cell.append(make('span', 'muted', t('worker_mode_comparison_manual_sweep_proxy',
+              {target: worker.manualTargetWatts, measured: point.limitWatts})));
         } else cell.append(make('span', 'muted', t(!selected.miner ? 'fleet_no_coin_point'
           : !point ? 'fleet_no_mode_point' : 'fleet_no_profit_point')));
         modeGrid.append(cell);
@@ -110,25 +117,48 @@
     for (const agent of unavailable) {
       const card = make('article', 'fleet-worker');
       card.append(make('h3', '', agent.name || t('pc_agent')),
-        make('p', 'muted', t('fleet_agent_unavailable')));
+        make('p', 'muted', t({update_required: 'fleet_agent_update_required',
+          profit_model_update_required: 'fleet_agent_profit_model_update_required',
+          sharing_disabled: 'fleet_agent_sharing_disabled', warming_up: 'fleet_agent_warming_up',
+          unreachable: 'fleet_agent_unreachable'}[agent.reason] || 'fleet_agent_unavailable')));
       details.append(card);
     }
+  }
+
+  function updateMiners() {
+    const coin = $('fleet-coin').value;
+    const entry = catalog.find(row => row.id === coin);
+    const candidates = agents.flatMap(agent => agent.points?.workers || [])
+      .flatMap(worker => worker.candidates || []).filter(point => point.coin === coin);
+    const ids = [...new Set([...(entry?.miners || []).map(item => item.id),
+      ...candidates.map(point => point.minerSoftwareId)])].filter(Boolean).sort();
+    const select = $('fleet-miner');
+    const previous = select.value;
+    select.replaceChildren(new Option(t('fleet_miner_auto'), ''), ...ids.map(id =>
+      new Option(entry?.miners?.find(item => item.id === id)?.name || id, id)));
+    select.value = ids.includes(previous) ? previous : '';
   }
 
   async function load() {
     if (loading) return;
     loading = true; $('refresh').disabled = true;
     try {
-      const response = await fetch('/api/agent/local/network/fleet-comparison', {cache: 'no-store'});
+      const [response, catalogResponse] = await Promise.all([
+        fetch('/api/agent/local/network/fleet-comparison', {cache: 'no-store'}),
+        fetch('/api/agent/local/miner-catalog', {cache: 'no-store'}).catch(() => null)]);
       if (!response.ok) throw new Error('fleet_load_failed');
       agents = await response.json();
-      const coins = [...new Set(agents.flatMap(agent => agent.points?.workers || [])
-        .flatMap(worker => (worker.candidates || []).map(point => point.coin)))].filter(Boolean).sort();
+      if (catalogResponse?.ok) catalog = await catalogResponse.json();
+      const coins = ui.coinCatalog.filter(entry => entry.device === 'GPU').map(entry => entry.id);
       const previous = $('fleet-coin').value;
-      $('fleet-coin').replaceChildren(...coins.map(coin =>
-        new Option(ui.coinName(coin), coin)));
+      $('fleet-coin').replaceChildren(...coins.map(coin => {
+        const entry = catalog.find(row => row.id === coin)
+          || ui.coinCatalog.find(row => row.id === coin);
+        return new Option(entry?.algorithm ? `${entry.name} · ${entry.algorithm}` : entry?.name || coin, coin);
+      }));
       $('fleet-coin').value = coins.includes(previous) ? previous : coins[0] || '';
       $('fleet-coin').disabled = !coins.length;
+      updateMiners();
       $('fleet-updated').textContent = t('benchmark_updated_at', {time: new Intl.DateTimeFormat(prefs.locale,
         {dateStyle: 'medium', timeStyle: 'short'}).format(new Date())});
       $('connection').textContent = t('connected');
@@ -141,7 +171,8 @@
       $('connection').classList.add('offline');
     } finally { loading = false; $('refresh').disabled = false; }
   }
-  $('fleet-coin').addEventListener('change', render);
+  $('fleet-coin').addEventListener('change', () => { updateMiners(); render(); });
+  $('fleet-miner').addEventListener('change', render);
   $('refresh').addEventListener('click', load);
   document.addEventListener('solarminer:preferences-changed', render);
   load();

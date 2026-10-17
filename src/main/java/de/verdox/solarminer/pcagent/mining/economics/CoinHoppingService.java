@@ -226,9 +226,10 @@ public class CoinHoppingService {
                 : feeTransparency.knownFeePercentage(coin.id(), softwareId);
         EnergyJournalService.Settings tariff = energy.overview().settings();
         Double tariffUsd = tariff == null ? null : market.toUsd(tariff.pricePerKwh().doubleValue(), tariff.currency());
-        if (feePercentage != null && tariffUsd != null && Double.isFinite(tariffUsd) && tariffUsd >= 0) {
-            profitUsdPerDay = forecast.usdPerDay() * (1 - feePercentage / 100.0)
-                    - measuredWatts * 24.0 / 1000.0 * tariffUsd;
+        // Fees do not gate or reduce this approximate operating-profit estimate. The
+        // tariff is the only monetary deduction; fee details remain informational.
+        if (tariffUsd != null && Double.isFinite(tariffUsd) && tariffUsd >= 0) {
+            profitUsdPerDay = forecast.usdPerDay() - measuredWatts * 24.0 / 1000.0 * tariffUsd;
             if (!Double.isFinite(profitUsdPerDay)) profitUsdPerDay = null;
         }
         if (positive(usdPerKwh)) result.add(new Candidate(coin.id(), targetWatts, measuredWatts,

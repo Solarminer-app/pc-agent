@@ -25,6 +25,7 @@ import java.util.concurrent.Executors;
 @Service
 public class FleetComparisonService {
     private static final Duration TIMEOUT = Duration.ofSeconds(3);
+    private static final String PROFIT_MODEL = "REVENUE_MINUS_ELECTRICITY";
     private final CoinHoppingService candidates;
     private final WorkerAssignmentService assignments;
     private final LocalGpuPowerService power;
@@ -50,9 +51,10 @@ public class FleetComparisonService {
 
     public record WorkerPoint(String deviceId, String model, String configuredMiner, int manualTargetWatts,
                               List<CoinHoppingService.Candidate> candidates) { }
-    public record AgentPoints(EnergyJournalService.Settings tariff, List<WorkerPoint> workers) { }
+    public record AgentPoints(EnergyJournalService.Settings tariff, List<WorkerPoint> workers,
+                              String profitModel) { }
     public record AgentResult(String agentId, String name, boolean own, boolean available,
-                              AgentPoints points) { }
+                              String reason, AgentPoints points) { }
 
     public AgentPoints sharedPoints() {
         return ownPoints;
@@ -70,7 +72,7 @@ public class FleetComparisonService {
                     assignment == null ? null : assignment.minerSoftwareId(),
                     gpu.maxWatts(), candidates.candidates(gpu.deviceId(), 0)));
         }
-        return new AgentPoints(energy.overview().settings(), List.copyOf(workers));
+        return new AgentPoints(energy.overview().settings(), List.copyOf(workers), PROFIT_MODEL);
     }
 
     public List<AgentResult> fleet() { return latest; }
@@ -85,7 +87,7 @@ public class FleetComparisonService {
         var own = cards.stream().filter(NetworkDashboardService.AgentCard::own).findFirst().orElse(null);
         List<AgentResult> result = new ArrayList<>();
         result.add(new AgentResult(own == null ? "local" : own.agentId(),
-                own == null ? identity.displayName() : own.name(), true, true, ownPoints));
+                own == null ? identity.displayName() : own.name(), true, true, null, ownPoints));
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<AgentResult>> peers = cards.stream()
                     .filter(card -> !card.own())
@@ -96,19 +98,33 @@ public class FleetComparisonService {
     }
 
     private AgentResult fetch(NetworkDashboardService.AgentCard peer) {
-        if (!peer.reachable() || peer.error() != null || peer.host() == null)
-            return new AgentResult(peer.agentId(), peer.name(), false, false, null);
+        if (!peer.reachable() || peer.host() == null)
+            return new AgentResult(peer.agentId(), peer.name(), false, false, "unreachable", null);
+        if (peer.error() != null)
+            return new AgentResult(peer.agentId(), peer.name(), false, false, "sharing_disabled", null);
         try {
             String host = peer.host().contains(":") ? "[" + peer.host() + "]" : peer.host();
             URI uri = URI.create("http://" + host + ":" + peer.dashboardPort()
                     + "/api/agent/external/fleet-comparison");
             var request = HttpRequest.newBuilder(uri).timeout(TIMEOUT).GET().build();
             var response = http.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 200) return new AgentResult(peer.agentId(), peer.name(), false, true,
-                    json.readValue(response.body(), AgentPoints.class));
+            if (response.statusCode() == 200) {
+                AgentPoints points = json.readValue(response.body(), AgentPoints.class);
+                if (!PROFIT_MODEL.equals(points.profitModel()))
+                    return new AgentResult(peer.agentId(), peer.name(), false, false,
+                            "profit_model_update_required", null);
+                return new AgentResult(peer.agentId(), peer.name(), false, true, null, points);
+            }
+            String reason = switch (response.statusCode()) {
+                case 404 -> "update_required";
+                case 403 -> "sharing_disabled";
+                case 503 -> "warming_up";
+                default -> "unavailable";
+            };
+            return new AgentResult(peer.agentId(), peer.name(), false, false, reason, null);
         } catch (Exception ignored) {
             if (ignored instanceof InterruptedException) Thread.currentThread().interrupt();
         }
-        return new AgentResult(peer.agentId(), peer.name(), false, false, null);
+        return new AgentResult(peer.agentId(), peer.name(), false, false, "unreachable", null);
     }
 }
