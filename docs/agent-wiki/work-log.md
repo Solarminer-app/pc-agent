@@ -3122,3 +3122,65 @@ changes were preserved.
 
 - The saved sweep chart now groups runs by coin and algorithm and draws each miner software as one series. Points from repeated profiles for the same software are combined, with power target on X and hashes per watt on Y. The legend identifies the software and keeps the GPU model for context. Saved chart selectors choose coin/algorithm groups; live sweep chart behavior remains per run.
 - UI copy reuses existing localized labels; miner software IDs and GPU model names are catalog/hardware identifiers. Verification was limited to reviewing the changed rendering logic; tests and browser checks were not run.
+## GPU Auto Tuning Beta path (2026-10-18)
+
+- Added per-device clock capability probing and bounded writes for NVIDIA GPU
+  clock locks, NVIDIA memory locks only when the tool reports runtime-modifiable
+  support, AMD SCLK/MCLK ranges, and Intel core frequency ranges. Voltage control
+  is explicitly unavailable. Driver clock state is marked before writes and
+  reset to driver defaults on cancellation/failure, Agent shutdown, or a
+  subsequent startup after an interrupted session.
+- Added the local `gpu-tuning` capability/apply/restore/session/profile APIs and
+  `/autotuning.html`. The page shows per-device hardware/assignment state,
+  driver-reported bounds, active candidate and sample progress, stability
+  measurements, and the saved best profile. Copy is in both closed locales;
+  the menu and worker mode identify this as experimental Beta functionality.
+- Added a local discrete candidate search using an RBF Gaussian process and
+  expected improvement, bounded to twelve candidates, eight five-second samples
+  per candidate, and driver/user power ranges. Stable score is median H/s divided
+  by measured watts. A matching device/coin/software profile is persisted and
+  can be selected with `AUTO_TUNING`; CPU workers are rejected.
+- No new ML dependency was added. Smile exposes Gaussian-process regression but
+  would still need a bespoke acquisition loop, and its core libraries are GPLv3
+  or commercially licensed. The small bounded solver is local to this feature;
+  details and primary vendor/library references are in
+  `docs/agent-wiki/auto-tuning.md`.
+- Verification: focused JDK 21 `GpuTuningServiceTest`,
+  `BayesianGpuOptimizerTest`, and `WorkerPowerModeServiceTest` passed; frontend
+  `check-i18n.cjs` (1,710 keys, 14
+  pages), `scan-i18n-literals.cjs` (0 unkeyed display literals), and
+  `simulate-i18n-render.cjs` (both locales) passed. Live GPU writes, exact clock
+  readback, temperature/share behavior on physical miners, and Windows/Linux/
+  Docker driver-permission acceptance remain open.
+
+## 2026-10-18 — Audit Auto Tuning against the concept
+
+- Compared `docs/autotuning.md` with the current calibration service, profile
+  store, worker mode, driver adapter, UI, and tests. The implementation has a
+  selectable experimental Beta path but only one cached best point; the planned
+  power-tier matrix, live solar profile switching, version invalidation, and
+  recover-and-continue crash handling are absent. Share-free measurement
+  windows can be marked stable, and saved profiles are not loaded by the page.
+- `test standaloneJar --offline`, all three frontend i18n checks, and
+  `git diff --check` passed. Five NVIDIA GPUs were visible; a read-only clock
+  query returned values. No driver write or end-to-end hardware run was made.
+  Details and code implications are in [auto-tuning.md](auto-tuning.md).
+
+## 2026-10-18 — Build a bounded three-tier Auto Tuning test candidate
+
+- Calibration now evaluates up to four Bayesian-selected clock points at each
+  of three distinct GPU power caps and persists the best share-confirmed point
+  per tier. Any rejected share, missing counters, absent accepted-share evidence,
+  excessive temperature/hash variability, or NVIDIA effective-clock divergence
+  invalidates a point. Worker exit triggers a safe reset and bounded restart;
+  a 15-minute deadline bounds the run. Successful calibration also restores
+  the pre-run cap and driver defaults.
+- Profiles match device, model/vendor, coin, software and pinned version. The
+  Auto Tuning mode selects the highest tier within a given GPU watt budget,
+  restores locks on pause/mode exit, and the page shows saved tiers after reload.
+  C10 capabilities publish tier forecasts; short-lived Node plans send per-worker
+  watt budgets that the Agent validates and applies locally.
+- Verification: full Agent `test standaloneJar --offline`, Node focused C10
+  dispatch test, three DE/EN i18n checks and diff checks passed during the
+  implementation. Physical writes, real share accounting, crash recovery and
+  cross-process plan renewal are still unverified. See [auto-tuning.md](auto-tuning.md).

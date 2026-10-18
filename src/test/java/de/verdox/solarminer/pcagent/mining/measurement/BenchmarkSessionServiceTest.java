@@ -3,8 +3,8 @@ package de.verdox.solarminer.pcagent.mining.measurement;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.mining.MiningService;
 import de.verdox.solarminer.pcagent.mining.WorkerAssignmentService;
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
-import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
+import de.verdox.solarminer.pcagent.miner.xmr.XmrMinerService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -22,7 +22,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
-import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
 import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
 
 class BenchmarkSessionServiceTest {

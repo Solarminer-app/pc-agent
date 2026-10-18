@@ -9,7 +9,7 @@ import de.verdox.solarminer.pcagent.miner.MinerProcessRegistry;
 import de.verdox.solarminer.pcagent.miner.MinerStopContext;
 import de.verdox.solarminer.pcagent.miner.MinerShareTelemetry;
 import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.miner.engine.AbstractSrbMinerEngine;
 import de.verdox.solarminer.pcagent.miner.engine.SrbMonitorPolicy;
@@ -34,7 +34,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import de.verdox.solarminer.pcagent.miner.MinerConfig;
 import de.verdox.solarminer.pcagent.miner.GpuState;
-import de.verdox.solarminer.pcagent.mining.proxy.GpuStratumRelay;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
 

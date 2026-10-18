@@ -22,6 +22,50 @@ import static org.mockito.Mockito.*;
 
 class EconomicPlanningServiceTest {
     @Test
+    void autoTuningPlanAcceptsOnlyPublishedTierAndStartsWithThatBudget() {
+        AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
+        MiningService mining = mock(MiningService.class);
+        WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
+        LocalRunLock lock = mock(LocalRunLock.class);
+        when(lock.tryBegin("economic-plan")).thenReturn(true);
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(true, true,
+                Map.of(), Map.of("gpu-a", "pearl"), Map.of("gpu-a", "AUTO")));
+        when(mining.getWorkerStats()).thenReturn(List.of(worker("gpu-a", MinerStats.MinerStatus.STOPPED)));
+        when(assignments.startUnderEconomicPlan("gpu-a", 150)).thenReturn(true);
+        EconomicPlanningService planning = spy(new EconomicPlanningService(controls, mining,
+                mock(LocalGpuPowerService.class), mock(MinerFactory.class), mock(ProxyConfigurationService.class),
+                mock(GpuEfficiencyStore.class), mock(MiningPerformanceProfileStore.class),
+                mock(MarketDataService.class), assignments, mock(ProxyHealthService.class), lock));
+        Instant now = Instant.now();
+        var coin = new EconomicPlanningService.CoinCapability("pearl", "pearl", true, true,
+                new EconomicPlanningService.PerformanceProfile(1000, 150, now, "AUTO_TUNING"), null, 1.5, now);
+        var tier = new EconomicPlanningService.AutoTuningTier(150, 1000, now, 1.5, now);
+        doReturn(new EconomicPlanningService.Capabilities(1, now, List.of(
+                new EconomicPlanningService.WorkerCapability("gpu-a", "GPU", "A", "pearl", true,
+                        "AUTO", List.of(coin), "AUTO_TUNING", List.of(tier))), null)).when(planning).capabilities();
+
+        var accepted = planning.apply(new EconomicPlanningService.PlanRequest("tier-1", 90, null,
+                List.of(), List.of("gpu-a"), Map.of("gpu-a", 150)));
+        assertTrue(accepted.accepted(), accepted.reason());
+        verify(assignments).startUnderEconomicPlan("gpu-a", 150);
+
+        var rejected = planning.apply(new EconomicPlanningService.PlanRequest("tier-2", 90, null,
+                List.of(), List.of("gpu-a"), Map.of("gpu-a", 175)));
+        assertFalse(rejected.accepted());
+        assertEquals("economic_plan_invalid_auto_tuning_budget", rejected.reason());
+
+        var modes = mock(de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService.class);
+        planning.setAutoTuning(mock(de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore.class), modes);
+        when(mining.getWorkerStats()).thenReturn(List.of(worker("gpu-a", MinerStats.MinerStatus.MINING)));
+        when(modes.applyForBudget("gpu-a", "pearl", 150)).thenReturn(
+                new de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService.Selection("AUTO_TUNING", 150, null));
+        var switched = planning.apply(new EconomicPlanningService.PlanRequest("tier-3", 90, null,
+                List.of(), List.of("gpu-a"), Map.of("gpu-a", 150)));
+        assertTrue(switched.accepted(), switched.reason());
+        verify(modes).applyForBudget("gpu-a", "pearl", 150);
+    }
+
+    @Test
     void workerPlanControlsOnlyLocallyAllowedWorkers() {
         AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
         MiningService mining = mock(MiningService.class);

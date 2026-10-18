@@ -1,10 +1,9 @@
 package de.verdox.solarminer.pcagent.mining.fee;
 
-import de.verdox.solarminer.pcagent.mining.proxy.ProxyFeeClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
-import de.verdox.solarminer.pcagent.xmr.XmrConfigService;
+import de.verdox.solarminer.pcagent.miner.xmr.XmrConfigService;
 import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import org.springframework.beans.factory.annotation.Value;

@@ -3,8 +3,8 @@ package de.verdox.solarminer.pcagent.miner;
 import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
-import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
+import de.verdox.solarminer.pcagent.miner.xmr.XmrMinerService;
 import de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService;
 import de.verdox.solarminer.pcagent.miner.peak.PeakMinerService;
 import de.verdox.solarminer.pcagent.miner.wildrig.WildRigMinerService;
@@ -117,6 +117,17 @@ public class MinerFactory {
                 ? (coin == Coin.MONERO ? "xmrig" : "srbminer-multi") : catalog.selected(coin.id()).id();
         return benchmarkSoftware.getOrDefault(deviceId,
                 controls == null ? fallback : controls.get().minerFor(deviceId, fallback));
+    }
+
+    /** The pinned binary release is part of the calibration identity. */
+    public String minerVersionForWorker(Coin coin, String deviceId) {
+        return switch (minerSoftwareForWorker(coin, deviceId)) {
+            case "srbminer-multi" -> de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService.SRBMINER_VERSION;
+            case "quanpool-miner" -> de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolDownloadService.VERSION;
+            case "peakminer" -> de.verdox.solarminer.pcagent.miner.peak.PeakDownloadService.VERSION;
+            case "wildrig-ng" -> de.verdox.solarminer.pcagent.miner.wildrig.WildRigDownloadService.VERSION;
+            default -> null;
+        };
     }
 
     /** A different coin's measurement uses its catalog default rather than the worker's saved miner. */

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.miner.MinerConfig;
 import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
 import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
 import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;

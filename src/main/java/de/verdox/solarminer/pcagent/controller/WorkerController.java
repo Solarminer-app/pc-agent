@@ -94,7 +94,7 @@ public class WorkerController {
     }
 
     private WorkerAssignmentService.WorkerView savePowerMode(String deviceId, PowerModeRequest request) {
-        if (request == null || !java.util.Set.of("MANUAL", "EFFICIENCY", "MAX_HASHRATE", "REVENUE_PER_KWH",
+        if (request == null || !java.util.Set.of("MANUAL", "EFFICIENCY", "MAX_HASHRATE", "AUTO_TUNING", "REVENUE_PER_KWH",
                 "COIN_REVENUE_PER_KWH", "PROFIT_PER_DAY", "COIN_PROFIT_PER_DAY").contains(request.mode()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "power_mode_invalid");
         WorkerAssignmentService.WorkerView worker = workers.workers().stream()
@@ -103,7 +103,7 @@ public class WorkerController {
         if (!"MANUAL".equals(request.mode())) {
             if ("CPU".equals(worker.hardwareType()) && ("COIN_REVENUE_PER_KWH".equals(request.mode())
                     || "COIN_PROFIT_PER_DAY".equals(request.mode()) || "PROFIT_PER_DAY".equals(request.mode())
-                    || "MAX_HASHRATE".equals(request.mode())))
+                    || "MAX_HASHRATE".equals(request.mode()) || "AUTO_TUNING".equals(request.mode())))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "power_mode_requires_gpu");
             boolean revenueMode = "REVENUE_PER_KWH".equals(request.mode())
                     || "COIN_REVENUE_PER_KWH".equals(request.mode()) || "PROFIT_PER_DAY".equals(request.mode())
@@ -125,6 +125,11 @@ public class WorkerController {
         String previous = controls.get().powerModeFor(deviceId);
         if (!controls.setWorkerPowerMode(deviceId, request.mode()))
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "power_mode_save_failed");
+        if ("AUTO_TUNING".equals(previous) && !"AUTO_TUNING".equals(request.mode())
+                && powerModes != null && !powerModes.restoreAutoTuningClocks(deviceId)) {
+            controls.setWorkerPowerMode(deviceId, previous);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "gpu_clock_restore_failed");
+        }
         if (worker.status() == de.verdox.solarminer.pcagent.dto.MinerStats.MinerStatus.MINING && powerModes != null) {
             boolean revenueMode = "GPU".equals(worker.hardwareType())
                     && ("REVENUE_PER_KWH".equals(request.mode()) || "COIN_REVENUE_PER_KWH".equals(request.mode()));

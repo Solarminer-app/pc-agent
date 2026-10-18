@@ -8,7 +8,7 @@ import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
 import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
 import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
 import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

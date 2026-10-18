@@ -5,7 +5,6 @@ import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.lowlevel.sensor.HardwareTelemetryService;
 import de.verdox.solarminer.pcagent.mining.agent.NodeAssessmentService;
 import de.verdox.solarminer.pcagent.mining.economics.EconomicPlanningService;
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;

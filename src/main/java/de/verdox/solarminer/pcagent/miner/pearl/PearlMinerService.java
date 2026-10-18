@@ -1,4 +1,4 @@
-package de.verdox.solarminer.pcagent.pearl;
+package de.verdox.solarminer.pcagent.miner.pearl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.dto.MinerStats;

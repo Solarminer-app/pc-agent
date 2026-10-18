@@ -3,6 +3,10 @@ package de.verdox.solarminer.pcagent.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
+import de.verdox.solarminer.pcagent.miner.xmr.XmrConfigService;
+import de.verdox.solarminer.pcagent.miner.xmr.XmrMinerService;
+import de.verdox.solarminer.pcagent.miner.xmr.download.XmrDownloadService;
 import de.verdox.solarminer.pcagent.mining.MiningService;
 import de.verdox.solarminer.pcagent.mining.economics.MarketDataService;
 import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
@@ -12,7 +16,6 @@ import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -144,14 +147,14 @@ class RestReadModelNonBlockingTest {
     private static MiningController newController(ProxyConfigurationService proxy, ProxyHealthService health) {
         MiningService mining = mock(MiningService.class);
         return new MiningController(mining,
-                mock(de.verdox.solarminer.pcagent.xmr.XmrConfigService.class),
-                mock(de.verdox.solarminer.pcagent.pearl.PearlMinerService.class),
+                mock(XmrConfigService.class),
+                mock(PearlMinerService.class),
                 mock(de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService.class),
                 mock(de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService.class),
-                mock(de.verdox.solarminer.pcagent.xmr.XmrMinerService.class),
+                mock(XmrMinerService.class),
                 proxy,
                 mock(de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService.class),
-                mock(de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService.class),
+                mock(XmrDownloadService.class),
                 mock(de.verdox.solarminer.pcagent.lowlevel.sensor.WindowsLhmBootstrapService.class),
                 mock(de.verdox.solarminer.pcagent.mining.proxy.ProxyDiscoveryService.class),
                 mock(MarketDataService.class),

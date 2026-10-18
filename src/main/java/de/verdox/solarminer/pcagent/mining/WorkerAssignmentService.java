@@ -123,6 +123,12 @@ public class WorkerAssignmentService {
         return startWithMode(deviceId, true);
     }
 
+    public synchronized boolean startUnderEconomicPlan(String deviceId, Integer autoTuningBudgetWatts) {
+        if (autoTuningBudgetWatts == null) return startWithMode(deviceId, true);
+        if (!"AUTO_TUNING".equals(controls.get().powerModeFor(deviceId))) return false;
+        return start(deviceId, true, autoTuningBudgetWatts);
+    }
+
     /** A completed benchmark still owns the measurement lock while it starts configured workers. */
     public synchronized boolean startWithHeldRunLock(String deviceId) {
         return startWithMode(deviceId, true);
@@ -146,6 +152,10 @@ public class WorkerAssignmentService {
     }
 
     private boolean start(String deviceId, boolean applyPowerMode) {
+        return start(deviceId, applyPowerMode, null);
+    }
+
+    private boolean start(String deviceId, boolean applyPowerMode, Integer autoTuningBudgetWatts) {
         Hardware hardware = hardware(deviceId);
         Coin coin = Coin.byIdOrNull(controls.get().coinFor(deviceId));
         if (coin == null || coin == Coin.NONE) throw new IllegalStateException("Assign a coin to this worker first");
@@ -165,7 +175,7 @@ public class WorkerAssignmentService {
         GpuCoinMiner miner = miners.gpuMiner(coin, minerId);
         ensureGpuDefault(coin, miner, hardware, assignedDevices(coin.id(), minerId));
         if (applyPowerMode && workerPowerModes != null) {
-            var selected = workerPowerModes.apply(deviceId, coin.id());
+            var selected = workerPowerModes.applyForBudget(deviceId, coin.id(), autoTuningBudgetWatts);
             if (selected.error() != null) throw new IllegalStateException(selected.error());
         }
         if (!miner.resumeGpu(hardware.vendor, hardware.index))

@@ -1,4 +1,4 @@
-package de.verdox.solarminer.pcagent.xmr;
+package de.verdox.solarminer.pcagent.miner.xmr;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,7 +13,7 @@ import de.verdox.solarminer.pcagent.miner.CpuMiner;
 import de.verdox.solarminer.pcagent.miner.RandomXCapability;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import java.util.List;
-import de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService;
+import de.verdox.solarminer.pcagent.miner.xmr.download.XmrDownloadService;
 import de.verdox.solarminer.pcagent.lowlevel.sensor.HardwareSensorReader;
 import jakarta.annotation.PreDestroy;
 import lombok.Getter;
@@ -31,7 +31,6 @@ import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
-import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -48,7 +47,7 @@ public class XmrMinerService extends de.verdox.solarminer.pcagent.miner.engine.A
     private final ProxyConfigurationService proxyConfigurationService;
     private final PayoutDefaultsService payoutDefaultsService;
     private final MinerConsoleService console;
-    private final de.verdox.solarminer.pcagent.xmr.WindowsHugePagesService windowsHugePages;
+    private final WindowsHugePagesService windowsHugePages;
     private final ObjectMapper objectMapper;
     private final HardwareSensorReader sensorReader;
     private final String processorName;
@@ -82,7 +81,7 @@ public class XmrMinerService extends de.verdox.solarminer.pcagent.miner.engine.A
     public XmrMinerService(XmrConfigService configService, ObjectMapper objectMapper, HardwareSensorReader sensorReader,
                            ProxyConfigurationService proxyConfigurationService, MinerConsoleService console,
                            PayoutDefaultsService payoutDefaultsService,
-                           de.verdox.solarminer.pcagent.xmr.WindowsHugePagesService windowsHugePages) {
+                           WindowsHugePagesService windowsHugePages) {
         this.configService = configService;
         this.proxyConfigurationService = proxyConfigurationService;
         this.console = console;

@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
 import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
-import de.verdox.solarminer.pcagent.xmr.XmrConfigService;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
+import de.verdox.solarminer.pcagent.miner.xmr.XmrConfigService;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;

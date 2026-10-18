@@ -1,4 +1,4 @@
-package de.verdox.solarminer.pcagent.xmr.download;
+package de.verdox.solarminer.pcagent.miner.xmr.download;
 
 public record XMRigAssetObject(
         String os,

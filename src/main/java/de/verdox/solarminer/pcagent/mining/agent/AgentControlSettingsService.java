@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.coin.WorkerCoinPolicy;
 import de.verdox.solarminer.pcagent.coin.WorkerIds;
+import lombok.Setter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -21,12 +22,12 @@ public class AgentControlSettingsService {
     private final ObjectMapper json;
     private final Path file;
     private volatile Settings settings;
+    /**
+     * -- SETTER --
+     * Lets the fee-tier machinery react to consent-hook flips without a polling loop.
+     */
+    @Setter
     private volatile Runnable feeTierListener;
-
-    /** Lets the fee-tier machinery react to consent-hook flips without a polling loop. */
-    public void setFeeTierListener(Runnable listener) {
-        this.feeTierListener = listener;
-    }
 
     public record Settings(boolean dynamicPowerScalingEnabled, boolean externalControlEnabled,
                            Map<String, Boolean> workerExternalControl, Map<String, String> workerCoins,
@@ -140,6 +141,7 @@ public class AgentControlSettingsService {
             return workerPowerModes.entrySet().stream().anyMatch(entry -> !"MANUAL".equals(entry.getValue())
                     && !Coin.NONE.id().equals(coinFor(entry.getKey())));
         }
+
     }
 
     public AgentControlSettingsService(ObjectMapper json, @Value("${solarminer.agent.control-settings-file:./solarminer-agent/control-settings.json}") String path) {
@@ -231,7 +233,7 @@ public class AgentControlSettingsService {
     }
 
     public synchronized boolean setWorkerPowerMode(String workerId, String mode) {
-        if (workerId == null || workerId.isBlank() || !java.util.Set.of("MANUAL", "EFFICIENCY", "MAX_HASHRATE",
+        if (workerId == null || workerId.isBlank() || !java.util.Set.of("MANUAL", "EFFICIENCY", "MAX_HASHRATE", "AUTO_TUNING",
                 "REVENUE_PER_KWH", "COIN_REVENUE_PER_KWH", "PROFIT_PER_DAY", "COIN_PROFIT_PER_DAY").contains(mode)) return false;
         Map<String, String> next = new java.util.HashMap<>(settings.workerPowerModes());
         if ("MANUAL".equals(mode)) next.remove(workerId);

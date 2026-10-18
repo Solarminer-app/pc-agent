@@ -1,4 +1,4 @@
-package de.verdox.solarminer.pcagent.xmr;
+package de.verdox.solarminer.pcagent.miner.xmr;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import de.verdox.solarminer.pcagent.dto.Pools;
 import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
-import de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService;
+import de.verdox.solarminer.pcagent.miner.xmr.download.XmrDownloadService;
 import org.springframework.stereotype.Service;
 import oshi.SystemInfo;
 import oshi.hardware.NetworkIF;

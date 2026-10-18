@@ -1,4 +1,4 @@
-package de.verdox.solarminer.pcagent.xmr.download;
+package de.verdox.solarminer.pcagent.miner.xmr.download;
 
 import de.verdox.solarminer.pcagent.miner.engine.MinerBinaryInstaller;
 import org.springframework.stereotype.Service;

@@ -148,7 +148,7 @@
       wrap.append(ui.element('span', 'cell-sub', worker.coin === 'none' ? t('free_capacity') : `${worker.algorithm} · ${worker.configured ? worker.poolUrl ? t('pool_configured') : t('default_route') : t('solarminer_default_payout_will_be_checked_at')}`));
       }
       if (worker.coin !== 'none') {
-        const labels = {MANUAL: 'worker_mode_manual', EFFICIENCY: 'worker_mode_efficiency', MAX_HASHRATE: 'worker_mode_max_hashrate',
+        const labels = {MANUAL: 'worker_mode_manual', EFFICIENCY: 'worker_mode_efficiency', MAX_HASHRATE: 'worker_mode_max_hashrate', AUTO_TUNING: 'worker_mode_auto_tuning',
           REVENUE_PER_KWH: 'worker_mode_revenue', COIN_REVENUE_PER_KWH: 'worker_mode_coin_revenue',
           PROFIT_PER_DAY: 'worker_mode_profit_day', COIN_PROFIT_PER_DAY: 'worker_mode_coin_profit_day'};
         wrap.append(ui.element('span', 'cell-sub', t(labels[worker.powerMode] || labels.MANUAL)));
@@ -278,6 +278,7 @@
     $('worker-power-mode').value = worker.powerMode || 'MANUAL';
     $('worker-power-mode').querySelector('[value="COIN_REVENUE_PER_KWH"]').disabled = worker.hardwareType === 'CPU';
     $('worker-power-mode').querySelector('[value="MAX_HASHRATE"]').disabled = worker.hardwareType === 'CPU';
+    $('worker-power-mode').querySelector('[value="AUTO_TUNING"]').disabled = worker.hardwareType === 'CPU';
     $('worker-power-mode').querySelector('[value="PROFIT_PER_DAY"]').disabled = worker.hardwareType === 'CPU';
     $('worker-power-mode').querySelector('[value="COIN_PROFIT_PER_DAY"]').disabled = worker.hardwareType === 'CPU';
     updatePoolSummary(worker.coin, worker.poolUrl, worker.configured);

@@ -2,7 +2,7 @@ package de.verdox.solarminer.pcagent.mining.proxy;
 
 import de.verdox.solarminer.pcagent.mining.fee.ReferralConfigurationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import de.verdox.solarminer.pcagent.xmr.XmrConfigService;
+import de.verdox.solarminer.pcagent.miner.xmr.XmrConfigService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,9 +13,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import com.sun.net.httpserver.HttpServer;
 
 import static org.junit.jupiter.api.Assertions.*;
-import de.verdox.solarminer.pcagent.mining.proxy.ManagedProxyService;
-import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
-import de.verdox.solarminer.pcagent.mining.proxy.ProxyPorts;
 
 class ProxyConfigurationServiceTest {
     @TempDir Path directory;

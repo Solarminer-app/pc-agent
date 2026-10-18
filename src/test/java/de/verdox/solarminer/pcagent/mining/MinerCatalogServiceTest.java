@@ -1,9 +1,9 @@
 package de.verdox.solarminer.pcagent.mining;
 
 import de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService;
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
-import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
-import de.verdox.solarminer.pcagent.xmr.download.XmrDownloadService;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
+import de.verdox.solarminer.pcagent.miner.xmr.XmrMinerService;
+import de.verdox.solarminer.pcagent.miner.xmr.download.XmrDownloadService;
 import de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolDownloadService;
 import de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService;
 import org.junit.jupiter.api.Test;

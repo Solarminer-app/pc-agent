@@ -13,6 +13,8 @@ import de.verdox.solarminer.pcagent.mining.measurement.GpuEfficiencyStore;
 import de.verdox.solarminer.pcagent.mining.measurement.BenchmarkSessionService;
 import de.verdox.solarminer.pcagent.mining.measurement.MiningPerformanceProfileStore;
 import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
+import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore;
+import de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -47,6 +49,14 @@ public class EconomicPlanningService {
     /** REST audit R1: fee-route readiness for the read model comes from the health snapshot. */
     private final de.verdox.solarminer.pcagent.mining.proxy.ProxyHealthService proxyHealth;
     private final LocalRunLock runLock;
+    private AutoTuningProfileStore autoTuningProfiles;
+    private WorkerPowerModeService workerPowerModes;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAutoTuning(AutoTuningProfileStore profiles, WorkerPowerModeService modes) {
+        this.autoTuningProfiles = profiles;
+        this.workerPowerModes = modes;
+    }
     private WorkerCoinRevenueModeService workerCoinRevenueMode;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -91,6 +101,23 @@ public class EconomicPlanningService {
 
     private WorkerCapability worker(String id, String type, String model, List<String> coins, List<MinerStats.Worker> live) {
         String selectedCoin = controls.get().coinFor(id);
+        Coin selected = Coin.byIdOrNull(selectedCoin);
+        LocalGpuPowerService.Gpu gpu = gpus.snapshot().stream().filter(card -> id.equals(card.deviceId())).findFirst().orElse(null);
+        List<AutoTuningTier> autoTuningTiers = List.of();
+        if ("AUTO_TUNING".equals(controls.get().powerModeFor(id)) && selected != null && selected.isGpu()
+                && gpu != null && autoTuningProfiles != null) {
+            autoTuningTiers = autoTuningProfiles.matrix(id, selectedCoin,
+                    miners.minerSoftwareForWorker(selected, id), miners.minerVersionForWorker(selected, id),
+                    gpu.model(), gpu.vendor(), selected.assignmentAlgorithm()).stream()
+                    .filter(point -> point.powerLimitWatts() >= gpu.minWatts()
+                            && point.powerLimitWatts() <= gpu.maxWatts()).map(point -> {
+                MarketDataService.Forecast forecast = market.forecastForProfile(selectedCoin, point.hashrateHs());
+                return new AutoTuningTier(point.powerLimitWatts(), point.hashrateHs(), point.calibratedAt(),
+                        forecast != null && forecast.available() && !forecast.stale() ? forecast.usdPerDay() : null,
+                        forecast == null ? null : forecast.updatedAt());
+            }).toList();
+        }
+        List<AutoTuningTier> publishedTiers = autoTuningTiers;
         MinerStats.Worker observed = live.stream().filter(value -> id.equals(value.deviceId()))
                 .filter(value -> {
                     Coin assigned = Coin.byIdOrNull(selectedCoin);
@@ -118,7 +145,10 @@ public class EconomicPlanningService {
                     : sweepProfile ? new PerformanceProfile(sweep.bestHashrateHs(),
                     Math.round(sweep.bestPowerWatts()), sweep.testedAt(), "SWEEP")
                     : observedProfile ? new PerformanceProfile(observed.terahashPerSecond() * 1_000_000_000_000d,
-                    observed.approximatedPowerUsageWatts(), Instant.now(), "OBSERVED") : null;
+                    observed.approximatedPowerUsageWatts(), Instant.now(), "OBSERVED")
+                    : coin.equals(selectedCoin) && !publishedTiers.isEmpty()
+                    ? new PerformanceProfile(publishedTiers.getLast().hashrateHs(), publishedTiers.getLast().watts(),
+                    publishedTiers.getLast().measuredAt(), "AUTO_TUNING") : null;
             String reason = !configured ? "Lokale Pool-/Miner-Konfiguration fehlt"
                     : !routeReady ? "Fee-/Proxy-Route ist nicht bereit"
                     : profile == null ? "Kein lokales Leistungsprofil; zuerst Benchmark oder stabilen Messpunkt erzeugen"
@@ -131,7 +161,7 @@ public class EconomicPlanningService {
                     marketReady ? forecast.usdPerDay() : null, marketReady ? forecast.updatedAt() : null);
         }).toList();
         return new WorkerCapability(id, type, model, selectedCoin, controls.get().workerEnabled(id),
-                controls.get().coinPolicyFor(id), candidates, controls.get().powerModeFor(id));
+                controls.get().coinPolicyFor(id), candidates, controls.get().powerModeFor(id), publishedTiers);
     }
 
     /** Applies only a plan that is locally opted-in and fully measured; it never accepts credentials. */
@@ -147,6 +177,8 @@ public class EconomicPlanningService {
     private PlanResult applyLocked(PlanRequest request) {
         if (request == null || request.planId() == null || request.planId().isBlank() || request.assignments() == null)
             return PlanResult.rejected("Plan ist unvollständig");
+        if (request.activeWorkerIds() == null && request.autoTuningBudgets() != null)
+            return PlanResult.rejected("economic_plan_invalid_auto_tuning_budget");
         if (request.validForSeconds() < 30 || request.validForSeconds() > Duration.ofMinutes(30).toSeconds())
             return PlanResult.rejected("Plan-Laufzeit muss zwischen 30 Sekunden und 30 Minuten liegen");
         Map<String, WorkerCapability> workers = capabilities().workers().stream()
@@ -155,6 +187,20 @@ public class EconomicPlanningService {
             if (request.targetWatts() != null || request.activeWorkerIds().stream().anyMatch(id -> id == null || id.isBlank())
                     || request.activeWorkerIds().size() != Set.copyOf(request.activeWorkerIds()).size())
                 return PlanResult.rejected("economic_plan_invalid_worker_set");
+            if (request.autoTuningBudgets() != null) {
+                if (!Set.copyOf(request.activeWorkerIds()).containsAll(request.autoTuningBudgets().keySet()))
+                    return PlanResult.rejected("economic_plan_invalid_auto_tuning_budget");
+                for (var budget : request.autoTuningBudgets().entrySet()) {
+                    WorkerCapability worker = workers.get(budget.getKey());
+                    if (worker == null || !"AUTO_TUNING".equals(worker.powerMode()) || budget.getValue() == null
+                            || worker.autoTuningTiers().stream().noneMatch(tier -> tier.watts() == budget.getValue()
+                            && tier.measuredAt() != null && !tier.measuredAt().isBefore(Instant.now().minus(Duration.ofDays(30)))
+                            && tier.usdPerDay() != null && tier.usdPerDay() > 0
+                            && tier.marketUpdatedAt() != null
+                            && !tier.marketUpdatedAt().isBefore(Instant.now().minus(Duration.ofHours(2)))))
+                        return PlanResult.rejected("economic_plan_invalid_auto_tuning_budget");
+                }
+            }
             if (request.assignments().stream().anyMatch(assignment -> assignment == null
                     || assignment.workerId() == null || assignment.coin() == null)
                     || request.assignments().size() != request.assignments().stream()
@@ -238,8 +284,15 @@ public class EconomicPlanningService {
                     boolean running = mining.getWorkerStats().stream().anyMatch(value ->
                             entry.getKey().equals(value.deviceId())
                                     && value.miningStatus() == MinerStats.MinerStatus.MINING);
-                    if (running == entry.getValue()) continue;
-                    boolean ok = entry.getValue() ? assignments.startUnderEconomicPlan(entry.getKey()) : assignments.pause(entry.getKey());
+                    Integer budget = request.autoTuningBudgets() == null ? null
+                            : request.autoTuningBudgets().get(entry.getKey());
+                    if (running == entry.getValue() && budget == null) continue;
+                    boolean ok = entry.getValue()
+                            ? running ? workerPowerModes != null && workerPowerModes.applyForBudget(entry.getKey(),
+                            controls.get().coinFor(entry.getKey()), budget).error() == null
+                            : budget == null ? assignments.startUnderEconomicPlan(entry.getKey())
+                            : assignments.startUnderEconomicPlan(entry.getKey(), budget)
+                            : assignments.pause(entry.getKey());
                     if (!ok) {
                         restore(rollbackCoins, rollbackRunning);
                         return PlanResult.rejected("economic_plan_worker_action_failed");
@@ -310,12 +363,20 @@ public class EconomicPlanningService {
     public record Capabilities(int protocolVersion, Instant collectedAt, List<WorkerCapability> workers, Instant activePlanExpiresAt) { }
     public record WorkerCapability(String workerId, String hardwareType, String hardwareModel, String selectedCoin,
                                    boolean externalControlEnabled, String coinPolicy, List<CoinCapability> coins,
-                                   String powerMode) {
+                                   String powerMode, List<AutoTuningTier> autoTuningTiers) {
+        public WorkerCapability(String workerId, String hardwareType, String hardwareModel, String selectedCoin,
+                                boolean externalControlEnabled, String coinPolicy, List<CoinCapability> coins,
+                                String powerMode) {
+            this(workerId, hardwareType, hardwareModel, selectedCoin, externalControlEnabled, coinPolicy, coins,
+                    powerMode, List.of());
+        }
         public WorkerCapability(String workerId, String hardwareType, String hardwareModel, String selectedCoin,
                                 boolean externalControlEnabled, String coinPolicy, List<CoinCapability> coins) {
             this(workerId, hardwareType, hardwareModel, selectedCoin, externalControlEnabled, coinPolicy, coins, "MANUAL");
         }
     }
+    public record AutoTuningTier(int watts, double hashrateHs, Instant measuredAt,
+                                 Double usdPerDay, Instant marketUpdatedAt) { }
     public record CoinCapability(String coin, String algorithm, boolean configured, boolean feeRouteReady,
                                  PerformanceProfile profile, String unavailableReason,
                                  Double usdPerDay, Instant marketUpdatedAt) {
@@ -326,7 +387,11 @@ public class EconomicPlanningService {
     }
     public record PerformanceProfile(double hashrateHps, long watts, Instant measuredAt, String confidence) { }
     public record PlanRequest(String planId, long validForSeconds, Long targetWatts, List<Assignment> assignments,
-                              List<String> activeWorkerIds) {
+                              List<String> activeWorkerIds, Map<String, Integer> autoTuningBudgets) {
+        public PlanRequest(String planId, long validForSeconds, Long targetWatts, List<Assignment> assignments,
+                           List<String> activeWorkerIds) {
+            this(planId, validForSeconds, targetWatts, assignments, activeWorkerIds, null);
+        }
         public PlanRequest(String planId, long validForSeconds, Long targetWatts, List<Assignment> assignments) {
             this(planId, validForSeconds, targetWatts, assignments, null);
         }

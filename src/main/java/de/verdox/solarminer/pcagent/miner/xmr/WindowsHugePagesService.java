@@ -1,4 +1,4 @@
-package de.verdox.solarminer.pcagent.xmr;
+package de.verdox.solarminer.pcagent.miner.xmr;
 
 import org.springframework.stereotype.Service;
 

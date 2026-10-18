@@ -262,15 +262,19 @@ public class MiningService {
             boolean economicPlanLock = localRunLock != null && "economic-plan".equals(localRunLock.holder());
             return coinRevenueMode.applyBestStartPoint(gpu.deviceId(), coinId, mode, true, economicPlanLock).success();
         }
-        if (workerPowerModes != null && workerPowerModes.apply(gpu.deviceId(), coinId).error() != null) return false;
+        if (workerPowerModes != null && workerPowerModes.applyForBudget(gpu.deviceId(), coinId,
+                "AUTO_TUNING".equals(mode) ? gpu.currentPowerLimitWatts() : null).error() != null) return false;
         return target.get().startGpu(vendor, index);
     }
 
     private boolean stopGpuForCoin(String coinId, String vendor, int index) {
         LocalGpuPowerService.Gpu gpu = gpuPowerService.discover().stream()
                 .filter(card -> card.vendor().equals(vendor) && card.index() == index).findFirst().orElse(null);
-        return gpu == null || miners.gpuMinerForWorker(coinId, gpu.deviceId())
+        if (gpu == null) return true;
+        boolean stopped = miners.gpuMinerForWorker(coinId, gpu.deviceId())
                 .map(miner -> miner.stopGpu(vendor, index)).orElse(true);
+        return stopped && (!"AUTO_TUNING".equals(controls.get().powerModeFor(gpu.deviceId()))
+                || workerPowerModes == null || workerPowerModes.restoreAutoTuningClocks(gpu.deviceId()));
     }
 
     private List<LocalGpuPowerService.Gpu> selectedGpus(boolean external) {
@@ -328,8 +332,9 @@ public class MiningService {
             }
             // Preserve the existing assigned-worker stop behavior when no managed process was
             // discovered; the runtime-first path handles a process on a different coin/miner.
-            return foundRunningProcess ? stopped
-                    : stopGpuForCoin(controls.get().coinFor(deviceId), gpu.vendor(), gpu.index());
+            if (!foundRunningProcess) return stopGpuForCoin(controls.get().coinFor(deviceId), gpu.vendor(), gpu.index());
+            return stopped && (!"AUTO_TUNING".equals(controls.get().powerModeFor(deviceId))
+                    || workerPowerModes == null || workerPowerModes.restoreAutoTuningClocks(deviceId));
         });
     }
 
@@ -342,6 +347,13 @@ public class MiningService {
     }
 
     private boolean startActiveGpusForBudget() {
+        List<LocalGpuPowerService.Gpu> eligible = eligibleGpus();
+        if (eligible.stream().anyMatch(gpu -> "AUTO_TUNING".equals(controls.get().powerModeFor(gpu.deviceId())))) {
+            boolean started = true;
+            for (LocalGpuPowerService.Gpu gpu : eligible)
+                started = startGpuForCoin(controls.get().coinFor(gpu.deviceId()), gpu.vendor(), gpu.index()) && started;
+            return started;
+        }
         return activeGpuMiner().startForBudget();
     }
 

@@ -9,7 +9,7 @@
   };
   const groups = [
     ['operation', [['/', 'dashboard', 'home'], ['/mining.html', 'miner_software', 'mining'], ['/wallets.html', 'wallets', 'wallet'], ['/workers.html', 'worker', 'worker'], ['/automation.html', 'node_automation', 'automation']]],
-    ['optimization', [['/fleet.html', 'fleet_nav', 'fleet'], ['/power.html', 'power_consumption', 'power'], ['/hardware.html', 'power_limits', 'hardware'], ['/benchmarks.html', 'benchmark_page_title', 'benchmarks'], ['/benchmark-results.html', 'benchmark_results_title', 'benchmarks']]],
+    ['optimization', [['/fleet.html', 'fleet_nav', 'fleet'], ['/power.html', 'power_consumption', 'power'], ['/hardware.html', 'power_limits', 'hardware'], ['/autotuning.html', 'auto_tuning', 'autotuning'], ['/benchmarks.html', 'benchmark_page_title', 'benchmarks'], ['/benchmark-results.html', 'benchmark_results_title', 'benchmarks']]],
     ['system', [['/telemetry.html', 'sensors_7d5114', 'telemetry'], ['/proxy.html', 'connection_5fbdf2', 'proxy']]]
   ];
   const paths = {
@@ -21,6 +21,7 @@
     power: 'M13 2 4 13h6l-1 9 11-13h-7z',
     hardware: 'M4 7h16M4 17h16M9 4v6m6 4v6',
     benchmarks: 'M5 20V11m7 9V4m7 16v-6',
+    autotuning: 'M4 7h9m4 0h3M4 17h3m4 0h9M13 4v6m-6 4v6',
     fleet: 'M3 18h4v-6H3zm7 0h4V5h-4zm7 0h4V9h-4z',
     hopping: 'M4 7h15l-3-3m3 3-3 3M20 17H5l3-3m-3 3 3 3',
     telemetry: 'M3 12h4l3-7 4 14 3-7h4',

@@ -776,4 +776,9 @@ public class LocalGpuPowerService {
             return text;
         } finally { Files.deleteIfExists(output); }
     }
+
+    /** Package-scoped command seam shared by capability-probed GPU tuning adapters. */
+    String runTuningCommand(List<String> command) throws IOException, InterruptedException {
+        return commands.run(command);
+    }
 }

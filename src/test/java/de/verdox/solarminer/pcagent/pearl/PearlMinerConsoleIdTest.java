@@ -1,7 +1,8 @@
-package de.verdox.solarminer.pcagent.pearl;
+package de.verdox.solarminer.pcagent.miner.pearl;
 
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

@@ -1,11 +1,12 @@
 package de.verdox.solarminer.pcagent.mining;
 
 import de.verdox.solarminer.pcagent.dto.MinerStats;
+import de.verdox.solarminer.pcagent.miner.xmr.XmrMinerService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
 import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -70,7 +71,7 @@ class WorkerAssignmentServiceTest {
         de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService quanMiner =
                 mock(de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService.class);
         de.verdox.solarminer.pcagent.miner.MinerFactory factory = new de.verdox.solarminer.pcagent.miner.MinerFactory(
-                mock(de.verdox.solarminer.pcagent.xmr.XmrMinerService.class), mock(PearlMinerService.class),
+                mock(XmrMinerService.class), mock(PearlMinerService.class),
                 mock(GpuCoinMinerService.class), power, quanMiner, catalog, controls);
         WorkerAssignmentService service = new WorkerAssignmentService(controls, mining, power, catalog, factory,
                 mock(PayoutDefaultsService.class), mock(ProxyConfigurationService.class));
@@ -110,7 +111,7 @@ class WorkerAssignmentServiceTest {
                 "stratum+tcp://127.0.0.1:3339", "wallet", "worker", "NVIDIA:0"));
         when(quan.resumeGpu("NVIDIA", 0)).thenReturn(true);
         de.verdox.solarminer.pcagent.miner.MinerFactory factory = new de.verdox.solarminer.pcagent.miner.MinerFactory(
-                mock(de.verdox.solarminer.pcagent.xmr.XmrMinerService.class), mock(PearlMinerService.class),
+                mock(XmrMinerService.class), mock(PearlMinerService.class),
                 srb, power, quan, catalog, controls);
         WorkerAssignmentService service = new WorkerAssignmentService(controls, mock(MiningService.class), power,
                 catalog, factory, mock(PayoutDefaultsService.class), mock(ProxyConfigurationService.class));
@@ -261,6 +262,6 @@ class WorkerAssignmentServiceTest {
     private static de.verdox.solarminer.pcagent.miner.MinerFactory newFactory(PearlMinerService pearl,
             GpuCoinMinerService coins, LocalGpuPowerService power) {
         return new de.verdox.solarminer.pcagent.miner.MinerFactory(
-                mock(de.verdox.solarminer.pcagent.xmr.XmrMinerService.class), pearl, coins, power);
+                mock(XmrMinerService.class), pearl, coins, power);
     }
 }

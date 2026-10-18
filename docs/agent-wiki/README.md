@@ -33,6 +33,7 @@ Start with [pc-agent.md](pc-agent.md) — the ownership map for the source tree.
 | [Economic dispatch (C10)](economic-dispatch.md) | Node capability/short-lived-plan boundary and cold-start policy |
 | [Revenue candidate comparison](coin-hopping.md) | Historical coin-hopping contract, retirement, and the benchmark USD/kWh comparison |
 | [Worker operating modes](worker-power-modes.md) | Per-worker manual, efficiency and revenue modes; local cap ownership and Node on/off contract |
+| [GPU Auto Tuning](auto-tuning.md) | Driver-probed core/memory clock control, Bayesian calibration sessions, profile cache and local UI |
 | [Daily-profit modes](worker-daily-profit-modes-draft.md) | Beta fixed-coin and coin-selecting GPU modes that maximize estimated net profit per day |
 | [Power Consumption history](power-consumption.md) | Historical measured mining energy, period aggregates and the consent-gated LAN history contract |
 | [MINER-INTEGRATION-GUIDE.md](../../MINER-INTEGRATION-GUIDE.md) | Adding a miner to an existing coin |

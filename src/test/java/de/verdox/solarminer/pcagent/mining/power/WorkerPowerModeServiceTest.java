@@ -5,6 +5,8 @@ import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.mining.measurement.GpuEfficiencyStore;
 import de.verdox.solarminer.pcagent.mining.measurement.MiningPerformanceProfileStore;
+import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore;
+import de.verdox.solarminer.pcagent.lowlevel.GpuTuningService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -17,6 +19,41 @@ import static org.mockito.Mockito.*;
 
 class WorkerPowerModeServiceTest {
     @TempDir Path directory;
+
+    @Test
+    void autoTuningModeRequiresMatchingProfileAndAppliesClockAndPowerSettings() {
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        LocalGpuPowerService gpus = mock(LocalGpuPowerService.class);
+        LocalGpuPowerService.Gpu card = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test", 80, 250,
+                100, 220, 200, 150.0, "measured", true, null);
+        when(gpus.discover()).thenReturn(List.of(card));
+        when(gpus.setTotalPowerTarget(150, List.of(card))).thenReturn(true);
+        AutoTuningProfileStore profiles = new AutoTuningProfileStore(json, directory.resolve("auto-profiles.json").toString());
+        var profile = new AutoTuningProfileStore.Profile("GPU-a", "Test", "NVIDIA", "pearl", "PearlHash",
+                "srbminer-multi", 1200, 800, 150, 100.0, 125, 8, .8, Instant.now());
+        assertTrue(profiles.saveMatrix(List.of(
+                new AutoTuningProfileStore.Profile("GPU-a", "Test", "NVIDIA", "pearl", "PearlHash",
+                        "srbminer-multi", 1100, 700, 100, 80.0, 90, 8, .89, Instant.now()),
+                profile,
+                new AutoTuningProfileStore.Profile("GPU-a", "Test", "NVIDIA", "pearl", "PearlHash",
+                        "srbminer-multi", 1300, 900, 200, 120.0, 180, 8, .67, Instant.now()))));
+        AgentControlSettingsService controls = new AgentControlSettingsService(json, directory.resolve("auto-control.json").toString());
+        assertTrue(controls.setWorkerPowerMode("GPU-a", "AUTO_TUNING"));
+        WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus,
+                new GpuEfficiencyStore(json, directory.resolve("auto-sweeps.json").toString()),
+                new MiningPerformanceProfileStore(json, directory.resolve("auto-bench.json").toString()), 80);
+        de.verdox.solarminer.pcagent.miner.MinerFactory miners = mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class);
+        when(miners.minerSoftwareForWorker(any(), eq("GPU-a"))).thenReturn("srbminer-multi");
+        modes.setMinerFactory(miners);
+        GpuTuningService tuning = mock(GpuTuningService.class);
+        when(tuning.apply("GPU-a", 1200, 1200, 800, 800)).thenReturn(new GpuTuningService.ApplyResult(true, null));
+        modes.setAutoTuning(profiles, tuning);
+
+        assertNull(modes.selectForMode("GPU-a", "pearl", "AUTO_TUNING").error());
+        assertNull(modes.applyForBudget("GPU-a", "pearl", 175).error());
+        verify(tuning).apply("GPU-a", 1200, 1200, 800, 800);
+        verify(gpus).setTotalPowerTarget(150, List.of(card));
+    }
 
     @Test
     void choosesBestMeasuredHashesPerWattWithinGpuBoundsAndPersistsMode() {

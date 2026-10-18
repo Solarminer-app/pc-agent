@@ -7,8 +7,8 @@ import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentIdentityService;
 import de.verdox.solarminer.pcagent.miner.srb.GpuCoinMinerService;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
-import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
-import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
+import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
+import de.verdox.solarminer.pcagent.miner.xmr.XmrMinerService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
