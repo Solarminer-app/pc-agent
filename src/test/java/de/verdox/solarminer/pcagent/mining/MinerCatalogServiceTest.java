@@ -18,6 +18,14 @@ class MinerCatalogServiceTest {
     @TempDir Path directory;
 
     @Test
+    void explainsQuanPoolWindowsBlockerAndNamesInstallableQuantusAlternatives() {
+        assertEquals("QuanPool Miner has no Windows build. For Quantus on Windows, use WildRig NG or SRBMiner-MULTI.",
+                MinerCatalogService.quanPoolUnsupportedReason("Windows 11"));
+        assertEquals("QuanPool Miner 6.4.0 is available only for Linux x86-64",
+                MinerCatalogService.quanPoolUnsupportedReason("Mac OS X"));
+    }
+
+    @Test
     void exposesPerCoinMetadataAndPersistsOnlyKnownSelections() {
         XmrDownloadService xmrig = mock(XmrDownloadService.class);
         SrbDownloadService srb = mock(SrbDownloadService.class);

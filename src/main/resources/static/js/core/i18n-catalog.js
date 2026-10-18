@@ -3106,6 +3106,7 @@ window.SolarMinerI18nCatalog = {
         "Closed binary with a 2% developer fee": "Geschlossene Binärdatei mit 2 % Entwicklergebühr",
         "Real SolarMiner fee-share accounting is still pending": "Reale SolarMiner-Fee-Share-Abrechnung steht noch aus",
         "QuanPool Miner 6.4.0 is available only for Linux x86-64": "QuanPool Miner 6.4.0 ist nur für Linux x86-64 verfügbar",
+        "QuanPool Miner has no Windows build. For Quantus on Windows, use WildRig NG or SRBMiner-MULTI.": "Für QuanPool Miner gibt es keine Windows-Version. Verwende für Quantus unter Windows WildRig NG oder SRBMiner-MULTI.",
         "QuanPool Miner is not installed": "QuanPool Miner ist nicht installiert",
         "PeakMiner is not installed": "PeakMiner ist nicht installiert",
         "WildRig NG is not installed": "WildRig NG ist nicht installiert",

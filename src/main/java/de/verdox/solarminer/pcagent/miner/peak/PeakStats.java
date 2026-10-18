@@ -3,14 +3,14 @@ package de.verdox.solarminer.pcagent.miner.peak;
 import com.fasterxml.jackson.databind.JsonNode;
 import de.verdox.solarminer.pcagent.miner.MinerShareTelemetry;
 
-/** PeakMiner /summary snapshot; the documented rate is kH/s. */
+/** PeakMiner 2.19.1 /summary snapshot; its numeric hashrate is already H/s. */
 record PeakStats(double hashrateHs, double temperatureCelsius, MinerShareTelemetry.Counters shares,
                  boolean hasActiveJob, double feePercent, String version, String transport) {
     static PeakStats parse(JsonNode root) {
         if (root == null || !root.isObject() || !root.path("gpus").isArray()
                 || !root.path("hashrate").isNumber() || !root.path("dev_fee_percent").isNumber())
             throw new IllegalArgumentException("PeakMiner metrics are invalid");
-        double rate = root.path("hashrate").asDouble() * 1_000d;
+        double rate = root.path("hashrate").asDouble();
         if (!Double.isFinite(rate) || rate < 0) throw new IllegalArgumentException("PeakMiner hashrate is invalid");
         double temperature = 0;
         for (JsonNode gpu : root.path("gpus"))

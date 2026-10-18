@@ -338,7 +338,7 @@ public class MinerCatalogService {
                 definition.experimental(), installed, downloadStatus, downloadDetail,
                 definition.installable() && platformSupported, definition.selectable() && platformSupported,
                 platformSupported ? definition.unavailableReason() : quan
-                        ? "QuanPool Miner 6.4.0 is available only for Linux x86-64"
+                        ? quanPoolUnsupportedReason(System.getProperty("os.name", ""))
                         : "This miner requires Linux or Windows x86-64");
     }
 
@@ -362,6 +362,12 @@ public class MinerCatalogService {
         String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
         String arch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT);
         return os.contains("linux") && (arch.equals("amd64") || arch.equals("x86_64"));
+    }
+
+    static String quanPoolUnsupportedReason(String osName) {
+        return osName.toLowerCase(java.util.Locale.ROOT).contains("win")
+                ? "QuanPool Miner has no Windows build. For Quantus on Windows, use WildRig NG or SRBMiner-MULTI."
+                : "QuanPool Miner 6.4.0 is available only for Linux x86-64";
     }
 
     /** Scheduler entry point: the probe runs on a virtual thread to keep the shared scheduler free. */

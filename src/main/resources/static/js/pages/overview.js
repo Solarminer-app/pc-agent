@@ -251,6 +251,7 @@
     const next = [];
     const appendSweep = (run, agent = null) => {
       const card = measurementCard(run.model, run.algorithm, agent);
+      if (run.softwareId) card.append(ui.element('p', 'muted', `${t('miner_software')}: ${ui.s(run.softwareId)}`));
       const required = run.samplesRequired ?? 12;
       const identity = run.mode === 'FULL' ? 'full_device_curve' : 'parallel_device_validation';
       const group = run.mode === 'FULL' && Number.isInteger(run.referenceBatch)

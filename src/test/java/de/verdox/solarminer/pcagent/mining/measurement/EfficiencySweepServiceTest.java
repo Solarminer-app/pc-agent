@@ -31,6 +31,30 @@ import static org.mockito.Mockito.when;
 
 class EfficiencySweepServiceTest {
     @Test
+    void retriesPeakStartOnceAfterStoppingThePreviousManagedMiner() {
+        var gpu = gpu("rtx-2080", "NVIDIA", 0);
+        MinerFactory miners = mock(MinerFactory.class);
+        GpuCoinMiner previous = mock(GpuCoinMiner.class);
+        GpuCoinMiner peak = mock(GpuCoinMiner.class);
+        when(miners.gpuMiner(Coin.PEARL, "peakminer")).thenReturn(peak);
+        when(miners.gpuMinerAdapters(any(Coin.class)))
+                .thenReturn(List.of(new MinerFactory.GpuMinerAdapter("srbminer-multi", previous)));
+        when(peak.resumeGpu("NVIDIA", 0)).thenReturn(false, true);
+        when(peak.lastError()).thenReturn("Another miner already controls NVIDIA:0");
+        when(previous.stopGpu("NVIDIA", 0)).thenReturn(true);
+        var service = new EfficiencySweepService(miners, mock(LocalGpuPowerService.class),
+                mock(de.verdox.solarminer.pcagent.miner.MinerConsoleService.class),
+                mock(de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService.class),
+                mock(de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService.class),
+                mock(GpuEfficiencyStore.class), mock(BenchmarkSharingService.class), new LocalRunLock(),
+                15, 85, 0.1, 240);
+
+        assertTrue(service.startMiner(new EfficiencySweepService.Target("pearl", "PearlHash", gpu, null, "peakminer")));
+        verify(peak, times(2)).resumeGpu("NVIDIA", 0);
+        verify(previous, org.mockito.Mockito.atLeastOnce()).stopGpu("NVIDIA", 0);
+    }
+
+    @Test
     void quantusSweepUsesWorkersSrbAdapterWhenCoinDefaultIsQuanPool() throws Exception {
         var gpu = gpu("rtx-2080", "NVIDIA", 0);
         MinerFactory miners = mock(MinerFactory.class);
@@ -268,6 +292,7 @@ class EfficiencySweepServiceTest {
         when(pearl.reportedAlgorithm()).thenReturn("PearlHash");
         when(raven.reportedAlgorithm()).thenReturn("KAWPOW");
         when(pearl.resumeGpu("NVIDIA", 0)).thenReturn(false);
+        when(pearl.lastError()).thenReturn("Pearl SolarMiner proxy is unreachable");
         LocalGpuPowerService power = mock(LocalGpuPowerService.class);
         when(power.discover()).thenReturn(List.of(gpu));
         when(power.refresh()).thenReturn(List.of(gpu));
@@ -288,7 +313,7 @@ class EfficiencySweepServiceTest {
         assertTrue(service.status().phase().startsWith("Fertig"));
         assertEquals(List.of("pearl", "ravencoin"), runs.stream().map(EfficiencySweepService.RunStatus::coin).toList());
         assertTrue(runs.stream().allMatch(run -> run.status() == SweepRunState.FAILED && run.steps().size() == 1));
-        assertTrue(runs.getFirst().steps().getFirst().note().contains("Miner konnte nicht gestartet werden"));
+        assertEquals("Pearl SolarMiner proxy is unreachable", runs.getFirst().steps().getFirst().note());
         verify(pearl).resumeGpu("NVIDIA", 0);
         verify(power, times(2)).setSweepPowerTarget(eq(200L), eq(gpu));
     }

@@ -180,7 +180,10 @@
       else if (key.startsWith('Bester stabiler Wert: ')) translated = key.replace('Bester stabiler Wert: ', 'Best stable value: ');
       else if (key.startsWith('Abgebrochen; bisher bester Messwert: ')) translated = key.replace('Abgebrochen; bisher bester Messwert: ', 'Cancelled; best measurement so far: ');
       else if (key.endsWith(' W stabil')) translated = key.replace(' W stabil', ' W stable');
-      else if (key.includes(' W instabil: ')) translated = key.replace(' W instabil: ', ' W unstable: ');
+      else if (key.includes(' W instabil: ')) {
+        const separator = ' W instabil: ', at = key.indexOf(separator);
+        translated = `${key.slice(0, at)} W unstable: ${s(key.slice(at + separator.length))}`;
+      }
       else if (key.includes(' · ')) translated = key.split(' · ').map(s).join(' · ');
       else translated = text;
     }

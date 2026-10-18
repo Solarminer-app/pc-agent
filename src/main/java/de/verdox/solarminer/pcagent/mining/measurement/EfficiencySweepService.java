@@ -759,8 +759,12 @@ public class EfficiencySweepService {
 
     private GpuEfficiencyStore.StepResult measureStep(Target target, int limit,
                                                        List<GpuEfficiencyStore.StepResult> completedSteps) {
-        if (!startMiner(target))
-            return new GpuEfficiencyStore.StepResult(limit, null, null, null, false, "Miner konnte nicht gestartet werden");
+        if (!startMiner(target)) {
+            String reason = targetMiner(target).lastError();
+            if (reason == null || reason.isBlank()) reason = diagnosisFor(target);
+            if (reason == null || reason.isBlank()) reason = "Miner konnte nicht gestartet werden";
+            return new GpuEfficiencyStore.StepResult(limit, null, null, null, false, reason);
+        }
         List<Double> rates = new ArrayList<>();
         List<Double> watts = new ArrayList<>();
         double maxTemp = Double.NEGATIVE_INFINITY;
@@ -833,8 +837,16 @@ public class EfficiencySweepService {
                 && coin.matchesAlgorithm(algorithm);
     }
 
-    private boolean startMiner(Target target) {
-        return targetMiner(target).resumeGpu(target.gpu().vendor(), target.gpu().index());
+    boolean startMiner(Target target) {
+        GpuCoinMiner miner = targetMiner(target);
+        if (miner.resumeGpu(target.gpu().vendor(), target.gpu().index())) return true;
+        // A previous managed miner can finish its exit callback just after the handoff.
+        // Reap managed workers on this card once more; never terminate external processes.
+        String reason = miner.lastError();
+        if (reason != null && reason.startsWith("Another miner already controls ")
+                && stopAllOn(target.gpu()))
+            return miner.resumeGpu(target.gpu().vendor(), target.gpu().index());
+        return false;
     }
 
     private boolean stopMiner(Target target) {
@@ -919,7 +931,8 @@ public class EfficiencySweepService {
                     runs.add(new RunStatus(runId(target), target.gpu().deviceId(), target.gpu().model(), target.coin(),
                             target.algorithm(), reference ? SweepMode.FULL : SweepMode.VALIDATION, SweepRunState.QUEUED, null, limits,
                             List.of(), 0, SAMPLES_PER_STEP, reference ? batchIndex : null,
-                            reference ? "Vollständige GPU-Kurve" : "Wartet auf Ergebnis der Referenzkarte"));
+                            reference ? "Vollständige GPU-Kurve" : "Wartet auf Ergebnis der Referenzkarte",
+                            target.softwareId()));
                 }
             }
         }
@@ -948,27 +961,28 @@ public class EfficiencySweepService {
             List<Integer> planned = old.plannedLimits().isEmpty() ? run.plannedLimits() : old.plannedLimits();
             return new RunStatus(run.id(), run.deviceId(), run.model(), run.coin(), run.algorithm(), run.mode(),
                     SweepRunState.COMPLETE, profile.bestStableWatts(), planned, profile.steps(), old.samples(),
-                    run.samplesRequired(), run.referenceBatch(), "Aus unterbrochenem Sweep übernommen");
+                    run.samplesRequired(), run.referenceBatch(), "Aus unterbrochenem Sweep übernommen", run.softwareId());
         }).toList();
     }
 
     private synchronized void setPlannedLimits(Target target, List<Integer> limits, SweepMode mode, String detail) {
         mutateRun(target, current -> new RunStatus(current.id(), current.deviceId(), current.model(), current.coin(),
                 current.algorithm(), mode, SweepRunState.QUEUED, null, List.copyOf(limits), current.steps(), 0,
-                SAMPLES_PER_STEP, current.referenceBatch(), detail), detail);
+                SAMPLES_PER_STEP, current.referenceBatch(), detail, current.softwareId()), detail);
     }
 
     private synchronized void updateRun(Target target, SweepRunState status, Integer limit,
                                         List<GpuEfficiencyStore.StepResult> steps, int samples, String detail) {
         mutateRun(target, current -> new RunStatus(current.id(), current.deviceId(), current.model(), current.coin(),
                 current.algorithm(), current.mode(), status, limit, current.plannedLimits(), List.copyOf(steps),
-                samples, SAMPLES_PER_STEP, current.referenceBatch(), detail), detail);
+                samples, SAMPLES_PER_STEP, current.referenceBatch(), detail, current.softwareId()), detail);
     }
 
     private synchronized void finishRun(Target target, SweepRunState status, String detail) {
         mutateRun(target, current -> new RunStatus(current.id(), current.deviceId(), current.model(), current.coin(),
                 current.algorithm(), current.mode(), status, current.limitWatts(), current.plannedLimits(),
-                current.steps(), current.samples(), current.samplesRequired(), current.referenceBatch(), detail), detail);
+                current.steps(), current.samples(), current.samplesRequired(), current.referenceBatch(), detail,
+                current.softwareId()), detail);
     }
 
     private void mutateRun(Target target, java.util.function.Function<RunStatus, RunStatus> change, String phase) {
@@ -1020,12 +1034,14 @@ public class EfficiencySweepService {
     private static List<RunStatus> finalizePendingRuns(List<RunStatus> runs, SweepRunState status, String detail) {
         return runs.stream().map(run -> run.terminal() ? run : new RunStatus(run.id(), run.deviceId(), run.model(),
                 run.coin(), run.algorithm(), run.mode(), status, run.limitWatts(), run.plannedLimits(), run.steps(),
-                run.samples(), run.samplesRequired(), run.referenceBatch(), detail)).toList();
+                run.samples(), run.samplesRequired(), run.referenceBatch(), detail, run.softwareId())).toList();
     }
 
     private static String formatRate(double hashrateHs) {
-        if (hashrateHs >= 1_000_000_000d) return Math.round(hashrateHs / 1_000_000_000d) + " MH/s";
-        if (hashrateHs >= 1_000_000d) return Math.round(hashrateHs / 1_000_000d) + " kH/s";
+        if (hashrateHs >= 1_000_000_000_000d) return Math.round(hashrateHs / 1_000_000_000_000d) + " TH/s";
+        if (hashrateHs >= 1_000_000_000d) return Math.round(hashrateHs / 1_000_000_000d) + " GH/s";
+        if (hashrateHs >= 1_000_000d) return Math.round(hashrateHs / 1_000_000d) + " MH/s";
+        if (hashrateHs >= 1_000d) return Math.round(hashrateHs / 1_000d) + " kH/s";
         return Math.round(hashrateHs) + " H/s";
     }
 
@@ -1061,7 +1077,14 @@ public class EfficiencySweepService {
     public record RunStatus(String id, String deviceId, String model, String coin, String algorithm,
                             SweepMode mode, SweepRunState status, Integer limitWatts, List<Integer> plannedLimits,
                             List<GpuEfficiencyStore.StepResult> steps, int samples, int samplesRequired,
-                            Integer referenceBatch, String detail) {
+                            Integer referenceBatch, String detail, String softwareId) {
+        public RunStatus(String id, String deviceId, String model, String coin, String algorithm,
+                         SweepMode mode, SweepRunState status, Integer limitWatts, List<Integer> plannedLimits,
+                         List<GpuEfficiencyStore.StepResult> steps, int samples, int samplesRequired,
+                         Integer referenceBatch, String detail) {
+            this(id, deviceId, model, coin, algorithm, mode, status, limitWatts, plannedLimits, steps, samples,
+                    samplesRequired, referenceBatch, detail, null);
+        }
         boolean terminal() {
             return status.terminal();
         }

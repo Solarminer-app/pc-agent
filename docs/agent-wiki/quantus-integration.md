@@ -1,5 +1,12 @@
 # Quantus / QuanPool miner integration
 
+Windows operator clarification (2026-10-18): QuanPool publishes only the Linux
+x86-64 6.4.0 binary documented below. The Agent correctly refuses its install
+on native Windows; the Software page now prioritizes this concrete reason over
+the generic installer status and names WildRig NG and SRBMiner-MULTI as the
+available Quantus adapters for Windows. It does not attempt to run the Linux
+binary through WSL or silently substitute another miner.
+
 Status: **installer and adapter implemented; selectable on the Beta branch for live
 certification** (2026-10-14).
 

@@ -66,7 +66,8 @@
       fact('project', item.projectUrl || '—');
       card.append(facts);
       const copy = el('p', 'muted', item.installed ? 'the_software_is_ready_and_can_be_assigned_to' : needsUpdate ? 'update_srbminer_to_the_reviewed_version_your_mining' : 'installation_uses_the_verified_official_rele');
-      if (item.downloadDetail || item.unavailableReason) copy.textContent = window.SolarMinerI18n.s(item.downloadDetail || item.unavailableReason);
+      // A platform blocker is more useful than an installer's generic pending state.
+      if (item.unavailableReason || item.downloadDetail) copy.textContent = window.SolarMinerI18n.s(item.unavailableReason || item.downloadDetail);
       card.append(copy);
       const actions = el('div', 'software-actions');
       if (item.projectUrl) { const link = el('a', 'button subtle', 'project_page'); link.href = item.projectUrl; link.target = '_blank'; link.rel = 'noopener noreferrer'; actions.append(link); }

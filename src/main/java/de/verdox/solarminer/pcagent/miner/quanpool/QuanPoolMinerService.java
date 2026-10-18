@@ -477,6 +477,7 @@ public class QuanPoolMinerService extends AbstractMinerEngine implements GpuCoin
         if (localRuns.busy()) return;
         for (WorkerRunState state : List.copyOf(runs.values())) {
             if (manuallyPaused.contains(gpuKey(state.gpu)) || state.status != MinerStats.MinerStatus.ERROR
+                    || (state.error != null && state.error.startsWith("Another miner already controls "))
                     || state.running() || state.restartAttempts >= MAX_CRASH_RESTARTS) continue;
             int attempts = ++state.restartAttempts;
             startGpu(state.gpu.vendor(), state.gpu.index());

@@ -14,10 +14,10 @@ class PeakMinerContractTest {
     @Test void parsesObservedApiAndPinsOneGpuToDriverUuid() throws Exception {
         PeakStats stats = PeakStats.parse(json.readTree("""
                 {"version":"2.19.1","algo":"pearl","pool":{"connected":true,"difficulty":128,"ping_ms":14},
-                 "dev_fee_percent":2.0,"hashrate":812.5,"accepted_shares":7,"invalid_shares":1,
-                 "gpus":[{"id":0,"pci_bus_id":"21:00.0","hashrate":812.5,"temperature_c":63}]}
+                 "dev_fee_percent":2.0,"hashrate":81250000000000,"accepted_shares":7,"invalid_shares":1,
+                 "gpus":[{"id":0,"pci_bus_id":"21:00.0","hashrate":81250000000000,"temperature_c":63}]}
                 """));
-        assertEquals(812_500, stats.hashrateHs());
+        assertEquals(81_250_000_000_000d, stats.hashrateHs());
         assertEquals(63, stats.temperatureCelsius());
         assertEquals(7L, stats.shares().accepted());
         assertEquals(1L, stats.shares().rejected());

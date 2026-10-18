@@ -786,17 +786,33 @@ function renderLiveSweepChart(runs, running, saved = false) {
             : t(running ? 'benchmark_sweep_waiting_points' : 'benchmark_sweep_no_live_curve')));
         return;
     }
-    const selected = available.find(line => line.run.id === selectedSweepRunId)
-        || available.find(line => line.run.status === 'RUNNING') || available[0];
-    selectedSweepRunId = selected.run.id;
-    const lines = [selected];
-    if (available.length > 1) {
+    const groupKey = line => saved ? `${line.run.coin}|${line.run.algorithm}` : line.run.id;
+    const groups = [...new Map(available.map(line => [groupKey(line), {
+        key: groupKey(line), run: line.run, lines: available.filter(candidate => groupKey(candidate) === groupKey(line))
+    }])).values()];
+    const selectedGroup = groups.find(group => group.key === selectedSweepRunId)
+        || groups.find(group => group.lines.some(line => line.run.status === 'RUNNING')) || groups[0];
+    selectedSweepRunId = selectedGroup.key;
+    const lines = saved
+        ? [...new Map(selectedGroup.lines.map(line => [line.run.minerSoftwareId || line.run.softwareId || 'legacy', line]))
+            .values()].map(representative => {
+                const softwareId = representative.run.minerSoftwareId || representative.run.softwareId || 'legacy';
+                const groupedPoints = selectedGroup.lines
+                    .filter(line => (line.run.minerSoftwareId || line.run.softwareId || 'legacy') === softwareId)
+                    .flatMap(line => line.points)
+                    .sort((a, b) => a.x - b.x);
+                const points = [...new Map(groupedPoints.map(point => [point.x, point])).values()];
+                return {...representative, points};
+            })
+        : selectedGroup.lines;
+    if (groups.length > 1) {
         const tabs = make('div', 'sweep-chart-tabs');
-        for (const line of available) {
-            const button = make('button', `sweep-algorithm-tab${line.run.id === selectedSweepRunId ? ' selected' : ''}`,
-                `${algorithmGroupLabel(line.run)} · ${line.run.model}`);
-            button.type = 'button'; button.setAttribute('aria-pressed', String(line.run.id === selectedSweepRunId));
-            button.addEventListener('click', () => { selectedSweepRunId = line.run.id; renderLiveSweepChart(runs, running); });
+        for (const group of groups) {
+            const button = make('button', `sweep-algorithm-tab${group.key === selectedSweepRunId ? ' selected' : ''}`,
+                saved ? `${group.run.coin.toUpperCase()} · ${algorithmGroupLabel(group.run)}`
+                    : `${algorithmGroupLabel(group.run)} · ${group.run.model}`);
+            button.type = 'button'; button.setAttribute('aria-pressed', String(group.key === selectedSweepRunId));
+            button.addEventListener('click', () => { selectedSweepRunId = group.key; renderLiveSweepChart(runs, running, saved); });
             tabs.append(button);
         }
         root.append(tabs);
@@ -813,8 +829,9 @@ function renderLiveSweepChart(runs, running, saved = false) {
         svg.append(node); return node;
     };
     const all = lines.flatMap(line => line.points);
-    const xMin = Math.min(...all.map(point => point.x), ...(selected.run.plannedLimits || []));
-    const xMax = Math.max(...all.map(point => point.x), ...(selected.run.plannedLimits || []));
+    const plannedLimits = lines.flatMap(line => line.run.plannedLimits || []);
+    const xMin = Math.min(...all.map(point => point.x), ...plannedLimits);
+    const xMax = Math.max(...all.map(point => point.x), ...plannedLimits);
     const yMax = Math.max(...all.map(point => point.y)) * 1.18;
     const left = 78, right = 730, top = 22, bottom = 268;
     const x = value => left + (value - xMin) / Math.max(1, xMax - xMin) * (right - left);
@@ -826,7 +843,7 @@ function renderLiveSweepChart(runs, running, saved = false) {
     }
     add('text', {x:(left+right)/2, y:310, class:'sweep-axis-label', 'text-anchor':'middle'}, t('power_target_watts'));
     add('text', {x:18, y:148, class:'sweep-axis-label', 'text-anchor':'middle', transform:`rotate(${-90} 18 148)`}, t('benchmark_hashes_per_watt'));
-    const limits = [...new Set(selected.run.plannedLimits || [])].sort((a,b) => a-b);
+    const limits = [...new Set(plannedLimits)].sort((a,b) => a-b);
     for (const [index, limit] of limits.entries()) {
         add('line', {x1:x(limit), x2:x(limit), y1:top, y2:bottom, class:'sweep-grid-vertical'});
         if (index % Math.max(1, Math.ceil(limits.length / 8)) === 0 || index === limits.length - 1)
@@ -844,14 +861,15 @@ function renderLiveSweepChart(runs, running, saved = false) {
             const circle = add('circle', {cx:x(point.x), cy:y(point.y), r:6, fill:color, class:'sweep-curve-point'});
             const title = document.createElementNS(ns, 'title');
             const step = point.step;
-            title.textContent = `${algorithmGroupLabel(line.run)} · ${line.run.model} · ${line.run.coin} · ${point.x} W · ${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W · ${fmtRate(point.y)} / W`;
+            title.textContent = `${line.run.minerSoftwareId || line.run.softwareId || t('miner_software')} · ${algorithmGroupLabel(line.run)} · ${line.run.model} · ${line.run.coin} · ${point.x} W · ${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W · ${fmtRate(point.y)} / W`;
             circle.append(title);
         }
     }
     root.append(svg);
     const legend = make('div', 'sweep-chart-legend');
     for (const [index, line] of lines.entries()) {
-        const item = make('span', '', `${line.run.coin.toUpperCase()} · ${line.run.model}`);
+        const software = line.run.minerSoftwareId || line.run.softwareId || t('miner_software');
+        const item = make('span', '', `${software} · ${line.run.model}`);
         item.style.setProperty('--series-color', palette[index % palette.length]);
         legend.append(item);
     }

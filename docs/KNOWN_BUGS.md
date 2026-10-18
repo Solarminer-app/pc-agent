@@ -36,6 +36,7 @@ remains. The assigned task always takes precedence.
 | [x] | P1 | BUG-008 | PC-Agent Beta fails to start because worker revenue beans form a Spring dependency cycle. |
 | [~] | P1 | BUG-009 | “Start mining after benchmark” can report a start while no worker is hashing. |
 | [~] | P1 | BUG-010 | Selected Pearl or Quantus GPUs can be rejected from a power sweep despite a working miner route. |
+| [~] | P1 | BUG-011 | PeakMiner sweep can report a managed-miner ownership conflict and an implausible PH/s rate. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -598,3 +599,30 @@ specific start outcome. See BUG-009 for start verification.
 - Independently capture the benchmark `autoStartResults` and Pearl miner
   console/worker state after the Quantus phase to establish why Pearl did not
   hash; a sweep preflight rejection is not evidence of that cause.
+
+## BUG-011 — PeakMiner sweep ownership and hashrate units
+
+**Status:** Under investigation (`[~]`, 2026-10-18)
+**Priority:** P1
+**Area:** PeakMiner / Pearl power sweep on a Windows NVIDIA GPU
+
+The operator reported `210 W unstable: Miner konnte nicht gestartet werden`.
+The PeakMiner console repeatedly showed `Another miner already controls
+NVIDIA:0`. Assigning that worker to PeakMiner manually allowed a subsequent
+run. The generic sweep note discarded the adapter's actual start error; this
+is corrected. During a sweep, a managed-miner ownership collision now triggers
+one additional stop of all managed adapters on that physical GPU and one
+bounded start retry. The PeakMiner/QuanPool/WildRig crash watchdogs no longer
+retry an ownership conflict every 30 seconds after the sweep. The existing
+external-process guard remains in place. Whether this handoff eliminates the
+operator's particular first collision needs a Windows rerun; the exact
+competing process was not captured.
+
+The operator also saw PH/s for PeakMiner. Its pinned 2.19.1 `/summary`
+adapter multiplied the numeric hashrate by 1,000 before the shared H/s UI
+formatter. The operator's observation points to an H/s payload in that build;
+the multiplier was removed and a TH/s-scale fixture added. PeakMiner's public
+README still says kH/s, so a raw `/summary` response and console rate from
+the affected Windows build are required to settle this upstream contract and
+certify the corrected unit. Sweep console rate formatting had independent
+1,000-fold label errors (MH vs GH, kH vs MH), which were corrected.

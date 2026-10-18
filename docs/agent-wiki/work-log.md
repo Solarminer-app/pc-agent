@@ -1,5 +1,15 @@
 # PC-Agent work log
 
+## 2026-10-18 — PeakMiner sweep start and hashrate follow-up
+
+- Windows operator evidence: PeakMiner's 210 W sweep failed with a generic start note, while its console repeatedly reported another miner controlling `NVIDIA:0`. Manually changing the worker assignment to PeakMiner allowed a later run. The sweep now propagates the adapter's concrete start error and makes one bounded managed-miner handoff retry. Ownership errors no longer trigger repeated crash-watchdog retries in PeakMiner, WildRig NG or QuanPool. The competing process in the original run remains unidentified.
+- PeakMiner's `/summary` hashrate was multiplied by 1,000 before the common H/s formatter, consistent with the operator's implausible PH/s display. The pinned 2.19.1 parser now treats the numeric value as H/s and its fixture uses a TH/s-scale payload. Sweep console rate suffixes were corrected. The upstream README says kH/s, so raw Windows API/console comparison and a real rerun are required before certifying this inference. See BUG-011.
+
+## 2026-10-18 — Explain QuanPool's Windows installation blocker
+
+- The operator's native Windows Agent showed QuanPool as unavailable without a useful reason. QuanPool's official page offers only its Linux x86-64 binary, so the install guard is valid. The catalog now names the missing Windows build and suggests the existing WildRig NG/SRBMiner QTC alternatives; the Software page displays this platform reason ahead of a generic installer status. German and English copy is in the closed catalog. No unsupported Windows binary is downloaded.
+- Verification: JDK 21 `test standaloneJar --offline`, the catalog reason test, German/English catalog and page render checks, browser literal scan, JavaScript syntax and `git diff --check` passed. A native Windows browser check remains open.
+
 ## 2026-10-18 — Verify daily-profit selection against power-sweep efficiency
 
 - Reviewed the fixed-coin and coin-selecting daily-profit path from stable GPU sweep measurements through `CoinHoppingService` forecast/tariff conversion, `WorkerCoinRevenueModeService` start and scheduled selection, and the Results comparison. The daily-profit score is gross USD/day minus candidate-specific measured W × 24/1000 × tariff USD/kWh; hashes/W is a separate efficiency score. Pool/miner/referrer fees are excluded, as the Results note says.
@@ -3101,3 +3111,14 @@ checks passed. No real accepted pool share or payout was measured. See
 [integration record](peak-wildrig-beta.md) for the per-coin non-applicable
 steps, remaining tests and rollback. Existing `docs/KNOWN_BUGS.md` working-tree
 changes were preserved.
+
+### Power sweep waiting runs show selected miner software
+
+- Added the selected miner software ID to each sweep run's status payload and retained it through checkpoint reuse and state transitions. The overview now displays it beneath the GPU/algorithm heading, so queued runs for the same coin and algorithm remain distinguishable.
+- Reused the existing localized `miner_software` label; software IDs are catalog identifiers (for example `srbminer-multi`) and need no new translated copy. Existing RunStatus construction remains source-compatible through an overload.
+- Verification: inspected the sweep target construction and UI catalog. Tests were not run.
+
+## 2026-10-18 — Compare saved power sweeps by miner software
+
+- The saved sweep chart now groups runs by coin and algorithm and draws each miner software as one series. Points from repeated profiles for the same software are combined, with power target on X and hashes per watt on Y. The legend identifies the software and keeps the GPU model for context. Saved chart selectors choose coin/algorithm groups; live sweep chart behavior remains per run.
+- UI copy reuses existing localized labels; miner software IDs and GPU model names are catalog/hardware identifiers. Verification was limited to reviewing the changed rendering logic; tests and browser checks were not run.

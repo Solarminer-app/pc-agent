@@ -1,5 +1,16 @@
 # PeakMiner and WildRig NG on Beta
 
+Windows operator follow-up (2026-10-18): A PeakMiner 210 W sweep step failed
+with repeated `Another miner already controls NVIDIA:0` while the worker was
+assigned to a different miner; assigning PeakMiner manually let a later run
+start. The sweep now retains the adapter start reason, retries one managed
+handoff collision, and suppresses watchdog spam for ownership conflicts.
+The PeakMiner 2.19.1 API hashrate is currently treated as H/s after the
+operator observed an implausible PH/s value with the former ×1,000 conversion.
+The upstream README describes kH/s; capture raw Windows `/summary` and the
+miner-console rate before considering the unit contract hardware verified.
+See BUG-011 for the remaining reproduction.
+
 Status: installed, selectable GPU adapters on `beta` (2026-10-18). These are
 experimental mining routes. The operator can install and assign them; release
 promotion still requires credited user, house and referral shares. The PC-Agent
