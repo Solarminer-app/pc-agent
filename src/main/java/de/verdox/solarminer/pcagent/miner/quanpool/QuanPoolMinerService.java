@@ -119,7 +119,7 @@ public class QuanPoolMinerService extends AbstractMinerEngine implements GpuCoin
 
     private MinerConfig effectiveConfig() {
         return benchmarkOverride != null ? benchmarkOverride
-                : configuration() != null ? configuration() : sweepOverride;
+                : sweepOverride != null ? sweepOverride : configuration();
     }
 
     @Override public MinerConfig configuration() { return savedConfiguration; }

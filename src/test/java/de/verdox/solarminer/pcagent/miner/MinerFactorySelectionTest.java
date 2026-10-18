@@ -11,10 +11,29 @@ import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
 import java.util.Map;
 
 class MinerFactorySelectionTest {
+    @Test
+    void measurementUsesAssignedWorkersMinerBeforeCoinWideDefault() {
+        MinerCatalogService catalog = mock(MinerCatalogService.class);
+        MinerCatalogService.MinerOption selected = mock(MinerCatalogService.MinerOption.class);
+        when(selected.id()).thenReturn("quanpool-miner");
+        when(catalog.selected(Coin.QUANTUS.id())).thenReturn(selected);
+        AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(true, false, Map.of(),
+                Map.of("GPU-a", "quantus", "GPU-b", "pearl"), Map.of(), true, false,
+                Map.of("GPU-a", "srbminer-multi", "GPU-b", "srbminer-multi")));
+        MinerFactory factory = new MinerFactory(mock(XmrMinerService.class), mock(PearlMinerService.class),
+                mock(GpuCoinMinerService.class), mock(LocalGpuPowerService.class),
+                mock(QuanPoolMinerService.class), catalog, controls);
+
+        assertEquals("srbminer-multi", factory.minerSoftwareForMeasurement(Coin.QUANTUS, "GPU-a"));
+        assertEquals("quanpool-miner", factory.minerSoftwareForMeasurement(Coin.QUANTUS, "GPU-b"));
+    }
+
     @Test
     void dispatchesQuantusToTheSelectedQuanPoolAdapter() {
         MinerCatalogService catalog = mock(MinerCatalogService.class);

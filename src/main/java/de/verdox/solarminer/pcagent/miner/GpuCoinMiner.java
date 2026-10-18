@@ -61,7 +61,7 @@ public interface GpuCoinMiner extends CoinMiner {
         return null;
     }
 
-    /** Ephemeral fee-backend config used only by the efficiency sweep; never persisted. */
+    /** Ephemeral efficiency-sweep route or device selection; never persisted. */
     void setSweepOverride(MinerConfig config);
 
     void clearSweepOverride();

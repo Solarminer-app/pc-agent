@@ -35,6 +35,7 @@ remains. The assigned task always takes precedence.
 | [~] | P2 | BUG-007 | Dashboard worker status labels benchmark runs as normal mining. |
 | [x] | P1 | BUG-008 | PC-Agent Beta fails to start because worker revenue beans form a Spring dependency cycle. |
 | [~] | P1 | BUG-009 | “Start mining after benchmark” can report a start while no worker is hashing. |
+| [~] | P1 | BUG-010 | Selected Pearl or Quantus GPUs can be rejected from a power sweep despite a working miner route. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -479,3 +480,100 @@ check subsequent miner telemetry or positive hashrate.
   as well as both German and English result text.
 - Reproduce a miner that exits after its start call. Confirm the result names
   the miner error or missing hashrate and includes no false success.
+
+## BUG-010 — Selected Pearl or Quantus GPU has no sweep target
+
+**Status:** Under investigation (`[~]`, 2026-10-18)
+**Priority:** P1
+**Area:** Power-sweep target planning and operator diagnostics
+
+### Report and code diagnosis
+
+The operator selected only Pearl and an NVIDIA RTX 2080 worker, but starting a
+power sweep returned `benchmark_no_selected_targets`. This exact key is emitted
+only after `EfficiencySweepService.targets` returns an empty list with explicit
+worker selection. It occurs before a sweep session or miner start. The browser
+selection is a measurement filter, not a persisted miner assignment.
+
+`targets` first requires a discovered GPU with `supportsDynamicPowerScaling`
+and a matching selected `deviceId`, plus `miners.srbBinaryAvailable()`. For a
+configured Pearl miner it then requires that the same GPU appear in
+`PearlMinerService.selectedGpus()` (the saved `devices` field). If no Pearl
+config exists, it tries a temporary house-payout route, which can fail because
+the payout, proxy host/URL, or adapter validation is unavailable. The current
+generic message does not reveal which condition removed the last target.
+
+The screenshot proves only the UI's installed label and selected worker; it
+does not contain the agent's writable-capability result, saved Pearl GPU list,
+or proxy/payout status. Its exact failing predicate is therefore unconfirmed.
+The operator subsequently confirmed that a Quantus sweep still starts on this
+same GPU. If both requests hit the same running Agent, that rules out the
+shared writable-GPU filter and shared SRBMiner availability gate at the time
+of the Quantus request. The remaining Pearl-specific paths are a saved Pearl
+configuration whose `devices` excludes this card, or an absent Pearl config
+whose temporary payout/proxy route cannot be validated. This is a deduction
+from the code and report, not a captured Agent-state diagnosis.
+The operator also reports a Kryptex pool and wallet for Pearl, with Quantus
+assigned to the GPU in `COIN_REVENUE_PER_KWH` mode. If that pool/wallet is the
+saved Pearl `MinerConfig`, the configured branch is certain and the selected
+GPU is being removed by the intersection with Pearl's persisted `devices`.
+The measured GPU checkbox does not override this selection during a sweep,
+although an installed benchmark does use a temporary device override.
+`synchronizeConfiguredDevices` deliberately retains a coin's old config when
+no worker is assigned to it, so a valid route and a stale device list can
+coexist. Capture the config's non-secret `devices` field to confirm.
+
+Architecture review: Pearl is a distinct `GpuCoinMiner` adapter and
+`GpuCoinMinerService` owns the other SRBMiner coins. Both extend
+`AbstractSrbMinerEngine`, sharing process drain, monitor, stop and restart
+mechanics. The sweep target intersection is generic across adapters; moving
+Pearl wholesale into the shared service would not itself correct it. A
+session-scoped device override or target-planning contract is the focused
+remedy, with saved routes and post-sweep miner state preserved. Avoid widening
+unverified hardware support while implementing it.
+
+### Focused remedy (2026-10-18)
+
+The generic planner now admits an explicitly selected, writable GPU for each
+compatible selected miner even when the saved coin `devices` list excludes it.
+It adds selected devices in a temporary config while preserving pool, proxy,
+wallet and worker. Pearl, SRBMiner and QuanPool prioritize that override during
+the sweep; saved route files remain untouched. The no-explicit-worker path
+retains its saved-device behavior.
+
+Further operator reports name RTX 2080, RTX 3080 and Titan RTX; Quantus can
+fail in the opposite direction. All three workers use SRBMiner-MULTI, but a
+Quantus coin-wide miner selection can differ from the worker's saved software.
+The sweep now resolves each target through the worker's miner selection, stops
+all managed adapters on the physical GPU, and keeps completed resume results
+separate by miner software. German and English errors now distinguish a GPU
+without a writable limit from an unavailable selected miner; route/config
+failure retains a separate message.
+
+Service and real-adapter tests cover temporary device selection, worker miner
+selection, adapter cleanup, unchanged config files, and resume isolation. A
+real sweep on each reported GPU, its saved `devices` values, and the
+post-benchmark revenue decision still need capture; status remains under
+investigation.
+The sweep rejection can help explain the later benchmark auto-start outcome:
+the worker's `COIN_REVENUE_PER_KWH` mode can switch from its saved Quantus
+assignment to Pearl only when Pearl has a valid measured performance point,
+configured/fee-ready capability, and fresh market forecast. A failed Pearl
+sweep supplies no Pearl sweep profile, but an earlier valid benchmark profile
+could still qualify. The post-benchmark checkbox applies the worker's saved
+operating mode, not the selected benchmark coin. Inspect candidates and
+`autoStartResults` before claiming that missing Pearl sweep data caused this
+specific start outcome. See BUG-009 for start verification.
+
+### Verification required
+
+- On the affected agent, inspect the selected GPU's
+  `/api/agent/local/power-control` entry (`supportsDynamicPowerScaling` and
+  `regulationError`), `/api/agent/local/workers` assignment, and Pearl miner
+  configuration/device selection. Capture the actual `POST /efficiency`
+  response without wallet or proxy secrets.
+- Reproduce the missing target with each relevant precondition and give the
+  operator a localized, specific reason. Confirm German and English output.
+- Independently capture the benchmark `autoStartResults` and Pearl miner
+  console/worker state after the Quantus phase to establish why Pearl did not
+  hash; a sweep preflight rejection is not evidence of that cause.

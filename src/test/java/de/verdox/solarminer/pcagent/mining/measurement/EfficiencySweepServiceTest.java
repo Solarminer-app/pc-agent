@@ -31,6 +31,147 @@ import static org.mockito.Mockito.when;
 
 class EfficiencySweepServiceTest {
     @Test
+    void quantusSweepUsesWorkersSrbAdapterWhenCoinDefaultIsQuanPool() throws Exception {
+        var gpu = gpu("rtx-2080", "NVIDIA", 0);
+        MinerFactory miners = mock(MinerFactory.class);
+        GpuCoinMiner pearl = mock(GpuCoinMiner.class);
+        GpuCoinMiner srb = mock(GpuCoinMiner.class);
+        GpuCoinMiner quanPool = mock(GpuCoinMiner.class);
+        GpuCoinMiner other = mock(GpuCoinMiner.class);
+        when(miners.gpuMiner(any(Coin.class))).thenReturn(other);
+        when(miners.gpuMiner(Coin.PEARL)).thenReturn(pearl);
+        when(miners.gpuMiner(Coin.QUANTUS)).thenReturn(quanPool);
+        when(miners.gpuMiner(Coin.QUANTUS, "srbminer-multi")).thenReturn(srb);
+        when(miners.minerSoftwareForMeasurement(Coin.QUANTUS, "rtx-2080")).thenReturn("srbminer-multi");
+        when(miners.gpuMinerAdapters(Coin.QUANTUS)).thenReturn(List.of(
+                new MinerFactory.GpuMinerAdapter("srbminer-multi", srb),
+                new MinerFactory.GpuMinerAdapter("quanpool-miner", quanPool)));
+        when(srb.binaryAvailable()).thenReturn(true);
+        when(srb.configuration()).thenReturn(new MinerConfig("pool", "proxy", "wallet", "worker", "NVIDIA:1"));
+        when(srb.selectedGpus()).thenReturn(List.of());
+        when(srb.reportedAlgorithm()).thenReturn("QPoW (Poseidon2)");
+        when(srb.stopGpu("NVIDIA", 0)).thenReturn(true);
+        when(quanPool.stopGpu("NVIDIA", 0)).thenReturn(true);
+        when(pearl.stopGpu("NVIDIA", 0)).thenReturn(true);
+        when(other.stopGpu("NVIDIA", 0)).thenReturn(true);
+        when(pearl.restoreState(isNull())).thenReturn(true);
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        when(power.discover()).thenReturn(List.of(gpu));
+        when(power.refresh()).thenReturn(List.of(gpu));
+        when(power.setSweepPowerTarget(eq(200L), eq(gpu))).thenReturn(true);
+        when(power.restorePowerLimits(any())).thenReturn(true);
+        var service = new EfficiencySweepService(miners, power,
+                mock(de.verdox.solarminer.pcagent.miner.MinerConsoleService.class),
+                mock(de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService.class),
+                mock(de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService.class),
+                mock(GpuEfficiencyStore.class), mock(BenchmarkSharingService.class), new LocalRunLock(),
+                15, 85, 0.1, 240);
+
+        assertEquals(1, service.start(List.of("quantus"), List.of("rtx-2080"), 1).runs().size());
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            while (service.status().running()) Thread.sleep(10);
+        });
+        verify(srb).setSweepOverride(any(MinerConfig.class));
+        verify(srb).resumeGpu("NVIDIA", 0);
+        verify(quanPool, org.mockito.Mockito.never()).resumeGpu("NVIDIA", 0);
+        verify(quanPool, org.mockito.Mockito.atLeastOnce()).stopGpu("NVIDIA", 0);
+        verify(srb).clearSweepOverride();
+    }
+
+    @Test
+    void explicitQuantusSweepAcceptsSelectedNvidiaCardsOutsideSavedDeviceList() throws Exception {
+        var cards = List.of(
+                new LocalGpuPowerService.Gpu("NVIDIA", 0, "rtx-2080", "RTX 2080", 100, 320,
+                        200, 200, 200, 25.0, "measured", true, null, 300),
+                new LocalGpuPowerService.Gpu("NVIDIA", 1, "rtx-3080", "RTX 3080", 100, 320,
+                        200, 200, 200, 25.0, "measured", true, null, 300),
+                new LocalGpuPowerService.Gpu("NVIDIA", 2, "titan-rtx", "Titan RTX", 100, 320,
+                        200, 200, 200, 25.0, "measured", true, null, 300));
+        MinerFactory miners = mock(MinerFactory.class);
+        when(miners.srbBinaryAvailable()).thenReturn(true);
+        GpuCoinMiner quantus = mock(GpuCoinMiner.class);
+        GpuCoinMiner other = mock(GpuCoinMiner.class);
+        when(miners.gpuMiner(any(Coin.class))).thenReturn(other);
+        when(miners.gpuMiner(Coin.QUANTUS)).thenReturn(quantus);
+        when(miners.gpuMiner(any(Coin.class), any(String.class))).thenAnswer(call -> miners.gpuMiner(call.getArgument(0, Coin.class)));
+        when(quantus.binaryAvailable()).thenReturn(true);
+        var saved = new MinerConfig("pool", "proxy", "wallet", "worker", "NVIDIA:3");
+        when(quantus.configuration()).thenReturn(saved);
+        when(quantus.selectedGpus()).thenReturn(List.of());
+        when(quantus.reportedAlgorithm()).thenReturn("QPoW (Poseidon2)");
+        when(quantus.stopGpu(eq("NVIDIA"), anyInt())).thenReturn(true);
+        when(other.stopGpu(eq("NVIDIA"), anyInt())).thenReturn(true);
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        when(power.discover()).thenReturn(cards);
+        when(power.refresh()).thenReturn(cards);
+        when(power.restorePowerLimits(any())).thenReturn(true);
+        var service = new EfficiencySweepService(miners, power,
+                mock(de.verdox.solarminer.pcagent.miner.MinerConsoleService.class),
+                mock(de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService.class),
+                mock(de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService.class),
+                mock(GpuEfficiencyStore.class), mock(BenchmarkSharingService.class), new LocalRunLock(),
+                15, 85, 0.1, 240);
+
+        var started = service.start(List.of("quantus"),
+                List.of("rtx-2080", "rtx-3080", "titan-rtx"), 1);
+        assertEquals(Set.of("rtx-2080", "rtx-3080", "titan-rtx"), started.runs().stream()
+                .map(EfficiencySweepService.RunStatus::deviceId).collect(java.util.stream.Collectors.toSet()));
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            while (service.status().running()) Thread.sleep(10);
+        });
+        var override = org.mockito.ArgumentCaptor.forClass(MinerConfig.class);
+        verify(quantus, times(3)).setSweepOverride(override.capture());
+        assertTrue(override.getAllValues().stream().allMatch(value ->
+                value.devices().equals("NVIDIA:3,NVIDIA:0,NVIDIA:1,NVIDIA:2")));
+        verify(quantus, times(3)).clearSweepOverride();
+        assertEquals("NVIDIA:3", saved.devices());
+    }
+
+    @Test
+    void explicitPearlWorkerUsesTemporaryDeviceSelectionAndRestoresSavedRoute() throws Exception {
+        var savedGpu = gpu("saved", "NVIDIA", 0);
+        var measuredGpu = gpu("measured", "NVIDIA", 1);
+        MinerConfig saved = new MinerConfig("pool", "proxy", "wallet", "worker", "NVIDIA:0");
+        MinerFactory miners = mock(MinerFactory.class);
+        when(miners.srbBinaryAvailable()).thenReturn(true);
+        GpuCoinMiner pearl = mock(GpuCoinMiner.class);
+        GpuCoinMiner other = mock(GpuCoinMiner.class);
+        when(miners.gpuMiner(any(Coin.class))).thenReturn(other);
+        when(miners.gpuMiner(Coin.PEARL)).thenReturn(pearl);
+        when(miners.gpuMiner(any(Coin.class), any(String.class))).thenAnswer(call -> miners.gpuMiner(call.getArgument(0, Coin.class)));
+        when(pearl.binaryAvailable()).thenReturn(true);
+        when(pearl.configuration()).thenReturn(saved);
+        when(pearl.selectedGpus()).thenReturn(List.of(savedGpu));
+        when(pearl.reportedAlgorithm()).thenReturn("PearlHash");
+        when(pearl.stopGpu("NVIDIA", 1)).thenReturn(true);
+        when(other.stopGpu("NVIDIA", 1)).thenReturn(true);
+        when(pearl.restoreState(isNull())).thenReturn(true);
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        when(power.discover()).thenReturn(List.of(savedGpu, measuredGpu));
+        when(power.refresh()).thenReturn(List.of(savedGpu, measuredGpu));
+        when(power.restorePowerLimits(any())).thenReturn(true);
+        var service = new EfficiencySweepService(miners, power,
+                mock(de.verdox.solarminer.pcagent.miner.MinerConsoleService.class),
+                mock(de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService.class),
+                mock(de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService.class),
+                mock(GpuEfficiencyStore.class), mock(BenchmarkSharingService.class), new LocalRunLock(),
+                15, 85, 0.1, 240);
+
+        var started = service.start(List.of("pearl"), List.of("measured"), 1);
+        assertEquals(List.of("measured"), started.runs().stream().map(EfficiencySweepService.RunStatus::deviceId).toList());
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            while (service.status().running()) Thread.sleep(10);
+        });
+        var override = org.mockito.ArgumentCaptor.forClass(MinerConfig.class);
+        verify(pearl).setSweepOverride(override.capture());
+        assertEquals("NVIDIA:0,NVIDIA:1", override.getValue().devices());
+        assertEquals(saved.poolUrl(), override.getValue().poolUrl());
+        assertEquals(saved.wallet(), override.getValue().wallet());
+        verify(pearl).clearSweepOverride();
+        assertEquals("NVIDIA:0", saved.devices());
+    }
+
+    @Test
     void recoverableFailureOnOneGpuDoesNotDiscardOtherGpuOrLaterCoins() throws Exception {
         var first = gpu("one", "NVIDIA", 0);
         var second = gpu("two", "NVIDIA", 1);
@@ -42,6 +183,9 @@ class EfficiencySweepServiceTest {
         when(miners.gpuMiner(any(Coin.class))).thenReturn(inactive);
         when(miners.gpuMiner(Coin.PEARL)).thenReturn(pearl);
         when(miners.gpuMiner(Coin.RAVENCOIN)).thenReturn(raven);
+        when(miners.gpuMiner(any(Coin.class), any(String.class))).thenAnswer(call -> miners.gpuMiner(call.getArgument(0, Coin.class)));
+        when(pearl.binaryAvailable()).thenReturn(true);
+        when(raven.binaryAvailable()).thenReturn(true);
         for (GpuCoinMiner miner : List.of(pearl, raven)) {
             when(miner.configuration()).thenReturn(new MinerConfig("pool", "proxy", "wallet", "worker", "NVIDIA:0,NVIDIA:1"));
             when(miner.selectedGpus()).thenReturn(List.of(first, second));
@@ -111,6 +255,9 @@ class EfficiencySweepServiceTest {
         when(miners.gpuMiner(any(Coin.class))).thenReturn(inactive);
         when(miners.gpuMiner(Coin.PEARL)).thenReturn(pearl);
         when(miners.gpuMiner(Coin.RAVENCOIN)).thenReturn(raven);
+        when(miners.gpuMiner(any(Coin.class), any(String.class))).thenAnswer(call -> miners.gpuMiner(call.getArgument(0, Coin.class)));
+        when(pearl.binaryAvailable()).thenReturn(true);
+        when(raven.binaryAvailable()).thenReturn(true);
         for (GpuCoinMiner miner : List.of(pearl, raven)) {
             when(miner.configuration()).thenReturn(new MinerConfig("pool", "proxy", "wallet", "worker", "NVIDIA:0"));
             when(miner.selectedGpus()).thenReturn(List.of(gpu));
@@ -293,6 +440,33 @@ class EfficiencySweepServiceTest {
     }
 
     @Test
+    void resumeDoesNotReuseResultFromDifferentMinerSoftware() {
+        var previousRun = withStatus(identifiedRun("one", SweepMode.FULL, List.of(200, 185)), SweepRunState.COMPLETE);
+        var srbRun = new EfficiencySweepService.RunStatus(previousRun.id() + "|srbminer-multi",
+                previousRun.deviceId(), previousRun.model(), previousRun.coin(), previousRun.algorithm(),
+                previousRun.mode(), previousRun.status(), previousRun.limitWatts(), previousRun.plannedLimits(),
+                previousRun.steps(), previousRun.samples(), previousRun.samplesRequired(),
+                previousRun.referenceBatch(), previousRun.detail());
+        var baseProfile = profile("one", "pearl", "PearlHash", 185);
+        var srbProfile = new GpuEfficiencyStore.Profile(baseProfile.deviceId(), baseProfile.model(),
+                baseProfile.coin(), baseProfile.algorithm(), baseProfile.bestStableWatts(),
+                baseProfile.bestHashrateHs(), baseProfile.bestPowerWatts(), baseProfile.bestHashesPerWatt(),
+                baseProfile.testedAt(), baseProfile.steps(), "srbminer-multi");
+        var previous = new EfficiencySweepService.Session(false, "Abgebrochen", Instant.now(), 1, 1,
+                List.of(srbProfile), List.of(srbRun), 0L);
+        var checkpoint = EfficiencySweepService.reusableProfiles(previous);
+        var quanRun = new EfficiencySweepService.RunStatus("one|pearl|PearlHash|quanpool-miner",
+                srbRun.deviceId(), srbRun.model(), srbRun.coin(), srbRun.algorithm(), srbRun.mode(),
+                SweepRunState.QUEUED, null, srbRun.plannedLimits(), List.of(), 0,
+                srbRun.samplesRequired(), srbRun.referenceBatch(), srbRun.detail());
+
+        assertEquals(Set.of(srbRun.id()), checkpoint.keySet());
+        assertEquals(SweepRunState.QUEUED,
+                EfficiencySweepService.applyCheckpoint(List.of(quanRun), previous.runs(), checkpoint)
+                        .getFirst().status());
+    }
+
+    @Test
     void storeKeySeparatesDevicesAndAlgorithms() {
         assertEquals("GPU-abc|kawpow", GpuEfficiencyStore.key("GPU-abc", "kawpow"));
     }
@@ -324,6 +498,19 @@ class EfficiencySweepServiceTest {
                 EfficiencySweepService.unavailableReason(List.of(), true));
         assertEquals("Power-Limit-Test kann nicht gestartet werden: SRBMiner-MULTI ist nicht installiert",
                 EfficiencySweepService.unavailableReason(List.of(gpu(true, null)), false));
+    }
+
+    @Test
+    void selectedTargetFailureSeparatesDriverAndInstallationFromRouteFailures() {
+        var card = gpu("rtx-2080", "NVIDIA", 0);
+        var blocked = new LocalGpuPowerService.Gpu("NVIDIA", 0, "rtx-2080", "RTX 2080", 100, 320,
+                200, 200, 200, 25.0, "measured", false, "Insufficient Permissions", 300);
+        assertEquals("benchmark_no_writable_selected_gpu",
+                EfficiencySweepService.selectedTargetUnavailableReason(List.of(blocked), Set.of("rtx-2080"), true));
+        assertEquals("benchmark_selected_miner_missing_for_sweep",
+                EfficiencySweepService.selectedTargetUnavailableReason(List.of(card), Set.of("rtx-2080"), false));
+        assertEquals("benchmark_no_selected_targets",
+                EfficiencySweepService.selectedTargetUnavailableReason(List.of(card), Set.of("rtx-2080"), true));
     }
 
     private static de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService.Gpu gpu(boolean writable, String error) {

@@ -25,6 +25,34 @@ import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
 import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
 
 class GpuCoinMinerServiceTest {
+    @org.junit.jupiter.api.io.TempDir Path directory;
+
+    @Test
+    void sweepTemporarilyExtendsSavedGpuCoinDevices() throws Exception {
+        var mapper = new ObjectMapper();
+        var saved = new MinerConfig("stratum+tcp://pool.example:3333", "stratum+tcp://proxy.example:3337",
+                "0x" + "a".repeat(40), "worker", "NVIDIA:0");
+        Path file = directory.resolve("solarminer-ethereumclassic.json");
+        mapper.writeValue(file.toFile(), saved);
+        var first = new LocalGpuPowerService.Gpu("NVIDIA", 0, "gpu-0", "RTX 2080", 100, 250,
+                100, 250, 200, 150.0, "measured", true, null);
+        var second = new LocalGpuPowerService.Gpu("NVIDIA", 1, "gpu-1", "RTX 2080", 100, 250,
+                100, 250, 200, 150.0, "measured", true, null);
+        var power = mock(LocalGpuPowerService.class);
+        when(power.discover()).thenReturn(List.of(first, second));
+        var service = new GpuCoinMinerService(mapper, mock(ProxyConfigurationService.class),
+                mock(PearlMinerService.class), power, mock(MinerConsoleService.class),
+                mock(PayoutDefaultsService.class), new LocalRunLock(), directory.toString());
+
+        assertEquals(List.of(first), service.selected("ethereumclassic"));
+        service.setSweepOverride("ethereumclassic", new MinerConfig(saved.poolUrl(), saved.proxyUrl(),
+                saved.wallet(), saved.worker(), "NVIDIA:0,NVIDIA:1"));
+        assertEquals(List.of(first, second), service.selected("ethereumclassic"));
+        service.clearSweepOverride("ethereumclassic");
+        assertEquals(List.of(first), service.selected("ethereumclassic"));
+        assertEquals(saved, mapper.readValue(file.toFile(), MinerConfig.class));
+    }
+
     @Test
     void readsCurrentSrbminerHashrateFieldAndBoundsTransientGaps() throws Exception {
         ObjectMapper mapper = new ObjectMapper();

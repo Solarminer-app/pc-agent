@@ -97,12 +97,12 @@ public class GpuCoinMinerService extends AbstractSrbMinerEngine {
 
     private Path file(String coin) { return configDirectory.resolve("solarminer-" + coin + ".json"); }
     public MinerConfig configuration(String coin) { return configs.get(coin); }
-    /** Operator config wins; the ephemeral sweep override is only consulted for unconfigured coins. */
+    /** Measurement overrides are temporary and never change the saved operator route. */
     private MinerConfig effectiveConfig(String coin) {
         MinerConfig benchmark = benchmarkOverrides.get(coin);
         if (benchmark != null) return benchmark;
-        MinerConfig configured = configs.get(coin);
-        return configured != null ? configured : sweepOverrides.get(coin);
+        MinerConfig sweep = sweepOverrides.get(coin);
+        return sweep != null ? sweep : configs.get(coin);
     }
     public void setSweepOverride(String coin, MinerConfig config) { sweepOverrides.put(coin, config); }
     public void clearSweepOverride(String coin) { sweepOverrides.remove(coin); }

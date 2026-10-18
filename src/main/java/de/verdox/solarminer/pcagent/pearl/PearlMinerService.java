@@ -36,12 +36,15 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
 import de.verdox.solarminer.pcagent.miner.MinerConfig;
 import de.verdox.solarminer.pcagent.miner.GpuState;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
 
-/** Runs one SRBMiner-MULTI process per selected GPU, independently of XMRig. */
+/**
+ * Runs one SRBMiner-MULTI process per selected GPU, independently of XMRig.
+ */
 @Service
 public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoinMiner {
     private static final Logger LOGGER = Logger.getLogger(PearlMinerService.class.getName());
@@ -57,7 +60,9 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
     private final LocalRunLock localRuns;
     private final Path executable;
     private final Path configFile;
-    /** Map key stays the Pearl-local worker key {@code vendor:index}. */
+    /**
+     * Map key stays the Pearl-local worker key {@code vendor:index}.
+     */
     private final Map<String, WorkerRunState> runs = new ConcurrentHashMap<>();
     private final Set<String> manuallyPaused = ConcurrentHashMap.newKeySet();
     private volatile MinerConfig config;
@@ -123,7 +128,9 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
         lastError = null;
     }
 
-    /** Updates only the proxy endpoint after the operator changes the shared proxy connection. */
+    /**
+     * Updates only the proxy endpoint after the operator changes the shared proxy connection.
+     */
     public synchronized boolean updateProxyRoute(String proxyUrl) throws IOException {
         MinerConfig updated = de.verdox.solarminer.pcagent.miner.engine.RouteValidator
                 .withProxyRoute(config, proxyUrl);
@@ -175,17 +182,32 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
                 "Pearl devices must be vendor:index values or 'all'");
     }
 
-    public void setSweepOverride(MinerConfig value) { sweepOverride = value; }
-    public void clearSweepOverride() { sweepOverride = null; }
-    @Override public void setBenchmarkOverride(MinerConfig value) { benchmarkOverride = value; }
-    @Override public void clearBenchmarkOverride() { benchmarkOverride = null; }
+    public void setSweepOverride(MinerConfig value) {
+        sweepOverride = value;
+    }
 
-    /** Operator config wins; the ephemeral sweep override is only consulted while unconfigured. */
+    public void clearSweepOverride() {
+        sweepOverride = null;
+    }
+
+    @Override
+    public void setBenchmarkOverride(MinerConfig value) {
+        benchmarkOverride = value;
+    }
+
+    @Override
+    public void clearBenchmarkOverride() {
+        benchmarkOverride = null;
+    }
+
+    /** Measurement overrides are temporary and never change the saved operator route. */
     private MinerConfig effectiveConfig() {
         MinerConfig benchmark = benchmarkOverride;
         if (benchmark != null) return benchmark;
+        MinerConfig sweep = sweepOverride;
+        if (sweep != null) return sweep;
         MinerConfig current = config;
-        return current != null ? current : sweepOverride;
+        return current;
     }
 
     private boolean selected(LocalGpuPowerService.Gpu gpu) {
@@ -267,7 +289,9 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
         }
     }
 
-    /** An operator-initiated action refills the bounded O1 restart budget. */
+    /**
+     * An operator-initiated action refills the bounded O1 restart budget.
+     */
     private void resetRestartBudget() {
         for (WorkerRunState run : runs.values()) run.restartAttempts = 0;
     }
@@ -277,7 +301,8 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
         WorkerRunState run = runs.computeIfAbsent(key, ignored ->
                 new WorkerRunState(Coin.PEARL.id(), gpu, workerConsoleId(gpu), "Miner nicht gestartet"));
         if (run.running()) return true;
-        if (!gpuPowerService.enforceConfiguredPowerLimit(gpu)) return fail(run, "Treiber bestätigte den Power-Cap nicht");
+        if (!gpuPowerService.enforceConfiguredPowerLimit(gpu))
+            return fail(run, "Treiber bestätigte den Power-Cap nicht");
         if (MinerProcessRegistry.gpuCoinUsesDevice(gpu.deviceId()))
             return fail(run, "This GPU is already mining RVN or ETC; pause that GPU worker first");
         if (hasExternalMiner()) {
@@ -324,8 +349,11 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
             Thread.ofVirtual().name("pearl-health-" + key).start(() -> monitorLoop(run, started, SrbMonitorPolicy.pearl(),
                     () -> true, candidate -> runs.get(candidate.gpu.vendor() + ":" + candidate.gpu.index()) == candidate));
             started.onExit().thenAccept(done -> {
-                try { outputThread.join(1000); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                try {
+                    outputThread.join(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
                 if (unexpectedExit(run, done))
                     fail(run, "SRBMiner on " + key + " exited (code " + done.exitValue() + ")"
                             + (run.output.get().isBlank() ? "" : ": " + run.output.get()));
@@ -346,12 +374,35 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
         return run == null ? null : run.diagnosis;
     }
 
-    @Override protected MinerConsoleService console() { return console; }
-    @Override protected ObjectMapper mapper() { return mapper; }
-    @Override protected Logger logger() { return LOGGER; }
-    @Override protected String aggregateConsoleId(WorkerRunState run) { return Coin.PEARL.id(); }
-    @Override protected String aggregateTag(WorkerRunState run) { return run.gpuLabel(); }
-    @Override protected String drainTag(WorkerRunState run) { return run.gpuLabel(); }
+    @Override
+    protected MinerConsoleService console() {
+        return console;
+    }
+
+    @Override
+    protected ObjectMapper mapper() {
+        return mapper;
+    }
+
+    @Override
+    protected Logger logger() {
+        return LOGGER;
+    }
+
+    @Override
+    protected String aggregateConsoleId(WorkerRunState run) {
+        return Coin.PEARL.id();
+    }
+
+    @Override
+    protected String aggregateTag(WorkerRunState run) {
+        return run.gpuLabel();
+    }
+
+    @Override
+    protected String drainTag(WorkerRunState run) {
+        return run.gpuLabel();
+    }
 
     @Override
     protected boolean fail(WorkerRunState run, String error) {
@@ -379,13 +430,15 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
                 Integer.toString(apiPort), "--gpu-id", Integer.toString(srbId));
     }
 
-    /** Shared SRBMiner device mapping used by the generic SRB coin adapter. */
+    /**
+     * Shared SRBMiner device mapping used by the generic SRB coin adapter.
+     */
     public int mappedGpuId(LocalGpuPowerService.Gpu gpu) throws IOException {
         // On Linux SRBMiner can return an empty device list when stdout is a pipe,
         // even though the same CUDA devices are listed on a terminal.
         List<String> command = System.getProperty("os.name", "").toLowerCase().contains("linux")
                 ? List.of("script", "-q", "-e", "-c",
-                        "exec '" + executable.toString().replace("'", "'\\''") + "' --list-devices", "/dev/null")
+                "exec '" + executable.toString().replace("'", "'\\''") + "' --list-devices", "/dev/null")
                 : List.of(executable.toString(), "--list-devices");
         Process listing = new ProcessBuilder(command)
                 .directory(executable.getParent().toFile()).redirectErrorStream(true).start();
@@ -400,13 +453,14 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
             throw new IOException("SRBMiner GPU listing interrupted", e);
         }
         String output = new String(listing.getInputStream().readNBytes(65536), StandardCharsets.UTF_8);
-        if (listing.exitValue() != 0) throw new IOException("SRBMiner GPU listing failed (Exit-Code " + listing.exitValue() + "): " + output.strip());
+        if (listing.exitValue() != 0)
+            throw new IOException("SRBMiner GPU listing failed (Exit-Code " + listing.exitValue() + "): " + output.strip());
         if (output.isBlank()) throw new IOException("SRBMiner did not produce a GPU device list");
         int id = gpu.vendor().equals("NVIDIA")
                 ? findGpuIdByPci(output, NVIDIA, pciAddress(gpu.deviceId()))
                 : canonicalPciAddress(gpu.deviceId()) != null
-                    ? findGpuIdByPci(output, AMD, gpu.deviceId())
-                    : findGpuId(output, gpu.vendor(), gpu.index());
+                ? findGpuIdByPci(output, AMD, gpu.deviceId())
+                : findGpuId(output, gpu.vendor(), gpu.index());
         if (id >= 0) return id;
         throw new IOException("GPU " + gpu.vendor() + ":" + gpu.index()
                 + " was not found in the SRBMiner device list: " + ANSI_ESCAPE.matcher(output).replaceAll("").strip());
@@ -502,8 +556,14 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
         return success;
     }
 
-    public boolean running() { return runs.values().stream().anyMatch(WorkerRunState::running) || hasExternalMiner(); }
-    public boolean poolHealthy() { return runs.values().stream().anyMatch(run -> run.running() && run.healthy); }
+    public boolean running() {
+        return runs.values().stream().anyMatch(WorkerRunState::running) || hasExternalMiner();
+    }
+
+    public boolean poolHealthy() {
+        return runs.values().stream().anyMatch(run -> run.running() && run.healthy);
+    }
+
     public String connectionDetail() {
         long healthy = runs.values().stream().filter(run -> run.running() && run.healthy).count();
         long running = runs.values().stream().filter(WorkerRunState::running).count();
@@ -511,21 +571,32 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
                 : hasExternalMiner() ? "SRBMiner läuft außerhalb des PC-Agent; Pool- und GPU-Status nicht verfügbar"
                 : lastError != null ? lastError : "GPU-Miner pausiert";
     }
-    public String lastError() { return lastError; }
-    public MinerConfig configuration() { return config; }
+
+    public String lastError() {
+        return lastError;
+    }
+
+    public MinerConfig configuration() {
+        return config;
+    }
+
     /**
      * A legacy unversioned binary is deliberately not startable. SRBMiner 3.7.3 changed the
      * PearlHash kernel selection for recent NVIDIA architectures, so merely finding an older
      * executable is no longer sufficient evidence that every advertised GPU starts correctly.
      */
-    public boolean binaryAvailable() { return compatibleBinary(executable); }
+    public boolean binaryAvailable() {
+        return compatibleBinary(executable);
+    }
 
     /**
      * Whether an SRBMiner executable is present, even when it is not the reviewed release.
      * The catalog uses this to offer an explicit, checksum-verified update instead of making
      * an older installation indistinguishable from a missing one.
      */
-    public boolean binaryPresent() { return Files.isRegularFile(executable); }
+    public boolean binaryPresent() {
+        return Files.isRegularFile(executable);
+    }
 
     static boolean compatibleBinary(Path executable) {
         if (!Files.isRegularFile(executable)) return false;
@@ -536,12 +607,21 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
         }
     }
 
-    /** Shared SRBMiner version-marker location for install and removal flows. */
+    /**
+     * Shared SRBMiner version-marker location for install and removal flows.
+     */
     public static Path versionPath(Path executable) {
         return executable.resolveSibling(".solarminer-srbminer-version");
     }
-    public Path executablePath() { return executable; }
-    public Path configurationPath() { return configFile; }
+
+    public Path executablePath() {
+        return executable;
+    }
+
+    public Path configurationPath() {
+        return configFile;
+    }
+
     public List<GpuState> gpuStates(List<LocalGpuPowerService.Gpu> cards) {
         boolean externalMiner = hasExternalMiner();
         return cards.stream().map(gpu -> {
@@ -591,20 +671,28 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
                 .anyMatch(handle -> runs.values().stream().noneMatch(run -> run.process != null && run.process.pid() == handle.pid()));
     }
 
-    public boolean hasExternalMinerProcess() { return hasExternalMiner(); }
+    public boolean hasExternalMinerProcess() {
+        return hasExternalMiner();
+    }
 
-    /** Adds an orchestration event to the aggregate and every currently known GPU console. */
+    /**
+     * Adds an orchestration event to the aggregate and every currently known GPU console.
+     */
     public synchronized void appendBenchmarkEvent(String message) {
         console.append(Coin.PEARL.id(), message);
         for (WorkerRunState run : runs.values()) console.append(run.consoleId, message);
     }
 
-    /** Managed processes only; external miners are rejected before an installed benchmark begins. */
+    /**
+     * Managed processes only; external miners are rejected before an installed benchmark begins.
+     */
     public synchronized Set<String> runningGpuDeviceIds() {
         return runs.values().stream().filter(WorkerRunState::running).map(run -> run.gpu.deviceId()).collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
-    public synchronized Set<String> manuallyPausedGpuKeys() { return Set.copyOf(manuallyPaused); }
+    public synchronized Set<String> manuallyPausedGpuKeys() {
+        return Set.copyOf(manuallyPaused);
+    }
 
     public synchronized boolean restoreWorkerState(Set<String> pausedBefore, Set<String> runningBefore) {
         boolean success = stop();
@@ -622,24 +710,72 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
         return line.replace(current.wallet(), "[wallet]").replace(current.poolUrl(), "[pool]");
     }
 
-    @PreDestroy public void shutdown() { stop(); }
+    @PreDestroy
+    public void shutdown() {
+        stop();
+    }
 
     // --- GpuCoinMiner contract: the coin-independent view used by orchestration through the MinerFactory. ---
 
-    @Override public Coin coin() { return Coin.PEARL; }
-    @Override public boolean configured() { return config != null; }
-    @Override public boolean routeConfigured() {
+    @Override
+    public Coin coin() {
+        return Coin.PEARL;
+    }
+
+    @Override
+    public boolean configured() {
+        return config != null;
+    }
+
+    @Override
+    public boolean routeConfigured() {
         MinerConfig current = config;
         return current != null && proxyConfigurationService.matches(current.proxyUrl(), Coin.PEARL.id());
     }
-    @Override public boolean startAll() { return start(); }
-    @Override public boolean pauseAll() { return pauseSelectedManually(); }
-    @Override public boolean stopAll() { return stop(); }
-    @Override public boolean pauseGpu(String vendor, int index) { return pauseGpuManually(vendor, index); }
-    @Override public boolean resumeGpu(String vendor, int index) { return resumeGpuManually(vendor, index); }
-    @Override public boolean setPowerCap(long watts) { return gpuPowerService.setTotalPowerTarget(watts, selectedGpus()); }
-    @Override public void applyConfig(MinerConfig next) throws IOException { configure(next); }
-    @Override public void validateConfig(MinerConfig next) { validate(next); }
-    @Override public String reportedAlgorithm() { return Coin.PEARL.displayAlgorithm(); }
+
+    @Override
+    public boolean startAll() {
+        return start();
+    }
+
+    @Override
+    public boolean pauseAll() {
+        return pauseSelectedManually();
+    }
+
+    @Override
+    public boolean stopAll() {
+        return stop();
+    }
+
+    @Override
+    public boolean pauseGpu(String vendor, int index) {
+        return pauseGpuManually(vendor, index);
+    }
+
+    @Override
+    public boolean resumeGpu(String vendor, int index) {
+        return resumeGpuManually(vendor, index);
+    }
+
+    @Override
+    public boolean setPowerCap(long watts) {
+        return gpuPowerService.setTotalPowerTarget(watts, selectedGpus());
+    }
+
+    @Override
+    public void applyConfig(MinerConfig next) throws IOException {
+        configure(next);
+    }
+
+    @Override
+    public void validateConfig(MinerConfig next) {
+        validate(next);
+    }
+
+    @Override
+    public String reportedAlgorithm() {
+        return Coin.PEARL.displayAlgorithm();
+    }
 
 }

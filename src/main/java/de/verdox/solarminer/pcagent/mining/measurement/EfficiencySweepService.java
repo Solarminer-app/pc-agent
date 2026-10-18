@@ -8,6 +8,7 @@ import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.miner.GpuCoinMiner;
 import de.verdox.solarminer.pcagent.miner.MinerConfig;
 import de.verdox.solarminer.pcagent.miner.MinerFactory;
+import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
 import de.verdox.solarminer.pcagent.mining.measurement.MeasurementRunGuard;
 import de.verdox.solarminer.pcagent.mining.measurement.SampleCollector;
 import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
@@ -165,7 +166,9 @@ public class EfficiencySweepService {
         List<Target> targets = targets(discovered, selection, workers);
         if (targets.isEmpty())
             throw new IllegalStateException(selectedWorkerIds == null
-                    ? unavailableReason(discovered, miners.srbBinaryAvailable()) : "benchmark_no_selected_targets");
+                    ? unavailableReason(discovered, miners.srbBinaryAvailable())
+                    : selectedTargetUnavailableReason(discovered, workers,
+                    selectedMinerAvailable(discovered, selection, workers)));
         if (!guard.begin("efficiency-sweep"))
             throw new IllegalStateException("Ein anderer Messlauf (Benchmark) läuft gerade; der Sweep wartet, bis er beendet ist");
         guard.resetCancel();
@@ -230,24 +233,57 @@ public class EfficiencySweepService {
         discovered.stream().filter(gpu -> gpu.supportsDynamicPowerScaling()
                         && (selectedWorkers.isEmpty() || selectedWorkers.contains(gpu.deviceId())))
                 .forEach(gpu -> verified.put(gpu.deviceId(), gpu));
-        if (verified.isEmpty() || !miners.srbBinaryAvailable()) return List.of();
-        String devices = String.join(",", verified.values().stream()
-                .map(gpu -> gpu.vendor() + ":" + gpu.index()).toList());
+        if (verified.isEmpty()) return List.of();
         for (Coin coin : Coin.gpuCoins()) {
             if (!selectedCoinIds.isEmpty() && !selectedCoinIds.contains(coin.id())) continue;
-            GpuCoinMiner miner = miners.gpuMiner(coin);
-            if (miner.configuration() != null) {
-                for (LocalGpuPowerService.Gpu gpu : miner.selectedGpus())
-                    if (verified.containsKey(gpu.deviceId()))
-                        targets.add(new Target(coin.id(), miner.reportedAlgorithm(), gpu, null));
-                continue;
+            Map<String, List<LocalGpuPowerService.Gpu>> bySoftware = new LinkedHashMap<>();
+            for (LocalGpuPowerService.Gpu gpu : verified.values()) {
+                String softwareId = miners.minerSoftwareForMeasurement(coin, gpu.deviceId());
+                if (softwareId == null) softwareId = "srbminer-multi";
+                if (!MinerCatalogService.supportedGpuVendors(softwareId, coin.id()).contains(gpu.vendor())) continue;
+                bySoftware.computeIfAbsent(softwareId, ignored -> new ArrayList<>()).add(gpu);
             }
-            MinerConfig fallback = feeFallback(coin, devices);
-            if (fallback == null) continue;
-            for (LocalGpuPowerService.Gpu gpu : verified.values())
-                targets.add(new Target(coin.id(), miner.reportedAlgorithm(), gpu, fallback));
+            for (Map.Entry<String, List<LocalGpuPowerService.Gpu>> entry : bySoftware.entrySet()) {
+                String softwareId = entry.getKey();
+                GpuCoinMiner miner = miners.gpuMiner(coin, softwareId);
+                if (!miner.binaryAvailable()) continue;
+                List<LocalGpuPowerService.Gpu> eligible = entry.getValue();
+                MinerConfig configured = miner.configuration();
+                if (configured != null) {
+                    List<LocalGpuPowerService.Gpu> configuredGpus = miner.selectedGpus();
+                    List<LocalGpuPowerService.Gpu> measured = selectedWorkers.isEmpty()
+                            ? configuredGpus.stream().filter(gpu -> eligible.stream()
+                                    .anyMatch(candidate -> candidate.deviceId().equals(gpu.deviceId()))).toList()
+                            : eligible;
+                    if (measured.isEmpty()) continue;
+                    MinerConfig override = sweepDeviceOverride(miner, configured, configuredGpus, measured);
+                    for (LocalGpuPowerService.Gpu gpu : measured)
+                        targets.add(new Target(coin.id(), miner.reportedAlgorithm(), gpu, override, softwareId));
+                    continue;
+                }
+                String devices = String.join(",", eligible.stream()
+                        .map(gpu -> gpu.vendor() + ":" + gpu.index()).toList());
+                MinerConfig fallback = feeFallback(coin, miner, devices);
+                if (fallback == null) continue;
+                for (LocalGpuPowerService.Gpu gpu : eligible)
+                    targets.add(new Target(coin.id(), miner.reportedAlgorithm(), gpu, fallback, softwareId));
+            }
         }
         return List.copyOf(targets);
+    }
+
+    /** A selected measurement GPU must not rewrite or depend on the operator's saved device list. */
+    private static MinerConfig sweepDeviceOverride(GpuCoinMiner miner, MinerConfig configured,
+                                                   List<LocalGpuPowerService.Gpu> configuredGpus,
+                                                   List<LocalGpuPowerService.Gpu> measured) {
+        if (configuredGpus.stream().map(LocalGpuPowerService.Gpu::deviceId).collect(java.util.stream.Collectors.toSet())
+                .containsAll(measured.stream().map(LocalGpuPowerService.Gpu::deviceId).toList())) return null;
+        java.util.LinkedHashSet<String> devices = new java.util.LinkedHashSet<>(List.of(configured.devices().split(",")));
+        measured.forEach(gpu -> devices.add(gpu.vendor() + ":" + gpu.index()));
+        MinerConfig override = new MinerConfig(configured.poolUrl(), configured.proxyUrl(), configured.wallet(),
+                configured.worker(), String.join(",", devices));
+        miner.validateConfig(override);
+        return override;
     }
 
     static String unavailableReason(List<LocalGpuPowerService.Gpu> discovered, boolean binaryAvailable) {
@@ -269,6 +305,30 @@ public class EfficiencySweepService {
                 + "GPU-Miner mit gültiger Pool-/Fee-Route verfügbar";
     }
 
+    static String selectedTargetUnavailableReason(List<LocalGpuPowerService.Gpu> discovered,
+                                                  Set<String> selectedWorkers, boolean minerAvailable) {
+        if (discovered.stream().filter(gpu -> selectedWorkers.contains(gpu.deviceId()))
+                .noneMatch(LocalGpuPowerService.Gpu::supportsDynamicPowerScaling))
+            return "benchmark_no_writable_selected_gpu";
+        if (!minerAvailable) return "benchmark_selected_miner_missing_for_sweep";
+        return "benchmark_no_selected_targets";
+    }
+
+    private boolean selectedMinerAvailable(List<LocalGpuPowerService.Gpu> discovered, Set<String> coins,
+                                           Set<String> workers) {
+        for (Coin coin : Coin.gpuCoins()) {
+            if (!coins.isEmpty() && !coins.contains(coin.id())) continue;
+            for (LocalGpuPowerService.Gpu gpu : discovered) {
+                if (!workers.contains(gpu.deviceId()) || !gpu.supportsDynamicPowerScaling()) continue;
+                String softwareId = miners.minerSoftwareForMeasurement(coin, gpu.deviceId());
+                if (softwareId == null) softwareId = "srbminer-multi";
+                if (MinerCatalogService.supportedGpuVendors(softwareId, coin.id()).contains(gpu.vendor())
+                        && miners.gpuMiner(coin, softwareId).binaryAvailable()) return true;
+            }
+        }
+        return false;
+    }
+
     private static String firstLine(String value) {
         if (value == null || value.isBlank()) return "Power-Cap nicht verfügbar";
         int newline = value.indexOf('\n');
@@ -279,7 +339,7 @@ public class EfficiencySweepService {
      * Ephemeral config for one GPU coin against the fee-backend house target, or null when
      * the payout is unreachable or the coin's own adapter rejects the candidate config.
      */
-    private MinerConfig feeFallback(Coin coin, String devices) {
+    private MinerConfig feeFallback(Coin coin, GpuCoinMiner miner, String devices) {
         PayoutDefaultsService.DefaultPayout payout = payoutDefaults.resolve(coin.id()).orElse(null);
         if (payout == null || proxyConfiguration.host() == null) return null;
         String worker = payout.workerPart() != null && !payout.workerPart().isBlank() ? payout.workerPart() : "solarminer";
@@ -287,7 +347,7 @@ public class EfficiencySweepService {
         if (proxyUrl == null) return null;
         MinerConfig fallback = new MinerConfig(payout.poolUrl(), proxyUrl, payout.walletPart(), worker, devices);
         try {
-            miners.gpuMiner(coin).validateConfig(fallback);
+            miner.validateConfig(fallback);
             return fallback;
         } catch (RuntimeException e) {
             return null;
@@ -315,16 +375,17 @@ public class EfficiencySweepService {
         // Phase 3: the Pearl adapter is captured/restored through the same generic
         // captureState/restoreState seam as every other GPU adapter.
         GpuCoinMiner.WorkerPauseSnapshot pearlSnapshot = miners.gpuMiner(Coin.PEARL).captureState();
-        Map<Coin, Set<String>> coinWasMining = new LinkedHashMap<>();
-        Map<Coin, Set<String>> coinWasPaused = new LinkedHashMap<>();
+        Map<GpuCoinMiner, Set<String>> coinWasMining = new LinkedHashMap<>();
+        Map<GpuCoinMiner, Set<String>> coinWasPaused = new LinkedHashMap<>();
         Map<String, Integer> limitsBefore = new LinkedHashMap<>();
         for (Coin coin : Coin.gpuCoins()) {
-            GpuCoinMiner miner = miners.gpuMiner(coin);
-            if (miner.configuration() == null) continue;
-            for (GpuState state : miner.gpuStates(power.discover())) {
-                String key = state.vendor() + ":" + state.index();
-                if (state.running()) coinWasMining.computeIfAbsent(coin, ignored -> new java.util.HashSet<>()).add(key);
-                if (state.manuallyPaused()) coinWasPaused.computeIfAbsent(coin, ignored -> new java.util.HashSet<>()).add(key);
+            for (GpuCoinMiner miner : adapterMiners(coin)) {
+                if (miner.configuration() == null) continue;
+                for (GpuState state : miner.gpuStates(power.discover())) {
+                    String key = state.vendor() + ":" + state.index();
+                    if (state.running()) coinWasMining.computeIfAbsent(miner, ignored -> new java.util.HashSet<>()).add(key);
+                    if (state.manuallyPaused()) coinWasPaused.computeIfAbsent(miner, ignored -> new java.util.HashSet<>()).add(key);
+                }
             }
         }
         Set<String> targetDeviceIds = targets.stream().map(target -> target.gpu().deviceId()).collect(java.util.stream.Collectors.toSet());
@@ -363,15 +424,15 @@ public class EfficiencySweepService {
                 error = appendError(error, "Konnte Leistungsgrenzen nicht vollständig wiederherstellen");
             try {
                 boolean restored = miners.gpuMiner(Coin.PEARL).restoreState(pearlSnapshot);
-                for (Map.Entry<Coin, Set<String>> entry : coinWasMining.entrySet())
+                for (Map.Entry<GpuCoinMiner, Set<String>> entry : coinWasMining.entrySet())
                     for (String key : entry.getValue()) {
                         String[] parts = key.split(":");
-                        restored = miners.gpuMiner(entry.getKey()).resumeGpu(parts[0], Integer.parseInt(parts[1])) && restored;
+                        restored = entry.getKey().resumeGpu(parts[0], Integer.parseInt(parts[1])) && restored;
                     }
-                for (Map.Entry<Coin, Set<String>> entry : coinWasPaused.entrySet())
+                for (Map.Entry<GpuCoinMiner, Set<String>> entry : coinWasPaused.entrySet())
                     for (String key : entry.getValue()) {
                         String[] parts = key.split(":");
-                        restored = miners.gpuMiner(entry.getKey()).pauseGpu(parts[0], Integer.parseInt(parts[1])) && restored;
+                        restored = entry.getKey().pauseGpu(parts[0], Integer.parseInt(parts[1])) && restored;
                     }
                 if (!restored) error = appendError(error, "Konnte Miner-Zustand nicht vollständig wiederherstellen");
             } catch (RuntimeException e) {
@@ -568,7 +629,9 @@ public class EfficiencySweepService {
                     target.gpu().deviceId(), target.gpu().model(), target.coin(), target.algorithm(),
                     best.limitWatts(), best.medianHashrateHs(), best.avgPowerWatts(),
                     best.medianHashrateHs() / best.avgPowerWatts(), Instant.now(), List.copyOf(steps),
-                    miners.minerSoftwareForWorker(Coin.byIdOrNull(target.coin()), target.gpu().deviceId()));
+                    target.softwareId() == null
+                            ? miners.minerSoftwareForWorker(Coin.byIdOrNull(target.coin()), target.gpu().deviceId())
+                            : target.softwareId());
             sweepLog(target, label + (guard.cancelRequested() ? ": bisher bester Messwert " : ": bester stabiler Wert ")
                     + best.limitWatts() + " W ("
                     + formatRate(best.medianHashrateHs()) + ", " + Math.round(best.medianHashrateHs() / best.avgPowerWatts()) + " H/J)");
@@ -580,7 +643,9 @@ public class EfficiencySweepService {
             if (!steps.isEmpty())
                 profile = new GpuEfficiencyStore.Profile(target.gpu().deviceId(), target.gpu().model(),
                         target.coin(), target.algorithm(), null, null, null, null, Instant.now(), List.copyOf(steps),
-                        miners.minerSoftwareForWorker(Coin.byIdOrNull(target.coin()), target.gpu().deviceId()));
+                        target.softwareId() == null
+                                ? miners.minerSoftwareForWorker(Coin.byIdOrNull(target.coin()), target.gpu().deviceId())
+                                : target.softwareId());
             finishRun(target, guard.cancelRequested() ? SweepRunState.CANCELLED : SweepRunState.FAILED, guard.cancelRequested() ? "Abgebrochen" : "Kein stabiler Wert gefunden");
         }
         // Only a successful full curve is a durable profile. Validation runs intentionally
@@ -630,12 +695,17 @@ public class EfficiencySweepService {
 
     private void applyOverride(Target target) {
         if (target.override() == null) return;
-        miners.gpuMiner(Coin.byIdOrNull(target.coin())).setSweepOverride(target.override());
+        targetMiner(target).setSweepOverride(target.override());
     }
 
     private void clearOverride(Target target) {
         if (target.override() == null) return;
-        miners.gpuMiner(Coin.byIdOrNull(target.coin())).clearSweepOverride();
+        targetMiner(target).clearSweepOverride();
+    }
+
+    private GpuCoinMiner targetMiner(Target target) {
+        Coin coin = Coin.byIdOrNull(target.coin());
+        return target.softwareId() == null ? miners.gpuMiner(coin) : miners.gpuMiner(coin, target.softwareId());
     }
 
     /** Descending candidates never exceed the limit that was active when the sweep began. */
@@ -676,7 +746,7 @@ public class EfficiencySweepService {
     private String diagnosisFor(Target target) {
         Coin coin = Coin.byIdOrNull(target.coin());
         if (coin == null) return null;
-        var diagnosis = miners.gpuMiner(coin).diagnosis(target.gpu().vendor(), target.gpu().index());
+        var diagnosis = targetMiner(target).diagnosis(target.gpu().vendor(), target.gpu().index());
         return diagnosis == null ? null : diagnosis.detail();
     }
 
@@ -742,7 +812,7 @@ public class EfficiencySweepService {
         LocalGpuPowerService.Gpu fresh = power.discover().stream()
                 .filter(gpu -> gpu.deviceId().equals(target.gpu().deviceId())).findFirst().orElse(target.gpu());
         Coin coin = Coin.byIdOrNull(target.coin());
-        List<MinerStats.Worker> workers = miners.gpuMiner(Coin.byIdOrNull(target.coin())).workerStats(List.of(fresh));
+        List<MinerStats.Worker> workers = targetMiner(target).workerStats(List.of(fresh));
         return workers.stream()
                 // target.algorithm is the adapter's display label (e.g. "QPoW (Poseidon2)"),
                 // while worker telemetry uses Coin.algorithm() ("quantus"). Match the
@@ -757,21 +827,28 @@ public class EfficiencySweepService {
     }
 
     private boolean startMiner(Target target) {
-        return miners.gpuMiner(Coin.byIdOrNull(target.coin())).resumeGpu(target.gpu().vendor(), target.gpu().index());
+        return targetMiner(target).resumeGpu(target.gpu().vendor(), target.gpu().index());
     }
 
     private boolean stopMiner(Target target) {
         return MinerStopContext.with("Efficiency sweep",
-                () -> miners.gpuMiner(Coin.byIdOrNull(target.coin())).stopGpu(target.gpu().vendor(), target.gpu().index()));
+                () -> targetMiner(target).stopGpu(target.gpu().vendor(), target.gpu().index()));
     }
 
     private boolean stopAllOn(LocalGpuPowerService.Gpu gpu) {
         return MinerStopContext.with("Efficiency sweep", () -> {
             boolean success = true;
             for (Coin coin : Coin.gpuCoins())
-                success = miners.gpuMiner(coin).stopGpu(gpu.vendor(), gpu.index()) && success;
+                for (GpuCoinMiner miner : adapterMiners(coin))
+                    success = miner.stopGpu(gpu.vendor(), gpu.index()) && success;
             return success;
         });
+    }
+
+    private List<GpuCoinMiner> adapterMiners(Coin coin) {
+        List<MinerFactory.GpuMinerAdapter> adapters = miners.gpuMinerAdapters(coin);
+        return adapters.isEmpty() ? List.of(miners.gpuMiner(coin))
+                : adapters.stream().map(MinerFactory.GpuMinerAdapter::miner).toList();
     }
 
     private void sweepLog(Target target, String message) {
@@ -782,7 +859,8 @@ public class EfficiencySweepService {
 
     static String cohortKey(Target target) {
         LocalGpuPowerService.Gpu gpu = target.gpu();
-        return String.join("|", target.coin(), target.algorithm(), gpu.vendor(), gpu.model(),
+        return String.join("|", target.coin(), target.algorithm(),
+                target.softwareId() == null ? "" : target.softwareId(), gpu.vendor(), gpu.model(),
                 Integer.toString(gpu.driverMinWatts()), Integer.toString(gpu.driverMaxWatts()),
                 Integer.toString(gpu.minWatts()), Integer.toString(gpu.maxWatts()));
     }
@@ -846,7 +924,7 @@ public class EfficiencySweepService {
                 .map(RunStatus::id).collect(java.util.stream.Collectors.toSet());
         Map<String, GpuEfficiencyStore.Profile> reusable = new LinkedHashMap<>();
         for (GpuEfficiencyStore.Profile profile : previous.results()) {
-            String id = profile.deviceId() + "|" + profile.coin() + "|" + profile.algorithm();
+            String id = runId(profile.deviceId(), profile.coin(), profile.algorithm(), profile.minerSoftwareId());
             if (complete.contains(id)) reusable.put(id, profile);
         }
         return Map.copyOf(reusable);
@@ -901,7 +979,12 @@ public class EfficiencySweepService {
     }
 
     private static String runId(Target target) {
-        return target.gpu().deviceId() + "|" + target.coin() + "|" + target.algorithm();
+        return runId(target.gpu().deviceId(), target.coin(), target.algorithm(), target.softwareId());
+    }
+
+    private static String runId(String deviceId, String coin, String algorithm, String softwareId) {
+        return deviceId + "|" + coin + "|" + algorithm
+                + (softwareId == null ? "" : "|" + softwareId);
     }
 
     static long estimateRemainingSeconds(List<RunStatus> runs, Instant startedAt) {
@@ -952,10 +1035,14 @@ public class EfficiencySweepService {
     }
 
     /**
-     * One coin x GPU measurement slot. {@code override} is the ephemeral fee-backend config
-     * for a coin the operator never configured; null means the operator config is used.
+     * One coin x GPU measurement slot. {@code override} is a temporary route for an unconfigured
+     * coin or a temporary extension of a configured coin's selected devices.
      */
-    record Target(String coin, String algorithm, LocalGpuPowerService.Gpu gpu, MinerConfig override) {
+    record Target(String coin, String algorithm, LocalGpuPowerService.Gpu gpu, MinerConfig override,
+                  String softwareId) {
+        Target(String coin, String algorithm, LocalGpuPowerService.Gpu gpu, MinerConfig override) {
+            this(coin, algorithm, gpu, override, null);
+        }
     }
 
     record SweepTask(Target target, String cohort, SweepMode mode, List<Integer> limits) {

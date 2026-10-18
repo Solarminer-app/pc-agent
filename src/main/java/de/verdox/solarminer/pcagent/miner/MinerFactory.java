@@ -106,6 +106,14 @@ public class MinerFactory {
                 controls == null ? fallback : controls.get().minerFor(deviceId, fallback));
     }
 
+    /** A different coin's measurement uses its catalog default rather than the worker's saved miner. */
+    public String minerSoftwareForMeasurement(Coin coin, String deviceId) {
+        String fallback = catalog == null || catalog.selected(coin.id()) == null
+                ? "srbminer-multi" : catalog.selected(coin.id()).id();
+        return controls != null && coin.id().equals(controls.get().coinFor(deviceId))
+                ? controls.get().minerFor(deviceId, fallback) : fallback;
+    }
+
     /** Only the locked benchmark may temporarily attribute a GPU to another installed adapter. */
     public void setBenchmarkSoftware(String deviceId, String softwareId) { benchmarkSoftware.put(deviceId, softwareId); }
     public void clearBenchmarkSoftware(String deviceId) { benchmarkSoftware.remove(deviceId); }
