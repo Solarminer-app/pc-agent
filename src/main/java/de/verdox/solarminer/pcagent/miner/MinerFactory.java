@@ -6,6 +6,8 @@ import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.xmr.XmrMinerService;
 import de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolMinerService;
+import de.verdox.solarminer.pcagent.miner.peak.PeakMinerService;
+import de.verdox.solarminer.pcagent.miner.wildrig.WildRigMinerService;
 import de.verdox.solarminer.pcagent.mining.MinerCatalogService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import org.springframework.stereotype.Component;
@@ -26,19 +28,24 @@ public class MinerFactory {
     private final GpuCoinMinerService gpuCoins;
     private final LocalGpuPowerService gpuPower;
     private final QuanPoolMinerService quanPool;
+    private final PeakMinerService peak;
+    private final WildRigMinerService wildRig;
     private final MinerCatalogService catalog;
     private final AgentControlSettingsService controls;
     private final java.util.concurrent.ConcurrentMap<String, String> benchmarkSoftware = new java.util.concurrent.ConcurrentHashMap<>();
 
     @org.springframework.beans.factory.annotation.Autowired
     public MinerFactory(XmrMinerService xmr, PearlMinerService pearl, GpuCoinMinerService gpuCoins,
-                        LocalGpuPowerService gpuPower, QuanPoolMinerService quanPool, MinerCatalogService catalog,
+                        LocalGpuPowerService gpuPower, QuanPoolMinerService quanPool,
+                        PeakMinerService peak, WildRigMinerService wildRig, MinerCatalogService catalog,
                         AgentControlSettingsService controls) {
         this.xmr = xmr;
         this.pearl = pearl;
         this.gpuCoins = gpuCoins;
         this.gpuPower = gpuPower;
         this.quanPool = quanPool;
+        this.peak = peak;
+        this.wildRig = wildRig;
         this.catalog = catalog;
         this.controls = controls;
     }
@@ -46,13 +53,19 @@ public class MinerFactory {
     /** Test/backward-compatible constructor without optional miner selection. */
     public MinerFactory(XmrMinerService xmr, PearlMinerService pearl, GpuCoinMinerService gpuCoins,
                         LocalGpuPowerService gpuPower) {
-        this(xmr, pearl, gpuCoins, gpuPower, null, null, null);
+        this(xmr, pearl, gpuCoins, gpuPower, null, null, null, null, null);
     }
 
     /** Focused-test compatibility constructor from before worker-specific miner profiles. */
     public MinerFactory(XmrMinerService xmr, PearlMinerService pearl, GpuCoinMinerService gpuCoins,
                         LocalGpuPowerService gpuPower, QuanPoolMinerService quanPool, MinerCatalogService catalog) {
-        this(xmr, pearl, gpuCoins, gpuPower, quanPool, catalog, null);
+        this(xmr, pearl, gpuCoins, gpuPower, quanPool, null, null, catalog, null);
+    }
+
+    public MinerFactory(XmrMinerService xmr, PearlMinerService pearl, GpuCoinMinerService gpuCoins,
+                        LocalGpuPowerService gpuPower, QuanPoolMinerService quanPool, MinerCatalogService catalog,
+                        AgentControlSettingsService controls) {
+        this(xmr, pearl, gpuCoins, gpuPower, quanPool, null, null, catalog, controls);
     }
 
     /** The miner for a known coin id, or empty for unknown ids and {@link Coin#NONE}. */
@@ -64,7 +77,7 @@ public class MinerFactory {
     public CoinMiner miner(Coin coin) {
         return switch (coin) {
             case MONERO -> xmr;
-            case PEARL -> pearl;
+            case PEARL -> gpuMiner(coin);
             default -> gpuMiner(coin);
         };
     }
@@ -76,7 +89,6 @@ public class MinerFactory {
     }
 
     public GpuCoinMiner gpuMiner(Coin coin) {
-        if (coin == Coin.PEARL) return pearl;
         String selected = catalog == null || catalog.selected(coin.id()) == null
                 ? "srbminer-multi" : catalog.selected(coin.id()).id();
         return gpuMiner(coin, selected);
@@ -84,8 +96,9 @@ public class MinerFactory {
 
     /** Resolves a concrete software adapter without changing the coin-wide legacy default. */
     public GpuCoinMiner gpuMiner(Coin coin, String minerSoftwareId) {
-        if (coin == Coin.PEARL) return pearl;
+        if (coin == Coin.PEARL) return peak != null && "peakminer".equals(minerSoftwareId) ? peak : pearl;
         if (coin == Coin.QUANTUS && quanPool != null && "quanpool-miner".equals(minerSoftwareId)) return quanPool;
+        if (coin == Coin.QUANTUS && wildRig != null && "wildrig-ng".equals(minerSoftwareId)) return wildRig;
         return new SrbGpuCoinView(gpuCoins, gpuPower, coin);
     }
 
@@ -125,6 +138,13 @@ public class MinerFactory {
 
     /** Every concrete adapter available for a coin; used for mixed-miner stop and telemetry. */
     public List<GpuMinerAdapter> gpuMinerAdapters(Coin coin) {
+        if (coin == Coin.PEARL && peak != null)
+            return List.of(new GpuMinerAdapter("srbminer-multi", pearl),
+                    new GpuMinerAdapter("peakminer", peak));
+        if (coin == Coin.QUANTUS && quanPool != null && wildRig != null)
+            return List.of(new GpuMinerAdapter("srbminer-multi", gpuMiner(coin, "srbminer-multi")),
+                    new GpuMinerAdapter("quanpool-miner", quanPool),
+                    new GpuMinerAdapter("wildrig-ng", wildRig));
         if (coin == Coin.QUANTUS && quanPool != null)
             return List.of(new GpuMinerAdapter("srbminer-multi", gpuMiner(coin, "srbminer-multi")),
                     new GpuMinerAdapter("quanpool-miner", quanPool));

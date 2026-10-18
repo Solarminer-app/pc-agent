@@ -90,6 +90,8 @@ public class WorkerAssignmentService {
                     .orElseThrow(() -> new IllegalArgumentException("Miner-Software unterstützt diesen Coin nicht"));
             if (!MinerCatalogService.supportsHardware(selectedOption, hardware.type, hardware.vendor))
                 throw new IllegalArgumentException("Miner-Software ist mit diesem GPU-Hersteller nicht kompatibel");
+            if ("GPU".equals(hardware.type) && !MinerCatalogService.supportsGpuModel(selectedOption, gpuModel(deviceId)))
+                throw new IllegalArgumentException("The GPU model is not supported by this miner");
             if (!selectedOption.installed() || !selectedOption.selectable())
                 throw new IllegalArgumentException("Miner-Software ist nicht einsatzbereit");
         }
@@ -158,6 +160,8 @@ public class WorkerAssignmentService {
                 .orElseThrow(() -> new IllegalStateException("Miner-Software unterstützt diesen Coin nicht"));
         if (!MinerCatalogService.supportsHardware(option, hardware.type, hardware.vendor))
             throw new IllegalStateException("Miner-Software ist mit diesem GPU-Hersteller nicht kompatibel");
+        if (!MinerCatalogService.supportsGpuModel(option, gpuModel(deviceId)))
+            throw new IllegalStateException("The GPU model is not supported by this miner");
         GpuCoinMiner miner = miners.gpuMiner(coin, minerId);
         ensureGpuDefault(coin, miner, hardware, assignedDevices(coin.id(), minerId));
         if (applyPowerMode && workerPowerModes != null) {
@@ -382,6 +386,11 @@ public class WorkerAssignmentService {
         return gpuPower.discover().stream().filter(gpu -> gpu.deviceId().equals(deviceId))
                 .map(gpu -> new Hardware("GPU", gpu.vendor(), gpu.index())).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Gerät wurde nicht erkannt"));
+    }
+
+    private String gpuModel(String deviceId) {
+        return gpuPower.discover().stream().filter(gpu -> gpu.deviceId().equals(deviceId))
+                .map(LocalGpuPowerService.Gpu::model).findFirst().orElse("");
     }
 
     private record Hardware(String type, String vendor, Integer index) { }

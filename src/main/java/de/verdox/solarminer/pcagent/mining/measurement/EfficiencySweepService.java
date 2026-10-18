@@ -236,25 +236,22 @@ public class EfficiencySweepService {
         if (verified.isEmpty()) return List.of();
         for (Coin coin : Coin.gpuCoins()) {
             if (!selectedCoinIds.isEmpty() && !selectedCoinIds.contains(coin.id())) continue;
-            Map<String, List<LocalGpuPowerService.Gpu>> bySoftware = new LinkedHashMap<>();
-            for (LocalGpuPowerService.Gpu gpu : verified.values()) {
-                String softwareId = miners.minerSoftwareForMeasurement(coin, gpu.deviceId());
-                if (softwareId == null) softwareId = "srbminer-multi";
-                if (!MinerCatalogService.supportedGpuVendors(softwareId, coin.id()).contains(gpu.vendor())) continue;
-                bySoftware.computeIfAbsent(softwareId, ignored -> new ArrayList<>()).add(gpu);
-            }
-            for (Map.Entry<String, List<LocalGpuPowerService.Gpu>> entry : bySoftware.entrySet()) {
-                String softwareId = entry.getKey();
-                GpuCoinMiner miner = miners.gpuMiner(coin, softwareId);
+            // A sweep compares every installed adapter on each compatible physical GPU.
+            // The worker's saved assignment is restored after the whole session.
+            List<MinerFactory.GpuMinerAdapter> adapters = measurementAdapters(coin, verified.values());
+            for (MinerFactory.GpuMinerAdapter adapter : adapters) {
+                String softwareId = adapter.softwareId();
+                GpuCoinMiner miner = adapter.miner();
                 if (!miner.binaryAvailable()) continue;
-                List<LocalGpuPowerService.Gpu> eligible = entry.getValue();
+                List<LocalGpuPowerService.Gpu> eligible = verified.values().stream()
+                        .filter(gpu -> MinerCatalogService.supportedGpuVendors(softwareId, coin.id())
+                                .contains(gpu.vendor()))
+                        .filter(gpu -> MinerCatalogService.supportsGpuModel(softwareId, gpu.model())).toList();
+                if (eligible.isEmpty()) continue;
                 MinerConfig configured = miner.configuration();
                 if (configured != null) {
                     List<LocalGpuPowerService.Gpu> configuredGpus = miner.selectedGpus();
-                    List<LocalGpuPowerService.Gpu> measured = selectedWorkers.isEmpty()
-                            ? configuredGpus.stream().filter(gpu -> eligible.stream()
-                                    .anyMatch(candidate -> candidate.deviceId().equals(gpu.deviceId()))).toList()
-                            : eligible;
+                    List<LocalGpuPowerService.Gpu> measured = eligible;
                     if (measured.isEmpty()) continue;
                     MinerConfig override = sweepDeviceOverride(miner, configured, configuredGpus, measured);
                     for (LocalGpuPowerService.Gpu gpu : measured)
@@ -320,13 +317,23 @@ public class EfficiencySweepService {
             if (!coins.isEmpty() && !coins.contains(coin.id())) continue;
             for (LocalGpuPowerService.Gpu gpu : discovered) {
                 if (!workers.contains(gpu.deviceId()) || !gpu.supportsDynamicPowerScaling()) continue;
-                String softwareId = miners.minerSoftwareForMeasurement(coin, gpu.deviceId());
-                if (softwareId == null) softwareId = "srbminer-multi";
-                if (MinerCatalogService.supportedGpuVendors(softwareId, coin.id()).contains(gpu.vendor())
-                        && miners.gpuMiner(coin, softwareId).binaryAvailable()) return true;
+                for (MinerFactory.GpuMinerAdapter adapter : measurementAdapters(coin, List.of(gpu)))
+                    if (MinerCatalogService.supportedGpuVendors(adapter.softwareId(), coin.id()).contains(gpu.vendor())
+                            && MinerCatalogService.supportsGpuModel(adapter.softwareId(), gpu.model())
+                            && adapter.miner().binaryAvailable()) return true;
             }
         }
         return false;
+    }
+
+    private List<MinerFactory.GpuMinerAdapter> measurementAdapters(Coin coin,
+                                                                   java.util.Collection<LocalGpuPowerService.Gpu> cards) {
+        List<MinerFactory.GpuMinerAdapter> registered = miners.gpuMinerAdapters(coin);
+        if (registered != null && !registered.isEmpty()) return registered;
+        // Compatibility with older factory implementations and focused tests.
+        return cards.stream().map(gpu -> miners.minerSoftwareForMeasurement(coin, gpu.deviceId()))
+                .map(id -> id == null ? "srbminer-multi" : id).distinct()
+                .map(id -> new MinerFactory.GpuMinerAdapter(id, miners.gpuMiner(coin, id))).toList();
     }
 
     private static String firstLine(String value) {

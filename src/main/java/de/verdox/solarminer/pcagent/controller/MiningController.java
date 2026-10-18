@@ -485,7 +485,8 @@ public class MiningController {
         if (parsed.isCpu() && "xmrig".equals(minerId)) {
             removed = xmrDownloadService.state() != DownloadState.DOWNLOADING
                     && miningService.pauseMining(parsed.id()) && xmrDownloadService.remove();
-        } else if (parsed == Coin.QUANTUS && "quanpool-miner".equals(minerId)) {
+        } else if ((parsed == Coin.QUANTUS && ("quanpool-miner".equals(minerId) || "wildrig-ng".equals(minerId)))
+                || (parsed == Coin.PEARL && "peakminer".equals(minerId))) {
             removed = minerCatalog.remove(parsed.id(), minerId);
         } else if (parsed.isGpu() && "srbminer-multi".equals(minerId)) {
             // Every GPU coin shares one SRBMiner installation; removing it stops all coin runs first.
@@ -511,7 +512,28 @@ public class MiningController {
         PearlMinerService.validate(effective);
         if (!proxyConfigurationService.matches(effective.proxyUrl(), Coin.PEARL))
             throw new IllegalArgumentException("SolarMiner-Proxy für Pearl fehlt oder stimmt nicht mit der gespeicherten Verbindung überein");
-        pearlMinerService.configure(effective);
+        List<MinerFactory.GpuMinerAdapter> assigned = miners.gpuMinerAdapters(Coin.PEARL).stream()
+                .filter(adapter -> gpuPowerService.discover().stream()
+                        .anyMatch(gpu -> miners.workerUses(Coin.PEARL, gpu.deviceId(), adapter.softwareId())))
+                .toList();
+        if (assigned.isEmpty()) {
+            GpuCoinMiner selected = miners.gpuMiner(Coin.PEARL);
+            if (selected == null || selected == pearlMinerService) pearlMinerService.configure(effective);
+            else selected.applyConfig(effective);
+        } else {
+            java.util.Map<MinerFactory.GpuMinerAdapter, MinerConfig> tailored = new java.util.LinkedHashMap<>();
+            for (MinerFactory.GpuMinerAdapter adapter : assigned) {
+                String devices = gpuPowerService.discover().stream()
+                        .filter(gpu -> miners.workerUses(Coin.PEARL, gpu.deviceId(), adapter.softwareId()))
+                        .map(gpu -> gpu.vendor() + ":" + gpu.index())
+                        .collect(java.util.stream.Collectors.joining(","));
+                MinerConfig perMiner = new MinerConfig(effective.poolUrl(), effective.proxyUrl(),
+                        effective.wallet(), effective.worker(), devices);
+                adapter.miner().validateConfig(perMiner);
+                tailored.put(adapter, perMiner);
+            }
+            for (var entry : tailored.entrySet()) entry.getKey().miner().applyConfig(entry.getValue());
+        }
         payoutDefaultsService.markDefault(Coin.PEARL.id(), feeBackendPayout);
         reportChanged("overview", "wallets");
         return true;
@@ -652,6 +674,7 @@ public class MiningController {
         List<MarketDataService.Forecast> earnings = earningsForecastService.forecasts(stats.workers());
         String active = miningService.activeCoin();
         boolean pearlConfigured = adapter(Coin.PEARL).routeConfigured();
+        GpuCoinMiner selectedPearl = miners.gpuMiner(Coin.PEARL);
         List<CoinOverview> coins = Coin.miningCoins().stream().map(coin -> {
             CoinMiner miner = adapter(coin);
             return new CoinOverview(coin.id(), coin.displayName(), coin.ticker(), coin.deviceLabel(),
@@ -663,14 +686,18 @@ public class MiningController {
         for (Coin coin : Coin.sharedSrbCoins()) gpuCoinViews.put(coin.id(), gpuOverview(coin.id(), gpus));
         return new AgentOverview(stats, active, System.getProperty("os.name", "unknown"),
                 System.getProperty("os.arch", "unknown"), coins, earnings, gpus, proxy(), savedMoneroConfiguration(),
-                pearlMinerService.configuration(),
+                miners.gpuMiner(Coin.PEARL).configuration(),
                 new DownloadReadiness(xmrDownloadService.status(), xmrDownloadService.detail(), xmrDownloadService.progress(),
                         xmrMinerService.lastStartError(), xmrDownloadService.installDirectory().toString()),
                 new PearlReadiness(pearlConfigured,
-                        pearlMinerService.binaryAvailable(),
+                        selectedPearl.binaryAvailable(),
                         srbDownloadService.status(), srbDownloadService.detail(), srbDownloadService.progress(),
-                        pearlMinerService.lastError(), pearlMinerService.connectionDetail(),
-                        pearlMinerService.running(), pearlMinerService.poolHealthy(), pearlMinerService.gpuStates(gpus),
+                        selectedPearl.lastError(), selectedPearl == pearlMinerService
+                                ? pearlMinerService.connectionDetail() : selectedPearl.lastError(),
+                        selectedPearl.running(), selectedPearl == pearlMinerService
+                                ? pearlMinerService.poolHealthy() : selectedPearl.gpuStates(gpus).stream()
+                                .anyMatch(state -> state.running() && state.poolHealthy()),
+                        selectedPearl.gpuStates(gpus),
                         srbDownloadService.installDirectory().toString()),
                 payoutDefaults(), new ReferralOverview(referralConfigurationService.get()),
                 feeTransparencyService.overviewSnapshot(),

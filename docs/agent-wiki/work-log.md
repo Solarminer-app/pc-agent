@@ -3081,3 +3081,23 @@ Vorgehen / Andockpunkte für andere Agenten:
 
 - The Workers page added an explicit `≈` before the formatted daily profit. The displayed forecast should use one approximation marker, so the row now renders the formatted currency amount directly. No translation changes were needed; the German and English label/detail remain shared through the existing catalog.
 - Verification: inspected the currency formatter and worker row rendering; `git diff --check` passed.
+# 2026-10-18 — PeakMiner Pearl, WildRig NG QTC and QuanPool Beta completion
+
+Added independent checksum-pinned PeakMiner 2.19.1 and WildRig NG 1.0.0k
+installers and per-NVIDIA-GPU adapters. Both are installable/selectable on Beta,
+persist configuration separately, supervise process/console/API/fee health and
+join worker assignment, process exclusion, benchmarks and the all-installed-
+adapter efficiency sweep. QuanPool now distinguishes hard metrics/fee errors
+from temporary API failures and times out missing jobs. Start errors name the
+actual missing binary, proxy or fee route. DE/EN catalog and language-switch
+paths were extended; external miner output remains verbatim.
+
+Verification: official release assets for Linux and Windows had the pinned
+SHA-256 and sizes; real Linux binaries yielded captured API/login fixtures and
+UUID-selected GPU PCI bus 21:00.0 (PeakMiner) / bus ID 33 (WildRig NG). The
+Pearl proxy's PeakMiner combined-login test passed. `sh gradlew test
+standaloneJar --offline`, `node scripts/check-i18n.cjs` and JavaScript syntax
+checks passed. No real accepted pool share or payout was measured. See
+[integration record](peak-wildrig-beta.md) for the per-coin non-applicable
+steps, remaining tests and rollback. Existing `docs/KNOWN_BUGS.md` working-tree
+changes were preserved.

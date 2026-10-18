@@ -30,7 +30,8 @@ public final class MinerProcessRegistry {
     }
 
     private static boolean isMiner(ProcessHandle handle) {
-        return matches(handle, "xmrig") || matches(handle, "srbminer") || matches(handle, "quanpool");
+        return matches(handle, "xmrig") || matches(handle, "srbminer") || matches(handle, "quanpool")
+                || matches(handle, "peakminer") || matches(handle, "wildrig-ng");
     }
 
     private static boolean matchesExecutable(String value, String miner) {
@@ -40,6 +41,8 @@ public final class MinerProcessRegistry {
             case "xmrig" -> name.equals("xmrig") || name.equals("xmrig.exe");
             case "srbminer" -> name.equals("srbminer-multi") || name.equals("srbminer-multi.exe");
             case "quanpool" -> name.equals("quanpool-miner") || name.matches("quanpool-miner-[0-9.]+(?:-linux-x86_64)?");
+            case "peakminer" -> name.equals("peakminer") || name.equals("peakminer.exe");
+            case "wildrig-ng" -> name.equals("wildrig-ng") || name.equals("wildrig-ng.exe");
             default -> false;
         };
     }

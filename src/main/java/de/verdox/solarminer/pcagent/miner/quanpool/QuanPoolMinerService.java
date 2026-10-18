@@ -195,9 +195,13 @@ public class QuanPoolMinerService extends AbstractMinerEngine implements GpuCoin
         if (!power.enforceConfiguredPowerLimit(gpu)) return fail(state, "Treiber bestätigte den Power-Cap nicht");
         refreshDefaultPayout();
         MinerConfig config = effectiveConfig();
-        if (config == null || !proxy.matches(config.proxyUrl(), Coin.QUANTUS.id())
-                || !proxy.miningReady(Coin.QUANTUS.id()) || !proxy.feeReady(Coin.QUANTUS.id()) || !binaryAvailable())
-            return fail(state, "SolarMiner proxy, fee target or QuanPool Miner for Quantus is not ready");
+        if (!binaryAvailable()) return fail(state, "QuanPool Miner is not installed");
+        if (config == null || !proxy.matches(config.proxyUrl(), Coin.QUANTUS.id()))
+            return fail(state, "Quantus SolarMiner proxy route is not configured");
+        if (!proxy.miningReady(Coin.QUANTUS.id()))
+            return fail(state, "Quantus SolarMiner proxy is unreachable");
+        if (!proxy.feeReady(Coin.QUANTUS.id()))
+            return fail(state, "Quantus SolarMiner fee target is unavailable");
         if (pearl.runningGpuDeviceIds().contains(gpu.deviceId()) || pearl.hasExternalMinerProcess()
                 || MinerProcessRegistry.gpuCoinUsesDevice(gpu.deviceId()) || hasExternalMinerProcess())
             return fail(state, "Another miner already controls " + key);
@@ -264,7 +268,9 @@ public class QuanPoolMinerService extends AbstractMinerEngine implements GpuCoin
 
     private void drainOutput(WorkerRunState state, Process process, MinerConfig config) {
         drainProcessOutput(process, "quanpool-output", line -> {
-            String safe = line.replace(config.wallet(), "[wallet]").replace(config.poolUrl(), "[pool]");
+            String safe = line.replace(config.wallet(), "[wallet]").replace(config.poolUrl(), "[pool]")
+                    .replace(Base64.getUrlEncoder().withoutPadding().encodeToString(
+                            config.poolUrl().getBytes(StandardCharsets.UTF_8)), "[route]");
             MinerLogDiagnostics.classify(MinerLogDiagnostics.QUANPOOL, safe).ifPresent(found -> {
                 if (state.diagnosis == null) state.diagnosis = found;
             });
@@ -275,6 +281,8 @@ public class QuanPoolMinerService extends AbstractMinerEngine implements GpuCoin
 
     private void monitor(WorkerRunState state, Process process) {
         int failures = 0;
+        long started = System.nanoTime();
+        long lastJob = started;
         while (process.isAlive() && runs.get(gpuKey(state.gpu)) == state
                 && state.status == MinerStats.MinerStatus.MINING) {
             try {
@@ -283,6 +291,18 @@ public class QuanPoolMinerService extends AbstractMinerEngine implements GpuCoin
                 HttpResponse<String> response = metrics.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() != 200) throw new IOException("HTTP " + response.statusCode());
                 QuanPoolStats stats = QuanPoolStats.parse(mapper.readTree(response.body()));
+                // Version and fee are protocol/economic invariants. A mismatch is not a
+                // transient metrics outage and must stop this run immediately.
+                if (!QuanPoolDownloadService.VERSION.equals(stats.version())) {
+                    fail(state, "Unexpected QuanPool miner metrics version " + stats.version());
+                    process.destroy();
+                    return;
+                }
+                if (Math.abs(stats.feePercent() - 2.0) > 0.0001) {
+                    fail(state, "Unexpected QuanPool miner developer fee " + stats.feePercent() + "%");
+                    process.destroy();
+                    return;
+                }
                 failures = 0;
                 state.hashrate = stats.hashrateHs();
                 temperatures.put(gpuKey(state.gpu), stats.temperatureCelsius());
@@ -290,12 +310,14 @@ public class QuanPoolMinerService extends AbstractMinerEngine implements GpuCoin
                 state.rejectedShares = stats.shares().rejected();
                 state.poolCounters = stats.shares();
                 state.healthy = stats.hasActiveJob() && stats.hashrateHs() > 0;
+                if (stats.hasActiveJob()) lastJob = System.nanoTime();
                 state.detail = state.healthy ? "QuanPool Miner is hashing through the SolarMiner proxy"
                         : stats.hasActiveJob() ? "Pool connected; waiting for GPU hashrate" : "Waiting for a pool job";
-                if (!QuanPoolDownloadService.VERSION.equals(stats.version()))
-                    throw new IOException("Unexpected QuanPool miner metrics version " + stats.version());
-                if (Math.abs(stats.feePercent() - 2.0) > 0.0001)
-                    throw new IOException("Unexpected QuanPool miner developer fee " + stats.feePercent() + "%");
+                if (!stats.hasActiveJob() && Duration.ofNanos(System.nanoTime() - lastJob).toSeconds() >= 120) {
+                    fail(state, "QuanPool Miner received no pool job for 120 seconds");
+                    process.destroy();
+                    return;
+                }
                 if (!proxy.miningReady(Coin.QUANTUS.id()) || !proxy.feeReady(Coin.QUANTUS.id())) {
                     fail(state, "QuanPool Miner lost its metrics or SolarMiner fee route");
                     process.destroy();

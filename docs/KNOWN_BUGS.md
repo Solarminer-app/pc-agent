@@ -555,6 +555,27 @@ selection, adapter cleanup, unchanged config files, and resume isolation. A
 real sweep on each reported GPU, its saved `devices` values, and the
 post-benchmark revenue decision still need capture; status remains under
 investigation.
+
+### Live reproduction on the reported Docker agent (2026-10-18)
+
+The operator confirmed selecting all five GPUs for a Pearl sweep. Read-only
+local API inspection of `192.168.178.126:8084` showed four Titan RTX and one
+RTX 3080, all with writable power limits and no regulation error. Pearl's
+saved `devices` field is `NVIDIA:1`. The running sweep had `phaseCount: 1` and
+one `pearl` run on Titan RTX index 1; the other four cards were not queued.
+The running Docker Beta tag is `pc-agent-beta-07a9fccfe4f0`. At that commit,
+the configured-miner branch intersects selected workers with
+`miner.selectedGpus()`, explaining the observed single target exactly. The
+runtime also serves the old i18n catalog and uses the old run ID format,
+confirming the fix from commit `b7bed7d` is not deployed there. Its update
+status reports `update_check_failed`, so availability of a newer published
+image was not established by the Agent. The running sweep was left untouched.
+
+After a Beta image containing `b7bed7d` is installed, repeat with all five
+selected. The session must plan five Pearl runs; with concurrency set to one,
+only one GPU mines at a time and the other four remain queued. This is a
+deployment and live-verification gate, not evidence that the fixed planner
+still rejects these cards.
 The sweep rejection can help explain the later benchmark auto-start outcome:
 the worker's `COIN_REVENUE_PER_KWH` mode can switch from its saved Quantus
 assignment to Pearl only when Pearl has a valid measured performance point,

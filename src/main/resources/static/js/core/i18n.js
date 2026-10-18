@@ -88,6 +88,30 @@
         return key.replace('SRBMiner on ', 'SRBMiner auf ').replace(' could not be started: ', ' konnte nicht gestartet werden: ');
       if (key.startsWith('Could not start QuanPool Miner: '))
         return `QuanPool Miner konnte nicht gestartet werden: ${s(key.slice('Could not start QuanPool Miner: '.length))}`;
+      const alternativeName = /^(Peak Miner|WildRig Miner|PeakMiner|WildRig NG)/.exec(key)?.[0];
+      if (alternativeName) {
+        const translated = alternativeName.startsWith('Peak') ? 'PeakMiner' : 'WildRig NG';
+        const rest = key.slice(alternativeName.length);
+        if (rest.startsWith(' exited (code ')) return `${translated} beendet (Code ${rest.slice(' exited (code '.length)}`;
+        if (rest.startsWith(' received no pool job for '))
+          return `${translated} erhielt ${rest.slice(' received no pool job for '.length).replace(' seconds', ' Sekunden lang')} keinen Pool-Job`;
+        if (rest.startsWith(' download returned HTTP '))
+          return `${translated}-Download meldet HTTP ${rest.slice(' download returned HTTP '.length)}`;
+      }
+      if (key.startsWith('Could not start Peak Miner: ') || key.startsWith('Could not start WildRig Miner: ')) {
+        const name = key.includes('Peak') ? 'PeakMiner' : 'WildRig NG';
+        return `${name} konnte nicht gestartet werden: ${s(key.slice(key.indexOf(': ') + 2))}`;
+      }
+      if (key.startsWith('Saved Peak configuration is invalid: ') || key.startsWith('Saved WildRig configuration is invalid: '))
+        return `${key.includes('Peak') ? 'PeakMiner' : 'WildRig NG'}: Gespeicherte Konfiguration ist ungültig: ${s(key.slice(key.indexOf(': ') + 2))}`;
+      if (key.startsWith('Could not fully remove PeakMiner: ') || key.startsWith('Could not fully remove WildRig NG: '))
+        return `${key.includes('Peak') ? 'PeakMiner' : 'WildRig NG'} konnte nicht vollständig entfernt werden: ${s(key.slice(key.indexOf(': ') + 2))}`;
+      if (key.startsWith('Unsafe PeakMiner archive entry: ') || key.startsWith('Unsafe WildRig NG archive entry: '))
+        return `Unsicherer Eintrag im ${key.includes('Peak') ? 'PeakMiner' : 'WildRig-NG'}-Archiv: ${key.slice(key.indexOf(': ') + 2)}`;
+      if (key.startsWith('Unexpected Peak miner metrics version ') || key.startsWith('Unexpected WildRig miner metrics version '))
+        return `Unerwartete ${key.includes('Peak') ? 'PeakMiner' : 'WildRig-NG'}-Metrikversion ${key.slice(key.lastIndexOf(' ') + 1)}`;
+      if (key.startsWith('Unexpected Peak miner developer fee ') || key.startsWith('Unexpected WildRig miner developer fee '))
+        return `Unerwartete ${key.includes('Peak') ? 'PeakMiner' : 'WildRig-NG'}-Entwicklergebühr ${key.slice(key.lastIndexOf(' ') + 1)}`;
       if (key.startsWith('Another miner already controls '))
         return `Ein anderer Miner steuert bereits ${key.slice('Another miner already controls '.length)}`;
       if (key.startsWith('NVIDIA:') && key.endsWith(' is not configured or was not detected'))

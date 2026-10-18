@@ -67,12 +67,26 @@ public final class MinerLogDiagnostics {
             new Rule("quanpool",
                     Pattern.compile("(?i)(failed to connect|connection refused|reconnecting|timed out)"),
                     Category.POOL_CONNECTION,
-                    "Diagnosis: QuanPool Miner could not reach the pool. Check the SolarMiner proxy and the network."));
+                    "Diagnosis: QuanPool Miner could not reach the pool. Check the SolarMiner proxy and the network."),
+            new Rule("peakminer", Pattern.compile("(?i)(unsupported gpu|no compatible gpu|kernel.*unsupported|cuda.*failed)"),
+                    Category.GPU_ALGORITHM_UNSUPPORTED,
+                    "Diagnosis: PeakMiner could not initialize PearlHash on this GPU. Check the GPU and driver requirements."),
+            new Rule("peakminer", Pattern.compile("(?i)(failed to connect|connection refused|pool.*timed out)"),
+                    Category.POOL_CONNECTION,
+                    "Diagnosis: PeakMiner could not reach the SolarMiner proxy or pool."),
+            new Rule("wildrig-ng", Pattern.compile("(?i)(no usable gpu|unsupported gpu|kernel.*unsupported|cuda.*failed)"),
+                    Category.GPU_ALGORITHM_UNSUPPORTED,
+                    "Diagnosis: WildRig NG could not initialize Quantus on this GPU. Check the GPU and driver requirements."),
+            new Rule("wildrig-ng", Pattern.compile("(?i)(connect failed|connection refused|pool unreachable|timed out)"),
+                    Category.POOL_CONNECTION,
+                    "Diagnosis: WildRig NG could not reach the SolarMiner proxy or pool."));
 
     /** Miner families the classifier knows; adapters pass their own family id at start. */
     public static final String SRBMINER = "srbminer";
     public static final String XMRIG = "xmrig";
     public static final String QUANPOOL = "quanpool";
+    public static final String PEAKMINER = "peakminer";
+    public static final String WILDRIG_NG = "wildrig-ng";
 
     public static Optional<Diagnosis> classify(String minerFamily, String line) {
         if (minerFamily == null || line == null || line.isBlank()) return Optional.empty();

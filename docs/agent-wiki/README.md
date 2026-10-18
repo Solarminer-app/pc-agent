@@ -38,6 +38,7 @@ Start with [pc-agent.md](pc-agent.md) — the ownership map for the source tree.
 | [MINER-INTEGRATION-GUIDE.md](../../MINER-INTEGRATION-GUIDE.md) | Adding a miner to an existing coin |
 | [pc-agent-miner-candidates.md](pc-agent-miner-candidates.md) | Miner candidate backlog |
 | [quantus-integration.md](quantus-integration.md) | QuanPool miner contract, implementation and live certification gates |
+| [peak-wildrig-beta.md](peak-wildrig-beta.md) | PeakMiner Pearl and WildRig NG Quantus Beta adapter contracts, verification and open gates |
 | [miner-onboarding-architecture.md](miner-onboarding-architecture.md) | HiveOS-style signed manifest design for faster miner onboarding |
 | [pc-agent-node-coin-compatibility-2026-10-07.md](pc-agent-node-coin-compatibility-2026-10-07.md) | Coin compatibility matrix vs Node |
 | [pc-agent-ux-profile.md](pc-agent-ux-profile.md), [pc-agent-ui-redesign.md](pc-agent-ui-redesign.md), [pc-agent-design-concept.md](pc-agent-design-concept.md), [pc-agent-operations-ui.md](pc-agent-operations-ui.md), [pc-agent-frontend-refactor-handoff.md](pc-agent-frontend-refactor-handoff.md) | UI/UX records; static dashboard under `src/main/resources/static/` |

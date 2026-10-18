@@ -3,6 +3,15 @@
 Status: **installer and adapter implemented; selectable on the Beta branch for live
 certification** (2026-10-14).
 
+Update 2026-10-18: QuanPool now stops immediately for a mismatched metrics
+version or fee, stops when no pool job arrives for 120 seconds, and redacts the
+Base64url pool route in its console. It reports the precise missing binary,
+proxy or fee prerequisite at start. WildRig NG was added as a second Beta QTC
+adapter (the classic WildRig Multi does not list Quantus); see
+[PeakMiner/WildRig Beta record](peak-wildrig-beta.md). The efficiency sweep now
+measures each installed adapter separately on compatible selected GPUs. Live
+share and accounting gates below remain open.
+
 ## Reviewed release and contract
 
 - Product: `quanpool-miner` 6.4.0, closed optimized build published by QuanPool.
