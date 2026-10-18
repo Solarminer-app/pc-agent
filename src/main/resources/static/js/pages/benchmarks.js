@@ -742,10 +742,8 @@ function applySweepState(state) {
             $('sweep-remaining').textContent = state.secondsRemaining == null
                 ? t('calculating_eta') : t('approximate_time_remaining_time', {time: formatDuration(state.secondsRemaining)});
         }
-        if (resultsPage) {
-            renderSweepRuns(forSelectedGpu(state.runs), state.running);
-            renderSweepView();
-        }
+        renderSweepRuns(forSelectedGpu(state.runs), state.running);
+        if (resultsPage) renderSweepView();
 }
 
 let selectedSweepRunId = null;
@@ -1027,6 +1025,10 @@ async function loadProfiles() {
             if (profile.bestStableWatts != null) {
                 info.append(make('p', '', t('best_stable_value_watts_w_hashrate_power_w_e', {watts: profile.bestStableWatts, hashrate: fmtRate(profile.bestHashrateHs), power: Math.round(profile.bestPowerWatts), efficiency: window.SolarMinerUI.efficiency(profile.bestHashrateHs, profile.bestPowerWatts)})));
             } else info.append(make('p', '', t('no_stable_power_limit_found')));
+            const deleteButton = make('button', 'button subtle', t('delete_saved_efficiency_profile'));
+            deleteButton.type = 'button';
+            deleteButton.addEventListener('click', () => deleteSavedProfile(profile, deleteButton));
+            info.append(deleteButton);
             const chart = efficiencyChart(profile);
             if (chart) info.append(chart);
             const limits = (profile.steps || []).map(step => step.limitWatts);
@@ -1045,6 +1047,23 @@ async function loadProfiles() {
         if (revision !== measurementRevision) return;
         lastProfileSignature = null;
         $('sweep-results').replaceChildren(make('p', 'empty', t('could_not_load_efficiency_profiles', {error: s(e.message)})));
+    }
+}
+
+async function deleteSavedProfile(profile, button) {
+    if (!window.confirm(t('confirm_delete_saved_efficiency_profile', {model: profile.model, algorithm: profile.algorithm}))) return;
+    button.disabled = true;
+    try {
+        const response = await fetch('/api/agent/local/efficiency/profiles', {
+            method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(profile)
+        });
+        if (!response.ok) throw new Error('could_not_delete_saved_efficiency_profile');
+        invalidateMeasurements();
+        refreshGpuResults();
+        notice('saved_efficiency_profile_deleted');
+    } catch (error) {
+        button.disabled = false;
+        notice(error.message || 'could_not_delete_saved_efficiency_profile', true);
     }
 }
 

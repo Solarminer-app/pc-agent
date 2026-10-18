@@ -167,13 +167,14 @@ public class AgentEventController {
         }
     }
 
-    private void send(SseEmitter emitter, String channel, String data) {
+    void send(SseEmitter emitter, String channel, String data) {
         try {
             emitter.send(SseEmitter.event().id(Long.toString(revision.incrementAndGet()))
                     .name(channel).data(data, MediaType.APPLICATION_JSON));
         } catch (IOException | IllegalStateException disconnected) {
             unsubscribe(emitter);
-            emitter.complete();
+            // Tomcat may already have fired AsyncListener.onError. Calling complete() here
+            // dispatches that failed AsyncContext again and escapes the scheduled publisher.
         }
     }
 }

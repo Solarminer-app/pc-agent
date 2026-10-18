@@ -102,6 +102,17 @@ revenue after electricity cost. Fees are not deducted. The tariff comes from the
 tariff or profit inputs remain unavailable rather than becoming zero. This is
 a 24-hour projection, not a solar schedule.
 
+**2026-10-18 verification:** At the pictured 0.31 EUR/kWh tariff, 100 measured W
+and 229 MH/s yields about 0.576 EUR/day after electricity; the 200 W cap with
+199 measured W and 293 MH/s yields about 0.209 EUR/day. The extra gross income
+at 200 W does not pay for the extra electricity. Focused tests also verify the
+reverse selection at 0.02 EUR/kWh: 200 W then has higher daily profit while
+100 W remains higher in hashes/W. The Results efficiency column is limited to
+route-ready candidates with fresh market data, whereas the actual efficiency
+mode can use local measurements without a current revenue forecast. The UI
+now states that distinction in German and English. Running daily-profit modes
+also apply the 5% improvement gate and 30-minute post-switch cooldown.
+
 ### Manual baseline / Manueller Vergleichspunkt (2026-10-17)
 
 **Deutsch:** Die Ergebnisansicht zeigt zusätzlich `MANUAL`. Das Power-Target

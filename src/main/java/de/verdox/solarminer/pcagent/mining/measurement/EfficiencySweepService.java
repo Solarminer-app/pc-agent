@@ -30,6 +30,8 @@ import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Executors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import de.verdox.solarminer.pcagent.miner.GpuState;
 import de.verdox.solarminer.pcagent.miner.MinerConfig;
 import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
@@ -56,6 +58,7 @@ import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
  */
 @Service
 public class EfficiencySweepService {
+    private static final Logger LOGGER = Logger.getLogger(EfficiencySweepService.class.getName());
     /** Five-second samples; twelve points cover at least one minute of steady-state mining per step. */
     static final int SAMPLES_PER_STEP = 12;
     static final long SAMPLE_INTERVAL_MILLIS = 5_000;
@@ -209,6 +212,10 @@ public class EfficiencySweepService {
         return store.all();
     }
 
+    public boolean deleteProfile(GpuEfficiencyStore.Profile profile) {
+        return store.delete(profile);
+    }
+
     public GpuEfficiencyStore.StorageStatus profileStorageStatus() { return store.storageStatus(); }
 
     /**
@@ -292,6 +299,7 @@ public class EfficiencySweepService {
         try {
             execute(targets, referenceBatches, cohorts, checkpoint, gpuLimit);
         } catch (RuntimeException e) {
+            LOGGER.log(Level.WARNING, "Efficiency sweep aborted", e);
             Session old = session;
             String detail = Objects.toString(e.getMessage(), "Sweep fehlgeschlagen");
             session = new Session(false, "benchmark_sweep_stop_selected_failed".equals(detail) ? detail : "Fehler: " + detail,
@@ -417,8 +425,9 @@ public class EfficiencySweepService {
                     while (active < gpuLimit && (task = takeRunnable(readyValidations, pendingReferences, busyDevices)) != null) {
                         SweepTask selected = task;
                         busyDevices.add(selected.target().gpu().deviceId());
-                        completed.submit(() -> new SweepTaskResult(selected,
-                                sweepTarget(selected.target(), selected.limits(), selected.mode())));
+                        LOGGER.info(() -> "Efficiency sweep task starting: " + selected.target().coin()
+                                + " on GPU " + selected.target().gpu().deviceId());
+                        completed.submit(() -> executeSweepTask(selected));
                         active++;
                     }
                 }
@@ -432,6 +441,10 @@ public class EfficiencySweepService {
                 }
                 active--;
                 busyDevices.remove(result.task().target().gpu().deviceId());
+                LOGGER.info(() -> "Efficiency sweep task finished: " + result.task().target().coin()
+                        + " on GPU " + result.task().target().gpu().deviceId() + " ("
+                        + session.runs().stream().filter(run -> run.id().equals(runId(result.task().target())))
+                        .map(run -> run.status() + ": " + run.detail()).findFirst().orElse("status unavailable") + ")");
                 if (result.profile() != null) produced.add(result.profile());
                 if (result.task().mode() != SweepMode.FULL) continue;
                 List<Target> siblings = siblingsByCohort.getOrDefault(result.task().cohort(), List.of());
@@ -444,6 +457,23 @@ public class EfficiencySweepService {
                     unlockValidations(siblings, result.task().cohort(), result.profile(), Map.of(), readyValidations);
                 }
             }
+        }
+    }
+
+    private SweepTaskResult executeSweepTask(SweepTask task) {
+        try {
+            return new SweepTaskResult(task, sweepTarget(task.target(), task.limits(), task.mode()));
+        } catch (RuntimeException failure) {
+            LOGGER.log(Level.WARNING, "Efficiency sweep task failed for " + task.target().coin()
+                    + " on GPU " + task.target().gpu().deviceId(), failure);
+            // A failed card must not discard unrelated queued coin/device runs. Continue only
+            // after every managed miner on this physical GPU has been stopped successfully.
+            if (!stopAllOn(task.target().gpu())) throw failure;
+            String detail = Objects.toString(failure.getMessage(), failure.getClass().getSimpleName());
+            finishRun(task.target(), SweepRunState.FAILED, detail);
+            sweepLog(task.target(), task.target().gpu().model() + " · " + task.target().algorithm()
+                    + ": " + detail);
+            return new SweepTaskResult(task, null);
         }
     }
 
@@ -496,10 +526,15 @@ public class EfficiencySweepService {
         setPlannedLimits(target, limits, mode, mode == SweepMode.FULL ? "Vollständige GPU-Kurve" : "Parallele Gerätevalidierung");
         List<GpuEfficiencyStore.StepResult> steps = new ArrayList<>();
         GpuEfficiencyStore.StepResult best = null;
+        boolean completedCurve = true;
         for (int limit : limits) {
-            if (guard.cancelRequested()) break;
+            if (guard.cancelRequested()) {
+                completedCurve = false;
+                break;
+            }
             updateRun(target, SweepRunState.RUNNING, limit, steps, 0, label + " · " + limit + " W");
             if (!power.setSweepPowerTarget(limit, target.gpu())) {
+                completedCurve = false;
                 steps.add(new GpuEfficiencyStore.StepResult(limit, null, null, null, false,
                         "Leistungsgrenze wurde nicht vom Treiber bestätigt; Schritt übersprungen"));
                 updateRun(target, SweepRunState.RUNNING, limit, steps, SAMPLES_PER_STEP,
@@ -518,7 +553,10 @@ public class EfficiencySweepService {
                 // Validation walks upward from the reference value; an unstable result
                 // there must not unlock a still higher power target on the same GPU.
                 if (mode != SweepMode.FULL || limit == limits.getLast()
-                        || !mayContinueAfterUnstableStep(target, step)) break;
+                        || !mayContinueAfterUnstableStep(target, step)) {
+                    completedCurve = limit == limits.getLast();
+                    break;
+                }
             }
             if (step.stable() && (best == null || step.medianHashrateHs() / step.avgPowerWatts() > best.medianHashrateHs() / best.avgPowerWatts()))
                 best = step;
@@ -545,10 +583,11 @@ public class EfficiencySweepService {
                         miners.minerSoftwareForWorker(Coin.byIdOrNull(target.coin()), target.gpu().deviceId()));
             finishRun(target, guard.cancelRequested() ? SweepRunState.CANCELLED : SweepRunState.FAILED, guard.cancelRequested() ? "Abgebrochen" : "Kein stabiler Wert gefunden");
         }
-        // Keep failed profiles too: their per-step notes and telemetry are the operator's
-        // primary evidence when no stable power limit was found. Cancelled partial runs remain
-        // session-local and do not replace the last completed profile.
-        if (profile != null && !guard.cancelRequested()) store.save(profile);
+        // Only a successful full curve is a durable profile. Validation runs intentionally
+        // measure one point, while failed and cancelled runs are useful only in this session;
+        // neither should appear beside or replace a complete saved curve.
+        if (profile != null && best != null && mode == SweepMode.FULL && completedCurve && !guard.cancelRequested())
+            store.save(profile);
         return profile;
     }
 

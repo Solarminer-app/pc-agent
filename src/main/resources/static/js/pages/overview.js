@@ -9,6 +9,8 @@
   let overview, telemetry, settings, assessment, energy, agentUi = null, energyError = null, uiRequested = false;
   let networkAgents = null;
   let benchmarkRunning = false, sweepWorkerIds = new Set();
+  let activeBenchmark = null, activeSweep = null;
+  const openSweepPlans = new Set();
   const pendingNetworkWorkers = new Set();
   const pendingNetworkStarts = new Set();
   let networkActionMessage = '', networkActionError = false;
@@ -191,6 +193,96 @@
     else note.textContent = t('remote_workers_are_read_only');
   }
 
+  function measurementCard(model, algorithm) {
+    const card = ui.element('article', 'dashboard-gpu-measurement-card');
+    card.append(ui.element('strong', '', `${model} · ${algorithm}`));
+    return card;
+  }
+
+  function sampleProgress(card, count, required, label) {
+    const progress = document.createElement('progress');
+    progress.max = Math.max(1, Number(required) || 1);
+    progress.value = Math.min(progress.max, Math.max(0, Number(count) || 0));
+    progress.setAttribute('aria-label', t(label));
+    card.append(progress);
+  }
+
+  function sweepPlan(run) {
+    const limits = run.plannedLimits || [];
+    if (!limits.length) return null;
+    const details = ui.element('details', 'sweep-step-details');
+    details.open = openSweepPlans.has(run.id);
+    details.addEventListener('toggle', () => {
+      if (details.open) openSweepPlans.add(run.id);
+      else openSweepPlans.delete(run.id);
+    });
+    details.append(ui.element('summary', '', t('power_steps_count', {count: limits.length})));
+    const completed = new Map((run.steps || []).map(step => [step.limitWatts, step]));
+    const list = ui.element('ol', 'sweep-step-list');
+    for (const limit of limits) {
+      const step = completed.get(limit);
+      const item = ui.element('li', `sweep-step ${step ? step.stable ? 'stable' : 'unstable' : 'planned'}`);
+      item.append(ui.element('strong', '', `${limit} W`),
+        ui.element('span', 'sweep-step-status', t(step ? step.stable ? 'stable' : 'unstable' : 'planned')));
+      if (step?.medianHashrateHs > 0) item.append(ui.element('span', '', ui.hashrate(step.medianHashrateHs)));
+      if (step?.avgPowerWatts > 0) item.append(ui.element('span', '', `${t('measured_power')}: ${Math.round(step.avgPowerWatts)} W`));
+      if (step?.note) item.append(ui.element('small', '', ui.s(step.note)));
+      list.append(item);
+    }
+    details.append(list);
+    return details;
+  }
+
+  function renderGpuMeasurements() {
+    const section = $('dashboard-gpu-measurements');
+    const cards = $('dashboard-gpu-measurement-cards');
+    const next = [];
+    for (const run of activeSweep?.runs || []) {
+      if (run.status !== 'RUNNING') continue;
+      const card = measurementCard(run.model, run.algorithm);
+      const required = run.samplesRequired ?? 12;
+      const identity = run.mode === 'FULL' ? 'full_device_curve' : 'parallel_device_validation';
+      const group = run.mode === 'FULL' && Number.isInteger(run.referenceBatch)
+        ? ` · ${t('start_group_number', {number: run.referenceBatch + 1})}` : '';
+      card.append(ui.element('p', 'muted', `${run.coin} · ${t(identity)}${group}`));
+      if (run.detail) card.append(ui.element('p', '', ui.s(run.detail)));
+      card.append(ui.element('p', 'muted', t('watts_w_samples_required_samples',
+        {watts: run.limitWatts ?? '—', samples: run.samples ?? 0, required})));
+      sampleProgress(card, run.samples, required, 'power_limit_sample_progress');
+      card.append(ui.element('p', 'muted sweep-sample-stage', Number(run.samples) > 0
+        ? t('collecting_power_limit_samples', {samples: run.samples, required})
+        : t('waiting_for_first_power_limit_sample')));
+      const plan = sweepPlan(run);
+      if (plan) card.append(plan);
+      card.append(ui.element('span', 'tag ready', 'running'));
+      next.push(card);
+    }
+    if (activeBenchmark?.running) {
+      const gpuWorkers = new Map((overview?.stats?.workers || [])
+        .filter(worker => worker.hardwareType === 'GPU').map(worker => [worker.deviceId, worker]));
+      const traces = (activeBenchmark.liveSeries || []).filter(trace => trace.hardwareType === 'GPU');
+      const ids = new Set([...(activeBenchmark.selectedWorkers || []).filter(id => gpuWorkers.has(id)),
+        ...traces.map(trace => trace.deviceId)]);
+      for (const id of ids) {
+        const trace = traces.filter(item => item.deviceId === id).at(-1);
+        const worker = gpuWorkers.get(id);
+        const count = trace?.points?.length || 0;
+        const card = measurementCard(trace?.hardwareModel || worker?.hardwareModel || id,
+          trace?.algorithm || worker?.currentAlgorithm || '—');
+        card.append(ui.element('p', 'muted', t('benchmark_live_points', {count, required: 12})));
+        sampleProgress(card, count, 12, 'dashboard_benchmark_sample_progress');
+        const latest = trace?.points?.at(-1);
+        card.append(ui.element('p', 'muted sweep-sample-stage', latest
+          ? `${t('hashrate')}: ${ui.hashrate(latest.hashrateHs)} · ${t('power_4606f4')}: ${ui.power(latest.powerWatts)}`
+          : t('benchmark_live_waiting')));
+        card.append(ui.element('span', 'tag ready', 'benchmarking'));
+        next.push(card);
+      }
+    }
+    cards.replaceChildren(...next);
+    section.hidden = !next.length;
+  }
+
   async function controlNetworkWorker(row, enabled) {
     const key = `${row.agentId}:${row.deviceId}`;
     if (pendingNetworkWorkers.has(key)) return;
@@ -293,6 +385,7 @@
     renderStatusStrip(data);
     renderAlerts(agentUi);
     renderDashboardWorkers(data);
+    renderGpuMeasurements();
     renderEnergy();
     // A cached tab snapshot is deliberately painted before the live read. Its short
     // overview TTL may already have elapsed during normal page navigation; that is a
@@ -349,15 +442,19 @@
   window.SolarMinerLive.channel('benchmarks',
     {endpoint: '/api/agent/local/benchmarks', maxAgeMs: 8000, persist: false})
     .subscribe((data, meta) => {
-      benchmarkRunning = !meta.error && !meta.stale && data?.running === true;
+      activeBenchmark = !meta.error && !meta.stale && data?.running === true ? data : null;
+      benchmarkRunning = Boolean(activeBenchmark);
       if (overview) renderDashboardWorkers(overview);
+      renderGpuMeasurements();
     });
   window.SolarMinerLive.channel('efficiency',
     {endpoint: '/api/agent/local/efficiency', maxAgeMs: 8000, persist: false})
     .subscribe((data, meta) => {
-      sweepWorkerIds = !meta.error && !meta.stale && data?.running === true
-        ? new Set((data.runs || []).map(run => run.deviceId)) : new Set();
+      activeSweep = !meta.error && !meta.stale && data?.running === true ? data : null;
+      sweepWorkerIds = activeSweep
+        ? new Set((activeSweep.runs || []).filter(run => run.status === 'RUNNING').map(run => run.deviceId)) : new Set();
       if (overview) renderDashboardWorkers(overview);
+      renderGpuMeasurements();
     });
 
   // ------------------------------------------------------------------ agent identity

@@ -313,6 +313,15 @@ abort the sweep safely.
   current caps below their driver defaults (for example 145 W vs 280 W). This
   makes the mismatch plausible on this host, but does not reveal each Agent
   user's configured maximum or prove the reported run hit that exception.
+- 2026-10-18: a reproducible multi-GPU failure path was fixed: a runtime error
+  inside one card's task used to exit the whole completion queue, marking
+  untouched GPU/coin runs failed. Each task now records its own failure and
+  allows queued work to proceed only after all managed miners on its card stop
+  successfully. Failed cleanup still aborts the full run. The new four-run,
+  two-GPU test verifies that one thrown driver error does not discard the
+  other card or later coins. The operator's v1.1.16 Spring logs show only an
+  unrelated SSE disconnect exception, so a real hardware run and per-run
+  status snapshot are still needed to confirm the reported symptom is fixed.
 
 ### Verification required
 

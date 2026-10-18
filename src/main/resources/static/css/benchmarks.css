@@ -225,8 +225,7 @@
 .benchmark-page:not(.benchmark-results-page) .benchmark-comparison,
 .benchmark-page:not(.benchmark-results-page) .measurement-library,
 .benchmark-page:not(.benchmark-results-page) .current-sweep-panel,
-.benchmark-page:not(.benchmark-results-page) #sweep-live-chart,
-.benchmark-page:not(.benchmark-results-page) #sweep-runs{display:none!important}
+.benchmark-page:not(.benchmark-results-page) #sweep-live-chart{display:none!important}
 .benchmark-page:not(.benchmark-results-page) .benchmark-overview{grid-template-columns:repeat(2,minmax(0,1fr))}
 .benchmark-page:not(.benchmark-results-page) .benchmark-overview article:nth-child(n+3){display:none}
 .benchmark-results-page .benchmark-overview,

@@ -1,5 +1,53 @@
 # PC-Agent work log
 
+## 2026-10-18 — Verify daily-profit selection against power-sweep efficiency
+
+- Reviewed the fixed-coin and coin-selecting daily-profit path from stable GPU sweep measurements through `CoinHoppingService` forecast/tariff conversion, `WorkerCoinRevenueModeService` start and scheduled selection, and the Results comparison. The daily-profit score is gross USD/day minus candidate-specific measured W × 24/1000 × tariff USD/kWh; hashes/W is a separate efficiency score. Pool/miner/referrer fees are excluded, as the Results note says.
+- Reproduced the screenshot arithmetic with 100 W, 229 MH/s and 200 W, 293 MH/s: at 0.31 per kWh the 100 W point yields about 0.576/day after power versus about 0.209/day for 199 measured W at the 200 W cap. The extra gross revenue is smaller than the extra electricity cost. At 0.02 per kWh the 200 W point becomes more profitable while the 100 W point remains more efficient. Added regression tests for candidate calculation and fixed-coin selection in both scenarios.
+- The Results efficiency column draws only from candidates with fresh revenue forecasts and route readiness; the actual `EFFICIENCY` mode can select other valid local measurements without market data. Its comparison note now discloses this in German and English, as well as the live daily-profit mode's greater-than-5% improvement gate when current profit is positive and 30-minute post-switch cooldown. Corrected the stale fee wording in `worker-power-modes.md`.
+- Verification: focused JDK 21 tests `WorkerCoinRevenueModeServiceTest`, `CoinHoppingServiceTest`, `WorkerPowerModeServiceTest` passed offline; `check-i18n.cjs` (1,648 keys/13 pages), `scan-i18n-literals.cjs` (0), both-locale render simulation, and `git diff --check` passed. No live GPU, tariff feed or pool payout was available for hardware/accounting verification.
+
+## 2026-10-18 — Keep multi-GPU sweep queue alive after a card failure
+
+- A task exception used to terminate the complete efficiency-sweep queue and
+  mark untouched GPU/coin pairs failed. The scheduler now records that task's
+  error and continues other pairs after confirming that all managed miners on
+  the failed card stopped. A failed stop still aborts for safety. Task start
+  and completion records identify the coin, GPU and run result in Spring logs;
+  task and whole-session exceptions include stack traces.
+- Operator logs from v1.1.16 showed `AgentEventController.send` calling
+  `SseEmitter.complete()` after Tomcat had already completed the error callback.
+  The SSE publisher now removes the failed subscriber without redispatching
+  its invalid async context. This affects browser updates, not miner control.
+- A two-GPU, two-coin regression test confirms all four runs reach their own
+  result after one simulated driver exception. A focused SSE test confirms the
+  failed emitter is not completed twice. Focused tests and the full offline
+  JDK 21 test suite passed. The i18n catalog (1,648 keys across 13 pages),
+  unkeyed-literal scan, both-locale render simulation and `git diff --check`
+  passed. No new UI text was introduced; German/English locale behavior is unchanged.
+  Live GPU verification is still required for the operator's report.
+
+## 2026-10-18 — Persist only complete full power-sweep profiles
+
+- Durable GPU efficiency profiles now include only full sweeps that visited
+  their complete candidate set and found a stable result. The one-point
+  per-device validations, failed attempts and cancelled/shortened sweeps remain
+  session-local; they do not clutter or replace the saved curve.
+- UI copy and locale behavior are unchanged; no new user-facing text was added.
+- Verification: code-path review and `git diff --check`; automated tests were
+  not run.
+
+## 2026-10-18 — Manually delete saved power-sweep profiles
+
+- Added a per-profile delete action to the saved efficiency-profile cards. The
+  local Agent API removes the exact profile record from its JSON store and
+  invalidates the affected efficiency, benchmark, worker and power views.
+  German and English labels, confirmation, success and error messages are in
+  the closed i18n catalog.
+- Verification: German/English catalog check (1,646 keys), unkeyed-literal
+  scan, both-locale render simulation and `git diff --check` passed. Automated
+  tests were not run.
+
 ## 2026-10-18 — Verify mining after benchmark
 
 - The optional post-benchmark start now stops restored workers without an
@@ -2992,3 +3040,20 @@ Vorgehen / Andockpunkte für andere Agenten:
 
 - `MeasurementRunGuardTest.cancelFlagIsObservedByTheRunLoopAndResetOnNextStart` previously set its observed-cancel flag immediately before releasing the shared run lock, then asserted on the lock without synchronization. This could fail in the valid interval between those operations.
 - The test now waits on a latch counted down after `guard.end()` before checking that the lock is free. The focused JDK 21 test passed; `git diff --check` passed. No production behavior or user-facing text changed, so locale catalogs are unaffected.
+
+## 2026-10-18 — Show live GPU sweep cards in the Benchmark view
+
+- The Benchmark page's Power limit efficiency test now renders the existing live run cards from the efficiency state stream. Every running GPU is shown with its current limit, sample count, progress bar, waiting/collecting message and planned power steps. Queued and completed runs retain the existing grouped presentation; the Results page still filters by its selected GPU.
+- Removed the Benchmark-only CSS rule that hid the already present run container and refreshed the page asset versions. No new user-facing copy or API contract was introduced. The existing sweep card labels remain translated in German and English.
+- Verification: JavaScript syntax, `check-i18n.cjs` (1,646 keys, 13 pages, both locales), `scan-i18n-literals.cjs` (zero literals), `simulate-i18n-render.cjs` (both locales), and `git diff --check` passed. A live multi-GPU sweep was not available on this host.
+
+## 2026-10-18 — Fit the Dashboard worker table on desktop
+
+- The Dashboard now gives its nine-column worker table more horizontal space: the page can use up to 1640 px, the energy card has a fixed 320 px column on wide screens, and the two sections stack below 1800 px. Worker table cell padding is slightly narrower. The table keeps horizontal scrolling when the viewport is genuinely too narrow.
+- Checked the live local Dashboard with Chromium using the changed source CSS. The worker table had no horizontal overflow at 1440 and 1920 px in either German or English. At 1280 px it still scrolls to keep the columns legible. No user-facing text or API contract changed.
+
+## 2026-10-18 — Show active GPU measurements below Dashboard workers
+
+- The Dashboard now shows one card per locally running GPU efficiency sweep below the worker table, including the current power limit, sample progress, waiting/collecting state, and expandable planned/measured power steps. A normal running GPU benchmark also shows a per-GPU sample card, including the latest hashrate and power when available. The section hides when no local GPU measurement is active; remote peer worker rows remain status-only because their LAN snapshot does not carry run progress.
+- Both run-state channels were already subscribed by the Dashboard. The cards use those live, non-persisted states and clear on stale/error/finished updates. Added German and English heading/progress labels; existing sweep and benchmark labels are reused.
+- Verification: Chromium with source files and simulated concurrent GPU runs rendered two sweep cards plus one benchmark card under the worker table without JavaScript errors. A German-locale sweep showed its translated waiting message and disappeared after a simulated finished state. JavaScript syntax, both-locale i18n catalog/literal/render checks, and `git diff --check` passed. Real multi-GPU run progress was not driven by this UI check.

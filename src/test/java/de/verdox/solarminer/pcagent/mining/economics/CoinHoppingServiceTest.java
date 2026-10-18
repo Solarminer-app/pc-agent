@@ -32,6 +32,56 @@ class CoinHoppingServiceTest {
     @TempDir Path directory;
 
     @Test
+    void measuredSweepProfitRankingChangesWithElectricityRate() {
+        Instant now = Instant.now();
+        GpuEfficiencyStore sweeps = mock(GpuEfficiencyStore.class);
+        when(sweeps.all()).thenReturn(List.of(
+                profile("quantus", "QPoW (Poseidon2)", now, 100, 229_000_000, 100, true),
+                profile("quantus", "QPoW (Poseidon2)", now, 200, 293_000_000, 199, true)));
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        LocalGpuPowerService.Gpu gpu = mock(LocalGpuPowerService.Gpu.class);
+        when(gpu.deviceId()).thenReturn("gpu-1");
+        when(gpu.supportsDynamicPowerScaling()).thenReturn(true);
+        when(gpu.minWatts()).thenReturn(100);
+        when(gpu.maxWatts()).thenReturn(300);
+        when(power.snapshot()).thenReturn(List.of(gpu));
+        EconomicPlanningService planning = mock(EconomicPlanningService.class);
+        when(planning.capabilities()).thenReturn(new EconomicPlanningService.Capabilities(1, now,
+                List.of(new EconomicPlanningService.WorkerCapability("gpu-1", "GPU", "Test", "quantus", false,
+                        "FIXED", List.of(ready("quantus")))), null));
+        MarketDataService market = mock(MarketDataService.class);
+        when(market.forecastForProfile(org.mockito.ArgumentMatchers.eq("quantus"), anyDouble()))
+                .thenAnswer(invocation -> forecast("quantus", invocation.<Double>getArgument(1) * 1.32 / 229_000_000, now));
+        when(market.toUsd(0.31, "EUR")).thenReturn(0.31);
+        when(market.toUsd(0.02, "EUR")).thenReturn(0.02);
+        EnergyJournalService energy = mock(EnergyJournalService.class);
+        EnergyJournalService.Overview overview = mock(EnergyJournalService.Overview.class);
+        when(energy.overview()).thenReturn(overview);
+        when(overview.settings()).thenReturn(new EnergyJournalService.Settings(new BigDecimal("0.31"), "EUR"));
+        CoinHoppingService service = new CoinHoppingService(new ObjectMapper().findAndRegisterModules(),
+                directory.resolve("profit-ranking.json").toString(), sweeps, mock(MiningPerformanceProfileStore.class),
+                market, planning, mock(WorkerAssignmentService.class), power,
+                mock(BenchmarkSessionService.class), mock(EfficiencySweepService.class), mock(LocalRunLock.class),
+                new CoinHoppingLedger(new ObjectMapper().findAndRegisterModules(),
+                        directory.resolve("profit-ledger.json").toString()), energy);
+
+        var points = service.candidates("gpu-1", 0);
+        assertEquals(2, points.size());
+        var low = points.stream().filter(point -> point.limitWatts() == 100).findFirst().orElseThrow();
+        var high = points.stream().filter(point -> point.limitWatts() == 200).findFirst().orElseThrow();
+        assertTrue(low.hashrateHps() / low.measuredWatts() > high.hashrateHps() / high.measuredWatts());
+        assertEquals(1.32 - 2.4 * 0.31, low.profitUsdPerDay(), 0.000001);
+        assertEquals(high.usdPerDay() - 4.776 * 0.31, high.profitUsdPerDay(), 0.000001);
+        assertTrue(low.profitUsdPerDay() > high.profitUsdPerDay());
+
+        when(overview.settings()).thenReturn(new EnergyJournalService.Settings(new BigDecimal("0.02"), "EUR"));
+        points = service.candidates("gpu-1", 0);
+        low = points.stream().filter(point -> point.limitWatts() == 100).findFirst().orElseThrow();
+        high = points.stream().filter(point -> point.limitWatts() == 200).findFirst().orElseThrow();
+        assertTrue(high.profitUsdPerDay() > low.profitUsdPerDay());
+    }
+
+    @Test
     void configuredThresholdAndCooldownControlBoundary() {
         Instant now = Instant.parse("2026-10-16T12:00:00Z");
         assertTrue(CoinHoppingService.worthHop(1, 1.08, 5));

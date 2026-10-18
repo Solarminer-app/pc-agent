@@ -17,6 +17,39 @@ import static org.mockito.Mockito.*;
 
 class WorkerCoinRevenueModeServiceTest {
     @Test
+    void dailyProfitAndHashesPerWattCanSelectDifferentSweepTargets() {
+        String id = "GPU-test";
+        CoinHoppingService hopping = mock(CoinHoppingService.class);
+        WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
+        WorkerCoinRevenueModeService service = new WorkerCoinRevenueModeService(
+                mock(AgentControlSettingsService.class), hopping, assignments,
+                mock(LocalGpuPowerService.class), new LocalRunLock(), mock(EconomicPlanningService.class));
+        when(assignments.workers()).thenReturn(List.of(worker(id, "quantus", MinerStats.MinerStatus.PAUSED)));
+
+        // Both points use the same coin and miner. At 0.31 EUR/kWh and a 1:1
+        // USD conversion, the 100 W point matches the reported comparison:
+        // 1.32 - 0.744 = 0.576 per day versus 1.69 - 1.48056 = 0.20944.
+        Instant now = Instant.now();
+        var efficient = new CoinHoppingService.Candidate("quantus", 100, 100, 229_000_000,
+                1.32 / 2.4, now, now, "SWEEP", 1, 1.32, "srbminer-multi", null, 0.576);
+        var manual = new CoinHoppingService.Candidate("quantus", 200, 199, 293_000_000,
+                1.69 / 4.776, now, now, "SWEEP", 1, 1.69, "srbminer-multi", null, 0.20944);
+        assertTrue(efficient.hashrateHps() / efficient.measuredWatts()
+                > manual.hashrateHps() / manual.measuredWatts());
+        when(hopping.candidates(id, 0)).thenReturn(List.of(efficient, manual));
+        assertEquals(100, service.selectBestStartPoint(id, "quantus", "PROFIT_PER_DAY").candidate().limitWatts());
+
+        // Lower electricity prices make the extra hashrate worth its power.
+        // Hashes/Watt stays highest at 100 W, but daily profit moves to 200 W.
+        var efficientCheap = new CoinHoppingService.Candidate("quantus", 100, 100, 229_000_000,
+                1.32 / 2.4, now, now, "SWEEP", 1, 1.32, "srbminer-multi", null, 1.272);
+        var manualCheap = new CoinHoppingService.Candidate("quantus", 200, 199, 293_000_000,
+                1.69 / 4.776, now, now, "SWEEP", 1, 1.69, "srbminer-multi", null, 1.59448);
+        when(hopping.candidates(id, 0)).thenReturn(List.of(efficientCheap, manualCheap));
+        assertEquals(200, service.selectBestStartPoint(id, "quantus", "PROFIT_PER_DAY").candidate().limitWatts());
+    }
+
+    @Test
     void fixedCoinRevenueStartSelectsMeasuredAlternativeMiner() {
         AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
         CoinHoppingService hopping = mock(CoinHoppingService.class);

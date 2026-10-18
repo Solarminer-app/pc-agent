@@ -7,8 +7,8 @@
     <title data-i18n="solarminer_benchmark_results">SolarMiner · Ergebnisse</title>
     <link rel="stylesheet" href="/css/agent.css">
     <link rel="stylesheet" href="/css/workspace.css">
-    <link rel="stylesheet" href="/css/benchmarks.css?v=20261017-mode-table">
-    <script src="/js/core/i18n-catalog.js?v=20261017-measured-selectors" defer></script>
+    <link rel="stylesheet" href="/css/benchmarks.css?v=20261018-sweep-progress">
+    <script src="/js/core/i18n-catalog.js?v=20261018-profit-comparison" defer></script>
     <script src="/js/core/i18n.js?v=20261017-node-page-title" defer></script>
     <script src="/js/core/live-data.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/core/components.js?v=20261012-benchmark-live-dashboard" defer></script>
@@ -16,7 +16,7 @@
     <script src="/js/chrome/fee-tier-badge.js?v=20261012-benchmark-live-dashboard" defer></script>
     <script src="/js/chrome/wallet-strip.js?v=20261016-global-wallet-strip" defer></script>
     <script src="/js/chrome/workspace.js?v=20261017-node-page-title" defer></script>
-    <script src="/js/pages/benchmarks.js?v=20261017-measured-selectors" defer></script>
+    <script src="/js/pages/benchmarks.js?v=20261018-sweep-progress" defer></script>
 </head>
 <body class="benchmark-page benchmark-results-page">
 <div class="shell">
@@ -48,7 +48,7 @@
             <p id="mode-comparison-context" class="muted" aria-live="polite"></p>
             <div id="mode-comparison-cards" class="worker-mode-table-scroll" role="region" aria-labelledby="worker-mode-comparison-title" tabindex="0" aria-live="polite"></div>
             <p id="mode-comparison-same" class="worker-mode-same-point" hidden data-i18n="worker_mode_comparison_same_point">Effizienz und Tagesgewinn wählen denselben Messpunkt.</p>
-            <p class="muted" data-i18n="worker_mode_comparison_note">≈ ist eine 24-Stunden-Hochrechnung aus gemessener GPU-Leistung und aktuellen Netzwerkdaten. Stromkosten werden abgezogen, Gebühren nicht. Tatsächliche Auszahlungen und wechselnde PV-Leistung können abweichen.</p>
+            <p class="muted" data-i18n="worker_mode_comparison_note">≈ ist eine 24-Stunden-Hochrechnung aus gemessener GPU-Leistung und aktuellen Netzwerkdaten. Stromkosten werden abgezogen, Gebühren nicht. Die Effizienz-Spalte zeigt nur Messpunkte mit aktueller Ertragsprognose; der tatsächliche Effizienz-Modus kann auch andere Messpunkte nutzen. Bei positivem aktuellem Gewinn wechselt ein laufender Tagesgewinn-Modus erst bei mehr als 5 % Verbesserung; nach jedem Wechsel gelten 30 Minuten Wartezeit. Tatsächliche Auszahlungen und wechselnde PV-Leistung können abweichen.</p>
         </section>
         <section class="benchmark-overview" aria-label="Messübersicht" data-i18n-aria-label="measurement_overview">
             <article><span data-i18n="benchmark_run">MESSLAUF</span><strong id="overview-benchmark">—</strong></article>

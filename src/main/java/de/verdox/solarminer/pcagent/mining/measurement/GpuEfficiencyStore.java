@@ -52,6 +52,20 @@ public class GpuEfficiencyStore {
         profiles = Map.copyOf(next);
     }
 
+    public synchronized boolean delete(Profile profile) {
+        if (profile == null) return false;
+        Map<String, Profile> next = new LinkedHashMap<>(profiles);
+        String storageKey = next.entrySet().stream()
+                .filter(entry -> entry.getValue().equals(profile))
+                .map(Map.Entry::getKey)
+                .findFirst().orElse(null);
+        if (storageKey == null) return false;
+        next.remove(storageKey);
+        if (!write(next)) throw new IllegalStateException("Efficiency profiles could not be persisted");
+        profiles = Map.copyOf(next);
+        return true;
+    }
+
     public List<Profile> all() {
         List<Profile> values = new ArrayList<>(profiles.values());
         values.sort((a, b) -> {

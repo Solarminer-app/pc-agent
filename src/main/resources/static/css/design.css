@@ -1680,6 +1680,11 @@ th[aria-sort=descending] .table-sort::after {
     min-width: 920px
 }
 
+.network-worker-list .data-table th,
+.network-worker-list .data-table td {
+    padding-inline: 8px
+}
+
 .network-worker-list .status-mining {
     color: #8ee4b4
 }
@@ -1687,6 +1692,16 @@ th[aria-sort=descending] .table-sort::after {
 .network-worker-list .status-error {
     color: #efaa8b
 }
+
+.dashboard-gpu-measurements{margin-top:22px;border-top:1px solid var(--line);padding-top:18px}
+.dashboard-gpu-measurements-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.dashboard-gpu-measurements-head h3{margin:0}
+.dashboard-gpu-measurement-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:12px}
+.dashboard-gpu-measurement-card{min-width:0;padding:16px;border:1px solid #f6c26e59;border-radius:9px;background:#1b2536}
+.dashboard-gpu-measurement-card strong{font-size:13px}
+.dashboard-gpu-measurement-card p{font-size:12px;overflow-wrap:anywhere}
+.dashboard-gpu-measurement-card progress{display:block;width:100%;height:8px;margin:10px 0 6px;accent-color:#8fe9b5}
+.dashboard-gpu-measurement-card .sweep-step-list{max-height:260px;overflow:auto}
 
 .energy-kpis {
     display: grid;

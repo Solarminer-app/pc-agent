@@ -21,6 +21,7 @@ import de.verdox.solarminer.pcagent.miner.MinerConfig;
 import de.verdox.solarminer.pcagent.miner.MinerFactory;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -29,6 +30,64 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 class EfficiencySweepServiceTest {
+    @Test
+    void recoverableFailureOnOneGpuDoesNotDiscardOtherGpuOrLaterCoins() throws Exception {
+        var first = gpu("one", "NVIDIA", 0);
+        var second = gpu("two", "NVIDIA", 1);
+        MinerFactory miners = mock(MinerFactory.class);
+        when(miners.srbBinaryAvailable()).thenReturn(true);
+        GpuCoinMiner inactive = mock(GpuCoinMiner.class);
+        GpuCoinMiner pearl = mock(GpuCoinMiner.class);
+        GpuCoinMiner raven = mock(GpuCoinMiner.class);
+        when(miners.gpuMiner(any(Coin.class))).thenReturn(inactive);
+        when(miners.gpuMiner(Coin.PEARL)).thenReturn(pearl);
+        when(miners.gpuMiner(Coin.RAVENCOIN)).thenReturn(raven);
+        for (GpuCoinMiner miner : List.of(pearl, raven)) {
+            when(miner.configuration()).thenReturn(new MinerConfig("pool", "proxy", "wallet", "worker", "NVIDIA:0,NVIDIA:1"));
+            when(miner.selectedGpus()).thenReturn(List.of(first, second));
+            when(miner.stopGpu(any(String.class), anyInt())).thenReturn(true);
+        }
+        when(inactive.stopGpu(any(String.class), anyInt())).thenReturn(true);
+        when(pearl.restoreState(isNull())).thenReturn(true);
+        when(pearl.reportedAlgorithm()).thenReturn("PearlHash");
+        when(raven.reportedAlgorithm()).thenReturn("KAWPOW");
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        when(power.discover()).thenReturn(List.of(first, second));
+        when(power.refresh()).thenReturn(List.of(first, second));
+        when(power.restorePowerLimits(any())).thenReturn(true);
+        var failedOnce = new java.util.concurrent.atomic.AtomicBoolean();
+        when(power.setSweepPowerTarget(eq(200L), any(LocalGpuPowerService.Gpu.class))).thenAnswer(call -> {
+            LocalGpuPowerService.Gpu card = call.getArgument(1);
+            if (card.deviceId().equals("one") && failedOnce.compareAndSet(false, true))
+                throw new IllegalStateException("driver readback failed");
+            return false;
+        });
+        var service = new EfficiencySweepService(miners, power,
+                mock(de.verdox.solarminer.pcagent.miner.MinerConsoleService.class),
+                mock(de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService.class),
+                mock(de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService.class),
+                mock(GpuEfficiencyStore.class), mock(BenchmarkSharingService.class), new LocalRunLock(),
+                15, 85, 0.1, 240);
+
+        service.start(List.of("pearl", "ravencoin"), List.of("one", "two"), 2);
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            while (service.status().running()) Thread.sleep(10);
+        });
+
+        var runs = service.status().runs();
+        assertEquals(4, runs.size());
+        assertTrue(service.status().phase().startsWith("Fertig"));
+        assertTrue(runs.stream().allMatch(run -> run.status() == SweepRunState.FAILED));
+        assertEquals(1, runs.stream().filter(run -> run.detail().contains("driver readback failed")).count());
+        assertEquals(3, runs.stream().filter(run -> run.steps().size() == 1).count());
+        verify(power, times(4)).setSweepPowerTarget(eq(200L), any(LocalGpuPowerService.Gpu.class));
+    }
+
+    private static LocalGpuPowerService.Gpu gpu(String id, String vendor, int index) {
+        return new LocalGpuPowerService.Gpu(vendor, index, id, "GPU", 100, 320,
+                200, 200, 200, 25.0, "measured", true, null, 300);
+    }
+
     @Test
     void referenceStartRespectsUserMaximumAndUsesCurrentCapWithoutDriverDefault() {
         var capped = new LocalGpuPowerService.Gpu("NVIDIA", 0, "one", "GPU", 100, 320,

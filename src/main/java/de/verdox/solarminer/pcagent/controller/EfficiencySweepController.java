@@ -63,6 +63,13 @@ public class EfficiencySweepController {
         return sweep.profiles();
     }
 
+    @DeleteMapping("/profiles")
+    public ResponseEntity<Void> deleteProfile(@RequestBody GpuEfficiencyStore.Profile profile) {
+        if (!sweep.deleteProfile(profile)) return ResponseEntity.notFound().build();
+        if (status != null) status.invalidate("efficiency", "benchmarks", "overview", "workers", "power-control");
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/profiles/storage")
     public GpuEfficiencyStore.StorageStatus profileStorage() { return sweep.profileStorageStatus(); }
 }
