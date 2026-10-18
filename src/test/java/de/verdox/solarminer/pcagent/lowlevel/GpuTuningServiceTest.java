@@ -54,6 +54,77 @@ class GpuTuningServiceTest {
 
         assertTrue(tuning.restoreDefaults("GPU-test").applied());
         verify(power).runTuningCommand(List.of("nvidia-smi", "-i", "GPU-test", "--reset-gpu-clocks"));
+        verify(power, never()).runTuningCommand(List.of("nvidia-smi", "-i", "GPU-test", "--reset-memory-clocks"));
+    }
+
+    @Test
+    void detectsTuringMemoryRangeWhenOlderCliHasNoLockPolicyQuery() throws Exception {
+        LocalGpuPowerService power = nvidia();
+        when(power.runTuningCommand(any())).thenAnswer(invocation -> {
+            List<String> command = invocation.getArgument(0);
+            if (command.contains("--lock-memory-clocks-info"))
+                throw new java.io.IOException("ERROR: Option --lock-memory-clocks-info is not recognized.");
+            if (command.contains("--help")) return "-lmc --lock-memory-clocks=\n-rmc --reset-memory-clocks\n";
+            if (command.contains("--query-gpu=compute_cap")) return "7.5\n";
+            return "7001, 2100\n7001, 2085\n405, 210\n";
+        });
+        GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(), directory.resolve("legacy-recovery.json").toString());
+
+        var result = tuning.refreshCapabilities("GPU-test");
+
+        assertTrue(result.memoryClockControl());
+        assertEquals(405, result.memoryMinMhz());
+        assertEquals(7001, result.memoryMaxMhz());
+        assertEquals(210, result.coreMinMhz());
+        assertEquals(2100, result.coreMaxMhz());
+        assertEquals("gpu_memory_clock_lock_requires_write_test", result.reason());
+    }
+
+    @Test
+    void keepsReportedMemoryBoundsButRejectsDeferredOnlyAndUnknownLockPolicy() throws Exception {
+        LocalGpuPowerService power = nvidia();
+        when(power.runTuningCommand(any())).thenAnswer(invocation -> {
+            List<String> command = invocation.getArgument(0);
+            return command.contains("--lock-memory-clocks-info") ? "deferred" : "405, 300\n810, 900\n";
+        });
+        GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(), directory.resolve("deferred-recovery.json").toString());
+
+        var result = tuning.refreshCapabilities("GPU-test");
+
+        assertFalse(result.memoryClockControl());
+        assertEquals(405, result.memoryMinMhz());
+        assertEquals(810, result.memoryMaxMhz());
+        verify(power, never()).runTuningCommand(List.of("nvidia-smi", "--help"));
+    }
+
+    @Test
+    void memoryWriteIsResetOnlyAfterThisAgentTouchesMemory() throws Exception {
+        LocalGpuPowerService power = nvidia();
+        when(power.runTuningCommand(any())).thenAnswer(invocation -> {
+            List<String> command = invocation.getArgument(0);
+            return command.contains("--lock-memory-clocks-info") ? "runtime modifiable" : "405, 300\n810, 900\n";
+        });
+        GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(), directory.resolve("memory-recovery.json").toString());
+
+        assertTrue(tuning.apply("GPU-test", null, null, 405, 810).applied());
+        assertTrue(tuning.restoreDefaults("GPU-test").applied());
+
+        verify(power).runTuningCommand(List.of("nvidia-smi", "-i", "GPU-test", "--lock-memory-clocks=405,810"));
+        verify(power).runTuningCommand(List.of("nvidia-smi", "-i", "GPU-test", "--reset-memory-clocks"));
+    }
+
+    @Test
+    void explicitOperatorRestoreIncludesSupportedMemoryLock() throws Exception {
+        LocalGpuPowerService power = nvidia();
+        when(power.runTuningCommand(any())).thenAnswer(invocation -> {
+            List<String> command = invocation.getArgument(0);
+            return command.contains("--lock-memory-clocks-info") ? "runtime modifiable" : "405, 300\n810, 900\n";
+        });
+        GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(), directory.resolve("operator-recovery.json").toString());
+
+        assertTrue(tuning.restoreDriverDefaults("GPU-test").applied());
+
+        verify(power).runTuningCommand(List.of("nvidia-smi", "-i", "GPU-test", "--reset-gpu-clocks"));
         verify(power).runTuningCommand(List.of("nvidia-smi", "-i", "GPU-test", "--reset-memory-clocks"));
     }
 

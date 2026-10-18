@@ -79,7 +79,7 @@ public class GpuTuningController {
     public GpuTuningService.ApplyResult restore(@PathVariable String deviceId) {
         if (!runLock.tryBegin("gpu-clock-control")) throw new ResponseStatusException(HttpStatus.CONFLICT, "power_mode_busy");
         try {
-            var result = tuning.restoreDefaults(deviceId);
+            var result = tuning.restoreDriverDefaults(deviceId);
             if (!result.applied()) throw new ResponseStatusException(HttpStatus.CONFLICT, result.reason());
             return result;
         } finally { runLock.end(); }

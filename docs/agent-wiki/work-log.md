@@ -1,3 +1,13 @@
+## 2026-10-18 — Actionable GPU tuning driver guidance
+
+- Added localized, reason-specific next steps next to GPU capability warnings and failed tuning actions: NVIDIA clock-query checks, agent write permissions, valid ranges, driver rejection, failed reset, recovery-file storage and missing clock readback. A readable but unconfirmed NVIDIA memory range now says why its control is unavailable. The frontend consumes existing reason codes; backend safety and API contracts are unchanged.
+- Verification: JavaScript syntax, the closed i18n catalog (1,743 keys in both locales), unkeyed-literal scan (zero), both-locale render simulation, and `git diff --check` passed. Driver guidance has not been exercised on the user's RTX 2080 Ti.
+
+## 2026-10-18 — Detect NVIDIA memory clock bounds on older nvidia-smi
+
+- The NVIDIA probe previously discarded readable memory bounds and disabled memory locks whenever `--lock-memory-clocks-info` was unrecognized. It now keeps reported bounds separately, then uses a read-only fallback requiring the memory lock/reset CLI commands and compute capability 7.x or 8.x. The UI identifies this as provisional until a real write succeeds; the existing apply path still reports driver or permission failure. Automatic recovery touches memory only after this Agent requested a memory lock; the explicit operator restore still resets supported memory locks.
+- The available host reports driver 580.178.04 with no lock-policy query, while TITAN RTX (compute 7.5) reports 405–7001 MHz and RTX 3080 (compute 8.6) reports 405–9501 MHz supported memory clocks. No RTX 2080 Ti is attached here; no clock write was performed. Focused `GpuTuningServiceTest`, JavaScript syntax, both-language i18n catalog/render checks, literal scan and diff check passed. The user's 2080 Ti still needs an Agent-side write and readback to establish actual control.
+
 # PC-Agent work log
 
 ## 2026-10-18 — PeakMiner sweep start and hashrate follow-up
@@ -3184,3 +3194,7 @@ changes were preserved.
   dispatch test, three DE/EN i18n checks and diff checks passed during the
   implementation. Physical writes, real share accounting, crash recovery and
   cross-process plan renewal are still unverified. See [auto-tuning.md](auto-tuning.md).
+## 2026-10-18 — Refresh GPU Auto Tuning page
+
+- Reworked the PC-Agent Auto Tuning page into a distinct header and per-GPU cards with readable device identity, separate power metrics, driver capability badges, calibration, saved tiers and grouped manual clock controls. Disabled calibration now displays the actual missing worker/assignment/clock prerequisite. The session and local API behavior remain unchanged.
+- Added German and English copy for the new headings, metric and prerequisite labels. Verification: `node --check` on the page script and i18n catalog, `check-i18n.cjs` (1,732 keys, 14 pages), `scan-i18n-literals.cjs` (zero), `simulate-i18n-render.cjs` (both locales), and `git diff --check` passed. No browser or live GPU was available for visual or hardware verification.

@@ -4,10 +4,29 @@
   const devices = $('devices');
   let activeSession = null, pollTimer = null, savedProfiles = [];
   const node = (tag, className, text) => { const el = document.createElement(tag); if (className) el.className = className; if (text) el.textContent = text; return el; };
-  const status = (message, error = false) => { const el = $('notice'); el.textContent = message; el.className = `notice${error ? ' error' : ''}`; el.hidden = !message; };
-  const numberField = (label, value, min, max, disabled) => {
-    const wrap = node('label', 'field'); wrap.append(node('span', '', label));
+  const adviceKey = (reason, vendor) => {
+    const key = String(reason || '');
+    if (key.includes('gpu_clock_permission_denied')) return 'auto_tuning_help_permission';
+    if (key.includes('gpu_clock_restore_failed')) return 'auto_tuning_help_restore';
+    if (key.includes('gpu_tuning_recovery_save_failed')) return 'auto_tuning_help_recovery_file';
+    if (key.includes('gpu_clock_target_out_of_range') || key.includes('gpu_tuning_candidate_rejected')) return 'auto_tuning_help_range';
+    if (key.includes('gpu_clock_write_failed') || key.includes('auto_tuning_apply_failed')) return 'auto_tuning_help_write';
+    if (key.includes('auto_tuning_clock_readback_unavailable') || key.includes('auto_tuning_clock_not_reached')) return 'auto_tuning_help_readback';
+    if (key.includes('gpu_clock_controls_unavailable') || key.includes('gpu_memory_clock_control_unavailable'))
+      return String(vendor || '').toUpperCase() === 'NVIDIA' ? 'auto_tuning_help_nvidia_driver' : 'auto_tuning_help_driver';
+    if (key.includes('gpu_memory_clock_lock_requires_write_test')) return 'auto_tuning_help_provisional';
+    return null;
+  };
+  const status = (message, error = false, advice = null) => {
+    const el = $('notice'); el.replaceChildren(); el.className = `notice${error ? ' error' : ''}`; el.hidden = !message;
+    if (message) el.append(node('span', '', message));
+    if (advice) el.append(node('p', 'tuning-advice', t(advice)));
+  };
+  const reportError = (error, vendor) => status(t('auto_tuning_failed', {reason: t(error.message)}), true, adviceKey(error.message, vendor));
+  const numberField = (label, value, min, max, disabled, shortLabel) => {
+    const wrap = node('label', 'field'); wrap.append(node('span', '', shortLabel || label));
     const input = node('input'); input.type = 'number'; input.required = true; input.value = value ?? '';
+    input.setAttribute('aria-label', label);
     if (min != null) input.min = min; if (max != null) input.max = max; input.disabled = disabled;
     wrap.append(input); return {wrap, input};
   };
@@ -15,46 +34,66 @@
     devices.replaceChildren();
     if (!rows.length) { devices.append(node('p', 'muted', t('auto_tuning_no_devices'))); return; }
     for (const gpu of rows) {
-      const card = node('article', 'panel');
-      const head = node('div', 'panel-head'); const title = node('div');
-      title.append(node('p', 'kicker', `${gpu.vendor} · ${gpu.deviceId}`), node('h2', '', gpu.model || gpu.deviceId));
+      const card = node('article', 'panel tuning-card');
+      const head = node('div', 'tuning-card-head'); const title = node('div', 'tuning-card-title');
+      title.append(node('span', 'tuning-vendor', gpu.vendor || t('auto_tuning_gpu_label')), node('h3', '', gpu.model || gpu.deviceId), node('small', 'tuning-device-id', gpu.deviceId));
       head.append(title); card.append(head);
       const pwr = gpu.powerLimitWatts == null ? '—' : `${gpu.powerLimitWatts} W`;
-      card.append(node('p', 'muted', `${t('auto_tuning_power_limit')}: ${pwr} · ${gpu.measuredWatts == null ? '—' : `${Number(gpu.measuredWatts).toFixed(1)} W`}`));
+      const stats = node('div', 'tuning-stats');
+      for (const [label, value] of [[t('auto_tuning_power_limit'), pwr], [t('auto_tuning_measured_power'), gpu.measuredWatts == null ? '—' : `${Number(gpu.measuredWatts).toFixed(1)} W`]]) {
+        const stat = node('div', 'tuning-stat'); stat.append(node('span', '', label), node('strong', '', value)); stats.append(stat);
+      }
+      card.append(stats);
       const caps = gpu.tuning;
-      const details = node('p', 'muted', `${t('auto_tuning_core_supported')}: ${caps.coreClockControl ? '✓' : '—'} · ${t('auto_tuning_memory_supported')}: ${caps.memoryClockControl ? '✓' : '—'} · ${t('auto_tuning_voltage_unavailable')}`);
-      card.append(details);
+      const capabilities = node('div', 'tuning-capabilities');
+      for (const [label, supported] of [[t('auto_tuning_core_supported'), caps.coreClockControl], [t('auto_tuning_memory_supported'), caps.memoryClockControl]]) {
+        capabilities.append(node('span', `tuning-capability ${supported ? 'available' : 'unavailable'}`, `${supported ? '✓' : '—'} ${label}`));
+      }
+      card.append(capabilities);
+      const calibration = node('div', 'tuning-calibration');
+      const calibrationCopy = node('div'); calibrationCopy.append(node('strong', '', t('auto_tuning_calibration_title')), node('p', '', t('auto_tuning_calibration_hint')));
+      const prerequisite = !gpu.coinId ? 'auto_tuning_requires_gpu_coin'
+        : gpu.workerStatus !== 'MINING' ? 'auto_tuning_requires_active_worker'
+          : !caps.coreClockControl && !caps.memoryClockControl ? 'gpu_clock_controls_unavailable' : null;
+      if (prerequisite) calibrationCopy.append(node('p', 'tuning-prerequisite', t(prerequisite)));
+      calibration.append(calibrationCopy);
       const tuneButton = node('button', 'button primary', t('auto_tuning_start'));
       tuneButton.dataset.action = 'calibrate'; tuneButton.dataset.coin = gpu.coinId || ''; tuneButton.dataset.workerStatus = gpu.workerStatus || '';
       tuneButton.dataset.canTune = String(caps.coreClockControl || caps.memoryClockControl);
       tuneButton.type = 'button';
-      tuneButton.disabled = !gpu.coinId || gpu.workerStatus !== 'MINING' || Boolean(activeSession?.running);
+      tuneButton.disabled = Boolean(prerequisite) || Boolean(activeSession?.running);
       tuneButton.addEventListener('click', async () => {
         tuneButton.disabled = true; status('');
         try { await send('/api/agent/local/gpu-tuning/start', {deviceId: gpu.deviceId, coinId: gpu.coinId}); await loadSession(); }
-        catch (error) { status(t('auto_tuning_failed', {reason: t(error.message)}), true); tuneButton.disabled = false; }
+        catch (error) { reportError(error, gpu.vendor); tuneButton.disabled = false; }
       });
-      card.append(tuneButton);
+      calibration.append(tuneButton); card.append(calibration);
       const profiles = savedProfiles.filter(row => row.deviceId === gpu.deviceId && row.coinId === gpu.coinId)
         .sort((a, b) => a.powerLimitWatts - b.powerLimitWatts);
       if (profiles.length) {
-        card.append(node('h3', '', t('auto_tuning_saved_matrix')));
-        for (const profile of profiles) card.append(node('p', 'muted', t('auto_tuning_saved_tier', {
+        const saved = node('div', 'tuning-profiles'); saved.append(node('h4', '', t('auto_tuning_saved_matrix')));
+        for (const profile of profiles) saved.append(node('p', '', t('auto_tuning_saved_tier', {
           software: profile.softwareId, version: profile.softwareVersion || '—', power: profile.powerLimitWatts,
           core: profile.coreMhz ?? '—', memory: profile.memoryMhz ?? '—',
           efficiency: Number(profile.efficiencyHashesPerWatt).toFixed(3)
         })));
+        card.append(saved);
       }
-      const form = node('form', 'form-grid');
-      const coreMin = numberField(t('auto_tuning_core_range'), caps.coreMinMhz, caps.coreMinMhz, caps.coreMaxMhz, !caps.coreClockControl);
-      const coreMax = numberField(t('auto_tuning_core_range'), caps.coreMaxMhz, caps.coreMinMhz, caps.coreMaxMhz, !caps.coreClockControl);
-      const memMin = numberField(t('auto_tuning_memory_range'), caps.memoryMinMhz, caps.memoryMinMhz, caps.memoryMaxMhz, !caps.memoryClockControl);
-      const memMax = numberField(t('auto_tuning_memory_range'), caps.memoryMaxMhz, caps.memoryMinMhz, caps.memoryMaxMhz, !caps.memoryClockControl);
-      coreMin.wrap.querySelector('span').textContent += ` · ${t('minimum')}`;
-      coreMax.wrap.querySelector('span').textContent += ` · ${t('maximum')}`;
-      memMin.wrap.querySelector('span').textContent += ` · ${t('minimum')}`;
-      memMax.wrap.querySelector('span').textContent += ` · ${t('maximum')}`;
-      form.append(coreMin.wrap, coreMax.wrap, memMin.wrap, memMax.wrap);
+      const form = node('form', 'tuning-form');
+      form.append(node('h4', '', t('auto_tuning_manual_title')));
+      const coreMin = numberField(`${t('auto_tuning_core_range')} · ${t('minimum')}`, caps.coreMinMhz, caps.coreMinMhz, caps.coreMaxMhz, !caps.coreClockControl, t('minimum'));
+      const coreMax = numberField(`${t('auto_tuning_core_range')} · ${t('maximum')}`, caps.coreMaxMhz, caps.coreMinMhz, caps.coreMaxMhz, !caps.coreClockControl, t('maximum'));
+      const memMin = numberField(`${t('auto_tuning_memory_range')} · ${t('minimum')}`, caps.memoryMinMhz, caps.memoryMinMhz, caps.memoryMaxMhz, !caps.memoryClockControl, t('minimum'));
+      const memMax = numberField(`${t('auto_tuning_memory_range')} · ${t('maximum')}`, caps.memoryMaxMhz, caps.memoryMinMhz, caps.memoryMaxMhz, !caps.memoryClockControl, t('maximum'));
+      const rangeGroup = (name, minField, maxField, supported, hint) => {
+        const group = node('div', 'tuning-range-group');
+        const heading = node('div', 'tuning-range-heading'); heading.append(node('strong', '', name), node('span', '',
+          supported ? hint : minField.input.value && maxField.input.value ? `${hint} · ${t('auto_tuning_not_supported')}` : t('auto_tuning_not_supported')));
+        const fields = node('div', 'tuning-range-fields'); fields.append(minField.wrap, maxField.wrap);
+        group.append(heading, fields); return group;
+      };
+      form.append(rangeGroup(t('auto_tuning_core_range'), coreMin, coreMax, caps.coreClockControl, t('auto_tuning_range_hint', {min: caps.coreMinMhz, max: caps.coreMaxMhz})),
+        rangeGroup(t('auto_tuning_memory_range'), memMin, memMax, caps.memoryClockControl, t('auto_tuning_range_hint', {min: caps.memoryMinMhz, max: caps.memoryMaxMhz})));
       const actions = node('div', 'button-row');
       const apply = node('button', 'button primary', t('auto_tuning_apply')); apply.type = 'submit';
       const restore = node('button', 'button subtle', t('auto_tuning_restore')); restore.type = 'button';
@@ -72,21 +111,26 @@
             memoryMinMhz: caps.memoryClockControl ? Number(memMin.input.value) : null,
             memoryMaxMhz: caps.memoryClockControl ? Number(memMax.input.value) : null
           }); status(t('auto_tuning_saved')); await load();
-        } catch (error) { status(t('auto_tuning_failed', {reason: t(error.message)}), true); }
+        } catch (error) { reportError(error, gpu.vendor); }
         finally { apply.disabled = !caps.coreClockControl && !caps.memoryClockControl; }
       });
       restore.addEventListener('click', async () => {
         restore.disabled = true;
         try { await send(`/api/agent/local/gpu-tuning/${encodeURIComponent(gpu.deviceId)}/restore`, {}); status(t('auto_tuning_restored')); await load(); }
-        catch (error) { status(t('auto_tuning_failed', {reason: t(error.message)}), true); }
+        catch (error) { reportError(error, gpu.vendor); }
         finally { restore.disabled = false; }
       });
       card.append(form);
-      const ranges = [];
-      if (caps.coreClockControl) ranges.push(t('auto_tuning_range_hint', {min: caps.coreMinMhz, max: caps.coreMaxMhz}));
-      if (caps.memoryClockControl) ranges.push(t('auto_tuning_range_hint', {min: caps.memoryMinMhz, max: caps.memoryMaxMhz}));
-      if (ranges.length) card.append(node('p', 'muted', ranges.join(' · ')));
-      if (caps.reason) card.append(node('p', 'notice-line', t(caps.reason)));
+      if (caps.reason) {
+        const reason = node('div', 'tuning-reason'); reason.append(node('p', '', t(caps.reason)));
+        const advice = adviceKey(caps.reason, gpu.vendor);
+        if (advice) reason.append(node('p', 'tuning-advice', t(advice)));
+        card.append(reason);
+      } else if (String(gpu.vendor).toUpperCase() === 'NVIDIA' && !caps.memoryClockControl && caps.memoryMinMhz != null) {
+        const reason = node('div', 'tuning-reason');
+        reason.append(node('p', '', t('auto_tuning_memory_read_only')), node('p', 'tuning-advice', t('auto_tuning_help_nvidia_driver')));
+        card.append(reason);
+      }
       devices.append(card);
     }
   }
@@ -104,7 +148,7 @@
       if (!response.ok || !profileResponse.ok) throw new Error('gpu_clock_controls_unavailable');
       savedProfiles = await profileResponse.json(); draw(await response.json()); await loadSession();
     }
-    catch (error) { status(t('auto_tuning_failed', {reason: t(error.message)}), true); }
+    catch (error) { reportError(error); }
   }
   async function loadSession() {
     try {
@@ -168,8 +212,11 @@
       core: activeSession.result.coreMhz ?? '—', memory: activeSession.result.memoryMhz ?? '—',
       power: activeSession.result.powerLimitWatts, efficiency: Number(activeSession.result.efficiencyHashesPerWatt).toFixed(3)
     })));
-    if (!activeSession.running && activeSession.phase !== 'auto_tuning_complete')
+    if (!activeSession.running && activeSession.phase !== 'auto_tuning_complete') {
       host.append(node('p', 'notice error', t(activeSession.phase)));
+      const advice = adviceKey(activeSession.phase);
+      if (advice) host.append(node('p', 'tuning-advice', t(advice)));
+    }
   }
   $('refresh').addEventListener('click', load);
   if (window.SolarMinerWorkspace) window.SolarMinerWorkspace.init();

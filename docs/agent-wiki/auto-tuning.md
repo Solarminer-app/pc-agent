@@ -45,9 +45,15 @@ Capabilities are queried for each detected device rather than inferred from
 vendor alone. The current adapters use the installed host tools already used by
 the Agent's power-control path:
 
-- NVIDIA: `nvidia-smi` supported-clock query and GPU clock lock; memory locking
-  is enabled only when `--lock-memory-clocks-info` reports runtime-modifiable
-  support. Hopper/deferred-only memory locks are therefore not advertised.
+- NVIDIA: `nvidia-smi` supported-clock query and GPU clock lock. The reported
+  memory bounds are retained independently of write support. Memory locking is
+  offered when `--lock-memory-clocks-info` reports runtime-modifiable support.
+  On older CLIs where that query is unrecognized, the read-only fallback
+  requires both `-lmc` and `-rmc` commands in help and compute capability 7.x
+  or 8.x. That path is labelled provisional until an explicit write succeeds;
+  deferred-only and unknown architectures are not treated as runtime writable.
+  Automatic recovery resets a memory lock only after this Agent touched it;
+  the explicit operator restore also clears a supported external memory lock.
 - AMD: AMD SMI (`amd-smi static --clock`, `set --perf-level MANUAL`, and
   `set --clk-limit` for SCLK/MCLK). A clock change is not advertised if the
   installed AMD SMI/driver cannot report usable bounds.
@@ -90,6 +96,20 @@ The local UI reports calibration phase, candidate/sample progress, approximate
 remaining sampling time and saved tiers after reload without displaying raw
 miner output. German and English text uses the closed frontend catalog.
 
+The device view groups each GPU's identity, power telemetry, probed clock
+capabilities, calibration action, saved tiers, and manual clock ranges. A
+disabled calibration action names the missing assignment, mining worker, or
+driver clock capability. Driver bounds appear beside their own core or memory
+inputs; unsupported controls remain disabled. These are presentation changes
+only; the local tuning API and run-lock contract are unchanged.
+Driver-related capability and action errors now pair the localized cause with
+an actionable next step. NVIDIA read-only or provisional memory support points
+to the local `nvidia-smi` help and supported-clock queries. Write-permission,
+range, write, recovery-file, reset, and clock-readback failures have distinct
+advice. The UI uses only the typed reason code; it does not show or translate
+raw external driver output. Advice never bypasses the backend's capability,
+run-lock, recovery-marker, or write checks.
+
 ## Verification and open acceptance
 
 Automated evidence covers NVIDIA supported-clock pairs and effective-clock
@@ -104,12 +124,15 @@ combination until those paths are exercised.
 
 On the available five-GPU NVIDIA host, a read-only supported-clock query
 returned memory/core pairs, while `--lock-memory-clocks-info` was not recognized
-by the installed `nvidia-smi` (driver 580.178.04). The Agent therefore offers
-core-clock candidates only on this host unless a different supported driver
-interface is present. No live clock or power-cap writes were made during this
-implementation review.
-The candidate grid for that driver uses supported core-clock pairs at the
-highest reported memory clock and leaves memory controls untouched.
+by the installed `nvidia-smi` (driver 580.178.04). The older-CLI fallback sees
+both memory lock/reset commands and compute capability 7.5 on TITAN RTX and
+8.6 on RTX 3080. The reported memory ranges are 405–7001 MHz and 405–9501 MHz,
+respectively. These are supported operating clocks, not overclock offsets.
+The host is not the user's RTX 2080 Ti, and no live clock or power-cap writes
+were made. Agent permissions and actual write acceptance remain to verify on
+that machine. If the memory lock cannot be used, candidate generation still
+uses core-clock pairs at the highest reported memory clock and leaves memory
+controls untouched.
 
 ### Initial implementation audit (2026-10-18; superseded by test-candidate work above)
 

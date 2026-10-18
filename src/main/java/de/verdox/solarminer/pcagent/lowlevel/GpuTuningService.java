@@ -97,16 +97,14 @@ public class GpuTuningService {
                         "--query-supported-clocks=memory,graphics", "--format=csv,noheader,nounits"));
                 ClockBounds clocks = parseClockBounds(output);
                 boolean coreSupported = clocks != null;
-                boolean memorySupported = false;
-                if (coreSupported) try {
-                    String info = power.runTuningCommand(List.of("nvidia-smi", "-i", gpu.deviceId(), "--lock-memory-clocks-info"))
-                            .toLowerCase(Locale.ROOT);
-                    memorySupported = info.contains("runtime modifiable");
-                } catch (Exception ignored) { }
+                MemoryLockSupport memorySupport = coreSupported ? nvidiaMemoryLockSupport(gpu.deviceId())
+                        : MemoryLockSupport.UNAVAILABLE;
+                boolean memorySupported = memorySupport != MemoryLockSupport.UNAVAILABLE;
                 Capabilities result = new Capabilities(deviceId, coreSupported, memorySupported, false,
                         coreSupported ? clocks.core().min() : null, coreSupported ? clocks.core().max() : null,
-                        memorySupported ? clocks.memory().min() : null, memorySupported ? clocks.memory().max() : null,
-                        coreSupported ? null : "gpu_clock_controls_unavailable",
+                        coreSupported ? clocks.memory().min() : null, coreSupported ? clocks.memory().max() : null,
+                        !coreSupported ? "gpu_clock_controls_unavailable"
+                                : memorySupport == MemoryLockSupport.PROVISIONAL ? "gpu_memory_clock_lock_requires_write_test" : null,
                         coreSupported ? clocks.pairs() : List.of());
                 capabilityCache.put(deviceId, result);
                 return result;
@@ -210,13 +208,22 @@ public class GpuTuningService {
 
     /** Reset only tuning clock controls to driver defaults; power caps are not touched. */
     public ApplyResult restoreDefaults(String deviceId) {
+        return restoreDefaults(deviceId, false);
+    }
+
+    /** Explicit operator reset also clears a supported memory lock set outside this Agent. */
+    public ApplyResult restoreDriverDefaults(String deviceId) {
+        return restoreDefaults(deviceId, true);
+    }
+
+    private ApplyResult restoreDefaults(String deviceId, boolean operatorRequested) {
         LocalGpuPowerService.Gpu gpu = find(deviceId);
         if (gpu == null) return new ApplyResult(false, "gpu_not_found");
         try {
             String vendor = gpu.vendor().toUpperCase(Locale.ROOT);
             if ("NVIDIA".equals(vendor)) {
                 power.runTuningCommand(List.of("nvidia-smi", "-i", gpu.deviceId(), "--reset-gpu-clocks"));
-                if (memoryTouched.contains(deviceId) || refreshCapabilities(deviceId).memoryClockControl())
+                if (memoryTouched.contains(deviceId) || operatorRequested && refreshCapabilities(deviceId).memoryClockControl())
                     power.runTuningCommand(List.of("nvidia-smi", "-i", gpu.deviceId(), "--reset-memory-clocks"));
             } else if ("AMD".equals(vendor)) {
                 power.runTuningCommand(List.of("amd-smi", "set", "--gpu", gpu.deviceId(), "--perf-level", "AUTO"));
@@ -269,6 +276,30 @@ public class GpuTuningService {
 
     private static Capabilities unavailable(String id, String reason) {
         return new Capabilities(id, false, false, false, null, null, null, null, reason);
+    }
+
+    private enum MemoryLockSupport { UNAVAILABLE, RUNTIME_REPORTED, PROVISIONAL }
+
+    private MemoryLockSupport nvidiaMemoryLockSupport(String deviceId) {
+        try {
+            String info = power.runTuningCommand(List.of("nvidia-smi", "-i", deviceId, "--lock-memory-clocks-info"))
+                    .toLowerCase(Locale.ROOT);
+            return info.contains("runtime modifiable") ? MemoryLockSupport.RUNTIME_REPORTED : MemoryLockSupport.UNAVAILABLE;
+        } catch (Exception ex) {
+            String detail = Objects.toString(ex.getMessage(), "").toLowerCase(Locale.ROOT);
+            // Older nvidia-smi builds have -lmc but no read-only lock-policy query.
+            if (!detail.contains("not recognized") && !detail.contains("unrecognized")
+                    && !detail.contains("unknown option")) return MemoryLockSupport.UNAVAILABLE;
+            try {
+                String help = power.runTuningCommand(List.of("nvidia-smi", "--help"));
+                if (!help.contains("--lock-memory-clocks=") || !help.contains("--reset-memory-clocks"))
+                    return MemoryLockSupport.UNAVAILABLE;
+                String capability = power.runTuningCommand(List.of("nvidia-smi", "-i", deviceId,
+                        "--query-gpu=compute_cap", "--format=csv,noheader,nounits")).strip();
+                // NVIDIA documents runtime -lmc on Volta+, excluding Hopper's deferred-only policy.
+                return capability.matches("[78]\\.[0-9]+") ? MemoryLockSupport.PROVISIONAL : MemoryLockSupport.UNAVAILABLE;
+            } catch (Exception ignored) { return MemoryLockSupport.UNAVAILABLE; }
+        }
     }
 
     private static ClockBounds parseClockBounds(String output) {
