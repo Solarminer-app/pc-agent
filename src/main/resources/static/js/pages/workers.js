@@ -167,7 +167,7 @@
     {label: 'estimated_profit_24h', key: 'profit', width: '15%', align: 'right', render: worker => {
       const profit = dailyProfit(worker);
       const wrap = ui.element('div');
-      wrap.append(ui.element('strong', '', profit == null ? '—' : `≈ ${money(profit)}`));
+      wrap.append(ui.element('strong', '', profit == null ? '—' : money(profit)));
       wrap.append(ui.element('span', 'cell-sub', t('estimated_profit_24h_detail')));
       return wrap;
     }},
