@@ -1,3 +1,8 @@
+## 2026-10-19 — Recognize NVIDIA 617 runtime memory-lock policy
+
+- Operator-provided read-only PowerShell output from two Windows GeForce RTX 2080 Ti cards (driver 617.14, compute capability 7.5) reports `Memory Clock Switching Type: Runtime` on both. Supported memory clocks span 405–7070 MHz and 405–7000 MHz. The prior parser accepted only `runtime modifiable` and wrongly disabled memory control. It now accepts the exact newer runtime-policy line while a deferred-only line remains unavailable. No clock write was attempted or proven.
+- Focused `GpuTuningServiceTest` passed with both operator-reported memory sets and a deferred-policy negative case. The German/English frontend catalog and render checks remain the verification gate for this repository; no user-facing copy changed.
+
 ## 2026-10-18 — Actionable GPU tuning driver guidance
 
 - Added localized, reason-specific next steps next to GPU capability warnings and failed tuning actions: NVIDIA clock-query checks, agent write permissions, valid ranges, driver rejection, failed reset, recovery-file storage and missing clock readback. A readable but unconfirmed NVIDIA memory range now says why its control is unavailable. The frontend consumes existing reason codes; backend safety and API contracts are unchanged.

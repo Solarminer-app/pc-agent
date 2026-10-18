@@ -47,7 +47,8 @@ the Agent's power-control path:
 
 - NVIDIA: `nvidia-smi` supported-clock query and GPU clock lock. The reported
   memory bounds are retained independently of write support. Memory locking is
-  offered when `--lock-memory-clocks-info` reports runtime-modifiable support.
+  offered when `--lock-memory-clocks-info` reports `runtime modifiable` or the
+  newer `Memory Clock Switching Type: Runtime` response.
   On older CLIs where that query is unrecognized, the read-only fallback
   requires both `-lmc` and `-rmc` commands in help and compute capability 7.x
   or 8.x. That path is labelled provisional until an explicit write succeeds;
@@ -133,6 +134,17 @@ were made. Agent permissions and actual write acceptance remain to verify on
 that machine. If the memory lock cannot be used, candidate generation still
 uses core-clock pairs at the highest reported memory clock and leaves memory
 controls untouched.
+
+On 2026-10-19 the operator supplied read-only output from two Windows GeForce
+RTX 2080 Ti cards using NVIDIA driver 617.14 (compute capability 7.5). Both
+reported `Memory Clock Switching Type: Runtime`; GPU 0 listed memory clocks
+405, 810, 5000, 6870 and 7070 MHz, while GPU 1 listed 405, 810, 5000, 6800
+and 7000 MHz. The former parser recognized only `runtime modifiable`, so it
+incorrectly disabled both memory controls despite this explicit policy. The
+parser now recognizes the 617.14 response and regression tests cover both
+reported ranges plus a deferred-only response. These are supported operating
+clocks, not offsets. No write or readback from the operator's Agent was shown;
+privilege and actual lock acceptance remain unverified.
 
 ### Initial implementation audit (2026-10-18; superseded by test-candidate work above)
 

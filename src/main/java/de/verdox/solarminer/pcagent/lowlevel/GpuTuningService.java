@@ -284,7 +284,10 @@ public class GpuTuningService {
         try {
             String info = power.runTuningCommand(List.of("nvidia-smi", "-i", deviceId, "--lock-memory-clocks-info"))
                     .toLowerCase(Locale.ROOT);
-            return info.contains("runtime modifiable") ? MemoryLockSupport.RUNTIME_REPORTED : MemoryLockSupport.UNAVAILABLE;
+            boolean runtime = info.contains("runtime modifiable") || info.lines()
+                    .map(String::strip)
+                    .anyMatch(line -> line.matches("memory\\s+clock\\s+switching\\s+type\\s*:\\s*runtime"));
+            return runtime ? MemoryLockSupport.RUNTIME_REPORTED : MemoryLockSupport.UNAVAILABLE;
         } catch (Exception ex) {
             String detail = Objects.toString(ex.getMessage(), "").toLowerCase(Locale.ROOT);
             // Older nvidia-smi builds have -lmc but no read-only lock-policy query.

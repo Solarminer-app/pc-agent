@@ -39,6 +39,39 @@ class GpuTuningServiceTest {
     }
 
     @Test
+    void discoversBothRtx2080TiMemoryRangesWithDriver617RuntimePolicy() throws Exception {
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        var first = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-2080-0", "NVIDIA GeForce RTX 2080 Ti", 100, 300,
+                100, 300, 250, 80.0, "test", true, null);
+        var second = new LocalGpuPowerService.Gpu("NVIDIA", 1, "GPU-2080-1", "NVIDIA GeForce RTX 2080 Ti", 100, 300,
+                100, 300, 250, 80.0, "test", true, null);
+        when(power.refresh()).thenReturn(List.of(first, second));
+        when(power.runTuningCommand(any())).thenAnswer(invocation -> {
+            List<String> command = invocation.getArgument(0);
+            if (command.contains("--lock-memory-clocks-info"))
+                return "Memory Clock Switching Type: Runtime\nAll done.\n";
+            String memoryRows = "GPU-2080-0".equals(command.get(2))
+                    ? "7070, 1500\n6870, 1400\n5000, 1200\n810, 500\n405, 300\n"
+                    : "7000, 1500\n6800, 1400\n5000, 1200\n810, 500\n405, 300\n";
+            return memoryRows;
+        });
+        GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(), directory.resolve("rtx2080-recovery.json").toString());
+
+        var firstResult = tuning.refreshCapabilities(first.deviceId());
+        var secondResult = tuning.refreshCapabilities(second.deviceId());
+
+        assertTrue(firstResult.memoryClockControl());
+        assertEquals(405, firstResult.memoryMinMhz());
+        assertEquals(7070, firstResult.memoryMaxMhz());
+        assertNull(firstResult.reason());
+        assertTrue(secondResult.memoryClockControl());
+        assertEquals(405, secondResult.memoryMinMhz());
+        assertEquals(7000, secondResult.memoryMaxMhz());
+        assertNull(secondResult.reason());
+        verify(power, never()).runTuningCommand(List.of("nvidia-smi", "--help"));
+    }
+
+    @Test
     void rejectsOutOfRangeClockWithoutWritingAndRestoresDriverDefaults() throws Exception {
         LocalGpuPowerService power = nvidia();
         when(power.runTuningCommand(any())).thenAnswer(invocation -> {
@@ -85,7 +118,7 @@ class GpuTuningServiceTest {
         LocalGpuPowerService power = nvidia();
         when(power.runTuningCommand(any())).thenAnswer(invocation -> {
             List<String> command = invocation.getArgument(0);
-            return command.contains("--lock-memory-clocks-info") ? "deferred" : "405, 300\n810, 900\n";
+            return command.contains("--lock-memory-clocks-info") ? "Memory Clock Switching Type: Deferred\nAll done.\n" : "405, 300\n810, 900\n";
         });
         GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(), directory.resolve("deferred-recovery.json").toString());
 
