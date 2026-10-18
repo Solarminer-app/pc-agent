@@ -3,6 +3,7 @@ package de.verdox.solarminer.pcagent.mining.network;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.coin.Coin;
+import de.verdox.solarminer.pcagent.coin.SweepRunState;
 import de.verdox.solarminer.pcagent.controller.AgentStatusService;
 import de.verdox.solarminer.pcagent.controller.MiningController;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
@@ -26,6 +27,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -184,14 +186,17 @@ public class NetworkDashboardService {
         List<MinerStats.Worker> workers = ownMining.getWorkerStats();
         List<MarketDataService.Forecast> forecasts = ownEarnings.forecasts(workers);
         EfficiencySweepService.Session sweep = sweeps.status();
+        BenchmarkSessionService.Session benchmark = benchmarks.status();
         Set<String> sweepWorkerIds = sweep.running() ? sweep.runs().stream()
+                .filter(run -> run.status() == SweepRunState.RUNNING)
                 .map(EfficiencySweepService.RunStatus::deviceId)
                 .collect(java.util.stream.Collectors.toSet()) : Set.of();
         return new AgentCard(discovery.agentId(), ownIdentity.displayName(), null, ownDashboardPort,
                 true, true, null, assignedWorkerRows(ownWorkers.workers(),
-                        benchmarks.status().running(), sweepWorkerIds), earningsRows(forecasts),
+                        benchmark.running(), sweepWorkerIds), earningsRows(forecasts),
                 totals(workers, forecasts), sharedEnergy(ownEnergy.overview()),
-                ownControls.get().externalControlEnabled(), Instant.now());
+                ownControls.get().externalControlEnabled(), Instant.now(),
+                activeSweepRuns(sweep), activeBenchmarkRuns(benchmark, ownWorkers.workers()));
     }
 
     private AgentCard peerCard(AgentNetworkDiscoveryService.Peer peer) {
@@ -204,16 +209,17 @@ public class NetworkDashboardService {
             card = new AgentCard(peer.agentId(), peer.name(), peer.host(), peer.dashboardPort(),
                     true, false, null, result.snapshot().workers(), result.snapshot().earnings(),
                     result.snapshot().totals(), result.snapshot().energy(),
-                    Boolean.TRUE.equals(result.snapshot().controlEnabled()), now);
+                    Boolean.TRUE.equals(result.snapshot().controlEnabled()), now,
+                    orEmpty(result.snapshot().activeSweeps()), orEmpty(result.snapshot().activeBenchmarks()));
         } else if (result.sharingDisabled()) {
             // The machine is there; its operator keeps worker, earnings and energy data private.
             card = new AgentCard(peer.agentId(), peer.name(), peer.host(), peer.dashboardPort(),
                     true, false, "LAN visibility is disabled on this agent", List.of(), List.of(),
-                    new Totals(0, 0, 0, 0), null, false, now);
+                    new Totals(0, 0, 0, 0), null, false, now, List.of(), List.of());
         } else {
             card = new AgentCard(peer.agentId(), peer.name(), peer.host(), peer.dashboardPort(),
                     false, false, "Peer is not reachable", List.of(), List.of(),
-                    new Totals(0, 0, 0, 0), null, false, now);
+                    new Totals(0, 0, 0, 0), null, false, now, List.of(), List.of());
         }
         cache.put(peer.agentId(), new CachedSnapshot(card, now.plus(CACHE_TTL)));
         return card;
@@ -323,11 +329,58 @@ public class NetworkDashboardService {
                 overview.activeSessions().size());
     }
 
+    private static <T> List<T> orEmpty(List<T> values) {
+        return values == null ? List.of() : List.copyOf(values);
+    }
+
+    /** Only typed measurement data crosses the LAN; diagnostic detail and step notes stay local. */
+    static List<SweepProgress> activeSweepRuns(EfficiencySweepService.Session session) {
+        if (!session.running()) return List.of();
+        return session.runs().stream()
+                .filter(run -> run.status() == SweepRunState.RUNNING)
+                .map(run -> new SweepProgress(run.id(), run.deviceId(), run.model(), run.coin(), run.algorithm(),
+                        run.mode().wireName(), run.limitWatts(), orEmpty(run.plannedLimits()),
+                        run.steps().stream().map(step -> new SweepStep(step.limitWatts(), step.medianHashrateHs(),
+                                step.avgPowerWatts(), step.stable())).toList(),
+                        run.samples(), run.samplesRequired(), run.referenceBatch()))
+                .toList();
+    }
+
+    /** One current card per selected GPU, including devices still awaiting their first sample. */
+    static List<BenchmarkProgress> activeBenchmarkRuns(BenchmarkSessionService.Session session,
+                                                        List<WorkerAssignmentService.WorkerView> workers) {
+        if (!session.running()) return List.of();
+        Map<String, BenchmarkProgress> byDevice = new LinkedHashMap<>();
+        for (WorkerAssignmentService.WorkerView worker : workers) {
+            if (!"GPU".equals(worker.hardwareType()) || !session.selectedWorkers().contains(worker.deviceId())) continue;
+            byDevice.put(worker.deviceId(), new BenchmarkProgress(worker.deviceId(), worker.hardwareModel(),
+                    worker.algorithm(), 0, BenchmarkSessionService.REQUIRED_SAMPLES_PER_WORKER, null, null));
+        }
+        for (BenchmarkSessionService.LiveSeries trace : session.liveSeries()) {
+            if (!"GPU".equals(trace.hardwareType())) continue;
+            BenchmarkSessionService.SamplePoint latest = trace.points().isEmpty() ? null : trace.points().getLast();
+            byDevice.put(trace.deviceId(), new BenchmarkProgress(trace.deviceId(), trace.hardwareModel(),
+                    trace.algorithm(), trace.points().size(), BenchmarkSessionService.REQUIRED_SAMPLES_PER_WORKER,
+                    latest == null ? null : latest.hashrateHs(), latest == null ? null : latest.powerWatts()));
+        }
+        return List.copyOf(byDevice.values());
+    }
+
     /** The wire shape a peer publishes; also what the dashboard renders per machine. */
     public record AgentCard(String agentId, String name, String host, int dashboardPort,
                             boolean reachable, boolean own, String error,
                             List<WorkerRow> workers, List<EarningsRow> earnings, Totals totals,
-                            SharedEnergy energy, boolean controlEnabled, Instant collectedAt) { }
+                            SharedEnergy energy, boolean controlEnabled, Instant collectedAt,
+                            List<SweepProgress> activeSweeps, List<BenchmarkProgress> activeBenchmarks) { }
+
+    public record SweepStep(int limitWatts, Double medianHashrateHs, Double avgPowerWatts, boolean stable) { }
+
+    public record SweepProgress(String id, String deviceId, String model, String coin, String algorithm,
+                                String mode, Integer limitWatts, List<Integer> plannedLimits, List<SweepStep> steps,
+                                int samples, int samplesRequired, Integer referenceBatch) { }
+
+    public record BenchmarkProgress(String deviceId, String model, String algorithm, int samples,
+                                    int samplesRequired, Double hashrateHs, Long powerWatts) { }
 
     public record WorkerRow(String name, String algorithm, String hardwareType, String hardwareModel,
                             double hashrateHps, long watts, String status, String coin,
@@ -353,15 +406,18 @@ public class NetworkDashboardService {
 
     /** Deserialized peer payload; unknown fields stay tolerated across agent versions. */
     public record PeerSnapshot(List<WorkerRow> workers, List<EarningsRow> earnings, Totals totals,
-                               SharedEnergy energy, Boolean controlEnabled) { }
+                               SharedEnergy energy, Boolean controlEnabled,
+                               List<SweepProgress> activeSweeps, List<BenchmarkProgress> activeBenchmarks) { }
 
     /** What this agent publishes on {@code GET /api/agent/external/network-snapshot}. */
     public PeerSnapshot ownSnapshot() {
         AgentCard own = snapshot.stream().filter(AgentCard::own).findFirst().orElse(null);
         return own == null ? new PeerSnapshot(List.of(), List.of(), new Totals(0, 0, 0, 0),
-                sharedEnergy(ownEnergy.overview()), ownControls.get().externalControlEnabled())
+                sharedEnergy(ownEnergy.overview()), ownControls.get().externalControlEnabled(),
+                activeSweepRuns(sweeps.status()), activeBenchmarkRuns(benchmarks.status(), ownWorkers.workers()))
                 : new PeerSnapshot(own.workers(), own.earnings(), own.totals(), own.energy(),
-                own.controlEnabled());
+                own.controlEnabled(), activeSweepRuns(sweeps.status()),
+                activeBenchmarkRuns(benchmarks.status(), ownWorkers.workers()));
     }
 
     public WorkerControlResult controlPeer(String agentId, String deviceId, boolean enabled) {

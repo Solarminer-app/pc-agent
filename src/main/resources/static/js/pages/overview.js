@@ -193,9 +193,21 @@
     else note.textContent = t('remote_workers_are_read_only');
   }
 
-  function measurementCard(model, algorithm) {
+  function measurementCard(model, algorithm, agent = null) {
     const card = ui.element('article', 'dashboard-gpu-measurement-card');
     card.append(ui.element('strong', '', `${model} · ${algorithm}`));
+    if (agent) {
+      const owner = ui.element('p', 'dashboard-gpu-measurement-agent');
+      owner.append(ui.element('span', '', `${t('pc_agent')}: `));
+      const dashboard = peerDashboardUrl(agent);
+      if (dashboard) {
+        const link = ui.element('a', '', agent.name);
+        link.href = dashboard;
+        link.setAttribute('aria-label', `${t('open_agent_dashboard')} ${agent.name}`);
+        owner.append(link);
+      } else owner.append(ui.element('span', '', agent.name));
+      card.append(owner);
+    }
     return card;
   }
 
@@ -207,14 +219,14 @@
     card.append(progress);
   }
 
-  function sweepPlan(run) {
+  function sweepPlan(run, key) {
     const limits = run.plannedLimits || [];
     if (!limits.length) return null;
     const details = ui.element('details', 'sweep-step-details');
-    details.open = openSweepPlans.has(run.id);
+    details.open = openSweepPlans.has(key);
     details.addEventListener('toggle', () => {
-      if (details.open) openSweepPlans.add(run.id);
-      else openSweepPlans.delete(run.id);
+      if (details.open) openSweepPlans.add(key);
+      else openSweepPlans.delete(key);
     });
     details.append(ui.element('summary', '', t('power_steps_count', {count: limits.length})));
     const completed = new Map((run.steps || []).map(step => [step.limitWatts, step]));
@@ -237,9 +249,8 @@
     const section = $('dashboard-gpu-measurements');
     const cards = $('dashboard-gpu-measurement-cards');
     const next = [];
-    for (const run of activeSweep?.runs || []) {
-      if (run.status !== 'RUNNING') continue;
-      const card = measurementCard(run.model, run.algorithm);
+    const appendSweep = (run, agent = null) => {
+      const card = measurementCard(run.model, run.algorithm, agent);
       const required = run.samplesRequired ?? 12;
       const identity = run.mode === 'FULL' ? 'full_device_curve' : 'parallel_device_validation';
       const group = run.mode === 'FULL' && Number.isInteger(run.referenceBatch)
@@ -252,10 +263,25 @@
       card.append(ui.element('p', 'muted sweep-sample-stage', Number(run.samples) > 0
         ? t('collecting_power_limit_samples', {samples: run.samples, required})
         : t('waiting_for_first_power_limit_sample')));
-      const plan = sweepPlan(run);
+      const plan = sweepPlan(run, `${agent?.agentId || 'local'}|${run.id}`);
       if (plan) card.append(plan);
       card.append(ui.element('span', 'tag ready', 'running'));
       next.push(card);
+    };
+    const appendBenchmark = (progress, agent = null) => {
+      const count = progress.samples || 0;
+      const required = progress.samplesRequired || 12;
+      const card = measurementCard(progress.model, progress.algorithm, agent);
+      card.append(ui.element('p', 'muted', t('benchmark_live_points', {count, required})));
+      sampleProgress(card, count, required, 'dashboard_benchmark_sample_progress');
+      card.append(ui.element('p', 'muted sweep-sample-stage', count > 0
+        ? `${t('hashrate')}: ${ui.hashrate(progress.hashrateHs)} · ${t('power_4606f4')}: ${ui.power(progress.powerWatts)}`
+        : t('benchmark_live_waiting')));
+      card.append(ui.element('span', 'tag ready', 'benchmarking'));
+      next.push(card);
+    };
+    for (const run of activeSweep?.runs || []) {
+      if (run.status === 'RUNNING') appendSweep(run);
     }
     if (activeBenchmark?.running) {
       const gpuWorkers = new Map((overview?.stats?.workers || [])
@@ -266,18 +292,17 @@
       for (const id of ids) {
         const trace = traces.filter(item => item.deviceId === id).at(-1);
         const worker = gpuWorkers.get(id);
-        const count = trace?.points?.length || 0;
-        const card = measurementCard(trace?.hardwareModel || worker?.hardwareModel || id,
-          trace?.algorithm || worker?.currentAlgorithm || '—');
-        card.append(ui.element('p', 'muted', t('benchmark_live_points', {count, required: 12})));
-        sampleProgress(card, count, 12, 'dashboard_benchmark_sample_progress');
         const latest = trace?.points?.at(-1);
-        card.append(ui.element('p', 'muted sweep-sample-stage', latest
-          ? `${t('hashrate')}: ${ui.hashrate(latest.hashrateHs)} · ${t('power_4606f4')}: ${ui.power(latest.powerWatts)}`
-          : t('benchmark_live_waiting')));
-        card.append(ui.element('span', 'tag ready', 'benchmarking'));
-        next.push(card);
+        appendBenchmark({model: trace?.hardwareModel || worker?.hardwareModel || id,
+          algorithm: trace?.algorithm || worker?.currentAlgorithm || '—',
+          samples: trace?.points?.length || 0, samplesRequired: 12,
+          hashrateHs: latest?.hashrateHs, powerWatts: latest?.powerWatts});
       }
+    }
+    for (const agent of networkAgents?.agents || []) {
+      if (agent.own || !agent.reachable) continue;
+      for (const run of agent.activeSweeps || []) appendSweep(run, agent);
+      for (const progress of agent.activeBenchmarks || []) appendBenchmark(progress, agent);
     }
     cards.replaceChildren(...next);
     section.hidden = !next.length;
@@ -438,6 +463,7 @@
     .subscribe((data, meta) => {
       networkAgents = meta.error ? null : data;
       if (overview) { renderDashboardWorkers(overview); renderEnergy(); }
+      renderGpuMeasurements();
     });
   window.SolarMinerLive.channel('benchmarks',
     {endpoint: '/api/agent/local/benchmarks', maxAgeMs: 8000, persist: false})

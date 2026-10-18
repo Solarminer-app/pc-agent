@@ -2,6 +2,11 @@
 
 The dashboard update panel uses local `GET /api/agent/local/update`,
 `POST /api/agent/local/update/check`, and `POST /api/agent/local/update/start`.
+The Agent starts a background release lookup after Spring publishes
+`ApplicationReadyEvent`; the dashboard only reads local status and triggers a
+new lookup through `/check` when the operator presses “Check for updates”.
+GitHub HTTP requests run in the Java service's asynchronous executor, never in
+browser code. The page does not automatically trigger a second lookup.
 The local write filter still requires a same-origin browser request. Starting
 an executable update additionally requires the existing same-origin dashboard
 write check, an explicitly supervised native launcher, and a newer release in

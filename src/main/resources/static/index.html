@@ -8,8 +8,8 @@
     <link rel="stylesheet" href="/css/agent.css?v=20261012-dashboard-width-v1">
     <link rel="stylesheet" href="/css/workspace.css?v=20261018-worker-width">
     <link rel="stylesheet" href="/css/design.css?v=20261018-dashboard-gpu-progress">
-    <link rel="stylesheet" href="/css/update.css?v=20261017-update-v1">
-    <script src="/js/core/i18n-catalog.js?v=20261018-dashboard-gpu-progress" defer></script>
+    <link rel="stylesheet" href="/css/update.css?v=20261018-update-check-button">
+    <script src="/js/core/i18n-catalog.js?v=20261018-update-check-button" defer></script>
     <script src="/js/core/i18n.js?v=20261017-node-page-title" defer></script>
     <script src="/js/core/live-data.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/core/mining-cache.js?v=20261012-network-worker-list-v1" defer></script>
@@ -19,8 +19,8 @@
     <script src="/js/chrome/workspace.js?v=20261017-node-page-title" defer></script>
     <script src="/js/chrome/wallet-strip.js?v=20261012-network-worker-list-v1" defer></script>
     <script src="/js/chrome/telemetry-gate.js?v=20261012-network-worker-list-v1" defer></script>
-    <script src="/js/pages/overview.js?v=20261018-dashboard-gpu-progress" defer></script>
-    <script src="/js/pages/update.js?v=20261017-update-v1" defer></script>
+    <script src="/js/pages/overview.js?v=20261018-network-gpu-progress" defer></script>
+    <script src="/js/pages/update.js?v=20261018-update-check-button" defer></script>
 </head>
 <body class="dashboard-page">
 <div class="shell">
@@ -50,6 +50,7 @@
             <div class="panel-head"><div><p class="kicker" data-i18n="agent_software">AGENT-SOFTWARE</p><h2 id="update-title" data-i18n="agent_update">PC-Agent aktualisieren</h2></div></div>
             <p id="update-version" class="muted" role="status"></p>
             <p id="update-state" role="status" aria-live="polite"></p>
+            <button id="update-check" type="button" class="button subtle" data-i18n="check_for_updates">Nach Updates suchen</button>
             <progress id="update-progress" max="100" hidden aria-label="Update-Fortschritt" data-i18n-aria-label="update_progress"></progress>
             <button id="update-action" type="button" class="button subtle" hidden></button>
             <div id="update-guide" hidden><p data-i18n="docker_update_instructions">Führe diese Befehle auf dem Docker-Host im Ordner mit compose.yml aus:</p><pre><code id="update-command"></code></pre><p class="muted" data-i18n="docker_update_custom_note">Bei eigenen Compose-Dateien passe die Dateinamen an. Falls Docker nur mit Administratorrechten erreichbar ist, verwende sudo.</p></div>

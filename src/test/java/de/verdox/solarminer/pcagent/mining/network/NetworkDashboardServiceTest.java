@@ -5,6 +5,11 @@ import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.mining.economics.MarketDataService;
 import de.verdox.solarminer.pcagent.mining.energy.EnergyJournalService;
 import de.verdox.solarminer.pcagent.mining.WorkerAssignmentService;
+import de.verdox.solarminer.pcagent.mining.measurement.BenchmarkSessionService;
+import de.verdox.solarminer.pcagent.mining.measurement.EfficiencySweepService;
+import de.verdox.solarminer.pcagent.mining.measurement.GpuEfficiencyStore;
+import de.verdox.solarminer.pcagent.coin.SweepMode;
+import de.verdox.solarminer.pcagent.coin.SweepRunState;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -63,6 +68,72 @@ class NetworkDashboardServiceTest {
         assertNull(snapshot.energy());
         assertNull(snapshot.controlEnabled());
         assertNull(snapshot.workers().getFirst().controlAllowed());
+        assertNull(snapshot.activeSweeps());
+        assertNull(snapshot.activeBenchmarks());
+    }
+
+    @Test
+    void sharedSweepProgressCarriesMeasurementsButNotFreeFormDiagnostics() throws Exception {
+        EfficiencySweepService.RunStatus running = new EfficiencySweepService.RunStatus("run-1", "gpu-0",
+                "RTX 3070", "pearl", "PearlHash", SweepMode.FULL, SweepRunState.RUNNING, 170,
+                List.of(170, 160), List.of(new GpuEfficiencyStore.StepResult(170, 1000d, 168d,
+                64d, true, "private step diagnostic")), 3, 12, 0, "private run diagnostic");
+        EfficiencySweepService.RunStatus queued = new EfficiencySweepService.RunStatus("run-2", "gpu-1",
+                "RTX 3080", "pearl", "PearlHash", SweepMode.FULL, SweepRunState.QUEUED, null,
+                List.of(180), List.of(), 0, 12, 0, null);
+        EfficiencySweepService.Session session = new EfficiencySweepService.Session(true, "measuring", null,
+                0, 2, List.of(), List.of(running, queued), 30L);
+
+        List<NetworkDashboardService.SweepProgress> shared = NetworkDashboardService.activeSweepRuns(session);
+        String json = new ObjectMapper().writeValueAsString(shared);
+
+        assertEquals(1, shared.size());
+        assertEquals(170, shared.getFirst().limitWatts());
+        assertEquals(3, shared.getFirst().samples());
+        assertEquals(168d, shared.getFirst().steps().getFirst().avgPowerWatts());
+        assertTrue(!json.contains("private"));
+        assertTrue(NetworkDashboardService.activeSweepRuns(new EfficiencySweepService.Session(false, "done", null,
+                2, 2, List.of(), List.of(running), 0L)).isEmpty());
+    }
+
+    @Test
+    void sharedBenchmarkProgressIncludesSelectedGpuBeforeFirstSample() {
+        WorkerAssignmentService.WorkerView gpu = new WorkerAssignmentService.WorkerView("gpu-0", "GPU",
+                "RTX 3070", "NVIDIA", 0, "pearl", "Pearl", "pearlhash", "srbminer", "SRBMiner",
+                true, true, "pool.example", true, MinerStats.MinerStatus.MINING, null);
+        BenchmarkSessionService.Session waiting = new BenchmarkSessionService.Session(true, "LIVE", "measuring",
+                null, null, null, 0, 1, List.of(), null, List.of("gpu-0"), List.of(), false, List.of());
+        List<NetworkDashboardService.BenchmarkProgress> pending =
+                NetworkDashboardService.activeBenchmarkRuns(waiting, List.of(gpu));
+        assertEquals(1, pending.size());
+        assertEquals(0, pending.getFirst().samples());
+
+        BenchmarkSessionService.LiveSeries series = new BenchmarkSessionService.LiveSeries("gpu-0", "GPU",
+                "RTX 3070", "PearlHash", "srbminer", List.of(new BenchmarkSessionService.SamplePoint(1, 1000d, 165)));
+        BenchmarkSessionService.Session measuring = new BenchmarkSessionService.Session(true, "LIVE", "measuring",
+                null, null, null, 0, 1, List.of(), null, List.of("gpu-0"), List.of(series), false, List.of());
+        NetworkDashboardService.BenchmarkProgress current = NetworkDashboardService.activeBenchmarkRuns(measuring,
+                List.of(gpu)).getFirst();
+        assertEquals(1, current.samples());
+        assertEquals(1000d, current.hashrateHs());
+        assertEquals(165L, current.powerWatts());
+    }
+
+    @Test
+    void newPeerProgressFieldsRoundTripThroughTheLanSnapshot() throws Exception {
+        NetworkDashboardService.SweepProgress run = new NetworkDashboardService.SweepProgress("run-1", "gpu-0",
+                "RTX 3070", "pearl", "PearlHash", "FULL", 170, List.of(170, 160), List.of(), 2, 12, 0);
+        NetworkDashboardService.PeerSnapshot outbound = new NetworkDashboardService.PeerSnapshot(List.of(),
+                List.of(), new NetworkDashboardService.Totals(0, 0, 0, 0), null, false,
+                List.of(run), List.of());
+
+        ObjectMapper mapper = new ObjectMapper();
+        NetworkDashboardService.PeerSnapshot inbound = mapper.readValue(mapper.writeValueAsString(outbound),
+                NetworkDashboardService.PeerSnapshot.class);
+
+        assertEquals("gpu-0", inbound.activeSweeps().getFirst().deviceId());
+        assertEquals(List.of(170, 160), inbound.activeSweeps().getFirst().plannedLimits());
+        assertTrue(inbound.activeBenchmarks().isEmpty());
     }
 
     @Test

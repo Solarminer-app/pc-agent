@@ -29,6 +29,7 @@ window.SolarMinerI18nCatalog = {
         "update_current": {de: "Der PC-Agent ist aktuell.", en: "PC Agent is up to date."},
         "update_version_unknown": {de: "Die installierte Version ist unbekannt; prüfe den Startweg.", en: "The installed version is unknown; check how it was started."},
         "update_checking": {de: "Suche nach Updates …", en: "Checking for updates …"},
+        "check_for_updates": {de: "Nach Updates suchen", en: "Check for updates"},
         "update_downloading": {de: "Lade Update herunter …", en: "Downloading update …"},
         "update_verifying": {de: "Prüfe Update …", en: "Verifying update …"},
         "update_restarting": {de: "PC-Agent startet neu …", en: "PC Agent is restarting …"},

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.ApplicationContext;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
@@ -45,6 +47,11 @@ public class AgentUpdateService {
             phase = "failed";
             error = "update_start_failed";
         }
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void checkAtStartup() {
+        check();
     }
 
     public record Status(String deployment, String channel, String currentTag, String availableTag,

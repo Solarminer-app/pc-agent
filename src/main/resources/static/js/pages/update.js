@@ -4,9 +4,10 @@
   const state = document.getElementById('update-state');
   const progress = document.getElementById('update-progress');
   const action = document.getElementById('update-action');
+  const checkAction = document.getElementById('update-check');
   const guide = document.getElementById('update-guide');
   const command = document.getElementById('update-command');
-  if (!version || !state || !progress || !action || !guide || !command) return;
+  if (!version || !state || !progress || !action || !checkAction || !guide || !command) return;
   let last = null;
   let checking = false;
   let waitingForRestart = false;
@@ -44,6 +45,7 @@
 
     action.hidden = !s.updateAvailable || ['downloading', 'verifying', 'restarting', 'checking'].includes(s.phase);
     action.disabled = false;
+    checkAction.disabled = ['checking', 'downloading', 'verifying', 'restarting'].includes(s.phase);
     guide.hidden = !(guideOpen && s.deployment === 'docker' && s.updateAvailable);
     if (s.deployment === 'docker') {
       action.textContent = t('show_docker_update_steps');
@@ -76,7 +78,8 @@
     catch (_) { state.textContent = t('update_check_failed'); }
     finally { checking = false; }
   }
+  checkAction.addEventListener('click', check);
   if (sessionStorage.getItem('solarminer.update.target')) waitingForRestart = true;
-  poll().then(check);
+  poll();
   setInterval(poll, 1500);
 })();

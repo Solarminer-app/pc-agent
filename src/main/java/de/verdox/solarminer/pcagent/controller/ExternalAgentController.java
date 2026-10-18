@@ -60,15 +60,17 @@ public class ExternalAgentController {
 
     /**
      * Read-only LAN visibility snapshot for the peer dashboard on other PC-Agents: worker
-     * rows, per-coin earnings and aggregate energy totals for this machine only. The filter
-     * gates it behind the explicit network-sharing consent; session history, wallets and config
-     * never appear. Worker start/pause uses separate POST routes and additional control gates.
+     * rows, per-coin earnings, aggregate energy totals and active GPU measurement progress for
+     * this machine only. The filter gates it behind the explicit network-sharing consent;
+     * session history, wallets, miner diagnostics and config never appear. Worker start/pause
+     * uses separate POST routes and additional control gates.
      */
     @GetMapping("/network-snapshot")
     public de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService.PeerSnapshot networkSnapshot() {
         return networkDashboard == null
                 ? new de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService.PeerSnapshot(List.of(), List.of(),
-                        new de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService.Totals(0, 0, 0, 0), null, false)
+                        new de.verdox.solarminer.pcagent.mining.network.NetworkDashboardService.Totals(0, 0, 0, 0), null, false,
+                        List.of(), List.of())
                 : networkDashboard.ownSnapshot();
     }
 

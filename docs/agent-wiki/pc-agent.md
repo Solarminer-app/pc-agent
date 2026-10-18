@@ -36,6 +36,15 @@ Checked against `pc-agent/src/main/java` on 2026-10-02. This describes source st
   and physical Workers rows use the benchmark/sweep SSE sessions for prompt
   updates. The localized status is display-only: the miner remains `MINING`.
   Older peers omit either field and retain the ordinary status display.
+- The same consent-gated `GET /api/agent/external/network-snapshot` additively publishes
+  `activeSweeps[]` and `activeBenchmarks[]` for locally running GPUs. Sweep entries contain
+  the device/model, coin/algorithm, current limit, sample counts, planned limits and typed
+  completed step measurements; benchmark entries contain device/model, algorithm, sample
+  counts and the latest hash/power sample. Raw miner output, run detail and step notes stay
+  local. The local `network/agents` view carries these lists for reachable peers and the
+  Dashboard renders their cards with the peer name. Older peers omit both lists and simply
+  show no remote progress cards. A disabled LAN visibility gate still returns 403 and shares
+  no measurement progress; unreachable peers lose their cards on the next refresh.
 - Local and LAN worker start commands expose `STARTING` in the existing worker
   status field while the command is in progress. The assigned worker's status
   returns to the miner runtime result on completion or failure; dashboards

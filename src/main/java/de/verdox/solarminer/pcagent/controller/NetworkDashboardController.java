@@ -15,7 +15,7 @@ import java.util.List;
 
 /**
  * Local dashboard contract for the LAN peer view: this agent plus every discovered peer agent
- * with its worker rows, earnings and aggregate energy totals. Start/pause actions are proxied
+ * with its worker rows, earnings, aggregate energy totals and active GPU progress. Start/pause actions are proxied
  * only when the target agent's existing LAN-sharing and external-control gates allow them.
  */
 @RestController
