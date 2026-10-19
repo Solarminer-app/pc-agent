@@ -9,21 +9,29 @@ final class BayesianGpuOptimizer {
     private BayesianGpuOptimizer() { }
 
     static Candidate next(List<Candidate> candidates, List<Observation> observations) {
-        if (observations.isEmpty()) return candidates.getFirst();
-        if (observations.size() == 1) return farthest(candidates, observations);
+        return next(candidates, observations, observations);
+    }
+
+    /** Prior measurements inform the model; only candidates attempted in this run are excluded. */
+    static Candidate next(List<Candidate> candidates, List<Observation> observations, List<Observation> attempted) {
+        List<Candidate> available = candidates.stream()
+                .filter(candidate -> attempted.stream().noneMatch(row -> row.candidate().equals(candidate))).toList();
+        if (available.isEmpty()) return null;
+        if (observations.isEmpty()) return available.getFirst();
+        if (observations.size() == 1) return farthest(available, observations);
+        double scale = Math.max(1, observations.stream().mapToDouble(row -> Math.abs(row.score())).max().orElse(0));
         double[][] covariance = new double[observations.size()][observations.size()];
         double[] y = new double[observations.size()];
         for (int i = 0; i < observations.size(); i++) {
-            y[i] = observations.get(i).score();
+            y[i] = observations.get(i).score() / scale;
             for (int j = 0; j < observations.size(); j++)
                 covariance[i][j] = kernel(observations.get(i).candidate().vector(), observations.get(j).candidate().vector())
                         + (i == j ? NOISE : 0);
         }
         double[] alpha = solve(covariance, y);
-        double best = observations.stream().mapToDouble(Observation::score).max().orElse(0);
+        double best = observations.stream().mapToDouble(row -> row.score() / scale).max().orElse(0);
         Candidate choice = null; double bestEi = Double.NEGATIVE_INFINITY;
-        for (Candidate candidate : candidates) {
-            if (observations.stream().anyMatch(row -> row.candidate().equals(candidate))) continue;
+        for (Candidate candidate : available) {
             double[] k = new double[observations.size()];
             double mean = 0;
             for (int i = 0; i < k.length; i++) { k[i] = kernel(candidate.vector(), observations.get(i).candidate().vector()); mean += k[i] * alpha[i]; }
@@ -37,7 +45,7 @@ final class BayesianGpuOptimizer {
     }
 
     private static Candidate farthest(List<Candidate> candidates, List<Observation> rows) {
-        return candidates.stream().filter(c -> rows.stream().noneMatch(o -> o.candidate().equals(c)))
+        return candidates.stream()
                 .max(java.util.Comparator.comparingDouble(c -> rows.stream().mapToDouble(o -> distance(c.vector(), o.candidate().vector())).min().orElse(0)))
                 .orElse(null);
     }

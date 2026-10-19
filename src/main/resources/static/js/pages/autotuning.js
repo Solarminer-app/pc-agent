@@ -1,9 +1,93 @@
 (() => {
   const $ = id => document.getElementById(id);
   const t = window.SolarMinerUI.t;
+  const efficiencyRate = value => {
+    if (!(value > 0) || !Number.isFinite(Number(value))) return '—';
+    let scaled = Number(value), unit = 'H/s/W';
+    for (const next of ['kH/s/W', 'MH/s/W', 'GH/s/W', 'TH/s/W']) {
+      if (scaled < 1000) break;
+      scaled /= 1000; unit = next;
+    }
+    return `${new Intl.NumberFormat(window.SolarMinerI18n.locale || 'de-DE', {maximumFractionDigits: 3}).format(scaled)} ${unit}`;
+  };
   const devices = $('devices');
-  let activeSession = null, pollTimer = null, savedProfiles = [], measurementHistory = [];
+  let activeSession = null, pollTimer = null, savedProfiles = [], measurementHistory = [], earnings = [];
+  let runMeasurements = [], loadedRunKey = null;
+  const fiatPerKwh = (coinId, hashrateHs, watts) => {
+    const forecast = earnings.find(row => row.coin === coinId);
+    if (!forecast?.available || forecast.stale || !(forecast.usdPerDay > 0)
+      || !(forecast.hashrateHps > 0) || !(hashrateHs > 0) || !(watts > 0)) return '—';
+    const usdPerDay = forecast.usdPerDay * hashrateHs / forecast.hashrateHps;
+    const usdPerKwh = usdPerDay / (watts * 24 / 1000);
+    const value = window.SolarMinerPreferences?.convert(usdPerKwh, 'USD');
+    const currency = value == null ? 'USD' : window.SolarMinerPreferences.currency;
+    const amount = value == null ? usdPerKwh : value;
+    return `${new Intl.NumberFormat(window.SolarMinerI18n.locale || 'de-DE', {maximumFractionDigits: 4}).format(amount)} ${currency}`;
+  };
   const node = (tag, className, text) => { const el = document.createElement(tag); if (className) el.className = className; if (text) el.textContent = text; return el; };
+  const svgNode = (tag, attrs, content) => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value));
+    if (content != null) el.textContent = content;
+    return el;
+  };
+  const metricNumber = value => new Intl.NumberFormat(window.SolarMinerI18n.locale || 'de-DE', {maximumFractionDigits: 2}).format(value);
+  function renderRunCharts(host, samples, coinId) {
+    const section = node('section', 'tuning-graphs');
+    const title = node('div', 'tuning-graphs-heading');
+    title.append(node('h3', '', t('auto_tuning_graph_title')), node('p', '', t('auto_tuning_graph_hint', {count: samples.length})));
+    section.append(title);
+    const grid = node('div', 'tuning-graph-grid');
+    const values = [
+      {key: 'observedCoreMhz', label: 'auto_tuning_graph_core', unit: 'MHz', color: '#81b7ff'},
+      {key: 'observedMemoryMhz', label: 'auto_tuning_graph_memory', unit: 'MHz', color: '#b99aff'},
+      {key: 'temperatureC', label: 'auto_tuning_graph_temperature', unit: '°C', color: '#ff9b72'},
+      {key: 'measuredWatts', label: 'auto_tuning_graph_power', unit: 'W', color: '#ffd166'},
+      {key: 'hashrateHs', label: 'auto_tuning_graph_hashrate', unit: 'H/s', color: '#71dfb0', display: value => window.SolarMinerUI.hashrate(value)},
+      {key: 'fiatPerKwh', label: 'auto_tuning_graph_fiat', unit: `${window.SolarMinerPreferences?.convert(1, 'USD') == null ? 'USD' : window.SolarMinerPreferences.currency}/kWh`, color: '#f08ac2', format: value => {
+        const forecast = earnings.find(row => row.coin === coinId);
+        if (!forecast?.available || forecast.stale || !(forecast.usdPerDay > 0) || !(forecast.hashrateHps > 0)) return null;
+        const usd = forecast.usdPerDay * value.hashrateHs / forecast.hashrateHps / (value.measuredWatts * 24 / 1000);
+        const converted = window.SolarMinerPreferences?.convert(usd, 'USD');
+        return converted == null ? usd : converted;
+      }},
+    ];
+    for (const metric of values) {
+      const points = samples.map((row, index) => ({row, index, value: metric.format ? metric.format(row) : Number(row[metric.key])}))
+        .filter(point => Number.isFinite(point.value) && point.value >= 0);
+      const card = node('article', 'tuning-graph-card');
+      card.append(node('h4', '', t(metric.label)));
+      const svg = svgNode('svg', {viewBox: '0 0 520 184', role: 'img', 'aria-label': t('auto_tuning_graph_aria', {metric: t(metric.label), count: points.length})});
+      if (points.length) {
+        const min = Math.min(...points.map(point => point.value));
+        const max = Math.max(...points.map(point => point.value));
+        const span = max - min || Math.max(Math.abs(max) * .1, 1);
+        const low = Math.max(0, min - span * .12), high = max + span * .12;
+        const x = index => 58 + (points.length === 1 ? .5 : index / (points.length - 1)) * 442;
+        const y = value => 145 - (value - low) / (high - low) * 112;
+        for (let line = 0; line <= 2; line++) {
+          const value = high - (high - low) * line / 2, pos = y(value);
+          svg.append(svgNode('line', {x1: 58, x2: 500, y1: pos, y2: pos, class: 'tuning-graph-gridline'}));
+          svg.append(svgNode('text', {x: 51, y: pos + 4, 'text-anchor': 'end', class: 'tuning-graph-axis'}, metric.display ? metric.display(value) : metricNumber(value)));
+        }
+        svg.append(svgNode('polyline', {points: points.map(point => `${x(point.index)},${y(point.value)}`).join(' '), fill: 'none', stroke: metric.color, class: 'tuning-graph-line'}));
+        for (const point of points) {
+          const dot = svgNode('circle', {cx: x(point.index), cy: y(point.value), r: points.length > 80 ? 2.2 : 3.3, fill: metric.color, class: 'tuning-graph-point'});
+          const row = point.row;
+          dot.append(svgNode('title', {}, `${new Date(row.at).toLocaleTimeString(window.SolarMinerI18n.locale || 'de-DE')} · ${metric.display ? metric.display(point.value) : `${metricNumber(point.value)} ${metric.unit}`} · ${t('auto_tuning_candidate', {core: row.observedCoreMhz ?? row.coreMhz ?? '—', memory: row.observedMemoryMhz ?? row.memoryMhz ?? '—', power: row.powerLimitWatts})}`));
+          svg.append(dot);
+        }
+        svg.append(svgNode('text', {x: 58, y: 170, class: 'tuning-graph-axis'}, t('auto_tuning_graph_first')),
+          svgNode('text', {x: 500, y: 170, 'text-anchor': 'end', class: 'tuning-graph-axis'}, t('auto_tuning_graph_latest')));
+        const latest = points[points.length - 1];
+        card.append(svg, node('strong', 'tuning-graph-current', metric.display ? metric.display(latest.value) : `${metricNumber(latest.value)} ${metric.unit}`.trim()));
+      } else {
+        card.append(node('p', 'tuning-graph-empty', t('auto_tuning_graph_unavailable')));
+      }
+      grid.append(card);
+    }
+    section.append(grid); host.append(section);
+  }
   const adviceKey = (reason, vendor) => {
     const key = String(reason || '');
     if (key.includes('gpu_clock_permission_denied')) return 'auto_tuning_help_permission';
@@ -75,7 +159,8 @@
         for (const profile of profiles.slice(0, 6)) saved.append(node('p', '', t('auto_tuning_saved_tier', {
           software: profile.softwareId, version: profile.softwareVersion || '—', power: profile.powerLimitWatts,
           core: profile.coreMhz ?? '—', memory: profile.memoryMhz ?? '—',
-          efficiency: Number(profile.efficiencyHashesPerWatt).toFixed(3)
+          efficiency: efficiencyRate(profile.efficiencyHashesPerWatt),
+          fiat: fiatPerKwh(profile.coinId, profile.hashrateHs, profile.measuredWatts)
         })));
         card.append(saved);
       }
@@ -87,11 +172,12 @@
             stable: history.stable, unstable: history.unstable})));
         for (const result of [...history.recent].reverse()) {
           const score = result.hashrateHs > 0 && result.measuredWatts > 0
-            ? (result.hashrateHs / result.measuredWatts).toFixed(3) : '—';
+            ? efficiencyRate(result.hashrateHs / result.measuredWatts) : '—';
           saved.append(node('p', '', t('auto_tuning_history_point', {
             status: t(result.stable ? 'auto_tuning_stable' : 'auto_tuning_unstable'),
             power: result.powerLimitWatts, core: result.coreMhz ?? '—',
-            memory: result.memoryMhz ?? '—', efficiency: score
+            memory: result.memoryMhz ?? '—', efficiency: score,
+            fiat: fiatPerKwh(result.coinId, result.hashrateHs, result.measuredWatts)
           }) + (result.reason ? ` · ${t(result.reason)}` : '')));
         }
         const all = node('a', '', t('auto_tuning_history_export'));
@@ -160,13 +246,15 @@
   }
   async function load() {
     try {
-      const [response, profileResponse, historyResponse] = await Promise.all([
+      const [response, profileResponse, historyResponse, earningsResponse] = await Promise.all([
         fetch('/api/agent/local/gpu-tuning', {cache: 'no-store'}),
         fetch('/api/agent/local/gpu-tuning/profiles', {cache: 'no-store'}),
-        fetch('/api/agent/local/gpu-tuning/measurement-summary', {cache: 'no-store'})
+        fetch('/api/agent/local/gpu-tuning/measurement-summary', {cache: 'no-store'}),
+        fetch('/api/agent/local/earnings', {cache: 'no-store'})
       ]);
       if (!response.ok || !profileResponse.ok || !historyResponse.ok) throw new Error('gpu_clock_controls_unavailable');
       [savedProfiles, measurementHistory] = await Promise.all([profileResponse.json(), historyResponse.json()]);
+      earnings = earningsResponse.ok ? await earningsResponse.json() : [];
       draw(await response.json()); await loadSession();
     }
     catch (error) { reportError(error); }
@@ -177,7 +265,19 @@
       if (!response.ok) return;
       if (pollTimer) clearTimeout(pollTimer);
       const wasRunning = Boolean(activeSession?.running);
-      activeSession = await response.json(); drawSession(); syncButtons();
+      activeSession = await response.json();
+      const runKey = `${activeSession.deviceId || ''}:${activeSession.startedAt || ''}`;
+      if (runKey !== loadedRunKey) { runMeasurements = []; loadedRunKey = runKey; }
+      drawSession(); syncButtons();
+      if (activeSession.deviceId) {
+        const measurementsResponse = await fetch(`/api/agent/local/gpu-tuning/measurements?deviceId=${encodeURIComponent(activeSession.deviceId)}&limit=3000`, {cache: 'no-store'});
+        if (measurementsResponse.ok) {
+          const all = await measurementsResponse.json();
+          runMeasurements = all.filter(row => row.type === 'SAMPLE' && row.coinId === activeSession.coinId
+            && row.at && new Date(row.at).getTime() >= new Date(activeSession.startedAt).getTime());
+          drawSession();
+        }
+      }
       if (wasRunning && !activeSession.running) { await load(); return; }
       if (activeSession.running) pollTimer = setTimeout(loadSession, 2500);
     } catch (_) { /* The device inventory remains available if a progress refresh fails. */ }
@@ -219,19 +319,24 @@
         host.append(node('p', 'muted', t('auto_tuning_eta', {minutes: Math.ceil(remaining * 5 / 60)})));
       }
     }
+    if (runMeasurements.length) renderRunCharts(host, runMeasurements, activeSession.coinId);
     for (const row of activeSession.observations || []) {
       host.append(node('p', row.stable ? 'notice-line' : 'muted', t('auto_tuning_observation', {
         status: t(row.stable ? 'auto_tuning_stable' : 'auto_tuning_unstable'),
         hashrate: row.hashrateHs == null ? '—' : window.SolarMinerUI.hashrate(row.hashrateHs),
         watts: row.measuredWatts == null ? '—' : Number(row.measuredWatts).toFixed(1),
-        efficiency: row.score > 0 ? Number(row.score).toFixed(3) : '—', samples: row.validSamples,
-      }) + (row.observedCoreMhz == null ? '' : ` · ${t('auto_tuning_observed_clocks', {
+        efficiency: row.score > 0 ? efficiencyRate(row.score) : '—', samples: row.validSamples,
+        fiat: fiatPerKwh(activeSession.coinId, row.hashrateHs, row.measuredWatts),
+      }) + ` · ${t('auto_tuning_candidate', {
+        core: row.coreMhz ?? '—', memory: row.memoryMhz ?? '—', power: row.powerWatts
+      })}` + (row.observedCoreMhz == null ? '' : ` · ${t('auto_tuning_observed_clocks', {
         core: row.observedCoreMhz, memory: row.observedMemoryMhz ?? '—'
       })}`) + (row.detail ? ` · ${t(row.detail)}` : '')));
     }
     if (activeSession.result) host.append(node('p', 'notice-line', t('auto_tuning_result', {
       core: activeSession.result.coreMhz ?? '—', memory: activeSession.result.memoryMhz ?? '—',
-      power: activeSession.result.powerLimitWatts, efficiency: Number(activeSession.result.efficiencyHashesPerWatt).toFixed(3)
+      power: activeSession.result.powerLimitWatts, efficiency: efficiencyRate(activeSession.result.efficiencyHashesPerWatt),
+      fiat: fiatPerKwh(activeSession.coinId, activeSession.result.hashrateHs, activeSession.result.measuredWatts)
     })));
     if (!activeSession.running && activeSession.phase !== 'auto_tuning_complete') {
       host.append(node('p', 'notice error', t(activeSession.phase)));

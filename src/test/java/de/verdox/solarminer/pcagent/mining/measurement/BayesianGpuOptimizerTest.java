@@ -34,4 +34,28 @@ class BayesianGpuOptimizerTest {
         var observations = List.of(new BayesianGpuOptimizer.Observation(a, 0, false, "unstable"));
         assertEquals(b, BayesianGpuOptimizer.next(List.of(a, b), observations));
     }
+
+    @Test
+    void historicalPointInformsSelectionWithoutPreventingRemeasurement() {
+        var candidate = new BayesianGpuOptimizer.Candidate(1400, 6800, 260, .7, .8, .5);
+        var prior = new BayesianGpuOptimizer.Observation(candidate, 1_700_000, true, null);
+
+        assertEquals(candidate, BayesianGpuOptimizer.next(List.of(candidate), List.of(prior), List.of()));
+        assertNull(BayesianGpuOptimizer.next(List.of(candidate), List.of(prior), List.of(prior)));
+    }
+
+    @Test
+    void expectedImprovementDoesNotDependOnHashrateScoreUnits() {
+        var a = new BayesianGpuOptimizer.Candidate(800, 5000, 100, 0, 0, 0);
+        var b = new BayesianGpuOptimizer.Candidate(1100, 6000, 100, .33, .33, 0);
+        var c = new BayesianGpuOptimizer.Candidate(1400, 6800, 100, .67, .67, 0);
+        var d = new BayesianGpuOptimizer.Candidate(1600, 7000, 100, 1, 1, 0);
+        var lowScores = List.of(new BayesianGpuOptimizer.Observation(a, .5, true, null),
+                new BayesianGpuOptimizer.Observation(c, 1.5, true, null));
+        var highScores = List.of(new BayesianGpuOptimizer.Observation(a, 500_000, true, null),
+                new BayesianGpuOptimizer.Observation(c, 1_500_000, true, null));
+
+        assertEquals(BayesianGpuOptimizer.next(List.of(a, b, c, d), lowScores),
+                BayesianGpuOptimizer.next(List.of(a, b, c, d), highScores));
+    }
 }

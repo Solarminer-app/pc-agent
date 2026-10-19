@@ -1,3 +1,18 @@
+## 2026-10-19 — Explore writable memory clocks and reuse GPU tuning history
+
+- The operator's Quantus JSON export settles the screenshot ambiguity: the Agent requested 405 and 810 MHz memory clocks at several power caps, but every available readback stayed at 6800 MHz. Core clocks did respond. The driver-reported runtime memory policy and successful command exit did not establish effective memory control on this RTX 2080 Ti. Code inspection also found that the candidate generator rejected driver-supported pairs above the clocks observed at session start; 7000 MHz could be excluded by an initial 6800 MHz reading. Writable supported pairs are now eligible without this artificial ceiling.
+- Memory targets now use a tight 1% / 50 MHz readback tolerance. The search first tries a different supported memory setting; after three consecutive mismatches it records the failed trial, restores driver defaults, and continues with core-only candidates at the observed memory setting. This avoids spending full 80-second windows on repeated no-op memory writes. Both German and English explain the fallback. A physical rerun is still required to verify the control behavior on the operator's driver.
+- Bayesian candidate selection now receives matching stable profiles from prior runs as seed observations, while leaving those settings available for remeasurement. It normalizes efficiency scores before fitting the Gaussian process, preserving expected-improvement exploration when raw H/s/W values are large. History is matched by device, GPU model/vendor, coin/algorithm, miner software/version and exact cap/core/memory setting. Historical unstable samples remain stored for diagnosis; they are not training priors because older share-based rejection could mislabel good settings.
+- Tests cover an RTX 2080 Ti at 6800 MHz still generating 7000 MHz candidates, actual session use of a prior profile to choose a new first candidate, score-unit invariance, remeasurement of historical points, and an ignored memory lock falling back to successful core-only calibration after three samples. A twelve-candidate search remains exploratory rather than proof of global optimality.
+- The raw run also exposed a separate power-limit bias: target core 1710 MHz at 180 W yielded a stable effective clock near 1380 MHz and roughly 370 MH/s at 175 W, about 2.11 MH/s/W, but the old symmetric target check rejected it. The core check now accepts a consistently lower effective clock under a power cap, while rejecting clocks above the requested ceiling or unstable actual clocks. A regression test covers both directions. Previously rejected results remain historical diagnostics and require a live rerun before promotion.
+- Verification: focused session/optimizer tests, full JDK 21 `test standaloneJar --offline`, closed DE/EN catalog check, untranslated-literal scan, both-locale render simulation, page JavaScript syntax check and `git diff --check` passed. No live GPU write or Quantus rerun was performed here.
+
+## 2026-10-19 — Allow the live Quantus calibration to finish and retain failed-window diagnostics
+
+- The operator's RTX 2080 Ti Quantus screenshot shows four stable candidates, but the run hit the 25-minute limit during sample 3 of 16 on candidate 12. Three stable points were around 256 W, one around 70 W; the ~100 W tier still had no stable result. The earlier 16-minute estimate counted sleep intervals only and understated real driver/telemetry overhead. The run could not form the required three-tier matrix.
+- The bounded run limit is now 40 minutes. Completed windows rejected for hash-rate spread or effective-clock mismatch retain their valid sample count, median hash rate, mean measured watts, and observed clocks in the UI and append-only result row, while remaining ineligible as operating profiles. The session view also shows each candidate's requested core/memory clocks and power cap beside its observed clocks. This addresses the misleading `0 samples` / empty telemetry shown for fully measured failures. Raw samples and stable points from the timed-out run remain saved.
+- A focused NVIDIA session test confirms a 500 MHz target read back at 1000 MHz is rejected, but its 16 samples and diagnostic values remain available. Full `test standaloneJar --offline`, German/English catalog and render checks, literal scan, JavaScript syntax check, and `git diff --check` passed. A repeat physical Quantus run is still required to establish whether the 100 W cap has a viable clock pair.
+
 ## 2026-10-19 — Recognize NVIDIA 617 runtime memory-lock policy
 
 - Operator-provided read-only PowerShell output from two Windows GeForce RTX 2080 Ti cards (driver 617.14, compute capability 7.5) reports `Memory Clock Switching Type: Runtime` on both. Supported memory clocks span 405–7070 MHz and 405–7000 MHz. The prior parser accepted only `runtime modifiable` and wrongly disabled memory control. It now accepts the exact newer runtime-policy line while a deferred-only line remains unavailable. No clock write was attempted or proven.
@@ -14,6 +29,21 @@
 - The available host reports driver 580.178.04 with no lock-policy query, while TITAN RTX (compute 7.5) reports 405–7001 MHz and RTX 3080 (compute 8.6) reports 405–9501 MHz supported memory clocks. No RTX 2080 Ti is attached here; no clock write was performed. Focused `GpuTuningServiceTest`, JavaScript syntax, both-language i18n catalog/render checks, literal scan and diff check passed. The user's 2080 Ti still needs an Agent-side write and readback to establish actual control.
 
 # PC-Agent work log
+
+## 2026-10-19 — Plot Auto Tuning calibration telemetry
+
+- Added a responsive SVG timeline for raw calibration samples, with separate plots for observed core and memory clocks, temperature, measured power, hashrate and estimated gross fiat/kWh. Samples refresh during the session; point tooltips include local time and candidate settings. Empty or unsupported metrics stay explicitly unavailable. Added German and English labels and cache-busted the Auto Tuning assets.
+- Reuses the existing local-only `/gpu-tuning/measurements` and `/earnings` endpoints. No backend contract was changed. Validation: JavaScript syntax, both locale catalog/render checks, and `git diff --check`; no automated tests or physical calibration run.
+
+## 2026-10-19 — Show gross fiat per kWh in Auto Tuning
+
+- Every live calibration observation, best result, saved tier and recent history row now includes estimated gross fiat revenue per kWh. It scales the matching coin forecast to that candidate's measured hashrate, divides by measured energy use, and converts USD into the selected display currency when an exchange rate is available. Missing/stale forecast data or missing measurements display `—`; unavailable currency conversion remains in USD. German and English labels identify this as gross revenue, before fees and electricity costs.
+- Uses the existing local earnings forecast and measurement contracts; no backend or persistence schema changed. Validation: JavaScript syntax and `git diff --check`; no tests run.
+
+## 2026-10-19 — Scale Auto Tuning efficiency units
+
+- Auto Tuning already formats measured hashrate with the shared H/s-to-EH/s formatter. Its efficiency was shown as a large raw H/s/W number; live observations, result, saved tier and history now scale it through H/s/W, kH/s/W, MH/s/W, GH/s/W and TH/s/W using the active German/English locale. Both locale templates now accept the formatted value including its unit.
+- No API or stored measurement contract changed. Source inspection confirms the screenshot's hashrate values remain formatted by the shared hashrate formatter; this change makes the adjacent efficiency unit readable (for example, 1,744,252 H/s/W becomes 1,74 MH/s/W in German locale).
 
 ## 2026-10-18 — PeakMiner sweep start and hashrate follow-up
 

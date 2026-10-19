@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** On-demand, per-GPU Gaussian-process calibration against live miner telemetry. */
 @Service
 public class AutoTuningSessionService {
-    private static final int MAX_CANDIDATES = 12, SAMPLES_PER_CANDIDATE = 16;
+    private static final int MAX_CANDIDATES = 12, SAMPLES_PER_CANDIDATE = 16, MAX_RUN_MINUTES = 40;
     private static final int MAX_HASHRATE_OUTLIERS = 2;
     private final MiningService mining;
     private final LocalGpuPowerService power;
@@ -86,15 +86,15 @@ public class AutoTuningSessionService {
         GpuTuningService.Capabilities caps = tuning.refreshCapabilities(deviceId);
         if (!caps.coreClockControl() && !caps.memoryClockControl())
             throw new IllegalStateException(caps.reason() == null ? "gpu_clock_controls_unavailable" : caps.reason());
-        GpuTuningService.ClockTelemetry clockCeiling = "NVIDIA".equalsIgnoreCase(gpu.vendor())
+        GpuTuningService.ClockTelemetry observedClocks = "NVIDIA".equalsIgnoreCase(gpu.vendor())
                 ? tuning.readEffectiveClocks(deviceId) : null;
-        if ("NVIDIA".equalsIgnoreCase(gpu.vendor()) && clockCeiling == null)
+        if ("NVIDIA".equalsIgnoreCase(gpu.vendor()) && observedClocks == null)
             throw new IllegalStateException("auto_tuning_clock_readback_unavailable");
         String software = miners.minerSoftwareForWorker(coin, deviceId);
         if (software == null || software.isBlank())
             throw new IllegalStateException("auto_tuning_miner_unavailable");
         String softwareVersion = miners.minerVersionForWorker(coin, deviceId);
-        List<BayesianGpuOptimizer.Candidate> candidates = candidates(gpu, caps, clockCeiling, startingWatts);
+        List<BayesianGpuOptimizer.Candidate> candidates = candidates(gpu, caps, observedClocks, startingWatts);
         if (candidates.isEmpty()) throw new IllegalStateException("auto_tuning_no_safe_clock_candidates");
         if (candidates.stream().map(BayesianGpuOptimizer.Candidate::powerWatts).distinct().count() < 3)
             throw new IllegalStateException("auto_tuning_power_range_too_narrow");
@@ -105,7 +105,7 @@ public class AutoTuningSessionService {
         cancel.set(false);
         session = new Session(true, "auto_tuning_phase_prepare", Instant.now(), deviceId, gpu.model(), coin.id(),
                 coin.assignmentAlgorithm(), software, 0, plannedCandidates, null, null, null, 0, SAMPLES_PER_CANDIDATE, List.of(), null);
-        try { executor.execute(() -> run(gpu, coin, software, softwareVersion, candidates)); }
+        try { executor.execute(() -> run(gpu, coin, software, softwareVersion, caps, observedClocks, candidates)); }
         catch (RuntimeException rejected) {
             session = Session.idle();
             runLock.end();
@@ -159,11 +159,13 @@ public class AutoTuningSessionService {
     }
 
     private void run(LocalGpuPowerService.Gpu gpu, Coin coin, String software, String softwareVersion,
+                     GpuTuningService.Capabilities caps, GpuTuningService.ClockTelemetry observedClocks,
                      List<BayesianGpuOptimizer.Candidate> candidates) {
         RunContext context = new RunContext(UUID.randomUUID().toString(), gpu, coin, software, softwareVersion);
         int originalPower = gpu.currentPowerLimitWatts();
-        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MINUTES.toNanos(25);
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MINUTES.toNanos(MAX_RUN_MINUTES);
         List<BayesianGpuOptimizer.Observation> observations = new ArrayList<>();
+        List<BayesianGpuOptimizer.Candidate> activeCandidates = candidates;
         int measuredCandidates = 0;
         try {
             session = session.withPhase("auto_tuning_phase_sampling");
@@ -172,15 +174,27 @@ public class AutoTuningSessionService {
                     .sorted(Comparator.comparingInt((Integer watts) -> Math.abs(watts - startingWatts))
                             .thenComparingInt(Integer::intValue)).toList();
             if (tiers.size() < 3) throw new IllegalStateException("auto_tuning_power_range_too_narrow");
+            List<BayesianGpuOptimizer.Observation> historical = historicalObservations(context, activeCandidates);
             for (int index = 0; index < MAX_CANDIDATES; index++) {
                 if (cancel.get()) break;
                 if (System.nanoTime() >= deadline) throw new IllegalStateException("auto_tuning_time_limit");
                 int tierWatts = tiers.get(Math.min(index / (MAX_CANDIDATES / 3), 2));
-                List<BayesianGpuOptimizer.Candidate> tierCandidates = candidates.stream()
+                List<BayesianGpuOptimizer.Candidate> tierCandidates = activeCandidates.stream()
                         .filter(row -> row.powerWatts() == tierWatts).toList();
                 List<BayesianGpuOptimizer.Observation> tierObservations = observations.stream()
                         .filter(row -> row.candidate().powerWatts() == tierWatts).toList();
-                BayesianGpuOptimizer.Candidate candidate = BayesianGpuOptimizer.next(tierCandidates, tierObservations);
+                List<BayesianGpuOptimizer.Observation> training = new ArrayList<>(historical.stream()
+                        .filter(row -> row.candidate().powerWatts() == tierWatts
+                                && tierObservations.stream().noneMatch(current -> current.candidate().equals(row.candidate())))
+                        .toList());
+                training.addAll(tierObservations);
+                BayesianGpuOptimizer.Candidate candidate = BayesianGpuOptimizer.next(tierCandidates, training, tierObservations);
+                if (index == 0 && caps.memoryClockControl() && observedClocks != null)
+                    candidate = tierCandidates.stream()
+                            .filter(row -> row.memoryMhz() != null
+                                    && Math.abs(row.memoryMhz() - observedClocks.memoryMhz())
+                                    > memoryTolerance(row.memoryMhz()))
+                            .findFirst().orElse(candidate);
                 if (candidate == null) continue;
                 session = session.withCandidate(candidate, ++measuredCandidates);
                 GpuTuningService.ApplyResult clockWrite = tuning.apply(gpu.deviceId(), candidate.coreMhz(), candidate.coreMhz(),
@@ -196,14 +210,24 @@ public class AutoTuningSessionService {
                     continue;
                 }
                 SampleSummary sample = collect(context, candidate, deadline);
-                saveMeasurement(context, candidate, "RESULT", sample.stable() ? sample.hashrateHs() : null,
-                        sample.stable() ? sample.watts() : null, sample.maxTemperatureC(),
+                saveMeasurement(context, candidate, "RESULT", sample.samples() > 0 ? sample.hashrateHs() : null,
+                        sample.samples() > 0 ? sample.watts() : null, sample.maxTemperatureC(),
                         sample.observedCoreMhz(), sample.observedMemoryMhz(), sample.samples(),
                         null, null, sample.stable(), sample.detail());
                 observations.add(new BayesianGpuOptimizer.Observation(candidate,
                         sample.stable() ? sample.hashrateHs() / sample.watts() : 0,
                         sample.stable(), sample.detail(), sample));
                 session = session.withObservations(observations);
+                if ("auto_tuning_memory_lock_ineffective".equals(sample.detail())) {
+                    if (!tuning.restoreDefaults(gpu.deviceId()).applied())
+                        throw new IllegalStateException("gpu_clock_restore_failed");
+                    GpuTuningService.Capabilities coreOnly = new GpuTuningService.Capabilities(caps.deviceId(),
+                            caps.coreClockControl(), false, caps.voltageControl(), caps.coreMinMhz(), caps.coreMaxMhz(),
+                            caps.memoryMinMhz(), caps.memoryMaxMhz(), caps.reason(), caps.supportedPairs());
+                    activeCandidates = candidates(gpu, coreOnly, observedClocks, startingWatts);
+                    if (activeCandidates.isEmpty()) throw new IllegalStateException("auto_tuning_no_safe_clock_candidates");
+                    historical = historicalObservations(context, activeCandidates);
+                }
                 if (sample.driverFailure()) {
                     if (!"auto_tuning_worker_stopped".equals(sample.detail()) || !recoverWorker(gpu, coin, originalPower))
                         throw new IllegalStateException(sample.detail());
@@ -252,6 +276,7 @@ public class AutoTuningSessionService {
                                   long deadline) throws InterruptedException {
         List<Double> rates = new ArrayList<>(), watts = new ArrayList<>(), temps = new ArrayList<>();
         List<Integer> observedCore = new ArrayList<>(), observedMemory = new ArrayList<>();
+        int consecutiveMemoryMismatches = 0;
         for (int i = 0; i < SAMPLES_PER_CANDIDATE; i++) {
             if (cancel.get()) return SampleSummary.unstable("auto_tuning_cancelled", false);
             if (System.nanoTime() >= deadline) throw new IllegalStateException("auto_tuning_time_limit");
@@ -273,11 +298,14 @@ public class AutoTuningSessionService {
             boolean validTemp = temp != null && Double.isFinite(temp);
             GpuTuningService.ClockTelemetry clocks = validRate && validPower && validTemp
                     && "NVIDIA".equalsIgnoreCase(gpu.vendor()) ? tuning.readEffectiveClocks(gpu.deviceId()) : null;
+            boolean memoryMismatch = clocks != null && candidate.memoryMhz() != null
+                    && Math.abs(clocks.memoryMhz() - candidate.memoryMhz()) > memoryTolerance(candidate.memoryMhz());
             String issue = !validRate || !validPower ? "auto_tuning_sample_unavailable"
                     : !validTemp ? "auto_tuning_temperature_unavailable"
                     : temp > maxTemperatureC ? "auto_tuning_temperature_limit"
                     : "NVIDIA".equalsIgnoreCase(gpu.vendor()) && clocks == null
-                    ? "auto_tuning_clock_readback_unavailable" : null;
+                    ? "auto_tuning_clock_readback_unavailable"
+                    : memoryMismatch ? "auto_tuning_memory_lock_ineffective" : null;
             saveMeasurement(context, candidate, "SAMPLE", validRate ? rate : null,
                     validPower ? powerWatts : null, validTemp ? temp : null,
                     clocks == null ? null : clocks.coreMhz(), clocks == null ? null : clocks.memoryMhz(),
@@ -293,18 +321,39 @@ public class AutoTuningSessionService {
                 observedCore.add(clocks.coreMhz()); observedMemory.add(clocks.memoryMhz());
             }
             rates.add(rate); watts.add(powerWatts); temps.add(temp);
+            consecutiveMemoryMismatches = memoryMismatch ? consecutiveMemoryMismatches + 1 : 0;
+            if (consecutiveMemoryMismatches >= 3)
+                return summarize(rates, watts, temps, observedCore, observedMemory)
+                        .withFailure("auto_tuning_memory_lock_ineffective");
         }
         if (rates.size() < SAMPLES_PER_CANDIDATE - 2) return SampleSummary.unstable("auto_tuning_insufficient_samples", false);
-        double median = SampleCollector.median(rates.stream().mapToDouble(Double::doubleValue).toArray());
+        SampleSummary summary = summarize(rates, watts, temps, observedCore, observedMemory);
+        double median = summary.hashrateHs();
         if (rates.stream().filter(value -> value < median * .8 || value > median * 1.2).count() > MAX_HASHRATE_OUTLIERS)
-            return SampleSummary.unstable("auto_tuning_unstable_hashrate", false);
-        if (!observedCore.isEmpty() && (candidate.coreMhz() != null && observedCore.stream()
-                .filter(value -> Math.abs(value - candidate.coreMhz()) > Math.max(75, candidate.coreMhz() * .12))
-                .count() > 2 || candidate.memoryMhz() != null && observedMemory.stream()
-                .filter(value -> Math.abs(value - candidate.memoryMhz()) > Math.max(100, candidate.memoryMhz() * .12))
-                .count() > 2))
-            return SampleSummary.unstable("auto_tuning_clock_not_reached", false);
-        return new SampleSummary(true, median, watts.stream().mapToDouble(Double::doubleValue).average().orElse(0),
+            return summary.withFailure("auto_tuning_unstable_hashrate");
+        if (!observedCore.isEmpty() && candidate.coreMhz() != null && observedCore.stream()
+                .filter(value -> value > candidate.coreMhz() + Math.max(75, candidate.coreMhz() * .12))
+                .count() > 2)
+            return summary.withFailure("auto_tuning_clock_not_reached");
+        if (!observedCore.isEmpty()) {
+            double actualCoreMedian = SampleCollector.median(observedCore.stream().mapToDouble(Integer::doubleValue).toArray());
+            if (observedCore.stream().filter(value -> Math.abs(value - actualCoreMedian)
+                    > Math.max(75, actualCoreMedian * .12)).count() > 2)
+                return summary.withFailure("auto_tuning_unstable_core_clock");
+        }
+        if (candidate.memoryMhz() != null && observedMemory.stream()
+                .filter(value -> Math.abs(value - candidate.memoryMhz()) > memoryTolerance(candidate.memoryMhz()))
+                .count() > 2)
+            return summary.withFailure("auto_tuning_clock_not_reached");
+        return summary;
+    }
+
+    private static double memoryTolerance(int targetMhz) { return Math.max(50, targetMhz * .01); }
+
+    private static SampleSummary summarize(List<Double> rates, List<Double> watts, List<Double> temps,
+                                           List<Integer> observedCore, List<Integer> observedMemory) {
+        return new SampleSummary(true, SampleCollector.median(rates.stream().mapToDouble(Double::doubleValue).toArray()),
+                watts.stream().mapToDouble(Double::doubleValue).average().orElse(0),
                 rates.size(), temps.stream().mapToDouble(Double::doubleValue).max().stream().boxed().findFirst().orElse(null),
                 observedCore.isEmpty() ? null : (int) Math.round(observedCore.stream().mapToInt(Integer::intValue).average().orElse(0)),
                 observedMemory.isEmpty() ? null : (int) Math.round(observedMemory.stream().mapToInt(Integer::intValue).average().orElse(0)),
@@ -325,6 +374,25 @@ public class AutoTuningSessionService {
             throw new IllegalStateException("auto_tuning_observation_save_failed");
     }
 
+    private List<BayesianGpuOptimizer.Observation> historicalObservations(RunContext context,
+                                                                           List<BayesianGpuOptimizer.Candidate> candidates) {
+        LocalGpuPowerService.Gpu gpu = context.gpu();
+        List<AutoTuningProfileStore.Profile> prior = profiles.candidates(gpu.deviceId(), context.coin().id(),
+                context.software(), context.softwareVersion(), gpu.model(), gpu.vendor(),
+                context.coin().assignmentAlgorithm());
+        List<BayesianGpuOptimizer.Observation> observations = new ArrayList<>();
+        for (BayesianGpuOptimizer.Candidate candidate : candidates) {
+            double[] scores = prior.stream()
+                    .filter(row -> row.powerLimitWatts() == candidate.powerWatts()
+                            && Objects.equals(row.coreMhz(), candidate.coreMhz())
+                            && Objects.equals(row.memoryMhz(), candidate.memoryMhz()))
+                    .mapToDouble(AutoTuningProfileStore.Profile::efficiencyHashesPerWatt).toArray();
+            if (scores.length > 0) observations.add(new BayesianGpuOptimizer.Observation(candidate,
+                    SampleCollector.median(scores), true, null));
+        }
+        return observations;
+    }
+
     private record RunContext(String runId, LocalGpuPowerService.Gpu gpu, Coin coin,
                               String software, String softwareVersion) { }
 
@@ -334,14 +402,14 @@ public class AutoTuningSessionService {
 
     static List<BayesianGpuOptimizer.Candidate> candidates(LocalGpuPowerService.Gpu gpu,
                                                             GpuTuningService.Capabilities caps,
-                                                            GpuTuningService.ClockTelemetry clockCeiling) {
-        return candidates(gpu, caps, clockCeiling, gpu.currentPowerLimitWatts() == null
+                                                            GpuTuningService.ClockTelemetry observedClocks) {
+        return candidates(gpu, caps, observedClocks, gpu.currentPowerLimitWatts() == null
                 ? gpu.maxWatts() : gpu.currentPowerLimitWatts());
     }
 
     static List<BayesianGpuOptimizer.Candidate> candidates(LocalGpuPowerService.Gpu gpu,
                                                             GpuTuningService.Capabilities caps,
-                                                            GpuTuningService.ClockTelemetry clockCeiling,
+                                                            GpuTuningService.ClockTelemetry observedClocks,
                                                             int startWatts) {
         Integer safeMaxWatts = gpu.safeTuningMaxWatts();
         if (safeMaxWatts == null || safeMaxWatts < gpu.minWatts()) return List.of();
@@ -353,11 +421,9 @@ public class AutoTuningSessionService {
         if (!caps.supportedPairs().isEmpty()) {
             int highestSupportedMemory = caps.supportedPairs().stream()
                     .mapToInt(GpuTuningService.ClockPair::memoryMhz)
-                    .filter(value -> clockCeiling == null || value <= clockCeiling.memoryMhz())
+                    .filter(value -> observedClocks == null || value <= observedClocks.memoryMhz())
                     .max().orElse(0);
             for (var pair : caps.supportedPairs()) for (int target : power) {
-                if (clockCeiling != null && (pair.coreMhz() > clockCeiling.coreMhz()
-                        || pair.memoryMhz() > clockCeiling.memoryMhz())) continue;
                 if (!caps.memoryClockControl() && pair.memoryMhz() != highestSupportedMemory) continue;
                 Integer memory = caps.memoryClockControl() ? pair.memoryMhz() : null;
                 unique.add(new BayesianGpuOptimizer.Candidate(pair.coreMhz(), memory, target,
@@ -365,13 +431,21 @@ public class AutoTuningSessionService {
                         memory == null ? 0 : position(memory, caps.memoryMinMhz(), caps.memoryMaxMhz()),
                         position(target, gpu.minWatts(), safeMaxWatts)));
             }
+            if (caps.memoryClockControl() && observedClocks != null) {
+                int baselineMemory = observedClocks.memoryMhz();
+                return unique.stream().sorted(Comparator
+                        .comparingInt((BayesianGpuOptimizer.Candidate row) ->
+                                row.memoryMhz() == null || row.memoryMhz() == baselineMemory ? 1 : 0)
+                        .thenComparingInt(row -> row.memoryMhz() != null && row.memoryMhz() < baselineMemory ? 0 : 1)
+                        .thenComparingInt(row -> row.memoryMhz() == null ? Integer.MAX_VALUE
+                                : Math.abs(row.memoryMhz() - baselineMemory)))
+                        .toList();
+            }
             return List.copyOf(unique);
         }
         for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) for (int k = 0; k < 3; k++) {
             Integer core = caps.coreClockControl() ? cores.get(i) : null;
             Integer memory = caps.memoryClockControl() ? memories.get(j) : null;
-            if (clockCeiling != null && (core != null && core > clockCeiling.coreMhz()
-                    || memory != null && memory > clockCeiling.memoryMhz())) continue;
             unique.add(new BayesianGpuOptimizer.Candidate(core, memory, power.get(k),
                     caps.coreClockControl() ? i / 2d : 0, caps.memoryClockControl() ? j / 2d : 0, k / 2d));
         }
@@ -401,6 +475,10 @@ public class AutoTuningSessionService {
         static SampleSummary unstable(String detail, boolean driverFailure) {
             return new SampleSummary(false, 0, 0, 0, null, null, null, detail, driverFailure);
         }
+        SampleSummary withFailure(String detail) {
+            return new SampleSummary(false, hashrateHs, watts, samples, maxTemperatureC,
+                    observedCoreMhz, observedMemoryMhz, detail, false);
+        }
     }
     public record RunObservation(Integer coreMhz, Integer memoryMhz, int powerWatts, boolean stable,
                                  double score, int validSamples, Double hashrateHs, Double measuredWatts,
@@ -423,8 +501,8 @@ public class AutoTuningSessionService {
                 SampleSummary sample = row.sample();
                 return new RunObservation(row.candidate().coreMhz(), row.candidate().memoryMhz(), row.candidate().powerWatts(),
                         row.stable(), row.score(), sample == null ? 0 : sample.samples(),
-                        sample == null || !sample.stable() ? null : sample.hashrateHs(),
-                        sample == null || !sample.stable() ? null : sample.watts(),
+                        sample == null || sample.samples() == 0 ? null : sample.hashrateHs(),
+                        sample == null || sample.samples() == 0 ? null : sample.watts(),
                         sample == null ? null : sample.observedCoreMhz(),
                         sample == null ? null : sample.observedMemoryMhz(), row.detail());
             }).toList();

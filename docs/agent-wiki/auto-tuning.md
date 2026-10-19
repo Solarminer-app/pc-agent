@@ -23,22 +23,44 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   Bayesian-selected clock points per tier (twelve candidates total). NVIDIA
   candidates use only supported memory/core pairs reported by the driver; when
   memory locks are unavailable they use pairs at the highest listed memory
-  clock. AMD/Intel keep their probed discrete ranges. The objective is median
+  clock no higher than the currently observed memory clock. A writable clock
+  is not capped at the frequency observed before calibration: every reported
+  supported pair within the driver bounds remains eligible, including memory
+  and core clocks above the current operating point. AMD/Intel keep their probed
+  discrete ranges. Matching stable measurements from earlier runs seed the
+  Bayesian chooser, while each new run may remeasure the same setting. The
+  model scales observed efficiency scores before expected-improvement selection,
+  so H/s/W magnitude does not suppress exploration. The objective is median
   hashrate divided by measured GPU watts at each tier.
+  Twelve sampled combinations make this an exploratory search, not proof of
+  the absolute global optimum across all supported clock pairs.
 - Each candidate uses sixteen five-second samples (80 seconds). A candidate is
   unstable when more than two valid hashrate readings differ from the median
   by over 20%, fewer than fourteen readings have valid hash and power telemetry,
   or temperature exceeds 85 C (configurable within 65–90 C). Share counters
   are saved when available but do not determine candidate stability: a share
   can take longer than the measurement window on some coins. NVIDIA effective
-  core/memory clocks are read under load; more than two samples outside a 12%/minimum-MHz
-  tolerance invalidate a point. AMD/Intel effective-clock readback still needs
+  core/memory clocks are read under load. A core clock below its requested
+  ceiling is accepted when the power cap holds it lower and the observed core
+  remains stable. A core clock more than 12% or 75 MHz above the requested
+  ceiling is rejected; more than two core readings that deviate by that amount
+  from the observed median also reject the window. The memory tolerance is 1%
+  or 50 MHz. If three successive
+  valid samples show that a requested memory lock did not take effect, that
+  trial ends early and the session restores driver defaults before continuing
+  with core-only candidates at the observed memory clock. This prevents a
+  no-op memory write from being treated as a successful memory-clock experiment.
+  For a completed window, more than two out-of-tolerance memory samples reject
+  the point. AMD/Intel effective-clock readback still needs
   driver-specific validation. A worker exit scores the point zero; the agent
   restores defaults, attempts a bounded miner restart and continues only if
-  restoration and restart succeed. The session stops after 25 minutes.
+  restoration and restart succeed. The session stops after 40 minutes.
   Twelve candidate windows of sixteen five-second samples need sixteen minutes
-  of sampling; driver writes, miner settling and recovery add to that time. A
-  run that cannot confirm one stable point in each tier before the deadline
+  of sampling; driver writes, temperature/clock telemetry, miner settling and
+  recovery add to that time. The first live Quantus run reached candidate 12
+  with only three of sixteen samples after 25 minutes, so the old deadline was
+  insufficient for that host. A run that cannot confirm one stable point in
+  each tier before the deadline
   fails, but its individual measurements remain saved.
 - Every raw sampling step and every candidate result is appended to
   `auto-tuning-profiles.json.measurements.jsonl` and forced to disk before the
@@ -46,6 +68,9 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   miner software/version, requested cap/clocks, available hash/power/temperature,
   effective clocks, share counters, stability and typed failure reason. Invalid
   or unavailable readings stay explicit instead of being stored as zero.
+  Completed windows that fail the hashrate or clock stability check retain
+  their valid sample count and diagnostic hash/power/clock aggregates in the
+  result row; they still cannot become operating profiles.
   A write failure aborts calibration and triggers the existing driver restore.
   Existing `auto-tuning-profiles.json` matrices are loaded as legacy verified
   points; they are never discarded by a new session.
@@ -127,7 +152,12 @@ needs live validation on each OS and GPU family.
 
 The local UI reports calibration phase, candidate/sample progress, approximate
 remaining sampling time and saved history after reload without displaying raw
-miner output. German and English text uses the closed frontend catalog.
+miner output. During and after a session it also plots the raw sample timeline
+for observed core/memory clocks, temperature, measured power, hashrate and
+estimated gross fiat revenue per kWh. Hovering or tapping a point reveals its
+time and candidate settings. Charts refresh with the session and use the same
+local-only measurement endpoint; unavailable telemetry/market data is left
+blank. German and English text uses the closed frontend catalog.
 
 The device view groups each GPU's identity, power telemetry, probed clock
 capabilities, calibration action, saved candidate history, and manual clock ranges. A
@@ -176,8 +206,24 @@ and 7000 MHz. The former parser recognized only `runtime modifiable`, so it
 incorrectly disabled both memory controls despite this explicit policy. The
 parser now recognizes the 617.14 response and regression tests cover both
 reported ranges plus a deferred-only response. These are supported operating
-clocks, not offsets. No write or readback from the operator's Agent was shown;
-privilege and actual lock acceptance remain unverified.
+clocks, not offsets. The later Quantus raw export confirms the Agent requested
+405 and 810 MHz memory locks on GPU 1, yet every available NVIDIA clock
+readback remained at 6800 MHz. Core clocks did respond to requested changes.
+The driver command therefore did not establish effective memory control on
+this Windows setup, despite the runtime policy report. The newer session
+detects this after three valid readbacks and switches to core-only tuning; a
+live rerun is needed to verify the fallback. Earlier stable points with a
+requested and observed 6800 MHz memory clock do not prove the lock worked,
+because 6800 MHz was already the operating clock.
+The raw export also shows a requested 1710 MHz core at the 180 W cap running
+near 1380 MHz while producing about 370 MH/s at 175 W. The former symmetric
+target comparison discarded that power-limited point, although its measured
+efficiency was about 2.11 MH/s/W against 1.74 MH/s/W for the 260 W point.
+The revised core check permits a stable lower effective clock and retains the
+measured clock for diagnosis. The same issue affected the 100 W, 1710 MHz
+request, whose core ran near 615 MHz. Neither rejected result is retroactively
+promoted to a stable profile; a live rerun must confirm it under the revised
+rule.
 
 ### Initial implementation audit (2026-10-18; superseded by test-candidate work above)
 

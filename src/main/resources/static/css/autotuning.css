@@ -58,5 +58,21 @@
 #session-state .panel-head { margin-bottom: 10px; }
 #session-state progress { width: 100%; height: 8px; accent-color: #8bddbc; }
 #session-state .notice-line { margin: 8px 0; }
+.tuning-graphs { margin: 22px 0 18px; }
+.tuning-graphs-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.tuning-graphs-heading h3 { margin: 0; font-size: 16px; }
+.tuning-graphs-heading p { margin: 0; color: #96a8ba; font-size: 11px; }
+.tuning-graph-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 11px; }
+.tuning-graph-card { min-width: 0; padding: 12px 13px 10px; border: 1px solid #334354; border-radius: 10px; background: #111b27; }
+.tuning-graph-card h4 { margin: 0 0 5px; color: #c5d3df; font-size: 11px; font-weight: 600; }
+.tuning-graph-card svg { display: block; width: 100%; overflow: visible; }
+.tuning-graph-gridline { stroke: #344454; stroke-width: 1; stroke-dasharray: 3 5; }
+.tuning-graph-axis { fill: #91a2b3; font: 10px system-ui, sans-serif; }
+.tuning-graph-line { stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.tuning-graph-point { stroke: #111b27; stroke-width: 1.5; }
+.tuning-graph-point:hover { r: 5; stroke: #fff; stroke-width: 1.5; }
+.tuning-graph-current { display: block; margin: -3px 0 0 51px; color: #eef4f7; font-size: 13px; font-variant-numeric: tabular-nums; }
+.tuning-graph-empty { min-height: 110px; display: grid; place-items: center; color: #91a2b3; font-size: 11px; text-align: center; }
+@media (max-width: 520px) { .tuning-graphs-heading { align-items: flex-start; flex-direction: column; gap: 4px; } }
 @media (max-width: 700px) { .tuning-page .tuning-hero { min-height: 0; margin-top: 14px; padding: 25px 22px; } .tuning-hero-mark { opacity: .17; right: -25px; } #devices > .tuning-card { padding: 19px; } .tuning-calibration { align-items: stretch; flex-direction: column; } .tuning-calibration .button { align-self: flex-start; } }
 @media (max-width: 420px) { .tuning-stats { gap: 7px; }.tuning-stat { padding: 11px; }.tuning-range-heading { align-items: flex-start; flex-direction: column; gap: 4px; }.tuning-range-heading span { text-align: left; }.tuning-form .button-row .button { width: 100%; } }
