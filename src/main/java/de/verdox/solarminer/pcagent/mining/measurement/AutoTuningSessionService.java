@@ -197,9 +197,14 @@ public class AutoTuningSessionService {
                         .toList());
                 training.addAll(tierObservations);
                 BayesianGpuOptimizer.Candidate candidate = BayesianGpuOptimizer.next(tierCandidates, training, tierObservations);
-                if (index == 0 && tierCandidates.stream().anyMatch(row -> row.memoryOffsetMhz() != null))
-                    candidate = tierCandidates.stream().filter(row -> row.memoryOffsetMhz() != null
-                            && row.memoryOffsetMhz() != 0).findFirst().orElse(candidate);
+                int positionInTier = index % (MAX_CANDIDATES / 3);
+                if (positionInTier <= 1
+                        && tierCandidates.stream().anyMatch(row -> row.memoryOffsetMhz() != null))
+                    candidate = tierCandidates.stream().filter(row -> row.memoryOffsetMhz() != null)
+                            .min(positionInTier == 0
+                                    ? Comparator.comparingInt(BayesianGpuOptimizer.Candidate::memoryOffsetMhz)
+                                    : Comparator.comparingInt(BayesianGpuOptimizer.Candidate::memoryOffsetMhz).reversed())
+                            .orElse(candidate);
                 else if (index == 0 && caps.memoryClockControl() && observedClocks != null)
                     candidate = tierCandidates.stream()
                             .filter(row -> row.memoryMhz() != null
@@ -462,11 +467,12 @@ public class AutoTuningSessionService {
         List<Integer> power = powerTiers(gpu.minWatts(), startWatts, safeMaxWatts);
         Set<BayesianGpuOptimizer.Candidate> unique = new LinkedHashSet<>();
         if (offsetRange != null && observedClocks != null && caps.coreClockControl()) {
-            int low = Math.max(-200, offsetRange.minMhz());
-            int high = Math.min(100, offsetRange.maxMhz());
+            int low = offsetRange.minMhz();
+            int high = offsetRange.maxMhz();
             if (low <= high) {
                 List<Integer> offsets = new ArrayList<>(new LinkedHashSet<>(List.of(
-                        Math.clamp(-100, low, high), Math.clamp(0, low, high), Math.clamp(100, low, high))));
+                        low, low + (high - low) / 4, low + (high - low) / 2,
+                        Math.clamp(0, low, high), low + 3 * (high - low) / 4, high)));
                 List<Integer> coreTargets = caps.supportedPairs().stream()
                         .filter(pair -> pair.memoryMhz() == observedClocks.memoryMhz())
                         .map(GpuTuningService.ClockPair::coreMhz).distinct()

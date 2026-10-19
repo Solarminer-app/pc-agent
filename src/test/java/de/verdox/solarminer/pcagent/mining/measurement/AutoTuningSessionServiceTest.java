@@ -79,9 +79,9 @@ class AutoTuningSessionServiceTest {
                 new GpuTuningService.ClockTelemetry(1400, 6800), 260,
                 new GpuTuningService.MemoryOffsetRange(2, -250, 150, 0));
 
-        assertEquals(18, rows.size());
+        assertEquals(36, rows.size());
         assertTrue(rows.stream().allMatch(row -> row.memoryMhz() == null && row.memoryOffsetPstate() == 2));
-        assertEquals(java.util.Set.of(-100, 0, 100), rows.stream()
+        assertEquals(java.util.Set.of(-250, -150, -50, 0, 50, 150), rows.stream()
                 .map(BayesianGpuOptimizer.Candidate::memoryOffsetMhz).collect(java.util.stream.Collectors.toSet()));
     }
 

@@ -228,8 +228,10 @@ absolute memory lock as fully supported on Ampere and newer devices, unlike
 these Turing cards. The Agent now uses the shared `de.verdox.gputoolkit`
 NVML adapter for NVIDIA core targets and memory offsets during offset
 calibration on Windows. It reads the active P-state and driver limits,
-intersects them with a conservative -200/+100 MHz exploration window, and
-checks the offset after every write. The first nonzero trial also checks
+uses the full active-P-state range reported by the driver and checks the offset
+after every write. Candidate offsets include both reported boundaries,
+quarter points and zero when it falls in range. Both boundaries are sampled at
+each power tier before Bayesian selection continues. The first nonzero trial also checks
 that the effective memory clock actually moves. If the adapter is unavailable
 on an RTX 20 card, calibration explores core and power only; it does not
 try absolute memory locks. Raw samples and profiles store the requested
