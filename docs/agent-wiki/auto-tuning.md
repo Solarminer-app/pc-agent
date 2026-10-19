@@ -19,8 +19,9 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   benchmarks, sweeps, and power actions already using that lock cannot race it.
 - The test candidate searches three distinct power-cap tiers that include the
   manual starting target when it is inside the safe range. The first tier
-  sampled is the starting target. The search runs with up to four
-  Bayesian-selected clock points per tier (twelve candidates total). NVIDIA
+  sampled is the starting target. Each power tier first measures the minimum
+  and maximum driver-reported memory setting when writable, then uses up to two
+  Bayesian-selected clock points (twelve candidates total). NVIDIA
   candidates use only supported memory/core pairs reported by the driver; when
   memory locks are unavailable they use pairs at the highest listed memory
   clock no higher than the currently observed memory clock. A writable clock
@@ -231,7 +232,9 @@ calibration on Windows. It reads the active P-state and driver limits,
 uses the full active-P-state range reported by the driver and checks the offset
 after every write. Candidate offsets include both reported boundaries,
 quarter points and zero when it falls in range. Both boundaries are sampled at
-each power tier before Bayesian selection continues. The first nonzero trial also checks
+each power tier before Bayesian selection continues. Absolute memory-clock
+control likewise samples the lowest and highest writable driver-reported memory
+settings at every tier. The first nonzero trial also checks
 that the effective memory clock actually moves. If the adapter is unavailable
 on an RTX 20 card, calibration explores core and power only; it does not
 try absolute memory locks. Raw samples and profiles store the requested

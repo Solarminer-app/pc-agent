@@ -205,12 +205,12 @@ public class AutoTuningSessionService {
                                     ? Comparator.comparingInt(BayesianGpuOptimizer.Candidate::memoryOffsetMhz)
                                     : Comparator.comparingInt(BayesianGpuOptimizer.Candidate::memoryOffsetMhz).reversed())
                             .orElse(candidate);
-                else if (index == 0 && caps.memoryClockControl() && observedClocks != null)
-                    candidate = tierCandidates.stream()
-                            .filter(row -> row.memoryMhz() != null
-                                    && Math.abs(row.memoryMhz() - observedClocks.memoryMhz())
-                                    > memoryTolerance(row.memoryMhz()))
-                            .findFirst().orElse(candidate);
+                else if (positionInTier <= 1 && caps.memoryClockControl())
+                    candidate = tierCandidates.stream().filter(row -> row.memoryMhz() != null)
+                            .min(positionInTier == 0
+                                    ? Comparator.comparingInt(BayesianGpuOptimizer.Candidate::memoryMhz)
+                                    : Comparator.comparingInt(BayesianGpuOptimizer.Candidate::memoryMhz).reversed())
+                            .orElse(candidate);
                 if (candidate == null) continue;
                 session = session.withCandidate(candidate, ++measuredCandidates);
                 GpuTuningService.ApplyResult clockWrite = candidate.memoryOffsetMhz() == null
