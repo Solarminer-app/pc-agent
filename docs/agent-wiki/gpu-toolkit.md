@@ -19,8 +19,9 @@ copy in this API package to localize.
 
 Both adapters share the Java API but have different requirements: NVML needs a
 loadable driver library, while the CLI adapter needs a compatible executable
-and process permissions. PC-Agent Auto Tuning now uses the NVML adapter for
-Windows NVIDIA core targets and RTX 20 memory offsets; the CLI adapter remains
+and process permissions. PC-Agent Auto Tuning uses the NVML adapter for
+Windows NVIDIA core targets and Windows/Linux memory-offset calibration when
+per-device NVML offset controls are available; the CLI adapter remains
 available as an API option and is not selected for that offset path. Hardware-specific command support
 and writes still depend on the GPU, driver, operating system and process
 privileges.
@@ -31,8 +32,8 @@ privileges.
 the native NVML implementation. It preserves NVIDIA utility diagnostics,
 supports the telemetry and controls exposed by `nvidia-smi`, and reports
 offset tuning and fan control as unsupported. PC-Agent selects the NVML adapter
-for Windows NVIDIA offset calibration; it does not select the CLI adapter for
-that path.
+for Windows/Linux NVIDIA offset calibration when NVML reports a valid per-device
+range; it does not select the CLI adapter for that path.
 
 ## Driver prerequisites and local dashboard
 

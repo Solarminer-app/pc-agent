@@ -3275,3 +3275,13 @@ changes were preserved.
 
 - The RTX 20 NVML path previously generated only -100/0/+100 MHz offset candidates and forced a nonzero offset only for the first power tier. Candidate generation now spans the full active-P-state range reported by NVML, includes both endpoints, quarter points and zero when in range, and explicitly measures both endpoints at each power tier before Bayesian selection continues. The write guard now accepts the same full driver-reported limits.
 - Absolute memory-clock candidates likewise measure the lowest and highest writable driver-reported memory settings at every power tier. Up to two additional points per tier remain Bayesian-selected. Updated the Auto Tuning contract and regression expectations. No hardware write or test suite was run; live endpoint convergence, stability and power savings still need observation on each GPU family/OS combination.
+
+## 2026-10-19 — Record pre-change Auto Tuning hardware exports
+
+- The operator supplied baseline Windows RTX 2080 Ti and Ubuntu/Docker TITAN RTX Quantus exports from before the full-boundary search changes. Windows `--lock-memory-clocks` requests for 405/810/5000 MHz left readback at 6800 MHz; the 5000 MHz trial was marked ineffective. A later NVML-offset run changed observed memory from 6800 to 6750/6849 MHz for -100/+100 MHz requests, but the measured 100 W-tier power/hash results varied only slightly and core settings differed, so memory power savings are not isolated. The Linux/Docker TITAN RTX 810 MHz lock left readback at 6500 MHz, then tuning continued core-only.
+- These exports document the prior implementation and do not validate current full-range candidate scheduling. No test or live rerun was performed for this documentation update; Linux memory-control capability remains open.
+
+## 2026-10-19 — Enable NVIDIA NVML memory-offset probing on Linux
+
+- The TITAN RTX Ubuntu/Docker baseline showed that `nvidia-smi --lock-memory-clocks` requested 810 MHz while effective memory remained at 6500 MHz. PC-Agent had an NVML offset driver but gated offset discovery to Windows, preventing Linux from trying the alternate control API. Offset discovery now runs on NVIDIA Linux hosts too; it still requires a valid active-P-state range from NVML, and every write must pass offset readback plus under-load effective-clock checks. If probing or writing fails, existing core-only fallback remains.
+- NVIDIA documents `libnvidia-ml.so` for Linux and states that Docker `utility` driver capability exposes NVML. The configured PC-Agent NVIDIA Compose overlay already requests `compute,utility`. No Linux hardware validation or automated tests were run; TITAN RTX container library visibility, privileges, offset writes and recovery need a live rerun.

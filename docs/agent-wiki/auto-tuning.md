@@ -228,7 +228,8 @@ offset bounds and current value. NVIDIA's current NVML guide describes the
 absolute memory lock as fully supported on Ampere and newer devices, unlike
 these Turing cards. The Agent now uses the shared `de.verdox.gputoolkit`
 NVML adapter for NVIDIA core targets and memory offsets during offset
-calibration on Windows. It reads the active P-state and driver limits,
+calibration on Windows and Linux when the native NVML library and per-device
+offset controls are available. It reads the active P-state and driver limits,
 uses the full active-P-state range reported by the driver and checks the offset
 after every write. Candidate offsets include both reported boundaries,
 quarter points and zero when it falls in range. Both boundaries are sampled at
@@ -241,8 +242,26 @@ try absolute memory locks. Raw samples and profiles store the requested
 offset/P-state separately from the observed effective memory MHz. A recovery
 marker preserves the original offset across a crash and restores it on
 startup. A Windows RTX 2080 Ti live rerun is still required to establish
-that NVML writes work on the operator's driver and GPU. The GPU Tweak result
+that NVML writes work on the operator's driver and GPU. Linux now tries the same
+NVML offset probe when the native library is visible; a live Ubuntu/Docker
+rerun on the TITAN RTX is still needed to establish library visibility,
+privileges, write/readback and effective clock movement. The GPU Tweak result
 has not yet been paired with an Agent readback under the same workload.
+
+The operator's 2026-10-19 Windows RTX 2080 Ti and Ubuntu/Docker TITAN RTX
+exports are baseline evidence from before the current full-range candidate and
+write-guard changes. In the Windows absolute-lock runs, requests for 405, 810
+and 5000 MHz did not move the observed memory clock from 6800 MHz; the 5000 MHz
+trial was explicitly classified `auto_tuning_memory_lock_ineffective` and later
+trials fell back to core-only tuning. A later Windows NVML-offset run requested
+-100/0/+100 MHz and read back 6750/6800/6849 MHz, so the offset changed the
+effective clock by about 50 MHz in either direction. At the 100 W tier the
+three results were approximately 97.0–97.3 W and 167.6–168.3 MH/s, but core
+targets differed, so this is not a controlled estimate of memory-offset power
+savings. On the Ubuntu/Docker TITAN RTX, an 810 MHz absolute-lock request left
+the measured clock at 6500 MHz and was classified ineffective; all later
+core-only candidates also read 6500 MHz. These exports do not test the newer
+full-boundary sampling or establish a working Linux memory-control method.
 Do not infer an offset range from `--query-supported-clocks` or relabel
 absolute lock settings as offsets.
 See the [ASUS GPU Tweak III guide](https://www.asus.com/us/support/faq/1048435/),

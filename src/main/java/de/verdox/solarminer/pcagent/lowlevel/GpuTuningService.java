@@ -94,11 +94,10 @@ public class GpuTuningService {
         } catch (Exception ignored) { return null; }
     }
 
-    /** The active P-state has its own driver-reported offset range. Only Windows NVML is used. */
+    /** The active P-state has its own driver-reported offset range. NVML availability gates support per device. */
     public MemoryOffsetRange memoryOffsetRange(String deviceId) {
         LocalGpuPowerService.Gpu gpu = find(deviceId);
-        if (gpu == null || !"NVIDIA".equalsIgnoreCase(gpu.vendor())
-                || !isWindows()) return null;
+        if (gpu == null || !"NVIDIA".equalsIgnoreCase(gpu.vendor())) return null;
         try {
             String state = power.runTuningCommand(List.of("nvidia-smi", "-i", gpu.deviceId(),
                     "--query-gpu=pstate", "--format=csv,noheader,nounits")).strip();
