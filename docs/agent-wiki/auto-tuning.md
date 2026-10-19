@@ -299,6 +299,25 @@ core-only candidates also read 6500 MHz. These exports do not test the newer
 full-boundary sampling or establish a working Linux memory-control method.
 Do not infer an offset range from `--query-supported-clocks` or relabel
 absolute lock settings as offsets.
+
+The operator reports a separate RTX 3080 observation: the effective memory
+clock was 9251 MHz at baseline, 8751 MHz after requesting a -1000 MHz NVML
+memory offset, and 8251 MHz after requesting -2000 MHz. On that card and setup,
+each -1000 MHz input step therefore corresponded to a 500 MHz lower reported
+effective clock. Keep requested NVML offset and observed effective MHz as
+separate values; this single-device observation is not a conversion guarantee
+for other cards or driver versions.
+
+The operator also reports the TITAN RTX at 6500 MHz effective memory clock,
+6000 MHz with a -1000 MHz NVML offset, and 5500 MHz with a -2000 MHz offset.
+This is the same observed 500 MHz effective-clock change per -1000 MHz input
+step on that card. The report does not specify OS, driver version, or workload;
+do not merge it with the earlier Ubuntu/Docker absolute-lock export as though
+they were the same run.
+The operator confirms that the UI's most-negative NVML offset bound is also
+-2000 MHz on the RTX 3080. Both reported cards therefore expose -2000 MHz as
+the lower bound on their current driver setups; the UI obtains this limit from
+NVML at runtime rather than assuming it for other GPUs or drivers.
 See the [ASUS GPU Tweak III guide](https://www.asus.com/us/support/faq/1048435/),
 [NVIDIA NVML changes](https://docs.nvidia.com/deploy/nvml-api/change-log.html)
 and [NVIDIA memory lock contract](https://docs.nvidia.com/deploy/nvml-api/latest/api/group__nvmlDeviceCommands.html).
@@ -385,3 +404,8 @@ Primary references: [Smile Gaussian Process API](https://github.com/haifengl/smi
 [NVIDIA SMI clock locks](https://docs.nvidia.com/deploy/nvidia-smi/index.html),
 [AMD SMI clock controls](https://rocm.docs.amd.com/projects/amdsmi/en/develop/how-to/amdsmi-cli-tool.html), and
 [Intel XPU-SMI frequency range](https://intel.github.io/xpumanager/2.0/xpu-smi/config.html).
+# SRBMiner-native NVIDIA tuning (2026-10-19)
+
+For SRBMiner-MULTI on NVIDIA, independent of the configured coin, the Auto Tuning candidate and selected profile are applied through SRBMiner's documented startup parameters: `--gpu-cclock0`, `--gpu-mclock0`, `--gpu-moffset0` and `--gpu-plimit0`. The Auto Tuning service addresses the active miner-software adapter through `MinerNativeTuning`; it has no Pearl-specific branch. A candidate change restarts only that GPU's SRBMiner process, which makes the miner itself the clock-control owner. SRBMiner has no documented runtime OC API, so a restart is required for each change.
+
+The native path is intentionally restricted to NVIDIA SRBMiner workers. AMD and other miner adapters remain on their respective existing driver paths until their miner provides an equivalent documented control interface. SRBMiner command acceptance and physical clock/power behaviour still require validation on each supported driver and GPU.

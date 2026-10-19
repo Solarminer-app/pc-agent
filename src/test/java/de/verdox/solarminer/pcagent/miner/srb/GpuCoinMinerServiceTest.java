@@ -27,6 +27,18 @@ class GpuCoinMinerServiceTest {
     @org.junit.jupiter.api.io.TempDir Path directory;
 
     @Test
+    void emitsNativeTuningArgumentsForAnySrbGpuCoin() {
+        var config = new MinerConfig("stratum+tcp://pool.example:3333", "stratum+tcp://127.0.0.1:3337",
+                "wallet", "worker", "NVIDIA:0");
+
+        List<String> command = GpuCoinMinerService.buildCommand(Path.of("SRBMiner-MULTI"), "quantus", config,
+                "login", 12000, 0, new SrbTuningProfile(1500, 810, -250, 180));
+
+        assertTrue(command.containsAll(List.of("--gpu-cclock0", "1500", "--gpu-mclock0", "810",
+                "--gpu-moffset0", "-250", "--gpu-plimit0", "180")));
+    }
+
+    @Test
     void sweepTemporarilyExtendsSavedGpuCoinDevices() throws Exception {
         var mapper = new ObjectMapper();
         var saved = new MinerConfig("stratum+tcp://pool.example:3333", "stratum+tcp://proxy.example:3337",

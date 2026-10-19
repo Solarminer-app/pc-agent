@@ -154,6 +154,7 @@ function tuningControl(gpu) {
         const label = node('label', '', 'memory_clock_offset_mhz'), input = document.createElement('input');
         input.type = 'number'; input.inputMode = 'numeric'; input.min = String(offset.minMhz); input.max = String(offset.maxMhz); input.step = '1'; input.required = true;
         input.value = String(offset.currentMhz); label.append(input); form.append(label); fields.push({name: 'memoryOffset', input, pstate: offset.pstate});
+        form.append(node('small', 'muted', 'memory_offset_effective_clock_note'));
     }
     if (!fields.length) {
         section.append(node('p', 'muted', 'gpu_clock_controls_unavailable'));

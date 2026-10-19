@@ -11,10 +11,13 @@ import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
 import de.verdox.solarminer.pcagent.miner.MinerProcessRegistry;
 import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.miner.GpuCoinMiner;
+import de.verdox.solarminer.pcagent.miner.MinerNativeTuning;
 import de.verdox.solarminer.pcagent.miner.engine.AbstractSrbMinerEngine;
 import de.verdox.solarminer.pcagent.miner.engine.SrbMonitorPolicy;
 import de.verdox.solarminer.pcagent.miner.engine.WorkerRunState;
 import de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService;
+import de.verdox.solarminer.pcagent.miner.srb.SrbTuningProfile;
+import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -46,7 +49,7 @@ import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
  * Runs one SRBMiner-MULTI process per selected GPU, independently of XMRig.
  */
 @Service
-public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoinMiner {
+public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoinMiner, MinerNativeTuning {
     private static final Logger LOGGER = Logger.getLogger(PearlMinerService.class.getName());
     private static final Pattern NVIDIA = Pattern.compile("GPU(\\d+)\\s+\\[CUDA]\\[(\\d+)][^\\r\\n]*");
     private static final Pattern AMD = Pattern.compile("GPU(\\d+)\\s+\\[\\d+]\\[(\\d+)][^\\r\\n]*");
@@ -65,6 +68,8 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
      */
     private final Map<String, WorkerRunState> runs = new ConcurrentHashMap<>();
     private final Set<String> manuallyPaused = ConcurrentHashMap.newKeySet();
+    /** Ephemeral per-device values. The persisted source of truth remains the tuning profile store. */
+    private final Map<String, SrbTuningProfile> nativeTuning = new ConcurrentHashMap<>();
     private volatile MinerConfig config;
     /**
      * Ephemeral fee-backend configuration used only while the efficiency sweep measures Pearl
@@ -329,7 +334,7 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
             String suffix = "-" + (gpu.vendor().equals("NVIDIA") ? "n" : "a") + gpu.index();
             String worker = route.worker().substring(0, Math.min(route.worker().length(), 32 - suffix.length())) + suffix;
             List<String> command = buildCommand(executable, proxy, route.wallet(),
-                    encodedWorker(route.poolUrl(), worker), apiPort, srbId);
+                    encodedWorker(route.poolUrl(), worker), apiPort, srbId, nativeTuning.get(gpu.deviceId()));
             Process started = new ProcessBuilder(command).directory(executable.getParent().toFile())
                     .redirectErrorStream(true).start();
             run.process = started;
@@ -422,12 +427,43 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
 
     static List<String> buildCommand(Path executable, URI proxy, String wallet, String worker,
                                      int apiPort, int srbId) {
+        return buildCommand(executable, proxy, wallet, worker, apiPort, srbId, null);
+    }
+
+    static List<String> buildCommand(Path executable, URI proxy, String wallet, String worker,
+                                     int apiPort, int srbId, SrbTuningProfile tuning) {
         // SRBMiner 3.7.3 selects its PearlHash kernel from the CUDA SM itself. The temporary
         // --pearl-k1/--pearl-k2 switches must not be reconstructed from marketing model names.
-        return List.of(executable.toString(), "--disable-cpu", "--algorithm", "pearlhash",
+        List<String> command = new java.util.ArrayList<>(List.of(executable.toString(), "--disable-cpu", "--algorithm", "pearlhash",
                 "--pool", proxy.getHost() + ":" + proxy.getPort(), "--wallet", wallet,
                 "--worker", worker, "--tls", "false", "--api-enable", "--api-port",
-                Integer.toString(apiPort), "--gpu-id", Integer.toString(srbId));
+                Integer.toString(apiPort), "--gpu-id", Integer.toString(srbId)));
+        if (tuning != null) {
+            addTuningArgument(command, "--gpu-cclock0", tuning.coreMhz());
+            addTuningArgument(command, "--gpu-mclock0", tuning.memoryMhz());
+            addTuningArgument(command, "--gpu-moffset0", tuning.memoryOffsetMhz());
+            addTuningArgument(command, "--gpu-plimit0", tuning.powerLimitWatts());
+        }
+        return List.copyOf(command);
+    }
+
+    private static void addTuningArgument(List<String> command, String option, Integer value) {
+        if (value != null) { command.add(option); command.add(Integer.toString(value)); }
+    }
+
+    @Override
+    public synchronized boolean applyNativeTuning(LocalGpuPowerService.Gpu gpu, AutoTuningProfileStore.Profile profile) {
+        if (!"NVIDIA".equalsIgnoreCase(gpu.vendor())) return false;
+        nativeTuning.put(gpu.deviceId(), SrbTuningProfile.from(profile));
+        return !runs.containsKey(gpu.vendor() + ":" + gpu.index()) || stopGpu(gpu.vendor(), gpu.index())
+                && startGpu(gpu.vendor(), gpu.index());
+    }
+
+    @Override
+    public synchronized boolean clearNativeTuning(LocalGpuPowerService.Gpu gpu) {
+        nativeTuning.remove(gpu.deviceId());
+        return !runs.containsKey(gpu.vendor() + ":" + gpu.index()) || stopGpu(gpu.vendor(), gpu.index())
+                && startGpu(gpu.vendor(), gpu.index());
     }
 
     /**

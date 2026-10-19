@@ -3383,3 +3383,18 @@ changes were preserved.
 - Verification: JDK 21 `compileJava --offline`, JavaScript syntax check, German
   and English catalog/render checks, zero unkeyed browser display literals and
   `git diff --check` passed. No automated tests or live GPU writes.
+- Follow-up: clarified that the input is the NVML memory offset and that its
+  delta may differ from effective memory MHz. Recorded the operator's RTX 3080
+  report: 9251 MHz baseline, 8751 MHz at -1000 MHz offset and 8251 MHz at
+  -2000 MHz. This is device/driver observation, not a universal scale factor.
+- Additional operator report: TITAN RTX effective memory clock 6500 MHz at
+  baseline, 6000 MHz at -1000 MHz offset and 5500 MHz at -2000 MHz. The OS,
+  driver and workload were not specified, so this is kept separate from the
+  earlier Ubuntu/Docker absolute-lock export.
+- Operator confirms the UI's minimum offset bound is -2000 MHz on the RTX 3080
+  as well; both cards report the same lower bound on their current setups.
+# 2026-10-19 — SRBMiner-native Auto Tuning
+
+- Replaced direct driver application for NVIDIA SRBMiner tuning candidates and saved Auto Tuning profiles with documented SRBMiner options (`--gpu-cclock0`, `--gpu-mclock0`, `--gpu-moffset0`, `--gpu-plimit0`). The Auto Tuning service addresses the active miner-software adapter through `MinerNativeTuning`; SRBMiner's Pearl and shared GPU-coin adapters both implement it.
+- Candidate/profile changes restart the isolated GPU process because SRBMiner exposes no documented runtime OC command API. A failed tuning run clears the temporary native profile before driver recovery.
+- Added command-construction coverage in `SrbMinerVersionTest`. Physical GPU/driver validation remains required.

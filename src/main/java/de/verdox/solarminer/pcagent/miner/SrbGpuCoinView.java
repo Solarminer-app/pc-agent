@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
  * per-coin API of {@link GpuCoinMinerService}; every coin-specific parameter, command and
  * wallet rule stays inside that service. The MinerFactory hands these views to orchestration.
  */
-public final class SrbGpuCoinView implements GpuCoinMiner {
+public final class SrbGpuCoinView implements GpuCoinMiner, MinerNativeTuning {
     private final GpuCoinMinerService service;
     private final LocalGpuPowerService power;
     private final Coin coin;
@@ -28,6 +28,17 @@ public final class SrbGpuCoinView implements GpuCoinMiner {
 
     private String key() {
         return coin.id();
+    }
+
+    @Override
+    public boolean applyNativeTuning(LocalGpuPowerService.Gpu gpu,
+                                    de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore.Profile profile) {
+        return service.applyNativeTuning(key(), gpu, profile);
+    }
+
+    @Override
+    public boolean clearNativeTuning(LocalGpuPowerService.Gpu gpu) {
+        return service.clearNativeTuning(key(), gpu);
     }
 
     @Override

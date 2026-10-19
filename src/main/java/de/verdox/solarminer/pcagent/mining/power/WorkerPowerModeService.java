@@ -183,6 +183,16 @@ public class WorkerPowerModeService {
             }
             if (profile == null || profile.powerLimitWatts() < gpu.minWatts() || gpuTuning == null)
                 return new Selection(choice.mode(), null, "auto_tuning_budget_below_profile");
+            if ("NVIDIA".equalsIgnoreCase(gpu.vendor()) && miners != null) {
+                var nativeTuning = miners.gpuMinerForWorker(coin.id(), deviceId)
+                        .filter(de.verdox.solarminer.pcagent.miner.MinerNativeTuning.class::isInstance)
+                        .map(de.verdox.solarminer.pcagent.miner.MinerNativeTuning.class::cast);
+                if (nativeTuning.isPresent()) {
+                    return nativeTuning.get().applyNativeTuning(gpu, profile)
+                            ? new Selection(choice.mode(), profile.powerLimitWatts(), null)
+                            : new Selection(choice.mode(), null, "srbminer_native_tuning_failed");
+                }
+            }
             var clocks = profile.memoryOffsetMhz() == null
                     ? gpuTuning.apply(deviceId, profile.coreMhz(), profile.coreMhz(), profile.memoryMhz(), profile.memoryMhz())
                     : gpuTuning.apply(deviceId, profile.coreMhz(), profile.coreMhz(), null, null,

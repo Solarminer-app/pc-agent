@@ -8,6 +8,7 @@ import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
 import de.verdox.solarminer.pcagent.miner.MinerProcessRegistry;
 import de.verdox.solarminer.pcagent.miner.MinerStopContext;
 import de.verdox.solarminer.pcagent.miner.MinerShareTelemetry;
+import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore;
 import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
 import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.coin.Coin;
@@ -58,6 +59,7 @@ public class GpuCoinMinerService extends AbstractSrbMinerEngine {
     private final Map<String, MinerConfig> sweepOverrides = new ConcurrentHashMap<>();
     private final Map<String, MinerConfig> benchmarkOverrides = new ConcurrentHashMap<>();
     private final Map<String, WorkerRunState> runs = new ConcurrentHashMap<>();
+    private final Map<String, SrbTuningProfile> nativeTuning = new ConcurrentHashMap<>();
     private final Set<String> manuallyPaused = ConcurrentHashMap.newKeySet();
     private volatile String lastError;
 
@@ -256,7 +258,8 @@ public class GpuCoinMinerService extends AbstractSrbMinerEngine {
             var relay = new de.verdox.solarminer.pcagent.mining.proxy.GpuStratumRelay(config.proxyUrl(), login, mapper);
             run.relay = relay;
             MinerConfig relayed = new MinerConfig(config.poolUrl(), relay.localUrl(), config.wallet(), config.worker(), config.devices());
-            List<String> command = buildCommand(pearl.executablePath(), coin, relayed, login, apiPort, gpuId);
+            List<String> command = buildCommand(pearl.executablePath(), coin, relayed, login, apiPort, gpuId,
+                    nativeTuning.get(coin + ":" + gpu.deviceId()));
             Process process = new ProcessBuilder(command).directory(pearl.executablePath().getParent().toFile())
                     .redirectErrorStream(true).start();
             MinerProcessRegistry.registerGpuCoin(process, gpu.deviceId());
@@ -312,6 +315,11 @@ public class GpuCoinMinerService extends AbstractSrbMinerEngine {
 
     static List<String> buildCommand(Path executable, String coin, MinerConfig config, String login,
                                      int apiPort, int gpuId) {
+        return buildCommand(executable, coin, config, login, apiPort, gpuId, null);
+    }
+
+    static List<String> buildCommand(Path executable, String coin, MinerConfig config, String login,
+                                     int apiPort, int gpuId, SrbTuningProfile tuning) {
         URI uri = URI.create(config.proxyUrl());
         List<String> command = new ArrayList<>(List.of(executable.toString(), "--disable-cpu", "--algorithm-gpu", algorithm(coin),
                 "--pool", uri.getHost() + ":" + uri.getPort(), "--wallet", login,
@@ -323,7 +331,33 @@ public class GpuCoinMinerService extends AbstractSrbMinerEngine {
             case RAVENCOIN -> command.addAll(List.of("--nicehash", "true"));
             default -> { }
         }
+        if (tuning != null) {
+            addTuningArgument(command, "--gpu-cclock0", tuning.coreMhz());
+            addTuningArgument(command, "--gpu-mclock0", tuning.memoryMhz());
+            addTuningArgument(command, "--gpu-moffset0", tuning.memoryOffsetMhz());
+            addTuningArgument(command, "--gpu-plimit0", tuning.powerLimitWatts());
+        }
         return List.copyOf(command);
+    }
+
+    private static void addTuningArgument(List<String> command, String option, Integer value) {
+        if (value != null) { command.add(option); command.add(Integer.toString(value)); }
+    }
+
+    public synchronized boolean applyNativeTuning(String coin, LocalGpuPowerService.Gpu gpu,
+                                                   AutoTuningProfileStore.Profile profile) {
+        if (!"NVIDIA".equalsIgnoreCase(gpu.vendor()) || !supported(coin)) return false;
+        nativeTuning.put(coin + ":" + gpu.deviceId(), SrbTuningProfile.from(profile));
+        WorkerRunState run = runs.get(coin + ":" + gpu.vendor() + ":" + gpu.index());
+        return run == null || !run.running() || stopGpu(coin, gpu.vendor(), gpu.index())
+                && startGpu(coin, gpu.vendor(), gpu.index());
+    }
+
+    public synchronized boolean clearNativeTuning(String coin, LocalGpuPowerService.Gpu gpu) {
+        nativeTuning.remove(coin + ":" + gpu.deviceId());
+        WorkerRunState run = runs.get(coin + ":" + gpu.vendor() + ":" + gpu.index());
+        return run == null || !run.running() || stopGpu(coin, gpu.vendor(), gpu.index())
+                && startGpu(coin, gpu.vendor(), gpu.index());
     }
 
     private boolean hasUnmanagedMiner() {

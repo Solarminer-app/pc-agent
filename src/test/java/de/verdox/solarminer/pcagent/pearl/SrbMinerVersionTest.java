@@ -2,6 +2,7 @@ package de.verdox.solarminer.pcagent.miner.pearl;
 
 import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
 import de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService;
+import de.verdox.solarminer.pcagent.miner.srb.SrbTuningProfile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -38,5 +39,15 @@ class SrbMinerVersionTest {
         assertTrue(command.contains("7"));
         assertFalse(command.contains("--pearl-k1"));
         assertFalse(command.contains("--pearl-k2"));
+    }
+
+    @Test
+    void emitsOnlyDocumentedSrbMinerOcOptionsForANativeNvidiaProfile() {
+        List<String> command = PearlMinerService.buildCommand(Path.of("SRBMiner-MULTI"),
+                URI.create("stratum+tcp://127.0.0.1:3334"), "wallet", "worker", 12007, 7,
+                new SrbTuningProfile(1500, 810, -250, 180));
+
+        assertTrue(command.containsAll(List.of("--gpu-cclock0", "1500", "--gpu-mclock0", "810",
+                "--gpu-moffset0", "-250", "--gpu-plimit0", "180")));
     }
 }

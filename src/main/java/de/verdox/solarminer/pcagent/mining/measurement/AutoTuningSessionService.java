@@ -5,6 +5,7 @@ import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.lowlevel.GpuTuningService;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.miner.MinerFactory;
+import de.verdox.solarminer.pcagent.miner.MinerNativeTuning;
 import de.verdox.solarminer.pcagent.mining.MiningService;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
@@ -294,14 +295,25 @@ public class AutoTuningSessionService {
                     candidate = memoryBoundaryCandidate(tierCandidates, candidate, false, positionInTier == 0);
                 if (candidate == null) continue;
                 session = session.withCandidate(candidate, ++measuredCandidates);
-                GpuTuningService.ApplyResult clockWrite = !selection.core() && !selection.memory()
+                MinerNativeTuning nativeTuning = miners.gpuMinerForWorker(coin.id(), gpu.deviceId())
+                        .filter(MinerNativeTuning.class::isInstance).map(MinerNativeTuning.class::cast).orElse(null);
+                boolean useMinerCommands = nativeTuning != null && "NVIDIA".equalsIgnoreCase(gpu.vendor());
+                AutoTuningProfileStore.Profile commandProfile = new AutoTuningProfileStore.Profile(gpu.deviceId(), gpu.model(),
+                        gpu.vendor(), coin.id(), coin.assignmentAlgorithm(), software, softwareVersion,
+                        candidate.coreMhz(), candidate.memoryMhz(), candidate.powerWatts(), 1, 1, 1, 1, Instant.now(),
+                        candidate.memoryOffsetMhz(), candidate.memoryOffsetPstate());
+                GpuTuningService.ApplyResult clockWrite = useMinerCommands
+                        ? new GpuTuningService.ApplyResult(nativeTuning.applyNativeTuning(gpu, commandProfile),
+                        "srbminer_native_tuning_failed")
+                        : !selection.core() && !selection.memory()
                         ? new GpuTuningService.ApplyResult(true, null)
                         : candidate.memoryOffsetMhz() == null
                         ? tuning.apply(gpu.deviceId(), candidate.coreMhz(), candidate.coreMhz(),
                         candidate.memoryMhz(), candidate.memoryMhz())
                         : tuning.apply(gpu.deviceId(), candidate.coreMhz(), candidate.coreMhz(),
                         null, null, candidate.memoryOffsetMhz(), candidate.memoryOffsetPstate());
-                boolean capApplied = clockWrite.applied() && power.setAutoTuningPowerTarget(candidate.powerWatts(), gpu);
+                boolean capApplied = clockWrite.applied() && (useMinerCommands
+                        || power.setAutoTuningPowerTarget(candidate.powerWatts(), gpu));
                 if (!capApplied) {
                     saveMeasurement(context, candidate, "RESULT", null, null, null, null, null,
                             0, null, null, false,
@@ -369,8 +381,11 @@ public class AutoTuningSessionService {
                             : power.configuredPowerLimitWatts(gpu)))
                     .max(Comparator.comparingDouble(AutoTuningProfileStore.Profile::efficiencyHashesPerWatt)).orElse(null);
             if (profile == null) throw new IllegalStateException("auto_tuning_profile_save_failed");
-            if (!tuning.restoreDefaults(gpu.deviceId()).applied()
-                    || !power.setAutoTuningPowerTarget(originalPower, gpu))
+            boolean nativeProfile = miners.gpuMinerForWorker(coin.id(), gpu.deviceId())
+                    .filter(MinerNativeTuning.class::isInstance).isPresent()
+                    && "NVIDIA".equalsIgnoreCase(gpu.vendor());
+            if ((!nativeProfile && !tuning.restoreDefaults(gpu.deviceId()).applied())
+                    || (!nativeProfile && !power.setAutoTuningPowerTarget(originalPower, gpu)))
                 throw new IllegalStateException("gpu_clock_restore_failed");
             if (selection.core() && selection.memory() && selection.power()
                     && controls != null && modes != null
@@ -393,6 +408,9 @@ public class AutoTuningSessionService {
             }
             boolean gpuReset = !gpuFailure || !"NVIDIA".equalsIgnoreCase(gpu.vendor())
                     || tuning.resetUnresponsiveGpu(gpu.deviceId()).applied();
+            miners.gpuMinerForWorker(coin.id(), gpu.deviceId())
+                    .filter(MinerNativeTuning.class::isInstance).map(MinerNativeTuning.class::cast)
+                    .ifPresent(nativeTuning -> nativeTuning.clearNativeTuning(gpu));
             boolean clocksRestored = tuning.restoreDefaults(gpu.deviceId()).applied();
             boolean powerRestored = power.setAutoTuningPowerTarget(originalPower, gpu);
             session = session.failed(!gpuReset ? "auto_tuning_gpu_reset_failed"
