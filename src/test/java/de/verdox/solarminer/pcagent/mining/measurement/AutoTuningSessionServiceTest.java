@@ -67,7 +67,7 @@ class AutoTuningSessionServiceTest {
     }
 
     @Test
-    void rtxOffsetCandidatesKeepRequestedOffsetSeparateFromObservedMemoryClock() {
+    void rtxCandidatesCoverBothMemoryOffsetsAndFixedMemoryClocks() {
         var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 1, "GPU-2080-1", "NVIDIA GeForce RTX 2080 Ti",
                 100, 300, 100, 300, 260, 250.0, "measured", true, null, 300);
         var caps = new GpuTuningService.Capabilities("GPU-2080-1", true, true, false,
@@ -80,9 +80,13 @@ class AutoTuningSessionServiceTest {
                 new GpuTuningService.ClockTelemetry(1400, 6800), 260,
                 new GpuTuningService.MemoryOffsetRange(2, -250, 150, 0));
 
-        assertEquals(36, rows.size());
-        assertTrue(rows.stream().allMatch(row -> row.memoryMhz() == null && row.memoryOffsetPstate() == 2));
+        assertEquals(45, rows.size());
+        assertTrue(rows.stream().anyMatch(row -> row.memoryMhz() == 405 && row.memoryOffsetMhz() == null));
+        assertTrue(rows.stream().anyMatch(row -> row.memoryMhz() == 6800 && row.memoryOffsetMhz() == null));
+        assertTrue(rows.stream().filter(row -> row.memoryOffsetMhz() != null)
+                .allMatch(row -> row.memoryMhz() == null && row.memoryOffsetPstate() == 2));
         assertEquals(java.util.Set.of(-250, -163, -75, 0, 12, 100), rows.stream()
+                .filter(row -> row.memoryOffsetMhz() != null)
                 .map(BayesianGpuOptimizer.Candidate::memoryOffsetMhz).collect(java.util.stream.Collectors.toSet()));
     }
 

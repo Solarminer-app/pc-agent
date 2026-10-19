@@ -291,9 +291,12 @@ public class AutoTuningSessionService {
                 training.addAll(tierObservations);
                 BayesianGpuOptimizer.Candidate candidate = BayesianGpuOptimizer.next(tierCandidates, training, tierObservations);
                 int positionInTier = index % candidatesPerTier;
-                if (positionInTier <= 1
-                        && tierCandidates.stream().anyMatch(row -> row.memoryOffsetMhz() != null))
+                boolean hasOffsetCandidates = tierCandidates.stream().anyMatch(row -> row.memoryOffsetMhz() != null);
+                if (positionInTier <= 1 && hasOffsetCandidates)
                     candidate = memoryBoundaryCandidate(tierCandidates, candidate, true, positionInTier == 0);
+                else if (hasOffsetCandidates && positionInTier <= 3
+                        && tierCandidates.stream().anyMatch(row -> row.memoryMhz() != null))
+                    candidate = memoryBoundaryCandidate(tierCandidates, candidate, false, positionInTier == 2);
                 else if (positionInTier <= 1 && selection.memory() && caps.memoryClockControl())
                     candidate = memoryBoundaryCandidate(tierCandidates, candidate, false, positionInTier == 0);
                 if (candidate == null) continue;
@@ -629,6 +632,7 @@ public class AutoTuningSessionService {
                     selection.power() ? position(target, gpu.minWatts(), safeMaxWatts) : 0));
             return List.copyOf(unique);
         }
+        boolean offsetCandidatesAdded = false;
         if (selection.memory() && offsetRange != null && observedClocks != null) {
             int low = Math.max(offsetRange.minMhz(), offsetRange.currentMhz() - MAX_UNVERIFIED_MEMORY_UNDERCLOCK_MHZ);
             int high = Math.min(offsetRange.maxMhz(), offsetRange.currentMhz() + MAX_UNVERIFIED_MEMORY_OVERCLOCK_MHZ);
@@ -647,9 +651,10 @@ public class AutoTuningSessionService {
                             selection.core() ? position(core, caps.coreMinMhz(), caps.coreMaxMhz()) : 0,
                             position(offset, low, high), position(target, gpu.minWatts(), safeMaxWatts),
                             offset, offsetRange.pstate()));
-                return List.copyOf(unique);
+                offsetCandidatesAdded = !unique.isEmpty();
             }
         }
+        if (offsetCandidatesAdded && !caps.memoryClockControl()) return List.copyOf(unique);
         if (!caps.supportedPairs().isEmpty()) {
             int highestSupportedMemory = caps.supportedPairs().stream()
                     .mapToInt(GpuTuningService.ClockPair::memoryMhz)

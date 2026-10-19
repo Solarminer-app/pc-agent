@@ -3399,3 +3399,4 @@ changes were preserved.
 - Candidate/profile changes restart the isolated GPU process because SRBMiner exposes no documented runtime OC command API. A failed tuning run clears the temporary native profile before driver recovery.
 - Added command-construction coverage in `SrbMinerVersionTest`. Physical GPU/driver validation remains required.
 - Fixed the memory-offset fallback: after an ineffective offset readback, the remaining calibration candidates now exclude offsets and continue with core/power-only candidates.
+- Expanded SRBMiner NVIDIA candidate generation to include fixed-memory and memory-offset controls together. Each individual miner launch uses only one of those controls; fixed and offset boundary anchors are measured before Bayesian selection fills remaining candidates.
