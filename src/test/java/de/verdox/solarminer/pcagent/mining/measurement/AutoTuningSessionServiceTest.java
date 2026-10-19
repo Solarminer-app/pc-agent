@@ -276,6 +276,23 @@ class AutoTuningSessionServiceTest {
     }
 
     @Test
+    void minerNativeFixedClockProbeIncludesListedMemoryAnchorsWithoutDriverLock() {
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 1, "GPU-2080-1", "NVIDIA GeForce RTX 2080 Ti",
+                100, 300, 100, 300, 260, 250.0, "measured", true, null, 300);
+        var caps = new GpuTuningService.Capabilities("GPU-2080-1", true, false, false,
+                300, 1600, 405, 7000, null,
+                List.of(new GpuTuningService.ClockPair(405, 300),
+                        new GpuTuningService.ClockPair(6800, 1400)));
+
+        var rows = AutoTuningSessionService.candidates(gpu, caps,
+                new GpuTuningService.ClockTelemetry(1400, 6800), 260, null,
+                AutoTuningSelectionStore.Selection.DEFAULT, true);
+
+        assertTrue(rows.stream().anyMatch(row -> row.memoryMhz() == 405));
+        assertTrue(rows.stream().anyMatch(row -> row.memoryMhz() == 6800));
+    }
+
+    @Test
     void offsetReadbackWithoutEffectiveMemoryChangeFallsBackToCoreOnly() throws Exception {
         MiningService mining = mock(MiningService.class);
         LocalGpuPowerService power = mock(LocalGpuPowerService.class);

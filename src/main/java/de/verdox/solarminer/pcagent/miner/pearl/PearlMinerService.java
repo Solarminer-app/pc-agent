@@ -466,6 +466,9 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
                 && startGpu(gpu.vendor(), gpu.index());
     }
 
+    @Override
+    public boolean mayProbeFixedMemoryClockWithoutDriverLock() { return true; }
+
     /**
      * Shared SRBMiner device mapping used by the generic SRB coin adapter.
      */

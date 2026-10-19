@@ -12,4 +12,11 @@ public interface MinerNativeTuning {
     boolean applyNativeTuning(LocalGpuPowerService.Gpu gpu, AutoTuningProfileStore.Profile profile);
 
     boolean clearNativeTuning(LocalGpuPowerService.Gpu gpu);
+
+    /**
+     * The miner may try documented fixed memory clocks from the driver-reported device list
+     * even where the driver's direct memory-lock write is unavailable. Effective-clock
+     * readback remains mandatory before the candidate can be accepted.
+     */
+    default boolean mayProbeFixedMemoryClockWithoutDriverLock() { return false; }
 }

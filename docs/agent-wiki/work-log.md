@@ -3400,3 +3400,4 @@ changes were preserved.
 - Added command-construction coverage in `SrbMinerVersionTest`. Physical GPU/driver validation remains required.
 - Fixed the memory-offset fallback: after an ineffective offset readback, the remaining calibration candidates now exclude offsets and continue with core/power-only candidates.
 - Expanded SRBMiner NVIDIA candidate generation to include fixed-memory and memory-offset controls together. Each individual miner launch uses only one of those controls; fixed and offset boundary anchors are measured before Bayesian selection fills remaining candidates.
+- SRBMiner NVIDIA may probe driver-listed fixed-memory values even without a verified direct driver lock. Effective-memory readback remains the acceptance gate, so a command that SRBMiner accepts but does not actually apply cannot become a profile.

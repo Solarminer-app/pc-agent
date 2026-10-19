@@ -42,6 +42,9 @@ public final class SrbGpuCoinView implements GpuCoinMiner, MinerNativeTuning {
     }
 
     @Override
+    public boolean mayProbeFixedMemoryClockWithoutDriverLock() { return true; }
+
+    @Override
     public Coin coin() {
         return coin;
     }
