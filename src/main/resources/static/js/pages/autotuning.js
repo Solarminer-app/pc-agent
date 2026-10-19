@@ -132,11 +132,59 @@
       const rtx20 = gpu.vendor?.toUpperCase() === 'NVIDIA' && /RTX\s*20\d{2}/i.test(gpu.model || '');
       const capabilities = node('div', 'tuning-capabilities');
       for (const [label, supported] of [[t('auto_tuning_core_supported'), caps.coreClockControl],
-        ...(!rtx20 ? [[t('auto_tuning_memory_supported'), caps.memoryClockControl]] : [])]) {
+        ...(!rtx20 ? [[t('auto_tuning_memory_supported'), caps.memoryClockControl || gpu.memoryOffsetControl]] : [])]) {
         capabilities.append(node('span', `tuning-capability ${supported ? 'available' : 'unavailable'}`, `${supported ? '✓' : '—'} ${label}`));
       }
       card.append(capabilities);
       if (rtx20) card.append(node('p', 'muted', t('auto_tuning_rtx20_offset_hint')));
+      const selectionTitle = node('h4', 'tuning-selection-title', t('auto_tuning_selection_title'));
+      const selectionHint = node('p', 'muted', t('auto_tuning_selection_hint'));
+      const selectionBox = node('div', 'tuning-selection');
+      const selected = gpu.selection || {core: true, memory: true, power: true};
+      const fields = [
+        ['core', 'auto_tuning_tune_core', caps.coreClockControl],
+        ['memory', 'auto_tuning_tune_memory', caps.memoryClockControl || gpu.memoryOffsetControl],
+        ['power', 'auto_tuning_tune_power', gpu.powerControl]
+      ];
+      for (const [key, labelKey, supported] of fields) {
+        const label = node('label', 'tuning-selection-option');
+        const input = node('input'); input.type = 'checkbox'; input.checked = Boolean(selected[key]);
+        input.disabled = !supported;
+        input.addEventListener('change', async () => {
+          const next = {...selected, [key]: input.checked};
+          if (!next.core && !next.memory && !next.power) {
+            input.checked = true; status(t('auto_tuning_selection_required'), true); return;
+          }
+          try {
+            const response = await fetch(`/api/agent/local/gpu-tuning/${encodeURIComponent(gpu.deviceId)}/selection`, {
+              method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(next)
+            });
+            if (!response.ok) {
+              const body = await response.json().catch(() => ({}));
+              throw new Error(body.message || body.detail || 'auto_tuning_selection_save_failed');
+            }
+            gpu.selection = await response.json(); Object.assign(selected, gpu.selection);
+            status(t('auto_tuning_selection_saved'));
+          } catch (error) {
+            input.checked = !input.checked;
+            status(t('auto_tuning_selection_save_error', {error: t(error.message)}), true);
+          }
+        });
+        label.append(input, node('span', '', t(labelKey))); selectionBox.append(label);
+      }
+      const tuneNow = node('button', 'button tuning-run-selected', t('auto_tuning_run_selected'));
+      tuneNow.type = 'button'; tuneNow.disabled = !gpu.coinId || gpu.workerStatus !== 'MINING';
+      tuneNow.addEventListener('click', async () => {
+        tuneNow.disabled = true;
+        try {
+          await send('/api/agent/local/gpu-tuning/start', {deviceId: gpu.deviceId, coinId: gpu.coinId});
+          status(t('auto_tuning_run_selected_started'));
+          await loadSession();
+        } catch (error) { reportError(error, gpu.vendor); }
+        finally { tuneNow.disabled = !gpu.coinId || gpu.workerStatus !== 'MINING'; }
+      });
+      selectionBox.append(tuneNow);
+      card.append(selectionTitle, selectionHint, selectionBox);
       const mode = node('p', 'tuning-mode-state', t(autoTuningDevices.has(gpu.deviceId)
         ? 'auto_tuning_mode_active' : 'auto_tuning_mode_inactive'));
       card.append(mode);

@@ -3356,3 +3356,16 @@ changes were preserved.
   both-locale catalog/render checks, untranslated-literal scan, and
   `git diff --check` passed. No automated tests were run; storage failure and
   delete/reload/recalibrate behavior have not been exercised against a live Agent.
+## 2026-10-19 — Select Auto Tuning dimensions per GPU
+
+- Added persisted per-GPU checkboxes for core clock, memory clock and power
+  limit in Auto Tuning, plus a direct action to calibrate an active worker with
+  the saved selection. Unselected dimensions remain fixed while sampling;
+  power-only, fixed-power clock calibration, and the default full search are
+  supported. Partial selections report results from that run and do not apply a
+  full cached operating profile afterward. German and English labels, errors
+  and status copy were added to the closed i18n catalog.
+- Verification: JDK 21 `compileJava --offline`, JavaScript syntax check,
+  German/English catalog check (1,833 keys/14 pages), zero unkeyed browser
+  display literals, both-locale render simulation and `git diff --check`
+  passed. Automated tests and live GPU calibration were not run.

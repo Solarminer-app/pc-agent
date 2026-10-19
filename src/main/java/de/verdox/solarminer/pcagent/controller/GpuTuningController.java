@@ -5,6 +5,7 @@ import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
 import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSessionService;
 import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore;
+import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSelectionStore;
 import de.verdox.solarminer.pcagent.mining.WorkerAssignmentService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -25,16 +26,18 @@ public class GpuTuningController {
     private final AutoTuningSessionService sessions;
     private final AutoTuningProfileStore profiles;
     private final WorkerAssignmentService workers;
+    private final AutoTuningSelectionStore selections;
 
     public GpuTuningController(LocalGpuPowerService power, GpuTuningService tuning, LocalRunLock runLock,
                                AutoTuningSessionService sessions, AutoTuningProfileStore profiles,
-                               WorkerAssignmentService workers) {
+                               WorkerAssignmentService workers, AutoTuningSelectionStore selections) {
         this.power = power;
         this.tuning = tuning;
         this.runLock = runLock;
         this.sessions = sessions;
         this.profiles = profiles;
         this.workers = workers;
+        this.selections = selections;
     }
 
     @GetMapping
@@ -44,7 +47,9 @@ public class GpuTuningController {
             var worker = assignments.stream().filter(value -> gpu.deviceId().equals(value.deviceId())).findFirst().orElse(null);
             return new Device(gpu.deviceId(), gpu.model(), gpu.vendor(), gpu.currentPowerLimitWatts(), gpu.currentWatts(),
                     worker == null ? null : worker.coin(), worker == null || worker.status() == null ? null : worker.status().name(),
-                    tuning.capabilities(gpu.deviceId()), worker == null ? "MANUAL" : worker.powerMode());
+                    tuning.capabilities(gpu.deviceId()), worker == null ? "MANUAL" : worker.powerMode(),
+                    tuning.memoryOffsetRange(gpu.deviceId()) != null, gpu.supportsDynamicPowerScaling(),
+                    selections.get(gpu.deviceId()));
         }).toList();
     }
 
@@ -120,6 +125,18 @@ public class GpuTuningController {
     @PostMapping("/cancel")
     public AutoTuningSessionService.Session cancel() { return sessions.cancel(); }
 
+    @PutMapping("/{deviceId}/selection")
+    public AutoTuningSelectionStore.Selection selection(@PathVariable String deviceId,
+                                                         @RequestBody AutoTuningSelectionStore.Selection selection) {
+        if (power.snapshot().stream().noneMatch(gpu -> gpu.deviceId().equals(deviceId)))
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "gpu_not_found");
+        if (selection == null || !selection.core() && !selection.memory() && !selection.power())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "auto_tuning_selection_required");
+        if (!selections.set(deviceId, selection))
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "auto_tuning_selection_save_failed");
+        return selection;
+    }
+
     @PostMapping("/{deviceId}/apply")
     public GpuTuningService.ApplyResult apply(@PathVariable String deviceId, @RequestBody Apply request) {
         if (request == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "gpu_tuning_request_invalid");
@@ -144,7 +161,9 @@ public class GpuTuningController {
 
     public record Device(String deviceId, String model, String vendor, Integer powerLimitWatts,
                          Double measuredWatts, String coinId, String workerStatus,
-                         GpuTuningService.Capabilities tuning, String powerMode) { }
+                         GpuTuningService.Capabilities tuning, String powerMode,
+                         boolean memoryOffsetControl, boolean powerControl,
+                         AutoTuningSelectionStore.Selection selection) { }
     public record Apply(Integer coreMinMhz, Integer coreMaxMhz, Integer memoryMinMhz, Integer memoryMaxMhz) { }
     public record Start(String deviceId, String coinId) { }
 }

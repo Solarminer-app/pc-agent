@@ -10,10 +10,10 @@ exploration ceiling. Other operating modes and the power sweep remain available.
 
 - Selecting `AUTO_TUNING` starts an uncalibrated worker at its saved manual
   target, waits for the miner to report `MINING`, then starts calibration.
-  Calibration is controlled only by the worker operating mode; the Auto Tuning
-  page displays capabilities and saved results but has no separate start or
-  manual driver-write controls. Live measurement graphs are shown only while
-  the worker is in `AUTO_TUNING` mode.
+  Calibration is controlled by the worker operating mode, and the Auto Tuning
+  page also allows an operator to rerun an active worker with its saved tuning
+  selection. The page has no manual driver-write controls. Live measurement
+  graphs are shown only while the worker is in `AUTO_TUNING` mode.
   A worker must have live
   hash telemetry, writable power control, at least one driver-reported clock
   control, and a readable GPU temperature. The active process stays managed by
@@ -25,11 +25,20 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   stopping a queued worker removes its pending request. The page's worker
   history switcher shows the most recent saved sampling run for each GPU in
   this mode; the live progress header still identifies the one active session.
+- Each GPU has a persisted tuning selection for core clock, memory clock and
+  power limit. All three are enabled by default. Unselected candidate dimensions
+  stay fixed at their start value during sampling. The direct calibration action
+  reruns an already calibrated, actively mining worker. Power-only sampling is
+  supported. With power tuning disabled, the run holds the starting power cap
+  and spends its candidate budget on the selected clocks. Partial-selection
+  runs restore driver defaults and the starting power cap at completion, and
+  do not apply a full Auto Tuning operating profile.
 - Stopping the worker or leaving `AUTO_TUNING` cancels an active session and
   waits for its recovery path before restoring driver clock defaults. The
   selected operating mode then applies its own power target. A recovery timeout
   or failed restore blocks the stop/mode change with a localized error.
-- The test candidate searches three distinct power-cap tiers that include the
+- When power tuning is selected, the candidate search tests three distinct
+  power-cap tiers that include the
   manual starting target when it is inside the safe range. The first tier
   sampled is the starting target. Each power tier first measures the minimum
   and maximum driver-reported memory setting when writable, then uses up to two
@@ -140,7 +149,9 @@ needs live validation on each OS and GPU family.
 ## Local API and UI
 
 - `GET /api/agent/local/gpu-tuning` returns each detected GPU's worker
-  assignment, current power telemetry and probed tuning capabilities.
+  assignment, current power telemetry, probed tuning capabilities and saved
+  tuning selection. `PUT /{deviceId}/selection` persists the next calibration's
+  core, memory and power dimensions to `auto-tuning-selection.json`.
 - `POST /api/agent/local/gpu-tuning/start` starts an asynchronous session for a
   device and assigned coin; `/session` returns phase, candidate, sample progress
   and completed observations. `/cancel` requests safe cleanup.

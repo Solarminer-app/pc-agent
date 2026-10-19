@@ -25,6 +25,11 @@
 .tuning-stat span { display: block; margin-bottom: 7px; color: #91a4b9; font-size: 11px; }
 .tuning-stat strong { color: #f1f5f7; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .tuning-capabilities { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 19px; }
+.tuning-selection-title { margin: 0 0 5px; }
+.tuning-selection { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 18px; }
+.tuning-selection-option { display: inline-flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid #304052; border-radius: 9px; cursor: pointer; }
+.tuning-selection-option input { accent-color: #6fe0bd; }
+.tuning-selection-option input:disabled { cursor: not-allowed; }
 .tuning-capability { display: inline-flex; align-items: center; padding: 5px 8px; border: 1px solid #364657; border-radius: 6px; color: #a7b7c8; font-size: 10px; }
 .tuning-capability.available { border-color: #35634f; background: #1a332a; color: #9ee5bd; }
 .tuning-calibration { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; border: 1px solid #5a4b32; border-radius: 11px; background: linear-gradient(100deg, #332d22, #262a2b); }
