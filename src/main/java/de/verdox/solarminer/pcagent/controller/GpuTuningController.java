@@ -48,7 +48,7 @@ public class GpuTuningController {
             return new Device(gpu.deviceId(), gpu.model(), gpu.vendor(), gpu.currentPowerLimitWatts(), gpu.currentWatts(),
                     worker == null ? null : worker.coin(), worker == null || worker.status() == null ? null : worker.status().name(),
                     tuning.capabilities(gpu.deviceId()), worker == null ? "MANUAL" : worker.powerMode(),
-                    tuning.memoryOffsetRange(gpu.deviceId()) != null, gpu.supportsDynamicPowerScaling(),
+                    tuning.memoryOffsetRange(gpu.deviceId()), tuning.readEffectiveClocks(gpu.deviceId()), gpu.supportsDynamicPowerScaling(),
                     selections.get(gpu.deviceId()));
         }).toList();
     }
@@ -143,7 +143,7 @@ public class GpuTuningController {
         if (!runLock.tryBegin("gpu-clock-control")) throw new ResponseStatusException(HttpStatus.CONFLICT, "power_mode_busy");
         try {
             var result = tuning.apply(deviceId, request.coreMinMhz(), request.coreMaxMhz(),
-                    request.memoryMinMhz(), request.memoryMaxMhz());
+                    request.memoryMinMhz(), request.memoryMaxMhz(), request.memoryOffsetMhz(), request.memoryOffsetPstate());
             if (!result.applied()) throw new ResponseStatusException(HttpStatus.CONFLICT, result.reason());
             return result;
         } finally { runLock.end(); }
@@ -162,8 +162,9 @@ public class GpuTuningController {
     public record Device(String deviceId, String model, String vendor, Integer powerLimitWatts,
                          Double measuredWatts, String coinId, String workerStatus,
                          GpuTuningService.Capabilities tuning, String powerMode,
-                         boolean memoryOffsetControl, boolean powerControl,
+                         GpuTuningService.MemoryOffsetRange memoryOffsetRange, GpuTuningService.ClockTelemetry clocks, boolean powerControl,
                          AutoTuningSelectionStore.Selection selection) { }
-    public record Apply(Integer coreMinMhz, Integer coreMaxMhz, Integer memoryMinMhz, Integer memoryMaxMhz) { }
+    public record Apply(Integer coreMinMhz, Integer coreMaxMhz, Integer memoryMinMhz, Integer memoryMaxMhz,
+                        Integer memoryOffsetMhz, Integer memoryOffsetPstate) { }
     public record Start(String deviceId, String coinId) { }
 }

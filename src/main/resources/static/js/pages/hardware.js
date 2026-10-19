@@ -8,7 +8,8 @@ const node = (tag, cls, value) => {
     return el;
 };
 const drafts = new Map();
-let refreshing = false, saving = false;
+let refreshing = false, saving = false, latestStatus = null;
+let tuningDevices = new Map();
 
 function notice(message, error = false, kind = 'action') {
     const box = $('notice');
@@ -131,6 +132,82 @@ function rangeControl(gpu) {
     return wrap;
 }
 
+function tuningControl(gpu) {
+    const device = tuningDevices.get(gpu.deviceId);
+    if (!device) return null;
+    const caps = device.tuning || {}, offset = device.memoryOffsetRange;
+    const section = node('section', 'gpu-clock-controls'), title = node('h3', '', 'gpu_clock_controls');
+    const clocks = node('p', 'muted');
+    clocks.textContent = i18n.t('current_gpu_clocks', {
+        core: device.clocks?.coreMhz == null ? '—' : fmt(device.clocks.coreMhz),
+        memory: device.clocks?.memoryMhz == null ? '—' : fmt(device.clocks.memoryMhz)
+    });
+    section.append(title, clocks);
+    const form = node('div', 'gpu-clock-form'), fields = [];
+    if (caps.coreClockControl && Number.isInteger(caps.coreMinMhz) && Number.isInteger(caps.coreMaxMhz)) {
+        const label = node('label', '', 'core_clock_mhz'), input = document.createElement('input');
+        input.type = 'number'; input.inputMode = 'numeric'; input.min = String(caps.coreMinMhz); input.max = String(caps.coreMaxMhz); input.step = '1'; input.required = true;
+        input.value = String(Math.min(caps.coreMaxMhz, Math.max(caps.coreMinMhz, device.clocks?.coreMhz || caps.coreMaxMhz)));
+        label.append(input); form.append(label); fields.push({name: 'core', input});
+    }
+    if (offset && Number.isInteger(offset.minMhz) && Number.isInteger(offset.maxMhz)) {
+        const label = node('label', '', 'memory_clock_offset_mhz'), input = document.createElement('input');
+        input.type = 'number'; input.inputMode = 'numeric'; input.min = String(offset.minMhz); input.max = String(offset.maxMhz); input.step = '1'; input.required = true;
+        input.value = String(offset.currentMhz); label.append(input); form.append(label); fields.push({name: 'memoryOffset', input, pstate: offset.pstate});
+    }
+    if (!fields.length) {
+        section.append(node('p', 'muted', 'gpu_clock_controls_unavailable'));
+        return section;
+    }
+    const note = node('p', 'muted', 'voltage_control_unavailable_clock_controls_note');
+    const actions = node('div', 'hardware-actions'), save = node('button', 'button primary', 'apply_clock_settings'), reset = node('button', 'button subtle', 'restore_driver_clocks');
+    save.type = reset.type = 'button';
+    save.addEventListener('click', async () => {
+        const body = {};
+        for (const {name, input, pstate} of fields) {
+            if (!input.reportValidity()) return;
+            const value = input.valueAsNumber;
+            if (!Number.isSafeInteger(value) || value < Number(input.min) || value > Number(input.max)) { input.focus(); return; }
+            if (name === 'core') body.coreMinMhz = body.coreMaxMhz = value;
+            else { body.memoryOffsetMhz = value; body.memoryOffsetPstate = pstate; }
+        }
+        await submitTuning(gpu, body);
+    });
+    reset.addEventListener('click', () => submitTuning(gpu, null, true));
+    actions.append(save, reset); section.append(form, note, actions);
+    return section;
+}
+
+async function submitTuning(gpu, body, restore = false) {
+    if (saving) return;
+    saving = true;
+    try {
+        const response = await fetch(`/api/agent/local/gpu-tuning/${encodeURIComponent(gpu.deviceId)}/${restore ? 'restore' : 'apply'}`, {
+            method: restore ? 'POST' : 'POST', headers: {'Content-Type': 'application/json'},
+            ...(!restore ? {body: JSON.stringify(body)} : {})
+        });
+        if (!response.ok) {
+            const failure = await response.json().catch(() => null);
+            const reason = failure?.message?.match(/"([a-z][a-z0-9_]+)"/)?.[1] || failure?.message;
+            throw new Error(reason || 'gpu_clock_write_failed');
+        }
+        notice(restore ? 'gpu_clocks_restored' : 'gpu_clock_settings_applied');
+        tuningDevices.clear();
+        await loadTuning();
+        window.SolarMinerLive.refresh('power-control');
+    } catch (error) { notice(i18n.t(error.message), true); }
+    finally { saving = false; }
+}
+
+async function loadTuning() {
+    try {
+        const response = await fetch('/api/agent/local/gpu-tuning', {cache: 'no-store'});
+        if (!response.ok) return;
+        tuningDevices = new Map((await response.json()).map(device => [device.deviceId, device]));
+        if (latestStatus) render(latestStatus);
+    } catch (_) { /* The power-limit controls remain usable when tuning data is unavailable. */ }
+}
+
 function renderSettings(data) {
     const list = $('control-settings');
     if (list.contains(document.activeElement) || saving) return;
@@ -184,12 +261,16 @@ function render(data) {
         if (!gpu.supportsDynamicPowerScaling) {
             card.append(node('p', 'muted', 'this_device_supports_start_stop_only_power_l'));
             if (gpu.regulationError) card.append(node('p', 'muted', i18n.s(gpu.regulationError)));
+            const clocks = tuningControl(gpu);
+            if (clocks) card.append(clocks);
             list.append(card);
             continue;
         }
         const stats = node('div', 'hardware-gpu-stats');
         stats.append(node('span', '', i18n.t('driver_min_max_w', {min: fmt(gpu.driverMinPowerLimitWatts), max: fmt(gpu.driverMaxPowerLimitWatts)})), node('span', '', i18n.t('limit_watts_w', {watts: gpu.currentPowerLimitWatts ?? '—'})), node('span', '', i18n.t('draw_watts', {watts: gpu.currentUsageWatts == null ? '—' : fmt(gpu.currentUsageWatts) + ' W'})));
         card.append(stats, rangeControl(gpu));
+        const clocks = tuningControl(gpu);
+        if (clocks) card.append(clocks);
         const details = node('details', 'hardware-identity');
         details.append(node('summary', '', 'device_identity'), node('p', 'hardware-id', gpu.deviceId));
         card.append(details);
@@ -206,6 +287,7 @@ function render(data) {
 }
 
 function applyPowerStatus(data) {
+    latestStatus = data;
     render(data);
     if ($('notice').dataset.kind === 'connection') $('notice').hidden = true;
     $('connection').className = 'badge online';
@@ -232,3 +314,5 @@ window.SolarMinerLive.channel('power-control', {endpoint: '/api/agent/local/powe
         }
     });
 window.SolarMinerLive.start();
+loadTuning();
+window.setInterval(loadTuning, 30000);

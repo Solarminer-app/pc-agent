@@ -3369,3 +3369,17 @@ changes were preserved.
   German/English catalog check (1,833 keys/14 pages), zero unkeyed browser
   display literals, both-locale render simulation and `git diff --check`
   passed. Automated tests and live GPU calibration were not run.
+
+## 2026-10-19 — Bounded GPU clock controls on Power Limits
+
+- The Power Limits page now shows driver-reported current core and memory clocks
+  and offers bounded core-clock targets plus supported NVIDIA memory-clock
+  offsets. Inputs are constrained to probed driver ranges in the browser and
+  revalidated by `GpuTuningService`; writes and restore actions use the local
+  run lock, recovery marker and shared GPU toolkit path. The page states in
+  German and English that direct voltage control is unavailable, so these
+  controls are not presented as a verified undervolting curve.
+- Updated the Auto Tuning ownership note to place manual writes on Power Limits.
+- Verification: JDK 21 `compileJava --offline`, JavaScript syntax check, German
+  and English catalog/render checks, zero unkeyed browser display literals and
+  `git diff --check` passed. No automated tests or live GPU writes.

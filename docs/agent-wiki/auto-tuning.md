@@ -12,7 +12,9 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   target, waits for the miner to report `MINING`, then starts calibration.
   Calibration is controlled by the worker operating mode, and the Auto Tuning
   page also allows an operator to rerun an active worker with its saved tuning
-  selection. The page has no manual driver-write controls. Live measurement
+  selection. Manual bounded clock controls live on the Power Limits page and
+  use the same driver capability service; voltage writes remain unavailable.
+  Live measurement
   graphs are shown only while the worker is in `AUTO_TUNING` mode.
   A worker must have live
   hash telemetry, writable power control, at least one driver-reported clock
