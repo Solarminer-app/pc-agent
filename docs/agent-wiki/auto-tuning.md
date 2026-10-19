@@ -25,19 +25,21 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   memory locks are unavailable they use pairs at the highest listed memory
   clock. AMD/Intel keep their probed discrete ranges. The objective is median
   hashrate divided by measured GPU watts at each tier.
-- Each candidate uses eight five-second samples. A candidate is unstable when
-  hashrate varies by more than 20%, temperature exceeds 85 C (configurable
-  within 65–90 C), any rejected share is reported, share counters are absent,
-  or no accepted share arrives during the window. NVIDIA effective core/memory
-  clocks are read under load; more than two samples outside a 12%/minimum-MHz
+- Each candidate uses sixteen five-second samples (80 seconds). A candidate is
+  unstable when more than two valid hashrate readings differ from the median
+  by over 20%, fewer than fourteen readings have valid hash and power telemetry,
+  or temperature exceeds 85 C (configurable within 65–90 C). Share counters
+  are saved when available but do not determine candidate stability: a share
+  can take longer than the measurement window on some coins. NVIDIA effective
+  core/memory clocks are read under load; more than two samples outside a 12%/minimum-MHz
   tolerance invalidate a point. AMD/Intel effective-clock readback still needs
   driver-specific validation. A worker exit scores the point zero; the agent
   restores defaults, attempts a bounded miner restart and continues only if
-  restoration and restart succeed. The session stops after 15 minutes.
-  Twelve candidate windows of eight five-second samples need eight minutes of
-  sampling; driver writes, miner settling and recovery make roughly 9–12
-  minutes a practical estimate. A run that cannot confirm one stable point in
-  each tier before the deadline fails, but its individual measurements remain saved.
+  restoration and restart succeed. The session stops after 25 minutes.
+  Twelve candidate windows of sixteen five-second samples need sixteen minutes
+  of sampling; driver writes, miner settling and recovery add to that time. A
+  run that cannot confirm one stable point in each tier before the deadline
+  fails, but its individual measurements remain saved.
 - Every raw sampling step and every candidate result is appended to
   `auto-tuning-profiles.json.measurements.jsonl` and forced to disk before the
   next step. The record includes run ID/time, GPU/model/vendor, coin/algorithm,
@@ -47,7 +49,7 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   A write failure aborts calibration and triggers the existing driver restore.
   Existing `auto-tuning-profiles.json` matrices are loaded as legacy verified
   points; they are never discarded by a new session.
-- Every stable candidate with share evidence becomes a reusable profile,
+- Every stable candidate becomes a reusable profile without waiting for a share,
   including points from a run that later fails or is cancelled. The current
   operating mode combines repeated measurements of the exact same cap/core/
   memory setting using median hashrate and power, then selects the best

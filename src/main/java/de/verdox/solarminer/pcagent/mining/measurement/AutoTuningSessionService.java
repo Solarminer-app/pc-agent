@@ -19,7 +19,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** On-demand, per-GPU Gaussian-process calibration against live miner telemetry. */
 @Service
 public class AutoTuningSessionService {
-    private static final int MAX_CANDIDATES = 12, SAMPLES_PER_CANDIDATE = 8;
+    private static final int MAX_CANDIDATES = 12, SAMPLES_PER_CANDIDATE = 16;
+    private static final int MAX_HASHRATE_OUTLIERS = 2;
     private final MiningService mining;
     private final LocalGpuPowerService power;
     private final GpuTuningService tuning;
@@ -161,7 +162,7 @@ public class AutoTuningSessionService {
                      List<BayesianGpuOptimizer.Candidate> candidates) {
         RunContext context = new RunContext(UUID.randomUUID().toString(), gpu, coin, software, softwareVersion);
         int originalPower = gpu.currentPowerLimitWatts();
-        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MINUTES.toNanos(15);
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MINUTES.toNanos(25);
         List<BayesianGpuOptimizer.Observation> observations = new ArrayList<>();
         int measuredCandidates = 0;
         try {
@@ -251,7 +252,6 @@ public class AutoTuningSessionService {
                                   long deadline) throws InterruptedException {
         List<Double> rates = new ArrayList<>(), watts = new ArrayList<>(), temps = new ArrayList<>();
         List<Integer> observedCore = new ArrayList<>(), observedMemory = new ArrayList<>();
-        Long acceptedBefore = null, rejectedBefore = null, acceptedNow = null, rejectedNow = null;
         for (int i = 0; i < SAMPLES_PER_CANDIDATE; i++) {
             if (cancel.get()) return SampleSummary.unstable("auto_tuning_cancelled", false);
             if (System.nanoTime() >= deadline) throw new IllegalStateException("auto_tuning_time_limit");
@@ -293,13 +293,10 @@ public class AutoTuningSessionService {
                 observedCore.add(clocks.coreMhz()); observedMemory.add(clocks.memoryMhz());
             }
             rates.add(rate); watts.add(powerWatts); temps.add(temp);
-            if (acceptedBefore == null) acceptedBefore = worker.acceptedShares();
-            acceptedNow = worker.acceptedShares(); rejectedNow = worker.rejectedShares();
-            if (rejectedBefore == null) rejectedBefore = rejectedNow;
         }
         if (rates.size() < SAMPLES_PER_CANDIDATE - 2) return SampleSummary.unstable("auto_tuning_insufficient_samples", false);
         double median = SampleCollector.median(rates.stream().mapToDouble(Double::doubleValue).toArray());
-        if (rates.stream().anyMatch(value -> value < median * .8 || value > median * 1.2))
+        if (rates.stream().filter(value -> value < median * .8 || value > median * 1.2).count() > MAX_HASHRATE_OUTLIERS)
             return SampleSummary.unstable("auto_tuning_unstable_hashrate", false);
         if (!observedCore.isEmpty() && (candidate.coreMhz() != null && observedCore.stream()
                 .filter(value -> Math.abs(value - candidate.coreMhz()) > Math.max(75, candidate.coreMhz() * .12))
@@ -307,14 +304,6 @@ public class AutoTuningSessionService {
                 .filter(value -> Math.abs(value - candidate.memoryMhz()) > Math.max(100, candidate.memoryMhz() * .12))
                 .count() > 2))
             return SampleSummary.unstable("auto_tuning_clock_not_reached", false);
-        long accepted = acceptedNow == null || acceptedBefore == null ? 0 : Math.max(0, acceptedNow - acceptedBefore);
-        long rejected = rejectedNow == null || rejectedBefore == null ? 0 : Math.max(0, rejectedNow - rejectedBefore);
-        if (acceptedNow == null || rejectedNow == null || acceptedBefore == null || rejectedBefore == null)
-            return SampleSummary.unstable("auto_tuning_share_counters_unavailable", false);
-        if (accepted == 0 && rejected == 0)
-            return SampleSummary.unstable("auto_tuning_no_share_evidence", false);
-        if (rejected > 0)
-            return SampleSummary.unstable("auto_tuning_rejected_share_limit", false);
         return new SampleSummary(true, median, watts.stream().mapToDouble(Double::doubleValue).average().orElse(0),
                 rates.size(), temps.stream().mapToDouble(Double::doubleValue).max().stream().boxed().findFirst().orElse(null),
                 observedCore.isEmpty() ? null : (int) Math.round(observedCore.stream().mapToInt(Integer::intValue).average().orElse(0)),

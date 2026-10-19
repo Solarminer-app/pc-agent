@@ -45,7 +45,7 @@ class AutoTuningSessionServiceTest {
     }
 
     @Test
-    void calibratesThreeShareConfirmedTiersAndRestoresPreRunPower() throws Exception {
+    void calibratesThreeTiersWithoutShareCountersDespiteTwoHashrateOutliersAndRestoresPower() throws Exception {
         MiningService mining = mock(MiningService.class);
         LocalGpuPowerService power = mock(LocalGpuPowerService.class);
         GpuTuningService tuning = mock(GpuTuningService.class);
@@ -67,11 +67,15 @@ class AutoTuningSessionServiceTest {
         when(lock.tryBegin("auto-tuning")).thenReturn(true);
         when(miners.minerSoftwareForWorker(any(), eq("GPU-a"))).thenReturn("srbminer-multi");
         when(miners.minerVersionForWorker(any(), eq("GPU-a"))).thenReturn("3.7.3");
-        AtomicLong accepted = new AtomicLong();
-        when(mining.getWorkerStats()).thenAnswer(invocation -> List.of(new MinerStats.Worker(
-                MinerStats.MinerStatus.MINING, "Test", "PearlHash", 100d / 1e12, 60,
-                150, 80, 150, 200, 120, List.of(), "GPU", "Test", "GPU-a",
-                accepted.incrementAndGet(), 0L, MinerStats.PoolTelemetry.unavailable())));
+        AtomicLong samples = new AtomicLong();
+        when(mining.getWorkerStats()).thenAnswer(invocation -> {
+            long sample = samples.getAndIncrement();
+            double hashrate = sample % 16 < 2 ? 150d : 100d;
+            return List.of(new MinerStats.Worker(
+                    MinerStats.MinerStatus.MINING, "Test", "PearlHash", hashrate / 1e12, 60,
+                    150, 80, 150, 200, 120, List.of(), "GPU", "Test", "GPU-a",
+                    null, null, MinerStats.PoolTelemetry.unavailable()));
+        });
         AutoTuningProfileStore store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(),
                 directory.resolve("profiles.json").toString());
         AutoTuningSessionService service = new AutoTuningSessionService(mining, power, tuning, store, lock,
@@ -83,7 +87,7 @@ class AutoTuningSessionServiceTest {
             assertEquals("auto_tuning_complete", service.status().phase());
             assertEquals(3, store.matrix("GPU-a", "pearl", "srbminer-multi", "3.7.3", "Test", "AMD").size());
             assertEquals(12, store.measurements().stream().filter(row -> "RESULT".equals(row.type())).count());
-            assertEquals(96, store.measurements().stream().filter(row -> "SAMPLE".equals(row.type())).count());
+            assertEquals(192, store.measurements().stream().filter(row -> "SAMPLE".equals(row.type())).count());
             verify(tuning).restoreDefaults("GPU-a");
             verify(power, atLeastOnce()).setAutoTuningPowerTarget(150, gpu);
         } finally { service.shutdown(); }
