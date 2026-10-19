@@ -94,6 +94,8 @@
   const adviceKey = (reason, vendor) => {
     const key = String(reason || '');
     if (key.includes('gpu_clock_permission_denied')) return 'auto_tuning_help_permission';
+    if (key.includes('auto_tuning_gpu_reset_failed') || key.includes('auto_tuning_gpu_requires_attention'))
+      return 'auto_tuning_help_gpu_reset';
     if (key.includes('gpu_clock_restore_failed')) return 'auto_tuning_help_restore';
     if (key.includes('gpu_tuning_recovery_save_failed')) return 'auto_tuning_help_recovery_file';
     if (key.includes('gpu_clock_target_out_of_range') || key.includes('gpu_tuning_candidate_rejected')) return 'auto_tuning_help_range';
@@ -110,13 +112,7 @@
     if (advice) el.append(node('p', 'tuning-advice', t(advice)));
   };
   const reportError = (error, vendor) => status(t('auto_tuning_failed', {reason: t(error.message)}), true, adviceKey(error.message, vendor));
-  const numberField = (label, value, min, max, disabled, shortLabel) => {
-    const wrap = node('label', 'field'); wrap.append(node('span', '', shortLabel || label));
-    const input = node('input'); input.type = 'number'; input.required = true; input.value = value ?? '';
-    input.setAttribute('aria-label', label);
-    if (min != null) input.min = min; if (max != null) input.max = max; input.disabled = disabled;
-    wrap.append(input); return {wrap, input};
-  };
+  let autoTuningDevices = new Set();
   function draw(rows) {
     devices.replaceChildren();
     if (!rows.length) { devices.append(node('p', 'muted', t('auto_tuning_no_devices'))); return; }
@@ -133,7 +129,6 @@
       card.append(stats);
       const caps = gpu.tuning;
       const rtx20 = gpu.vendor?.toUpperCase() === 'NVIDIA' && /RTX\s*20\d{2}/i.test(gpu.model || '');
-      const manualMemoryControl = caps.memoryClockControl && !rtx20;
       const capabilities = node('div', 'tuning-capabilities');
       for (const [label, supported] of [[t('auto_tuning_core_supported'), caps.coreClockControl],
         ...(!rtx20 ? [[t('auto_tuning_memory_supported'), caps.memoryClockControl]] : [])]) {
@@ -141,24 +136,9 @@
       }
       card.append(capabilities);
       if (rtx20) card.append(node('p', 'muted', t('auto_tuning_rtx20_offset_hint')));
-      const calibration = node('div', 'tuning-calibration');
-      const calibrationCopy = node('div'); calibrationCopy.append(node('strong', '', t('auto_tuning_calibration_title')), node('p', '', t('auto_tuning_calibration_hint')));
-      const prerequisite = !gpu.coinId ? 'auto_tuning_requires_gpu_coin'
-        : gpu.workerStatus !== 'MINING' ? 'auto_tuning_requires_active_worker'
-          : !caps.coreClockControl && !caps.memoryClockControl ? 'gpu_clock_controls_unavailable' : null;
-      if (prerequisite) calibrationCopy.append(node('p', 'tuning-prerequisite', t(prerequisite)));
-      calibration.append(calibrationCopy);
-      const tuneButton = node('button', 'button primary', t('auto_tuning_start'));
-      tuneButton.dataset.action = 'calibrate'; tuneButton.dataset.coin = gpu.coinId || ''; tuneButton.dataset.workerStatus = gpu.workerStatus || '';
-      tuneButton.dataset.canTune = String(caps.coreClockControl || caps.memoryClockControl);
-      tuneButton.type = 'button';
-      tuneButton.disabled = Boolean(prerequisite) || Boolean(activeSession?.running);
-      tuneButton.addEventListener('click', async () => {
-        tuneButton.disabled = true; status('');
-        try { await send('/api/agent/local/gpu-tuning/start', {deviceId: gpu.deviceId, coinId: gpu.coinId}); await loadSession(); }
-        catch (error) { reportError(error, gpu.vendor); tuneButton.disabled = false; }
-      });
-      calibration.append(tuneButton); card.append(calibration);
+      const mode = node('p', 'tuning-mode-state', t(autoTuningDevices.has(gpu.deviceId)
+        ? 'auto_tuning_mode_active' : 'auto_tuning_mode_inactive'));
+      card.append(mode);
       const profiles = savedProfiles.filter(row => row.deviceId === gpu.deviceId && row.coinId === gpu.coinId)
         .sort((a, b) => String(b.calibratedAt || '').localeCompare(String(a.calibratedAt || '')));
       if (profiles.length) {
@@ -191,48 +171,6 @@
         all.href = `/api/agent/local/gpu-tuning/measurements?deviceId=${encodeURIComponent(gpu.deviceId)}&limit=0`;
         saved.append(all); card.append(saved);
       }
-      const form = node('form', 'tuning-form');
-      form.append(node('h4', '', t('auto_tuning_manual_title')));
-      const coreMin = numberField(`${t('auto_tuning_core_range')} · ${t('minimum')}`, caps.coreMinMhz, caps.coreMinMhz, caps.coreMaxMhz, !caps.coreClockControl, t('minimum'));
-      const coreMax = numberField(`${t('auto_tuning_core_range')} · ${t('maximum')}`, caps.coreMaxMhz, caps.coreMinMhz, caps.coreMaxMhz, !caps.coreClockControl, t('maximum'));
-      const memMin = numberField(`${t('auto_tuning_memory_range')} · ${t('minimum')}`, caps.memoryMinMhz, caps.memoryMinMhz, caps.memoryMaxMhz, !manualMemoryControl, t('minimum'));
-      const memMax = numberField(`${t('auto_tuning_memory_range')} · ${t('maximum')}`, caps.memoryMaxMhz, caps.memoryMinMhz, caps.memoryMaxMhz, !manualMemoryControl, t('maximum'));
-      const rangeGroup = (name, minField, maxField, supported, hint) => {
-        const group = node('div', 'tuning-range-group');
-        const heading = node('div', 'tuning-range-heading'); heading.append(node('strong', '', name), node('span', '',
-          supported ? hint : minField.input.value && maxField.input.value ? `${hint} · ${t('auto_tuning_not_supported')}` : t('auto_tuning_not_supported')));
-        const fields = node('div', 'tuning-range-fields'); fields.append(minField.wrap, maxField.wrap);
-        group.append(heading, fields); return group;
-      };
-      form.append(rangeGroup(t('auto_tuning_core_range'), coreMin, coreMax, caps.coreClockControl, t('auto_tuning_range_hint', {min: caps.coreMinMhz, max: caps.coreMaxMhz})),
-        rangeGroup(t('auto_tuning_memory_range'), memMin, memMax, manualMemoryControl, t('auto_tuning_range_hint', {min: caps.memoryMinMhz, max: caps.memoryMaxMhz})));
-      const actions = node('div', 'button-row');
-      const apply = node('button', 'button primary', t('auto_tuning_apply')); apply.type = 'submit';
-      const restore = node('button', 'button subtle', t('auto_tuning_restore')); restore.type = 'button';
-      apply.dataset.action = 'apply'; restore.dataset.action = 'restore';
-      apply.dataset.unsupported = String(!caps.coreClockControl && !caps.memoryClockControl);
-      restore.disabled = !caps.coreClockControl && !caps.memoryClockControl;
-      apply.disabled = (!caps.coreClockControl && !caps.memoryClockControl) || Boolean(activeSession?.running);
-      form.append(actions); actions.append(apply, restore);
-      form.addEventListener('submit', async event => {
-        event.preventDefault(); status(''); apply.disabled = true;
-        try {
-          await send(`/api/agent/local/gpu-tuning/${encodeURIComponent(gpu.deviceId)}/apply`, {
-            coreMinMhz: caps.coreClockControl ? Number(coreMin.input.value) : null,
-            coreMaxMhz: caps.coreClockControl ? Number(coreMax.input.value) : null,
-            memoryMinMhz: manualMemoryControl ? Number(memMin.input.value) : null,
-            memoryMaxMhz: manualMemoryControl ? Number(memMax.input.value) : null
-          }); status(t('auto_tuning_saved')); await load();
-        } catch (error) { reportError(error, gpu.vendor); }
-        finally { apply.disabled = !caps.coreClockControl && !caps.memoryClockControl; }
-      });
-      restore.addEventListener('click', async () => {
-        restore.disabled = true;
-        try { await send(`/api/agent/local/gpu-tuning/${encodeURIComponent(gpu.deviceId)}/restore`, {}); status(t('auto_tuning_restored')); await load(); }
-        catch (error) { reportError(error, gpu.vendor); }
-        finally { restore.disabled = false; }
-      });
-      card.append(form);
       if (caps.reason) {
         const reason = node('div', 'tuning-reason'); reason.append(node('p', '', t(caps.reason)));
         const advice = adviceKey(caps.reason, gpu.vendor);
@@ -262,7 +200,9 @@
       if (!response.ok || !profileResponse.ok || !historyResponse.ok) throw new Error('gpu_clock_controls_unavailable');
       [savedProfiles, measurementHistory] = await Promise.all([profileResponse.json(), historyResponse.json()]);
       earnings = earningsResponse.ok ? await earningsResponse.json() : [];
-      draw(await response.json()); await loadSession();
+      const rows = await response.json();
+      autoTuningDevices = new Set(rows.filter(row => row.powerMode === 'AUTO_TUNING').map(row => row.deviceId));
+      draw(rows); await loadSession();
     }
     catch (error) { reportError(error); }
   }
@@ -273,9 +213,18 @@
       if (pollTimer) clearTimeout(pollTimer);
       const wasRunning = Boolean(activeSession?.running);
       activeSession = await response.json();
+      const devicesResponse = await fetch('/api/agent/local/gpu-tuning', {cache: 'no-store'});
+      if (devicesResponse.ok) {
+        const rows = await devicesResponse.json();
+        const next = new Set(rows.filter(row => row.powerMode === 'AUTO_TUNING').map(row => row.deviceId));
+        if (next.size !== autoTuningDevices.size || [...next].some(id => !autoTuningDevices.has(id))) {
+          autoTuningDevices = next;
+          draw(rows);
+        }
+      }
       const runKey = `${activeSession.deviceId || ''}:${activeSession.startedAt || ''}`;
       if (runKey !== loadedRunKey) { runMeasurements = []; loadedRunKey = runKey; }
-      drawSession(); syncButtons();
+      drawSession();
       if (activeSession.deviceId) {
         const measurementsResponse = await fetch(`/api/agent/local/gpu-tuning/measurements?deviceId=${encodeURIComponent(activeSession.deviceId)}&limit=3000`, {cache: 'no-store'});
         if (measurementsResponse.ok) {
@@ -289,28 +238,12 @@
       if (activeSession.running) pollTimer = setTimeout(loadSession, 2500);
     } catch (_) { /* The device inventory remains available if a progress refresh fails. */ }
   }
-  function syncButtons() {
-    const running = Boolean(activeSession?.running);
-    for (const card of devices.children) {
-      const tune = card.querySelector('[data-action="calibrate"]');
-      if (tune) tune.disabled = running || !tune.dataset.coin || tune.dataset.workerStatus !== 'MINING' || tune.dataset.canTune !== 'true';
-      const apply = card.querySelector('[data-action="apply"]');
-      if (apply) apply.disabled = running || apply.dataset.unsupported === 'true';
-      const restore = card.querySelector('[data-action="restore"]');
-      if (restore) restore.disabled = running || card.querySelector('[data-action="apply"]')?.dataset.unsupported === 'true';
-    }
-  }
   function drawSession() {
     const host = $('session-state'); host.replaceChildren();
     if (!activeSession || activeSession.phase === 'idle') return;
     const phase = t(activeSession.phase);
     const header = node('div', 'panel-head');
     header.append(node('h2', '', phase));
-    if (activeSession.running) {
-      const cancel = node('button', 'button subtle', t('auto_tuning_cancel')); cancel.type = 'button';
-      cancel.addEventListener('click', async () => { cancel.disabled = true; await send('/api/agent/local/gpu-tuning/cancel', {}); await loadSession(); });
-      header.append(cancel);
-    }
     host.append(header);
     if (activeSession.candidateCount > 0) {
       const label = t('auto_tuning_progress', {current: activeSession.candidateIndex, total: activeSession.candidateCount,
@@ -326,7 +259,7 @@
         host.append(node('p', 'muted', t('auto_tuning_eta', {minutes: Math.ceil(remaining * 5 / 60)})));
       }
     }
-    if (runMeasurements.length) renderRunCharts(host, runMeasurements, activeSession.coinId);
+    if (runMeasurements.length && autoTuningDevices.has(activeSession.deviceId)) renderRunCharts(host, runMeasurements, activeSession.coinId);
     for (const row of activeSession.observations || []) {
       host.append(node('p', row.stable ? 'notice-line' : 'muted', t('auto_tuning_observation', {
         status: t(row.stable ? 'auto_tuning_stable' : 'auto_tuning_unstable'),

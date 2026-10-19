@@ -42,6 +42,7 @@ public class WorkerController {
     private de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService powerModes;
     private de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService coinRevenueMode;
     private de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock runLock;
+    private de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSessionService autoTuning;
     private MiningService mining;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -60,6 +61,11 @@ public class WorkerController {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setRunLock(de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock runLock) {
         this.runLock = runLock;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAutoTuning(de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSessionService autoTuning) {
+        this.autoTuning = autoTuning;
     }
 
     public WorkerController(WorkerAssignmentService workers, AgentControlSettingsService controls,
@@ -87,6 +93,15 @@ public class WorkerController {
 
     @PostMapping("/{deviceId}/power-mode")
     public WorkerAssignmentService.WorkerView powerMode(@PathVariable String deviceId, @RequestBody PowerModeRequest request) {
+        if (request != null && java.util.Set.of("MANUAL", "EFFICIENCY", "MAX_HASHRATE", "AUTO_TUNING", "REVENUE_PER_KWH",
+                "COIN_REVENUE_PER_KWH", "PROFIT_PER_DAY", "COIN_PROFIT_PER_DAY").contains(request.mode())
+                && !"AUTO_TUNING".equals(request.mode())
+                && "AUTO_TUNING".equals(controls.get().powerModeFor(deviceId)) && autoTuning != null) {
+            try { autoTuning.cancelForDevice(deviceId); }
+            catch (IllegalStateException failure) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, failure.getMessage());
+            }
+        }
         if (runLock != null && !runLock.tryBegin("worker-power-mode"))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "power_mode_busy");
         WorkerAssignmentService.WorkerView result;
@@ -224,7 +239,11 @@ public class WorkerController {
 
     @PostMapping("/{deviceId}/pause")
     public boolean pause(@PathVariable String deviceId) {
-        boolean paused = workers.pause(deviceId);
+        boolean paused;
+        try { paused = workers.pause(deviceId); }
+        catch (IllegalStateException failure) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, failure.getMessage());
+        }
         if (paused) {
             if (controls.get().startsOnBoot(deviceId) && !controls.setWorkerManuallyStopped(deviceId, true))
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "worker_boot_setting_save_failed");

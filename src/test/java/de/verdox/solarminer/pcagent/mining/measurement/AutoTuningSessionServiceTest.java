@@ -5,6 +5,7 @@ import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.lowlevel.GpuTuningService;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.miner.MinerFactory;
+import de.verdox.solarminer.pcagent.miner.GpuCoinMiner;
 import de.verdox.solarminer.pcagent.mining.MiningService;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
@@ -83,6 +84,24 @@ class AutoTuningSessionServiceTest {
         assertTrue(rows.stream().allMatch(row -> row.memoryMhz() == null && row.memoryOffsetPstate() == 2));
         assertEquals(java.util.Set.of(-250, -150, -50, 0, 50, 150), rows.stream()
                 .map(BayesianGpuOptimizer.Candidate::memoryOffsetMhz).collect(java.util.stream.Collectors.toSet()));
+    }
+
+    @Test
+    void wideDriverOffsetRangeDoesNotScheduleUnverifiedExtreme() {
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 4, "GPU-titan", "NVIDIA TITAN RTX",
+                100, 280, 100, 280, 280, 200.0, "measured", true, null, 280);
+        var caps = new GpuTuningService.Capabilities("GPU-titan", true, false, false,
+                300, 2100, 405, 7001, null,
+                List.of(new GpuTuningService.ClockPair(6500, 300)));
+
+        var rows = AutoTuningSessionService.candidates(gpu, caps,
+                new GpuTuningService.ClockTelemetry(300, 6500), 280,
+                new GpuTuningService.MemoryOffsetRange(2, -2000, 6000, 0));
+
+        assertFalse(rows.isEmpty());
+        assertTrue(rows.stream().allMatch(row -> row.memoryOffsetMhz() >= -250
+                && row.memoryOffsetMhz() <= 250));
+        assertFalse(rows.stream().anyMatch(row -> row.memoryOffsetMhz() == 6000));
     }
 
     @Test
@@ -310,6 +329,67 @@ class AutoTuningSessionServiceTest {
             assertEquals(3, failure.validSamples());
             assertTrue(store.measurements().stream().filter(row -> "RESULT".equals(row.type())
                     && Boolean.TRUE.equals(row.stable())).allMatch(row -> row.memoryOffsetMhz() == null));
+        } finally { service.shutdown(); }
+    }
+
+    @Test
+    void failedOffsetWritePausesWorkerAndAttemptsGpuResetBeforeRestore() throws Exception {
+        MiningService mining = mock(MiningService.class);
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        GpuTuningService tuning = mock(GpuTuningService.class);
+        LocalRunLock lock = mock(LocalRunLock.class);
+        MinerFactory miners = mock(MinerFactory.class);
+        GpuCoinMiner miner = mock(GpuCoinMiner.class);
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 4, "GPU-titan", "NVIDIA TITAN RTX",
+                100, 280, 100, 280, 280, 200.0, "measured", true, null, 280);
+        when(power.refresh()).thenReturn(List.of(gpu));
+        when(power.snapshot()).thenReturn(List.of(gpu));
+        when(power.readTemperatureC(gpu)).thenReturn(60.0);
+        when(power.configuredPowerLimitWatts(gpu)).thenReturn(280);
+        when(power.setAutoTuningPowerTarget(anyInt(), eq(gpu))).thenReturn(true);
+        when(tuning.refreshCapabilities("GPU-titan")).thenReturn(new GpuTuningService.Capabilities(
+                "GPU-titan", true, false, false, 300, 2100, 405, 7001, null,
+                List.of(new GpuTuningService.ClockPair(6500, 300))));
+        when(tuning.memoryOffsetRange("GPU-titan")).thenReturn(
+                new GpuTuningService.MemoryOffsetRange(2, -2000, 6000, 0));
+        AtomicInteger offset = new AtomicInteger();
+        AtomicInteger writes = new AtomicInteger();
+        when(tuning.apply(eq("GPU-titan"), any(), any(), isNull(), isNull(), anyInt(), eq(2)))
+                .thenAnswer(invocation -> {
+                    if (writes.incrementAndGet() == 2)
+                        return new GpuTuningService.ApplyResult(false, "gpu_clock_restore_failed");
+                    offset.set(invocation.getArgument(5));
+                    return new GpuTuningService.ApplyResult(true, null);
+                });
+        when(tuning.readMemoryOffset("GPU-titan", 2)).thenAnswer(invocation -> offset.get());
+        when(tuning.readEffectiveClocks("GPU-titan")).thenAnswer(invocation ->
+                new GpuTuningService.ClockTelemetry(300, 6500 + offset.get()));
+        when(tuning.restoreDefaults("GPU-titan")).thenReturn(new GpuTuningService.ApplyResult(true, null));
+        when(tuning.resetUnresponsiveGpu("GPU-titan"))
+                .thenReturn(new GpuTuningService.ApplyResult(false, "auto_tuning_gpu_reset_failed"));
+        when(lock.tryBegin("auto-tuning")).thenReturn(true);
+        when(miners.minerSoftwareForWorker(any(), eq("GPU-titan"))).thenReturn("srbminer-multi");
+        when(miners.minerVersionForWorker(any(), eq("GPU-titan"))).thenReturn("3.7.3");
+        when(miners.gpuMinerForWorker(anyString(), eq("GPU-titan"))).thenReturn(java.util.Optional.of(miner));
+        when(mining.getWorkerStats()).thenReturn(List.of(new MinerStats.Worker(
+                MinerStats.MinerStatus.MINING, "Test", "PearlHash", 100d / 1e12, 60,
+                280, 100, 280, 280, 200, List.of(), "GPU", "Test", "GPU-titan",
+                null, null, MinerStats.PoolTelemetry.unavailable())));
+        AutoTuningProfileStore store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(),
+                directory.resolve("hung-gpu-profiles.json").toString());
+        AutoTuningSessionService service = new AutoTuningSessionService(mining, power, tuning, store, lock,
+                miners, 85, 0);
+        try {
+            service.start("GPU-titan", "pearl");
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+            while (service.status().running() && System.nanoTime() < deadline) Thread.sleep(10);
+            assertEquals("auto_tuning_gpu_reset_failed", service.status().phase());
+            assertEquals(2, writes.get());
+            verify(miner).pauseGpu("NVIDIA", 4);
+            verify(tuning).resetUnresponsiveGpu("GPU-titan");
+            verify(tuning).restoreDefaults("GPU-titan");
+            verify(power, atLeastOnce()).setAutoTuningPowerTarget(280, gpu);
+            assertThrows(IllegalStateException.class, () -> service.start("GPU-titan", "pearl"));
         } finally { service.shutdown(); }
     }
 }

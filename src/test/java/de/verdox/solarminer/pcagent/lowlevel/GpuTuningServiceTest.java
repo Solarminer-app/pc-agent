@@ -17,6 +17,19 @@ class GpuTuningServiceTest {
     @TempDir Path directory;
 
     @Test
+    void gpuResetTargetsOnlyRequestedUuidAndReportsDriverRejection() throws Exception {
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(),
+                directory.resolve("reset-recovery.json").toString());
+        assertTrue(tuning.resetUnresponsiveGpu("GPU-titan").applied());
+        verify(power).runTuningCommand(List.of("nvidia-smi", "--gpu-reset", "-i", "GPU-titan"));
+        when(power.runTuningCommand(List.of("nvidia-smi", "--gpu-reset", "-i", "GPU-titan")))
+                .thenThrow(new java.io.IOException("GPU is in use"));
+        assertEquals("auto_tuning_gpu_reset_failed", tuning.resetUnresponsiveGpu("GPU-titan").reason());
+        assertFalse(tuning.resetUnresponsiveGpu("not-a-uuid").applied());
+    }
+
+    @Test
     void toolkitOffsetWriteIsBoundedVerifiedAndRecoveredWithOriginalValue() throws Exception {
         String oldOs = System.getProperty("os.name");
         System.setProperty("os.name", "Windows 11");

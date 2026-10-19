@@ -1,6 +1,6 @@
 # GPU Auto Tuning (Beta)
 
-Auto Tuning is a local per-worker operating mode and calibration flow. It is
+Auto Tuning is a local per-worker operating mode and automatic calibration flow. It is
 scoped by GPU device ID, assigned GPU coin/algorithm, and selected miner
 software. The saved Power Limits target is its starting point, not its
 operating cap. The driver-reported default power limit is the automatic
@@ -10,13 +10,20 @@ exploration ceiling. Other operating modes and the power sweep remain available.
 
 - Selecting `AUTO_TUNING` starts an uncalibrated worker at its saved manual
   target, waits for the miner to report `MINING`, then starts calibration.
-  The operator may also start or repeat calibration on `/autotuning.html`.
+  Calibration is controlled only by the worker operating mode; the Auto Tuning
+  page displays capabilities and saved results but has no separate start or
+  manual driver-write controls. Live measurement graphs are shown only while
+  the worker is in `AUTO_TUNING` mode.
   A worker must have live
   hash telemetry, writable power control, at least one driver-reported clock
   control, and a readable GPU temperature. The active process stays managed by
   the regular miner adapter.
 - A single `LocalRunLock` protects a calibration. Worker mode changes,
   benchmarks, sweeps, and power actions already using that lock cannot race it.
+- Stopping the worker or leaving `AUTO_TUNING` cancels an active session and
+  waits for its recovery path before restoring driver clock defaults. The
+  selected operating mode then applies its own power target. A recovery timeout
+  or failed restore blocks the stop/mode change with a localized error.
 - The test candidate searches three distinct power-cap tiers that include the
   manual starting target when it is inside the safe range. The first tier
   sampled is the starting target. Each power tier first measures the minimum
@@ -230,9 +237,11 @@ these Turing cards. The Agent now uses the shared `de.verdox.gputoolkit`
 NVML adapter for NVIDIA core targets and memory offsets during offset
 calibration on Windows and Linux when the native NVML library and per-device
 offset controls are available. It reads the active P-state and driver limits,
-uses the full active-P-state range reported by the driver and checks the offset
-after every write. Candidate offsets include both reported boundaries,
-quarter points and zero when it falls in range. Both boundaries are sampled at
+uses the active P-state range reported by the driver and checks the offset
+after every write. Automatic calibration limits unverified offsets to 250 MHz
+either side of the starting value, even if the driver reports a wider writable
+range. Candidate offsets include both resulting boundaries,
+quarter points and zero when it falls in range. Both bounded boundaries are sampled at
 each power tier before Bayesian selection continues. Absolute memory-clock
 control likewise samples the lowest and highest writable driver-reported memory
 settings at every tier. The first nonzero trial also checks
@@ -276,6 +285,33 @@ measured clock for diagnosis. The same issue affected the 100 W, 1710 MHz
 request, whose core ran near 615 MHz. Neither rejected result is retroactively
 promoted to a stable profile; a live rerun must confirm it under the revised
 rule.
+
+### TITAN RTX Linux crash recovery (2026-10-19)
+
+The operator's Quantus/SRBMiner 3.7.3 export on Linux shows that an absolute
+810 MHz memory lock left the effective clock at 6500 MHz and was correctly
+rejected. A later offset run completed a stable -2000 MHz candidate (effective
+memory 5500 MHz) at 14:06:03 UTC. The next requested offset was +6000 MHz;
+there is no sample/readback for it. The kernel logged Xid 62 and Xid 45 for
+SRBMiner at 14:06:04 UTC and Xid 154, GPU Reset Required, at 14:06:34 UTC.
+The Agent recorded `gpu_clock_restore_failed` at 14:06:36 UTC. The export
+cannot prove whether the +6000 MHz write took effect before the GPU failed.
+
+The Agent now limits unverified automatic offset exploration to ±250 MHz from
+the run's starting offset. After a write/restore failure or two consecutive
+missing NVIDIA clock readbacks, it records an unstable result, pauses the
+affected miner, attempts a reset of that GPU UUID only, then independently
+restores clock defaults and the original power limit. Failed restoration keeps
+the existing recovery marker for startup retry. The device remains blocked
+from another calibration in the running Agent after this failure. NVIDIA's
+reset command requires root and no active clients on the target GPU; if it
+fails, the session reports the reset failure and does not restart the miner.
+The raw miner output is external text and remains untranslated; all new Agent
+reason codes have German and English UI copy.
+
+Verification: focused session and tuning-service tests cover the bounded grid,
+pause/reset/restore sequence, reset command targeting and driver rejection.
+The live reset and post-reset GPU health are still unverified on this host.
 
 ### Initial implementation audit (2026-10-18; superseded by test-candidate work above)
 

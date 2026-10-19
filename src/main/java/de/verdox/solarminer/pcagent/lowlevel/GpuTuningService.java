@@ -80,6 +80,23 @@ public class GpuTuningService {
         return capabilityCache.getOrDefault(deviceId, unavailable(deviceId, "gpu_clock_probe_pending"));
     }
 
+    public boolean hasPendingRecovery(String deviceId) {
+        return recoveryPending.contains(deviceId);
+    }
+
+    /** Target only the affected NVIDIA card; the driver rejects a reset while other clients use it. */
+    public ApplyResult resetUnresponsiveGpu(String deviceId) {
+        if (deviceId == null || !deviceId.startsWith("GPU-"))
+            return new ApplyResult(false, "gpu_not_found");
+        try {
+            power.runTuningCommand(List.of("nvidia-smi", "--gpu-reset", "-i", deviceId));
+            return new ApplyResult(true, null);
+        } catch (Exception | LinkageError failure) {
+            if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+            return new ApplyResult(false, "auto_tuning_gpu_reset_failed");
+        }
+    }
+
     /** Effective clocks under load; a requested lock may be throttled by power or temperature. */
     public ClockTelemetry readEffectiveClocks(String deviceId) {
         LocalGpuPowerService.Gpu gpu = find(deviceId);

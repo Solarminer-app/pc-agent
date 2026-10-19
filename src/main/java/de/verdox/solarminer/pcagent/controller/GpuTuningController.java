@@ -44,7 +44,7 @@ public class GpuTuningController {
             var worker = assignments.stream().filter(value -> gpu.deviceId().equals(value.deviceId())).findFirst().orElse(null);
             return new Device(gpu.deviceId(), gpu.model(), gpu.vendor(), gpu.currentPowerLimitWatts(), gpu.currentWatts(),
                     worker == null ? null : worker.coin(), worker == null || worker.status() == null ? null : worker.status().name(),
-                    tuning.capabilities(gpu.deviceId()));
+                    tuning.capabilities(gpu.deviceId()), worker == null ? "MANUAL" : worker.powerMode());
         }).toList();
     }
 
@@ -126,7 +126,7 @@ public class GpuTuningController {
 
     public record Device(String deviceId, String model, String vendor, Integer powerLimitWatts,
                          Double measuredWatts, String coinId, String workerStatus,
-                         GpuTuningService.Capabilities tuning) { }
+                         GpuTuningService.Capabilities tuning, String powerMode) { }
     public record Apply(Integer coreMinMhz, Integer coreMaxMhz, Integer memoryMinMhz, Integer memoryMaxMhz) { }
     public record Start(String deviceId, String coinId) { }
 }

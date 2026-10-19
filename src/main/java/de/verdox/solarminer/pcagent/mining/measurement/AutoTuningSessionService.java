@@ -20,6 +20,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Service
 public class AutoTuningSessionService {
     private static final int MAX_CANDIDATES = 12, SAMPLES_PER_CANDIDATE = 16, MAX_RUN_MINUTES = 40;
+    // Driver-reported offset limits are writable bounds, not stability evidence.
+    private static final int MAX_UNVERIFIED_MEMORY_OFFSET_DELTA_MHZ = 250;
     private static final int MAX_HASHRATE_OUTLIERS = 2;
     private final MiningService mining;
     private final LocalGpuPowerService power;
@@ -43,6 +45,7 @@ public class AutoTuningSessionService {
     });
     private final AtomicBoolean cancel = new AtomicBoolean();
     private final AtomicBoolean awaitingWorker = new AtomicBoolean();
+    private final Set<String> unsafeDevices = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile String awaitingDeviceId;
     private volatile Session session = Session.idle();
 
@@ -69,6 +72,8 @@ public class AutoTuningSessionService {
         if (coin == null || !coin.isGpu()) throw new IllegalArgumentException("auto_tuning_requires_gpu_coin");
         LocalGpuPowerService.Gpu gpu = power.refresh().stream().filter(value -> value.deviceId().equals(deviceId)).findFirst().orElse(null);
         if (gpu == null) throw new IllegalArgumentException("gpu_not_found");
+        if (unsafeDevices.contains(deviceId)) throw new IllegalStateException("auto_tuning_gpu_requires_attention");
+        if (tuning.hasPendingRecovery(deviceId)) throw new IllegalStateException("gpu_clock_restore_failed");
         if (!gpu.supportsDynamicPowerScaling() || gpu.currentPowerLimitWatts() == null)
             throw new IllegalStateException("gpu_power_control_unavailable");
         if (gpu.safeTuningMaxWatts() == null)
@@ -153,8 +158,20 @@ public class AutoTuningSessionService {
     public Session status() { return session; }
     public synchronized Session cancel() { cancel.set(true); return session; }
     public void cancelForDevice(String deviceId) {
-        if (deviceId != null && (deviceId.equals(session.deviceId()) || deviceId.equals(awaitingDeviceId)))
-            cancel.set(true);
+        if (deviceId == null || (!deviceId.equals(session.deviceId()) && !deviceId.equals(awaitingDeviceId))) return;
+        cancel.set(true);
+        // A worker stop must not race a final candidate write. Let the tuning thread run its
+        // recovery path before the caller stops the miner or applies another power mode.
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+        while ((session.running() && deviceId.equals(session.deviceId())
+                || awaitingWorker.get() && deviceId.equals(awaitingDeviceId)) && System.nanoTime() < deadline) {
+            try { Thread.sleep(50); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
+        }
+        if (session.running() && deviceId.equals(session.deviceId()))
+            throw new IllegalStateException("auto_tuning_stop_recovery_timeout");
+        if (!tuning.restoreDefaults(deviceId).applied())
+            throw new IllegalStateException("gpu_clock_restore_failed");
     }
 
     @PreDestroy
@@ -218,6 +235,10 @@ public class AutoTuningSessionService {
                     observations.add(new BayesianGpuOptimizer.Observation(candidate, 0, false,
                             clockWrite.applied() ? "gpu_power_control_unavailable" : clockWrite.reason()));
                     session = session.withObservations(observations);
+                    if ("gpu_clock_restore_failed".equals(clockWrite.reason())
+                            || !clockWrite.applied() && "NVIDIA".equalsIgnoreCase(gpu.vendor())
+                            && tuning.readEffectiveClocks(gpu.deviceId()) == null)
+                        throw new IllegalStateException("auto_tuning_gpu_unresponsive");
                     if (!clockWrite.applied() && candidate.memoryOffsetMhz() != null) {
                         if (!tuning.restoreDefaults(gpu.deviceId()).applied())
                             throw new IllegalStateException("gpu_clock_restore_failed");
@@ -275,9 +296,22 @@ public class AutoTuningSessionService {
             session = session.completed(profile, "auto_tuning_complete");
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
-            tuning.restoreDefaults(gpu.deviceId());
-            power.setAutoTuningPowerTarget(originalPower, gpu);
-            session = session.failed(Objects.toString(failure.getMessage(), "auto_tuning_failed"));
+            String reason = Objects.toString(failure.getMessage(), "auto_tuning_failed");
+            boolean gpuFailure = "auto_tuning_gpu_unresponsive".equals(reason)
+                    || "gpu_clock_restore_failed".equals(reason);
+            if (gpuFailure) unsafeDevices.add(gpu.deviceId());
+            if (gpuFailure) {
+                try {
+                    miners.gpuMinerForWorker(coin.id(), gpu.deviceId()).ifPresent(miner ->
+                            miner.pauseGpu(gpu.vendor(), gpu.index()));
+                } catch (RuntimeException ignored) { /* Still attempt driver and power restoration. */ }
+            }
+            boolean gpuReset = !gpuFailure || !"NVIDIA".equalsIgnoreCase(gpu.vendor())
+                    || tuning.resetUnresponsiveGpu(gpu.deviceId()).applied();
+            boolean clocksRestored = tuning.restoreDefaults(gpu.deviceId()).applied();
+            boolean powerRestored = power.setAutoTuningPowerTarget(originalPower, gpu);
+            session = session.failed(!gpuReset ? "auto_tuning_gpu_reset_failed"
+                    : clocksRestored && powerRestored ? reason : "gpu_clock_restore_failed");
         } finally { runLock.end(); }
     }
 
@@ -298,6 +332,7 @@ public class AutoTuningSessionService {
         List<Double> rates = new ArrayList<>(), watts = new ArrayList<>(), temps = new ArrayList<>();
         List<Integer> observedCore = new ArrayList<>(), observedMemory = new ArrayList<>();
         int consecutiveMemoryMismatches = 0;
+        int consecutiveMissingClocks = 0;
         for (int i = 0; i < SAMPLES_PER_CANDIDATE; i++) {
             if (cancel.get()) return SampleSummary.unstable("auto_tuning_cancelled", false);
             if (System.nanoTime() >= deadline) throw new IllegalStateException("auto_tuning_time_limit");
@@ -305,9 +340,13 @@ public class AutoTuningSessionService {
             session = session.withSampleIndex(i + 1);
             MinerStats.Worker worker = worker(session.deviceId());
             if (worker == null || worker.miningStatus() != MinerStats.MinerStatus.MINING) {
+                boolean gpuUnresponsive = "NVIDIA".equalsIgnoreCase(context.gpu().vendor())
+                        && tuning.readEffectiveClocks(context.gpu().deviceId()) == null;
                 saveMeasurement(context, candidate, "SAMPLE", null, null, null, null, null,
-                        i + 1, null, null, null, "auto_tuning_worker_stopped");
-                return SampleSummary.unstable("auto_tuning_worker_stopped", true);
+                        i + 1, null, null, null,
+                        gpuUnresponsive ? "auto_tuning_gpu_unresponsive" : "auto_tuning_worker_stopped");
+                return SampleSummary.unstable(gpuUnresponsive ? "auto_tuning_gpu_unresponsive"
+                        : "auto_tuning_worker_stopped", true);
             }
             double rate = worker.terahashPerSecond() * 1e12;
             double powerWatts = worker.approximatedPowerUsageWatts();
@@ -317,8 +356,10 @@ public class AutoTuningSessionService {
             boolean validRate = Double.isFinite(rate) && rate > 0;
             boolean validPower = Double.isFinite(powerWatts) && powerWatts > 0;
             boolean validTemp = temp != null && Double.isFinite(temp);
-            GpuTuningService.ClockTelemetry clocks = validRate && validPower && validTemp
-                    && "NVIDIA".equalsIgnoreCase(gpu.vendor()) ? tuning.readEffectiveClocks(gpu.deviceId()) : null;
+            boolean nvidia = "NVIDIA".equalsIgnoreCase(context.gpu().vendor());
+            GpuTuningService.ClockTelemetry clocks = nvidia
+                    ? tuning.readEffectiveClocks(context.gpu().deviceId()) : null;
+            consecutiveMissingClocks = nvidia && clocks == null ? consecutiveMissingClocks + 1 : 0;
             boolean offsetNoEffect = clocks != null && candidate.memoryOffsetMhz() != null
                     && baselineClocks != null && offsetBaseline != null
                     && candidate.memoryOffsetPstate() == offsetBaseline.pstate()
@@ -329,24 +370,28 @@ public class AutoTuningSessionService {
                     || candidate.memoryOffsetMhz() != null && !Objects.equals(candidate.memoryOffsetMhz(),
                     tuning.readMemoryOffset(gpu.deviceId(), candidate.memoryOffsetPstate()))
                     || offsetNoEffect);
-            String issue = !validRate || !validPower ? "auto_tuning_sample_unavailable"
+            String issue = nvidia && !validTemp && clocks == null ? "auto_tuning_gpu_unresponsive"
+                    : !validRate || !validPower ? "auto_tuning_sample_unavailable"
                     : !validTemp ? "auto_tuning_temperature_unavailable"
                     : temp > maxTemperatureC ? "auto_tuning_temperature_limit"
-                    : "NVIDIA".equalsIgnoreCase(gpu.vendor()) && clocks == null
+                    : nvidia && clocks == null
                     ? "auto_tuning_clock_readback_unavailable"
                     : memoryMismatch ? "auto_tuning_memory_lock_ineffective" : null;
+            if (consecutiveMissingClocks >= 2) issue = "auto_tuning_gpu_unresponsive";
             saveMeasurement(context, candidate, "SAMPLE", validRate ? rate : null,
                     validPower ? powerWatts : null, validTemp ? temp : null,
                     clocks == null ? null : clocks.coreMhz(), clocks == null ? null : clocks.memoryMhz(),
                     i + 1, worker.acceptedShares(), worker.rejectedShares(), null, issue);
+            if ("auto_tuning_gpu_unresponsive".equals(issue))
+                return SampleSummary.unstable("auto_tuning_gpu_unresponsive", true);
             if (!validRate || !validPower)
                 continue;
             if (!validTemp)
                 return SampleSummary.unstable("auto_tuning_temperature_unavailable", true);
             if (temp > maxTemperatureC)
                 return SampleSummary.unstable("auto_tuning_temperature_limit", true);
-            if ("NVIDIA".equalsIgnoreCase(gpu.vendor())) {
-                if (clocks == null) return SampleSummary.unstable("auto_tuning_clock_readback_unavailable", false);
+            if (nvidia) {
+                if (clocks == null) continue;
                 observedCore.add(clocks.coreMhz()); observedMemory.add(clocks.memoryMhz());
             }
             rates.add(rate); watts.add(powerWatts); temps.add(temp);
@@ -459,8 +504,8 @@ public class AutoTuningSessionService {
         List<Integer> power = powerTiers(gpu.minWatts(), startWatts, safeMaxWatts);
         Set<BayesianGpuOptimizer.Candidate> unique = new LinkedHashSet<>();
         if (offsetRange != null && observedClocks != null && caps.coreClockControl()) {
-            int low = offsetRange.minMhz();
-            int high = offsetRange.maxMhz();
+            int low = Math.max(offsetRange.minMhz(), offsetRange.currentMhz() - MAX_UNVERIFIED_MEMORY_OFFSET_DELTA_MHZ);
+            int high = Math.min(offsetRange.maxMhz(), offsetRange.currentMhz() + MAX_UNVERIFIED_MEMORY_OFFSET_DELTA_MHZ);
             if (low <= high) {
                 List<Integer> offsets = new ArrayList<>(new LinkedHashSet<>(List.of(
                         low, low + (high - low) / 4, low + (high - low) / 2,

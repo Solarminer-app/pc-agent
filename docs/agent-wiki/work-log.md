@@ -3290,3 +3290,15 @@ changes were preserved.
 
 - The first low/high memory endpoint selector replaced the whole candidate, including its core clock, and an offset recovery test still expected the old -100 MHz point. Endpoint selection now changes only the memory setting and retains the Bayesian candidate's preferred core whenever that core exists at the boundary. The regression expectations now assert the driver minimum offset and low absolute memory endpoint.
 - Verification: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --tests 'de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSessionServiceTest' --offline` and `git diff --check` passed. No physical GPU test was run.
+
+## 2026-10-19 — Recover a hung TITAN RTX calibration
+
+- Inspected the operator's 211 raw Quantus/SRBMiner measurements and Xid 62/45/154 kernel log. The first run correctly rejected an ineffective 810 MHz absolute memory lock. In the second run, -2000 MHz offset was stable; the next +6000 MHz request produced no samples and the driver reported that a GPU reset was required. Restoration failed in the old path.
+- Bounded automatic NVIDIA memory-offset candidates to 250 MHz either side of the starting offset. A missing clock readback during sampling now ends the candidate as unstable after two readings. On a GPU failure the Agent pauses its miner, attempts a targeted GPU reset, then restores clocks and original power independently. A failed reset or restore remains a visible, localized error; repeat calibration is blocked for that device in the running Agent.
+- Verification: focused `AutoTuningSessionServiceTest` and `GpuTuningServiceTest`, frontend German/English catalog checks, and `git diff --check`. No live reset was run; the NVIDIA driver may reject the reset when another client uses the GPU or the Agent lacks root permission.
+
+## 2026-10-19 — Make Auto Tuning an operating-mode-only workflow
+
+- Removed calibration start/cancel actions and manual driver clock forms from `/autotuning.html`. The Worker operating-mode selector remains the sole control; selecting it continues to auto-start calibration when no matching profile exists. The page reports the selected mode and shows live measurement graphs only for workers currently in `AUTO_TUNING` mode.
+- Leaving Auto Tuning or stopping its worker now cancels and waits for the calibration recovery path before restoring driver clock defaults. A recovery timeout or failed restore prevents the worker/mode transition and returns the existing localized error contract. Added German and English mode guidance.
+- Verification: `node --check src/main/resources/static/js/pages/autotuning.js`, `node scripts/check-i18n.cjs`, `node scripts/scan-i18n-literals.cjs`, `node scripts/simulate-i18n-render.cjs`, `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew compileJava --offline`, and `git diff --check` passed. No automated tests or physical GPU control were run for this workflow change.
