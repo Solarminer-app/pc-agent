@@ -146,7 +146,7 @@ window.SolarMinerI18nCatalog = {
         "auto_tuning_clock_notice": {de: "Core- und Speichertakt werden nur angeboten, wenn der installierte Treiber sie unterstützt. Spannungsoffsets sind über die verfügbaren Treiber-Schnittstellen nicht einheitlich steuerbar.", en: "Core and memory clocks are offered only when the installed driver supports them. Voltage offsets cannot be controlled consistently through the available driver interfaces."},
         "auto_tuning_no_devices": {de: "Keine GPU gefunden.", en: "No GPU found."},
         "auto_tuning_saved_matrix": {de: "Gespeicherte Leistungsstufen", en: "Saved power tiers"},
-        "auto_tuning_saved_profiles": {de: "Stabile Profile ({count}) · neueste zuerst", en: "Stable profiles ({count}) · newest first"},
+        "auto_tuning_saved_profiles": {de: "Stabile Messpunkte ({count}) · neueste zuerst", en: "Stable measurements ({count}) · newest first"},
         "auto_tuning_history_title": {de: "Gespeicherte Messhistorie", en: "Saved measurement history"},
         "auto_tuning_history_counts": {de: "{samples} Einzelmessungen · {stable} stabile und {unstable} instabile Versuche", en: "{samples} samples · {stable} stable and {unstable} unstable attempts"},
         "auto_tuning_history_point": {de: "{status} · {power} W · Core {core} MHz · Speicher {memory} MHz · {efficiency} H/s/W", en: "{status} · {power} W · core {core} MHz · memory {memory} MHz · {efficiency} H/s/W"},

@@ -49,7 +49,9 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   points; they are never discarded by a new session.
 - Every stable candidate with share evidence becomes a reusable profile,
   including points from a run that later fails or is cancelled. The current
-  operating mode selects the best measured hashes per watt for its exact
+  operating mode combines repeated measurements of the exact same cap/core/
+  memory setting using median hashrate and power, then selects the best
+  resulting hashes per watt for its exact
   device/model/vendor, coin/algorithm and miner software/version. The complete
   stable candidate set remains available for later profit repricing; unstable
   results remain visible for diagnosis and never become operating profiles.
@@ -122,15 +124,15 @@ needs live validation on each OS and GPU family.
   New Node plans do not send it and never send driver commands.
 
 The local UI reports calibration phase, candidate/sample progress, approximate
-remaining sampling time and saved tiers after reload without displaying raw
+remaining sampling time and saved history after reload without displaying raw
 miner output. German and English text uses the closed frontend catalog.
 
 The device view groups each GPU's identity, power telemetry, probed clock
-capabilities, calibration action, saved tiers, and manual clock ranges. A
+capabilities, calibration action, saved candidate history, and manual clock ranges. A
 disabled calibration action names the missing assignment, mining worker, or
 driver clock capability. Driver bounds appear beside their own core or memory
-inputs; unsupported controls remain disabled. These are presentation changes
-only; the local tuning API and run-lock contract are unchanged.
+inputs; unsupported controls remain disabled. The history endpoints add
+read-only local API data; the run-lock contract is unchanged.
 Driver-related capability and action errors now pair the localized cause with
 an actionable next step. NVIDIA read-only or provisional memory support points
 to the local `nvidia-smi` help and supported-clock queries. Write-permission,
@@ -143,7 +145,8 @@ run-lock, recovery-marker, or write checks.
 
 Automated evidence covers NVIDIA supported-clock pairs and effective-clock
 parsing, out-of-range rejection, driver-default reset commands, finite
-candidate selection, matrix persistence/version invalidation, Node tier
+candidate selection, legacy-matrix loading and append-only history replay with
+version invalidation, Node tier
 selection, core-only NVIDIA recovery without an unsupported memory-clock reset,
 Agent plan validation and both German/English page rendering. Live
 changed-clock writes, accepted/rejected pool-share behavior, crash/driver-timeout

@@ -67,11 +67,34 @@ class AutoTuningProfileStoreTest {
                 "auto_tuning_rejected_share_limit".equals(row.reason())));
     }
 
+    @Test
+    void repeatedMeasurementsUseMedianInsteadOfLuckyMaximum() {
+        Path file = directory.resolve("repeat.json");
+        AutoTuningProfileStore store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), file.toString());
+        assertTrue(store.saveMatrix(List.of(profile(100), profile(150), profile(200))));
+        assertTrue(store.appendMeasurement(measurement("run-2", "RESULT", 100, 1200, true, null, 5000d)));
+        assertTrue(store.appendMeasurement(measurement("run-3", "RESULT", 100, 1200, true, null, 1100d)));
+
+        AutoTuningProfileStore reloaded = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), file.toString());
+        var bestAt100 = reloaded.matrix("GPU-a", "pearl", "srbminer-multi", "3.7.3",
+                "RTX", "NVIDIA", "PearlHash").getFirst();
+        assertEquals(1100d, bestAt100.hashrateHs());
+        assertEquals(24, bestAt100.stableSamples());
+        assertEquals(5, reloaded.candidates("GPU-a", "pearl", "srbminer-multi", "3.7.3",
+                "RTX", "NVIDIA", "PearlHash").size());
+    }
+
     private static AutoTuningProfileStore.Measurement measurement(String run, String type, int power,
                                                                   int core, Boolean stable, String reason) {
+        return measurement(run, type, power, core, stable, reason, core == 1300 ? 1100d : 1000d);
+    }
+
+    private static AutoTuningProfileStore.Measurement measurement(String run, String type, int power,
+                                                                  int core, Boolean stable, String reason,
+                                                                  double hashrate) {
         return new AutoTuningProfileStore.Measurement(run, Instant.parse("2026-10-19T12:00:00Z"),
                 "GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash", "srbminer-multi", "3.7.3",
-                core, 800, power, type, stable == null || stable ? core == 1300 ? 1100d : 1000d : null,
+                core, 800, power, type, stable == null || stable ? hashrate : null,
                 stable == null || stable ? power - 10d : null, 60d, core, 800,
                 8, 5L, 0L, stable, reason);
     }

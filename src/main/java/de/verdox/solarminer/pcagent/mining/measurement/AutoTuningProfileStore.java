@@ -137,11 +137,27 @@ public class AutoTuningProfileStore {
                                              String softwareVersion, String model, String vendor, String algorithm) {
         List<Profile> rows = candidates(deviceId, coinId, softwareId, softwareVersion, model, vendor, algorithm);
         if (rows.stream().map(Profile::powerLimitWatts).distinct().count() < 3) return List.of();
+        Map<String, List<Profile>> repeatedSettings = new LinkedHashMap<>();
+        for (Profile row : rows) repeatedSettings.computeIfAbsent(row.powerLimitWatts() + "|"
+                + row.coreMhz() + "|" + row.memoryMhz(), ignored -> new ArrayList<>()).add(row);
         Map<Integer, Profile> bestAtPower = new LinkedHashMap<>();
-        for (Profile row : rows) bestAtPower.merge(row.powerLimitWatts(), row,
+        for (List<Profile> repeats : repeatedSettings.values()) {
+            Profile row = aggregate(repeats);
+            bestAtPower.merge(row.powerLimitWatts(), row,
                 (left, right) -> Comparator.comparingDouble(Profile::efficiencyHashesPerWatt)
                         .thenComparing(Profile::calibratedAt).compare(left, right) >= 0 ? left : right);
+        }
         return bestAtPower.values().stream().sorted(Comparator.comparingInt(Profile::powerLimitWatts)).toList();
+    }
+
+    private static Profile aggregate(List<Profile> repeats) {
+        Profile latest = repeats.stream().max(Comparator.comparing(Profile::calibratedAt)).orElseThrow();
+        double hashrate = SampleCollector.median(repeats.stream().mapToDouble(Profile::hashrateHs).toArray());
+        double watts = SampleCollector.median(repeats.stream().mapToDouble(Profile::measuredWatts).toArray());
+        int samples = (int) Math.min(Integer.MAX_VALUE, repeats.stream().mapToLong(Profile::stableSamples).sum());
+        return new Profile(latest.deviceId(), latest.model(), latest.vendor(), latest.coinId(), latest.algorithm(),
+                latest.softwareId(), latest.softwareVersion(), latest.coreMhz(), latest.memoryMhz(),
+                latest.powerLimitWatts(), hashrate, watts, samples, hashrate / watts, latest.calibratedAt());
     }
 
     public synchronized Profile forBudget(String deviceId, String coinId, String softwareId,
