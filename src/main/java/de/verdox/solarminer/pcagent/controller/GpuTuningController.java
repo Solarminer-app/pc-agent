@@ -56,6 +56,20 @@ public class GpuTuningController {
     @GetMapping("/session")
     public AutoTuningSessionService.Session session() { return sessions.status(); }
 
+    /** All retained per-GPU sessions; /session remains for older local dashboards. */
+    @GetMapping("/sessions")
+    public List<AutoTuningSessionService.Session> sessions() { return sessions.sessions(); }
+
+    @GetMapping("/concurrency")
+    public Concurrency concurrency() { return new Concurrency(sessions.maxConcurrent()); }
+
+    @PutMapping("/concurrency")
+    public Concurrency concurrency(@RequestBody Concurrency request) {
+        if (request == null || !sessions.setMaxConcurrent(request.maxConcurrent()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "auto_tuning_concurrency_invalid");
+        return new Concurrency(sessions.maxConcurrent());
+    }
+
     @GetMapping("/profiles")
     public List<AutoTuningProfileStore.Profile> profiles() { return profiles.all(); }
 
@@ -167,4 +181,5 @@ public class GpuTuningController {
     public record Apply(Integer coreMinMhz, Integer coreMaxMhz, Integer memoryMinMhz, Integer memoryMaxMhz,
                         Integer memoryOffsetMhz, Integer memoryOffsetPstate) { }
     public record Start(String deviceId, String coinId) { }
+    public record Concurrency(int maxConcurrent) { }
 }

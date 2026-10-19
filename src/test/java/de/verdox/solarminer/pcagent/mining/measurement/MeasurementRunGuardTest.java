@@ -52,6 +52,21 @@ class MeasurementRunGuardTest {
     }
 
     @Test
+    void autoTuningSessionsShareTheirLaneButBlockOtherMeasurements() {
+        LocalRunLock lock = new LocalRunLock();
+
+        assertTrue(lock.tryBeginAutoTuning());
+        assertTrue(lock.tryBeginAutoTuning());
+        assertTrue(lock.busy());
+        assertFalse(lock.tryBegin("benchmark"));
+        lock.endAutoTuning();
+        assertTrue(lock.busy());
+        lock.endAutoTuning();
+        assertFalse(lock.busy());
+        assertTrue(lock.tryBegin("benchmark"));
+    }
+
+    @Test
     void cancelFlagIsObservedByTheRunLoopAndResetOnNextStart() throws Exception {
         LocalRunLock lock = new LocalRunLock();
         MeasurementRunGuard guard = new MeasurementRunGuard(lock, "test-run");

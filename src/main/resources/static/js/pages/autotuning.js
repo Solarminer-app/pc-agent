@@ -14,8 +14,9 @@
     return `${new Intl.NumberFormat(window.SolarMinerI18n.locale || 'de-DE', {maximumFractionDigits: 3}).format(scaled)} ${unit}`;
   };
   const devices = $('devices'), chartHost = $('session-charts');
-  let activeSession = null, pollTimer = null, savedProfiles = [], measurementHistory = [], earnings = [];
+  let activeSession = null, activeSessions = [], pollTimer = null, savedProfiles = [], measurementHistory = [], earnings = [];
   let tuningRows = [], chartDeviceId = null, lastSessionKey = null;
+  const concurrencyInput = $('max-concurrent-auto-tuners');
   const deviceSamples = new Map();
   const fiatPerKwh = (coinId, hashrateHs, watts) => {
     const forecast = earnings.find(row => row.coin === coinId);
@@ -330,15 +331,17 @@
   }
   async function load() {
     try {
-      const [response, profileResponse, historyResponse, earningsResponse] = await Promise.all([
+      const [response, profileResponse, historyResponse, earningsResponse, concurrencyResponse] = await Promise.all([
         fetch('/api/agent/local/gpu-tuning', {cache: 'no-store'}),
         fetch('/api/agent/local/gpu-tuning/profiles', {cache: 'no-store'}),
         fetch('/api/agent/local/gpu-tuning/measurement-summary', {cache: 'no-store'}),
-        fetch('/api/agent/local/earnings', {cache: 'no-store'})
+        fetch('/api/agent/local/earnings', {cache: 'no-store'}),
+        fetch('/api/agent/local/gpu-tuning/concurrency', {cache: 'no-store'})
       ]);
       if (!response.ok || !profileResponse.ok || !historyResponse.ok) throw new Error('gpu_clock_controls_unavailable');
       [savedProfiles, measurementHistory] = await Promise.all([profileResponse.json(), historyResponse.json()]);
       earnings = earningsResponse.ok ? await earningsResponse.json() : [];
+      if (concurrencyResponse.ok && concurrencyInput) concurrencyInput.value = (await concurrencyResponse.json()).maxConcurrent;
       const rows = await response.json();
       tuningRows = rows;
       autoTuningDevices = new Set(rows.filter(row => row.powerMode === 'AUTO_TUNING').map(row => row.deviceId));
@@ -348,11 +351,13 @@
   }
   async function loadSession() {
     try {
-      const response = await fetch('/api/agent/local/gpu-tuning/session', {cache: 'no-store'});
+      const response = await fetch('/api/agent/local/gpu-tuning/sessions', {cache: 'no-store'});
       if (!response.ok) return;
       if (pollTimer) clearTimeout(pollTimer);
-      const wasRunning = Boolean(activeSession?.running);
-      activeSession = await response.json();
+      const wasRunning = activeSessions.some(session => session.running);
+      activeSessions = await response.json();
+      activeSession = activeSessions.find(session => session.running)
+        || activeSessions.at(-1) || null;
       const devicesResponse = await fetch('/api/agent/local/gpu-tuning', {cache: 'no-store'});
       if (devicesResponse.ok) {
         const rows = await devicesResponse.json();
@@ -363,7 +368,7 @@
           draw(rows);
         }
       }
-      const runKey = `${activeSession.deviceId || ''}:${activeSession.startedAt || ''}`;
+      const runKey = activeSessions.map(session => `${session.deviceId || ''}:${session.startedAt || ''}`).join('|');
       if (runKey !== lastSessionKey) {
         lastSessionKey = runKey;
         if (activeSession.deviceId) deviceSamples.delete(activeSession.deviceId);
@@ -372,8 +377,9 @@
       drawSession();
       if (activeSession.deviceId && chartDeviceId === activeSession.deviceId) deviceSamples.delete(activeSession.deviceId);
       await drawTuningCharts();
-      if (wasRunning && !activeSession.running) { await load(); return; }
-      if (activeSession.running) pollTimer = setTimeout(loadSession, 2500);
+      const anyRunning = activeSessions.some(session => session.running);
+      if (wasRunning && !anyRunning) { await load(); return; }
+      if (anyRunning) pollTimer = setTimeout(loadSession, 2500);
     } catch (_) { /* The device inventory remains available if a progress refresh fails. */ }
   }
   function drawSession() {
@@ -422,6 +428,20 @@
     }
   }
   $('refresh').addEventListener('click', load);
+  concurrencyInput?.addEventListener('change', async () => {
+    const maxConcurrent = Number(concurrencyInput.value);
+    try {
+      const response = await fetch('/api/agent/local/gpu-tuning/concurrency', {
+        method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({maxConcurrent})
+      });
+      if (!response.ok) throw new Error('auto_tuning_concurrency_invalid');
+      concurrencyInput.value = (await response.json()).maxConcurrent;
+      status(t('auto_tuning_concurrency_saved'));
+    } catch (error) {
+      status(t(error.message || 'auto_tuning_concurrency_invalid'), true);
+      await load();
+    }
+  });
   if (window.SolarMinerWorkspace) window.SolarMinerWorkspace.init();
   load();
 })();

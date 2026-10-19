@@ -3402,3 +3402,10 @@ changes were preserved.
 - Expanded SRBMiner NVIDIA candidate generation to include fixed-memory and memory-offset controls together. Each individual miner launch uses only one of those controls; fixed and offset boundary anchors are measured before Bayesian selection fills remaining candidates.
 - SRBMiner NVIDIA may probe driver-listed fixed-memory values even without a verified direct driver lock. Effective-memory readback remains the acceptance gate, so a command that SRBMiner accepts but does not actually apply cannot become a profile.
 - Expanded each calibration from 12 to 18 candidates: six per power tier. With fixed and offset memory anchors present, four boundary measurements leave two candidate rounds per tier for Bayesian refinement; the 40-minute session ceiling remains in effect.
+- SRBMiner native fixed-clock probing now explores the bounded cross-product of individually driver-listed core and memory values, rather than only the direct driver API's reported pairs. Effective clock telemetry remains the validity gate for every combination.
+
+# 2026-10-19 — Configurable parallel Auto Tuning
+
+- Added the persisted local `auto-tuning-concurrency.json` setting and the Auto Tuning page control for 1–64 simultaneous GPU calibrations. The local API exposes the setting at `GET`/`PUT /api/agent/local/gpu-tuning/concurrency` and retains a per-device session in `GET /sessions`; the prior single-session endpoint remains compatible.
+- Auto Tuning has a shared measurement lane in `LocalRunLock`: independent GPUs may calibrate in parallel up to the configured limit, while benchmarks, efficiency sweeps, manual clock writes and power-mode changes remain excluded until the final session releases it.
+- Verification: focused AutoTuning session tests and `MeasurementRunGuardTest`, German/English catalog validation, literal scan, render simulation, JavaScript syntax check and diff whitespace check.

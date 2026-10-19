@@ -20,13 +20,12 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   hash telemetry, writable power control, at least one driver-reported clock
   control, and a readable GPU temperature. The active process stays managed by
   the regular miner adapter.
-- A single `LocalRunLock` protects a calibration. Worker mode changes,
-  benchmarks, sweeps, and power actions already using that lock cannot race it.
-  When multiple workers enter `AUTO_TUNING`, their calibration requests queue
-  per GPU and run sequentially after the lock is released. Leaving the mode or
-  stopping a queued worker removes its pending request. The page's worker
-  history switcher shows the most recent saved sampling run for each GPU in
-  this mode; the live progress header still identifies the one active session.
+- The Auto Tuning page persists an operator-selected concurrency limit from 1
+  through 64 GPUs. Each active calibration gets its own session and cancellation
+  state; queued workers begin until that limit is reached. `LocalRunLock` gives
+  these sessions a shared Auto Tuning lane while worker mode changes, benchmarks,
+  sweeps and manual power actions remain exclusive and cannot race any session.
+  Leaving the mode or stopping a queued worker removes its pending request.
 - Each GPU has a persisted tuning selection for core clock, memory clock and
   power limit. All three are enabled by default. Unselected candidate dimensions
   stay fixed at their start value during sampling. The direct calibration action
@@ -58,7 +57,7 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   model scales observed efficiency scores before expected-improvement selection,
   so H/s/W magnitude does not suppress exploration. The objective is median
   hashrate divided by measured GPU watts at each tier.
-  Twelve sampled combinations make this an exploratory search, not proof of
+  Eighteen sampled combinations make this an exploratory search, not proof of
   the absolute global optimum across all supported clock pairs.
 - Each candidate uses sixteen five-second samples (80 seconds). A candidate is
   unstable when more than two valid hashrate readings differ from the median
@@ -81,7 +80,7 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   driver-specific validation. A worker exit scores the point zero; the agent
   restores defaults, attempts a bounded miner restart and continues only if
   restoration and restart succeed. The session stops after 40 minutes.
-  Twelve candidate windows of sixteen five-second samples need sixteen minutes
+  Eighteen candidate windows of sixteen five-second samples need 24 minutes
   of sampling; driver writes, temperature/clock telemetry, miner settling and
   recovery add to that time. The first live Quantus run reached candidate 12
   with only three of sixteen samples after 25 minutes, so the old deadline was
@@ -415,3 +414,5 @@ The native path is intentionally restricted to NVIDIA SRBMiner workers. AMD and 
 When the driver provides both a safe fixed-memory range and a memory-offset range, candidate generation now includes both independent control forms. Per power tier it first samples the low/high offset anchors, then the low/high fixed-memory anchors; remaining slots use Bayesian expected improvement. A candidate supplies either `--gpu-moffset0` or `--gpu-mclock0`, never both.
 
 SRBMiner's NVIDIA adapter may also probe the fixed-memory values listed by the driver when the direct driver lock is unavailable, which covers Turing systems where SRBMiner can apply `--gpu-mclock0` through a different supported path. This does not trust command acceptance: the candidate is accepted only when the effective memory-clock sensor readback reaches the requested value within the existing tolerance. A failed readback removes memory candidates and continues core/power calibration.
+
+For this SRBMiner probe, listed core values and listed fixed-memory values form a bounded cross-product rather than being restricted to the driver's reported core/memory pairs. Thus a low fixed memory can be measured with a core value that the direct driver API would not pair with it. The optimizer remains bounded to 18 candidates and validates every applied combination through telemetry.

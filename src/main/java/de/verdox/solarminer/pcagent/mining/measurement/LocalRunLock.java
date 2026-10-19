@@ -10,9 +10,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class LocalRunLock {
     private volatile String holder;
+    private int autoTuningHolders;
 
     public synchronized boolean tryBegin(String name) {
-        if (holder != null) return false;
+        if (holder != null || autoTuningHolders > 0) return false;
         holder = name;
         return true;
     }
@@ -21,11 +22,25 @@ public class LocalRunLock {
         holder = null;
     }
 
+    /**
+     * Auto Tuning operates on distinct GPUs. Several sessions may therefore hold the
+     * measurement lane while every other measurement remains exclusive.
+     */
+    public synchronized boolean tryBeginAutoTuning() {
+        if (holder != null) return false;
+        autoTuningHolders++;
+        return true;
+    }
+
+    public synchronized void endAutoTuning() {
+        if (autoTuningHolders > 0) autoTuningHolders--;
+    }
+
     public boolean busy() {
-        return holder != null;
+        return holder != null || autoTuningHolders > 0;
     }
 
     public String holder() {
-        return holder;
+        return holder == null && autoTuningHolders > 0 ? "auto-tuning" : holder;
     }
 }

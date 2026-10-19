@@ -129,7 +129,7 @@ class AutoTuningSessionServiceTest {
         when(tuning.apply(anyString(), any(), any(), any(), any()))
                 .thenReturn(new GpuTuningService.ApplyResult(true, null));
         when(tuning.restoreDefaults("GPU-a")).thenReturn(new GpuTuningService.ApplyResult(true, null));
-        when(lock.tryBegin("auto-tuning")).thenReturn(true);
+when(lock.tryBeginAutoTuning()).thenReturn(true);
         when(miners.minerSoftwareForWorker(any(), eq("GPU-a"))).thenReturn("srbminer-multi");
         when(miners.minerVersionForWorker(any(), eq("GPU-a"))).thenReturn("3.7.3");
         AtomicLong samples = new AtomicLong();
@@ -190,7 +190,7 @@ class AutoTuningSessionServiceTest {
         when(tuning.apply(anyString(), any(), any(), any(), any()))
                 .thenReturn(new GpuTuningService.ApplyResult(true, null));
         when(tuning.restoreDefaults("GPU-n")).thenReturn(new GpuTuningService.ApplyResult(true, null));
-        when(lock.tryBegin("auto-tuning")).thenReturn(true);
+        when(lock.tryBeginAutoTuning()).thenReturn(true);
         when(miners.minerSoftwareForWorker(any(), eq("GPU-n"))).thenReturn("srbminer-multi");
         when(miners.minerVersionForWorker(any(), eq("GPU-n"))).thenReturn("3.7.3");
         when(mining.getWorkerStats()).thenReturn(List.of(new MinerStats.Worker(
@@ -251,7 +251,7 @@ class AutoTuningSessionServiceTest {
             return new GpuTuningService.ApplyResult(true, null);
         });
         when(tuning.restoreDefaults("GPU-2080")).thenReturn(new GpuTuningService.ApplyResult(true, null));
-        when(lock.tryBegin("auto-tuning")).thenReturn(true);
+        when(lock.tryBeginAutoTuning()).thenReturn(true);
         when(miners.minerSoftwareForWorker(any(), eq("GPU-2080"))).thenReturn("srbminer-multi");
         when(miners.minerVersionForWorker(any(), eq("GPU-2080"))).thenReturn("3.7.3");
         when(mining.getWorkerStats()).thenReturn(List.of(new MinerStats.Worker(
@@ -290,6 +290,7 @@ class AutoTuningSessionServiceTest {
 
         assertTrue(rows.stream().anyMatch(row -> row.memoryMhz() == 405));
         assertTrue(rows.stream().anyMatch(row -> row.memoryMhz() == 6800));
+        assertTrue(rows.stream().anyMatch(row -> row.coreMhz() == 1400 && row.memoryMhz() == 405));
     }
 
     @Test
@@ -328,7 +329,7 @@ class AutoTuningSessionServiceTest {
         when(tuning.readEffectiveClocks("GPU-offset")).thenAnswer(invocation ->
                 new GpuTuningService.ClockTelemetry(core.get(), 6800));
         when(tuning.restoreDefaults("GPU-offset")).thenReturn(new GpuTuningService.ApplyResult(true, null));
-        when(lock.tryBegin("auto-tuning")).thenReturn(true);
+        when(lock.tryBeginAutoTuning()).thenReturn(true);
         when(miners.minerSoftwareForWorker(any(), eq("GPU-offset"))).thenReturn("srbminer-multi");
         when(miners.minerVersionForWorker(any(), eq("GPU-offset"))).thenReturn("3.7.3");
         when(mining.getWorkerStats()).thenReturn(List.of(new MinerStats.Worker(
@@ -389,7 +390,7 @@ class AutoTuningSessionServiceTest {
         when(tuning.restoreDefaults("GPU-titan")).thenReturn(new GpuTuningService.ApplyResult(true, null));
         when(tuning.resetUnresponsiveGpu("GPU-titan"))
                 .thenReturn(new GpuTuningService.ApplyResult(false, "auto_tuning_gpu_reset_failed"));
-        when(lock.tryBegin("auto-tuning")).thenReturn(true);
+        when(lock.tryBeginAutoTuning()).thenReturn(true);
         when(miners.minerSoftwareForWorker(any(), eq("GPU-titan"))).thenReturn("srbminer-multi");
         when(miners.minerVersionForWorker(any(), eq("GPU-titan"))).thenReturn("3.7.3");
         when(miners.gpuMinerForWorker(anyString(), eq("GPU-titan"))).thenReturn(java.util.Optional.of(miner));
