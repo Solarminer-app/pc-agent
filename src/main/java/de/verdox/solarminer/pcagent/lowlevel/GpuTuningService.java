@@ -231,9 +231,7 @@ public class GpuTuningService {
             offsetRange = memoryOffsetRangeForPstate(gpu, memoryOffsetPstate);
             if (offsetRange == null)
                 return new ApplyResult(false, "gpu_memory_offset_unavailable");
-            // Keep exploration deliberately narrower than the driver limits.
-            if (memoryOffsetMhz < Math.max(-200, offsetRange.minMhz())
-                    || memoryOffsetMhz > Math.min(100, offsetRange.maxMhz()))
+            if (memoryOffsetMhz < offsetRange.minMhz() || memoryOffsetMhz > offsetRange.maxMhz())
                 return new ApplyResult(false, "gpu_clock_target_out_of_range");
         }
         Capabilities caps = refreshCapabilities(deviceId);

@@ -43,9 +43,12 @@ class GpuTuningServiceTest {
             Path marker = directory.resolve("offset-recovery.json");
             GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(), marker.toString(), driver);
 
+            assertTrue(tuning.apply("GPU-test", 1200, 1200, null, null, 120, 2).applied());
+            assertEquals(120, currentOffset.get());
             assertEquals("gpu_clock_target_out_of_range", tuning.apply("GPU-test", 1200, 1200,
-                    null, null, 120, 2).reason());
-            assertEquals(25, currentOffset.get());
+                    null, null, 151, 2).reason());
+            assertEquals(120, currentOffset.get());
+            assertTrue(tuning.apply("GPU-test", 1200, 1200, null, null, -250, 2).applied());
             assertTrue(tuning.apply("GPU-test", 1200, 1200, null, null, -100, 2).applied());
             assertEquals(1200, coreTarget.get());
             assertEquals(-100, currentOffset.get());
