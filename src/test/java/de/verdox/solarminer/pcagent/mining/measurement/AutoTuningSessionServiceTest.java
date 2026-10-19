@@ -138,7 +138,7 @@ class AutoTuningSessionServiceTest {
             ArgumentCaptor<Integer> firstMemory = ArgumentCaptor.forClass(Integer.class);
             verify(tuning, times(12)).apply(eq("GPU-a"), firstCore.capture(), any(), firstMemory.capture(), any());
             assertEquals(1400, firstCore.getAllValues().getFirst());
-            assertEquals(800, firstMemory.getAllValues().getFirst());
+            assertEquals(400, firstMemory.getAllValues().getFirst());
             verify(tuning).restoreDefaults("GPU-a");
             verify(power, atLeastOnce()).setAutoTuningPowerTarget(150, gpu);
         } finally { service.shutdown(); }
@@ -305,7 +305,7 @@ class AutoTuningSessionServiceTest {
             assertEquals("auto_tuning_complete", service.status().phase());
             var failure = store.measurements().stream().filter(row -> "RESULT".equals(row.type())
                     && "auto_tuning_memory_lock_ineffective".equals(row.reason())).findFirst().orElseThrow();
-            assertEquals(-100, failure.memoryOffsetMhz());
+            assertEquals(-200, failure.memoryOffsetMhz());
             assertEquals(6800, failure.observedMemoryMhz());
             assertEquals(3, failure.validSamples());
             assertTrue(store.measurements().stream().filter(row -> "RESULT".equals(row.type())

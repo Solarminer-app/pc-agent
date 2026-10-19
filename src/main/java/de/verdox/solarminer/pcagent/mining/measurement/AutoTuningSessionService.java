@@ -200,17 +200,9 @@ public class AutoTuningSessionService {
                 int positionInTier = index % (MAX_CANDIDATES / 3);
                 if (positionInTier <= 1
                         && tierCandidates.stream().anyMatch(row -> row.memoryOffsetMhz() != null))
-                    candidate = tierCandidates.stream().filter(row -> row.memoryOffsetMhz() != null)
-                            .min(positionInTier == 0
-                                    ? Comparator.comparingInt(BayesianGpuOptimizer.Candidate::memoryOffsetMhz)
-                                    : Comparator.comparingInt(BayesianGpuOptimizer.Candidate::memoryOffsetMhz).reversed())
-                            .orElse(candidate);
+                    candidate = memoryBoundaryCandidate(tierCandidates, candidate, true, positionInTier == 0);
                 else if (positionInTier <= 1 && caps.memoryClockControl())
-                    candidate = tierCandidates.stream().filter(row -> row.memoryMhz() != null)
-                            .min(positionInTier == 0
-                                    ? Comparator.comparingInt(BayesianGpuOptimizer.Candidate::memoryMhz)
-                                    : Comparator.comparingInt(BayesianGpuOptimizer.Candidate::memoryMhz).reversed())
-                            .orElse(candidate);
+                    candidate = memoryBoundaryCandidate(tierCandidates, candidate, false, positionInTier == 0);
                 if (candidate == null) continue;
                 session = session.withCandidate(candidate, ++measuredCandidates);
                 GpuTuningService.ApplyResult clockWrite = candidate.memoryOffsetMhz() == null
@@ -523,6 +515,24 @@ public class AutoTuningSessionService {
 
     private static double position(int value, int min, int max) {
         return max == min ? 0 : (value - min) / (double) (max - min);
+    }
+
+    private static BayesianGpuOptimizer.Candidate memoryBoundaryCandidate(
+            List<BayesianGpuOptimizer.Candidate> candidates,
+            BayesianGpuOptimizer.Candidate preferred, boolean offset, boolean minimum) {
+        List<BayesianGpuOptimizer.Candidate> eligible = candidates.stream()
+                .filter(row -> offset ? row.memoryOffsetMhz() != null : row.memoryMhz() != null).toList();
+        if (eligible.isEmpty()) return preferred;
+        int boundary = eligible.stream().mapToInt(row -> offset ? row.memoryOffsetMhz() : row.memoryMhz())
+                .min().orElseThrow();
+        if (!minimum) boundary = eligible.stream()
+                .mapToInt(row -> offset ? row.memoryOffsetMhz() : row.memoryMhz()).max().orElseThrow();
+        final int selectedBoundary = boundary;
+        return eligible.stream().filter(row -> (offset ? row.memoryOffsetMhz() : row.memoryMhz()) == selectedBoundary)
+                .min(Comparator.comparingInt((BayesianGpuOptimizer.Candidate row) ->
+                        Math.abs(Objects.requireNonNullElse(row.coreMhz(), 0)
+                                - Objects.requireNonNullElse(preferred == null ? null : preferred.coreMhz(), 0))))
+                .orElse(preferred);
     }
 
     static List<Integer> powerTiers(int min, int start, int max) {

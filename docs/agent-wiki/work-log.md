@@ -3285,3 +3285,8 @@ changes were preserved.
 
 - The TITAN RTX Ubuntu/Docker baseline showed that `nvidia-smi --lock-memory-clocks` requested 810 MHz while effective memory remained at 6500 MHz. PC-Agent had an NVML offset driver but gated offset discovery to Windows, preventing Linux from trying the alternate control API. Offset discovery now runs on NVIDIA Linux hosts too; it still requires a valid active-P-state range from NVML, and every write must pass offset readback plus under-load effective-clock checks. If probing or writing fails, existing core-only fallback remains.
 - NVIDIA documents `libnvidia-ml.so` for Linux and states that Docker `utility` driver capability exposes NVML. The configured PC-Agent NVIDIA Compose overlay already requests `compute,utility`. No Linux hardware validation or automated tests were run; TITAN RTX container library visibility, privileges, offset writes and recovery need a live rerun.
+
+## 2026-10-19 — Preserve optimizer core choice while probing memory endpoints
+
+- The first low/high memory endpoint selector replaced the whole candidate, including its core clock, and an offset recovery test still expected the old -100 MHz point. Endpoint selection now changes only the memory setting and retains the Bayesian candidate's preferred core whenever that core exists at the boundary. The regression expectations now assert the driver minimum offset and low absolute memory endpoint.
+- Verification: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test --tests 'de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSessionServiceTest' --offline` and `git diff --check` passed. No physical GPU test was run.
