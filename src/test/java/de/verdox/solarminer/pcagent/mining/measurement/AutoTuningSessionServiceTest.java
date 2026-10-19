@@ -82,7 +82,7 @@ class AutoTuningSessionServiceTest {
 
         assertEquals(36, rows.size());
         assertTrue(rows.stream().allMatch(row -> row.memoryMhz() == null && row.memoryOffsetPstate() == 2));
-        assertEquals(java.util.Set.of(-250, -150, -50, 0, 50, 150), rows.stream()
+        assertEquals(java.util.Set.of(-250, -163, -75, 0, 12, 100), rows.stream()
                 .map(BayesianGpuOptimizer.Candidate::memoryOffsetMhz).collect(java.util.stream.Collectors.toSet()));
     }
 
@@ -99,8 +99,9 @@ class AutoTuningSessionServiceTest {
                 new GpuTuningService.MemoryOffsetRange(2, -2000, 6000, 0));
 
         assertFalse(rows.isEmpty());
-        assertTrue(rows.stream().allMatch(row -> row.memoryOffsetMhz() >= -250
-                && row.memoryOffsetMhz() <= 250));
+        assertTrue(rows.stream().allMatch(row -> row.memoryOffsetMhz() >= -1500
+                && row.memoryOffsetMhz() <= 100));
+        assertTrue(rows.stream().anyMatch(row -> row.memoryOffsetMhz() == -1500));
         assertFalse(rows.stream().anyMatch(row -> row.memoryOffsetMhz() == 6000));
     }
 

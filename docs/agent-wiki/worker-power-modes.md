@@ -28,6 +28,13 @@ The per-worker coin/revenue scheduler currently keeps its 30-minute cooldown in 
 
 When an automatically managed GPU worker is paused from the Workers page (including a local pause request), the Agent first stops the miner and then restores the GPU's saved Power Limits target. If no user target was saved, the driver's maximum target is used, matching normal manual-mode startup. A failed stop leaves the currently applied cap in place; a failed restoration is reported as `power_mode_apply_failed`.
 
+Worker assignment changes update the device list shared by GPUs on the same
+coin/miner pair. Since applying that list restarts the miner process, the
+assignment service skips identical lists and restarts the remaining assigned
+workers that were mining before a changed list was written. A GPU moved to a
+different coin/miner is not restored through the previous pair. This recovery
+path has not yet been validated with live miners.
+
 ## Start and recovery review (2026-10-17)
 
 The mode-change endpoint holds the local run lock while saving and applying a mode. Its revenue selection now uses that existing lock instead of trying to acquire it again. A running GPU can therefore change to `REVENUE_PER_KWH` or `COIN_REVENUE_PER_KWH` without a spurious `power_mode_busy` rejection. Local Worker, LAN peer and Node on/off starts use the same measured revenue-point selection; a coin-mode start can reassign a deliberately suboptimal saved coin before starting its miner. Economic plans pass their already held lock into this start path.

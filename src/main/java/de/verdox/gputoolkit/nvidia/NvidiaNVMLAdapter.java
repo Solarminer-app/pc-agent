@@ -253,6 +253,15 @@ public class NvidiaNVMLAdapter implements GPUInterface {
 
     @Override
     public ClockOffsetRange getClockOffsetRange(int gpuIndex, boolean memory, int pstate) {
+        if (memory && pstate == -1) {
+            Pointer device = getHandle(gpuIndex);
+            IntByReference current = new IntByReference(), min = new IntByReference(), max = new IntByReference();
+            int boundsResult = nvml.nvmlDeviceGetMemClkMinMaxVfOffset(device, min, max);
+            int currentResult = nvml.nvmlDeviceGetMemClkVfOffset(device, current);
+            if (boundsResult != NVML.NVML_SUCCESS || currentResult != NVML.NVML_SUCCESS)
+                throw new IllegalStateException("NVML global memory offset query failed: " + boundsResult + "/" + currentResult);
+            return new ClockOffsetRange(-1, min.getValue(), max.getValue(), current.getValue());
+        }
         NVML.NvmlClockOffset_v1 offset = new NVML.NvmlClockOffset_v1();
         offset.clockType = memory ? 2 : 0;
         offset.pState = pstate;
@@ -269,6 +278,12 @@ public class NvidiaNVMLAdapter implements GPUInterface {
         if (offsetMhz < range.minMhz() || offsetMhz > range.maxMhz())
             throw new IllegalArgumentException("Memory offset outside NVML driver bounds");
         Pointer device = getHandle(gpuIndex);
+        if (pstate == -1) {
+            int result = nvml.nvmlDeviceSetMemClkVfOffset(device, offsetMhz);
+            if (result != NVML.NVML_SUCCESS)
+                throw new IllegalStateException("NVML global memory offset write failed: " + result);
+            return;
+        }
         NVML.NvmlClockOffset_v1 offset = new NVML.NvmlClockOffset_v1();
         offset.clockType = 2; // NVML_CLOCK_MEM
         offset.pState = pstate;

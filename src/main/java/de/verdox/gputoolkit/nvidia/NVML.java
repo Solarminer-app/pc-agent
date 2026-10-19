@@ -44,6 +44,9 @@ public interface NVML extends Library {
 
     int nvmlDeviceSetClockOffsets(Pointer device, NvmlClockOffset_v1 offsetInfo);
     int nvmlDeviceGetClockOffsets(Pointer device, NvmlClockOffset_v1 offsetInfo);
+    int nvmlDeviceGetMemClkVfOffset(Pointer device, IntByReference offsetMhz);
+    int nvmlDeviceGetMemClkMinMaxVfOffset(Pointer device, IntByReference minMhz, IntByReference maxMhz);
+    int nvmlDeviceSetMemClkVfOffset(Pointer device, int offsetMhz);
 
     class PointerByReference extends com.sun.jna.ptr.PointerByReference {}
 

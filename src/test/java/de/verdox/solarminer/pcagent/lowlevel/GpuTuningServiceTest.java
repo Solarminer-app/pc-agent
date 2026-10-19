@@ -30,6 +30,39 @@ class GpuTuningServiceTest {
     }
 
     @Test
+    void globalMemoryOffsetSurvivesPerformanceStateChangesAndRestoresOriginalValue() throws Exception {
+        LocalGpuPowerService power = nvidia();
+        when(power.runTuningCommand(any())).thenAnswer(invocation -> {
+            List<String> command = invocation.getArgument(0);
+            if (command.contains("--query-gpu=pstate")) return "P8\n";
+            if (command.contains("--lock-memory-clocks-info")) return "runtime modifiable";
+            return "6800, 1200\n6800, 1500\n";
+        });
+        AtomicInteger current = new AtomicInteger(35);
+        GpuTuningService.MemoryOffsetDriver driver = new GpuTuningService.MemoryOffsetDriver() {
+            @Override public GpuTuningService.MemoryOffsetRange probe(int index, int pstate) {
+                assertEquals(-1, pstate);
+                return new GpuTuningService.MemoryOffsetRange(-1, -2000, 6000, current.get());
+            }
+            @Override public void set(int index, int pstate, int offsetMhz) {
+                assertEquals(-1, pstate);
+                current.set(offsetMhz);
+            }
+            @Override public void setCoreTarget(int index, int coreMhz) { }
+        };
+        Path marker = directory.resolve("global-offset-recovery.json");
+        GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(), marker.toString(), driver);
+        assertEquals(-1, tuning.memoryOffsetRange("GPU-test").pstate());
+        assertTrue(tuning.apply("GPU-test", 1200, 1200, null, null, -1200, -1).applied());
+        assertEquals(-1200, current.get());
+        assertEquals(-1, new ObjectMapper().readTree(Files.readString(marker))
+                .get("GPU-test").get("offsetPstate").asInt());
+        new GpuTuningService(power, new ObjectMapper(), marker.toString(), driver).recoverInterruptedTuning();
+        assertEquals(35, current.get());
+        assertFalse(Files.exists(marker));
+    }
+
+    @Test
     void toolkitOffsetWriteIsBoundedVerifiedAndRecoveredWithOriginalValue() throws Exception {
         String oldOs = System.getProperty("os.name");
         System.setProperty("os.name", "Windows 11");

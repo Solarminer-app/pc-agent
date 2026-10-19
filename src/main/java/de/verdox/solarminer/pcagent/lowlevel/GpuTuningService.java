@@ -111,10 +111,12 @@ public class GpuTuningService {
         } catch (Exception ignored) { return null; }
     }
 
-    /** The active P-state has its own driver-reported offset range. NVML availability gates support per device. */
+    /** Prefer the device-wide VF offset so a P-state change during mining keeps the memory setting. */
     public MemoryOffsetRange memoryOffsetRange(String deviceId) {
         LocalGpuPowerService.Gpu gpu = find(deviceId);
         if (gpu == null || !"NVIDIA".equalsIgnoreCase(gpu.vendor())) return null;
+        MemoryOffsetRange global = memoryOffsetRangeForPstate(gpu, -1);
+        if (global != null) return global;
         try {
             String state = power.runTuningCommand(List.of("nvidia-smi", "-i", gpu.deviceId(),
                     "--query-gpu=pstate", "--format=csv,noheader,nounits")).strip();

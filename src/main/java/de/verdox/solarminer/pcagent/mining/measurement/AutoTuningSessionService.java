@@ -21,7 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class AutoTuningSessionService {
     private static final int MAX_CANDIDATES = 12, SAMPLES_PER_CANDIDATE = 16, MAX_RUN_MINUTES = 40;
     // Driver-reported offset limits are writable bounds, not stability evidence.
-    private static final int MAX_UNVERIFIED_MEMORY_OFFSET_DELTA_MHZ = 250;
+    private static final int MAX_UNVERIFIED_MEMORY_UNDERCLOCK_MHZ = 1500;
+    private static final int MAX_UNVERIFIED_MEMORY_OVERCLOCK_MHZ = 100;
     private static final int MAX_HASHRATE_OUTLIERS = 2;
     private final MiningService mining;
     private final LocalGpuPowerService power;
@@ -504,8 +505,8 @@ public class AutoTuningSessionService {
         List<Integer> power = powerTiers(gpu.minWatts(), startWatts, safeMaxWatts);
         Set<BayesianGpuOptimizer.Candidate> unique = new LinkedHashSet<>();
         if (offsetRange != null && observedClocks != null && caps.coreClockControl()) {
-            int low = Math.max(offsetRange.minMhz(), offsetRange.currentMhz() - MAX_UNVERIFIED_MEMORY_OFFSET_DELTA_MHZ);
-            int high = Math.min(offsetRange.maxMhz(), offsetRange.currentMhz() + MAX_UNVERIFIED_MEMORY_OFFSET_DELTA_MHZ);
+            int low = Math.max(offsetRange.minMhz(), offsetRange.currentMhz() - MAX_UNVERIFIED_MEMORY_UNDERCLOCK_MHZ);
+            int high = Math.min(offsetRange.maxMhz(), offsetRange.currentMhz() + MAX_UNVERIFIED_MEMORY_OVERCLOCK_MHZ);
             if (low <= high) {
                 List<Integer> offsets = new ArrayList<>(new LinkedHashSet<>(List.of(
                         low, low + (high - low) / 4, low + (high - low) / 2,

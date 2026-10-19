@@ -1,3 +1,13 @@
+## 2026-10-19 — Evaluate optional X11 Coolbits packaging for Docker
+
+- The existing NVIDIA Compose overlay exposes only `compute,utility`, which is sufficient for the current NVML path. NVIDIA's X11 `nvidia-settings` fallback could be packaged as an optional host Coolbits 8 configuration and separate Compose overlay with display/graphics capabilities, X11 socket, scoped Xauthority, `DISPLAY`, and the CLI. The host NVIDIA X server must load Coolbits; container-only X configuration cannot alter it. This is a feasibility assessment, not an implemented or hardware-tested fallback. See `gpu-toolkit.md` for the bilingual design and vendor references.
+
+## 2026-10-19 — Keep NVIDIA memory underclocking across P-state changes
+
+- Reviewed the absolute memory lock, per-P-state NVML offset, device-wide NVML VF offset, and Linux `nvidia-settings` Coolbits path against NVIDIA's published APIs. The former per-P-state choice could cease to affect memory when compute mining or power caps switched P-states. Auto Tuning now prefers the device-wide NVML VF memory offset, with the existing per-P-state API as fallback. It reads driver bounds and current offset, verifies writes, and persists scope plus original value for crash recovery. The calibration range now reaches up to 1500 MHz below the initial offset and at most 100 MHz above it, bounded by the driver.
+- Read-only Linux host probe: NVML global and per-P-state offset queries succeeded on four responsive NVIDIA cards (TITAN RTX and RTX 3080), reporting -2000 to +6000 MHz; no clock write was performed. A fifth TITAN RTX reported an unready state for effective clocks and was not touched. Windows RTX 2080 Ti write/effective-clock behavior and Linux Pascal hardware remain unverified. Lower memory clock is not proof of lower memory voltage or improved total-system efficiency; live hashrate and watt measurements are still required.
+- Verification: JDK 21 `test standaloneJar --offline --no-daemon` passed (329 tests). The DE/EN i18n catalog, untranslated-literal scan and both-locale render simulation passed; `git diff --check` passed. New global-offset regression covers bounds, write/readback, recovery marker and restart restoration; the candidate test covers the wider underclock range.
+
 ## 2026-10-19 — Explore writable memory clocks and reuse GPU tuning history
 
 - Follow-up operator evidence: GPU Tweak III reportedly changes memory clocks on both RTX 2080 Ti cards, and the operator confirms it uses an offset. The Agent now routes Windows NVIDIA offset tuning through the newly supplied `de.verdox.gputoolkit` API, using its NVML get/set clock-offset functions for the active P-state and its core-target setter for core tuning. The toolkit's former capability checks wrote a test offset; they now query driver state without changing it. The NVML clock-offset struct and memory clock enum were corrected. The Agent keeps offsets within the driver-reported range and -200/+100 MHz, checks each write, saves original offset/P-state in the recovery marker, and persists offsets separately from observed memory MHz in samples/profiles. The first changed offset must also move the effective memory clock; otherwise the run falls back to core and power tuning. RTX 20 cards without a verified offset API avoid the ineffective absolute memory lock path. Hardware validation on the operator's RTX 2080 Ti/Windows driver is still outstanding. The ASUS UI result still needs comparison with the Agent's effective-clock query under the same workload.
@@ -3302,3 +3312,15 @@ changes were preserved.
 - Removed calibration start/cancel actions and manual driver clock forms from `/autotuning.html`. The Worker operating-mode selector remains the sole control; selecting it continues to auto-start calibration when no matching profile exists. The page reports the selected mode and shows live measurement graphs only for workers currently in `AUTO_TUNING` mode.
 - Leaving Auto Tuning or stopping its worker now cancels and waits for the calibration recovery path before restoring driver clock defaults. A recovery timeout or failed restore prevents the worker/mode transition and returns the existing localized error contract. Added German and English mode guidance.
 - Verification: `node --check src/main/resources/static/js/pages/autotuning.js`, `node scripts/check-i18n.cjs`, `node scripts/scan-i18n-literals.cjs`, `node scripts/simulate-i18n-render.cjs`, `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew compileJava --offline`, and `git diff --check` passed. No automated tests or physical GPU control were run for this workflow change.
+
+## 2026-10-19 — Keep sibling workers mining after assignment changes
+
+- Confirmed that synchronizing one GPU's assignment rewrites a coin/miner-wide
+  device list. Those adapters stop the whole shared miner before applying the
+  config, leaving sibling GPUs stopped. Saving an unchanged assignment also
+  needlessly reapplied the same config.
+- Skip identical device lists. For a changed list, remember currently mining
+  workers that remain assigned to the affected coin/miner and restart them
+  after the write. Updated BUG-012 and the worker operating-mode contract.
+- Verification pending: no tests or live miner run were performed. Confirm
+  sibling hashrate restoration and reassignment behavior on a two-GPU agent.

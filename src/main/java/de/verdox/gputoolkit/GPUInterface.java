@@ -40,10 +40,10 @@ public interface GPUInterface {
 
     void setMemoryClockOffsetMhz(int gpuIndex, int offsetMhz);
 
-    /** Read the driver-reported offset limits and current value for a specific performance state. */
+    /** Read offset limits/current value; pstate -1 selects the device-wide memory VF offset. */
     ClockOffsetRange getClockOffsetRange(int gpuIndex, boolean memory, int pstate);
 
-    /** Set a memory offset for a specific performance state. */
+    /** Set a memory offset; pstate -1 selects the device-wide memory VF offset. */
     void setMemoryClockOffsetMhz(int gpuIndex, int pstate, int offsetMhz);
 
     record ClockOffsetRange(int pstate, int minMhz, int maxMhz, int currentMhz) { }

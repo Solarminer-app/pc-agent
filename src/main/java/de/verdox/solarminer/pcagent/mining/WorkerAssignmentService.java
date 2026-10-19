@@ -384,8 +384,20 @@ public class WorkerAssignmentService {
             // is represented by workerCoins rather than an invalid empty miner configuration.
             if (devices.isEmpty()) continue;
             MinerConfig config = miner.configuration();
-            if (config != null) miner.applyConfig(new MinerConfig(config.poolUrl(), config.proxyUrl(),
+            if (config == null || config.devices().equals(devices)) continue;
+
+            // Miner configuration is shared by every GPU assigned to this coin/software pair.
+            // Most adapters stop that whole process when its device list changes, so remember
+            // the unaffected live workers and bring them back after the write.
+            List<String> runningDevices = workers().stream()
+                    .filter(worker -> "GPU".equals(worker.hardwareType())
+                            && worker.status() == MinerStats.MinerStatus.MINING
+                            && assignment.coin().id().equals(controls.get().coinFor(worker.deviceId()))
+                            && assignment.minerId().equals(miners.minerSoftwareForWorker(assignment.coin(), worker.deviceId())))
+                    .map(WorkerView::deviceId).toList();
+            miner.applyConfig(new MinerConfig(config.poolUrl(), config.proxyUrl(),
                     config.wallet(), config.worker(), devices));
+            for (String deviceId : runningDevices) start(deviceId);
         }
     }
 

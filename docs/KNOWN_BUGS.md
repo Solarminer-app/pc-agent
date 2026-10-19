@@ -37,6 +37,7 @@ remains. The assigned task always takes precedence.
 | [~] | P1 | BUG-009 | “Start mining after benchmark” can report a start while no worker is hashing. |
 | [~] | P1 | BUG-010 | Selected Pearl or Quantus GPUs can be rejected from a power sweep despite a working miner route. |
 | [~] | P1 | BUG-011 | PeakMiner sweep can report a managed-miner ownership conflict and an implausible PH/s rate. |
+| [~] | P1 | BUG-012 | Saving one worker's assignment can stop other GPUs sharing its coin/miner configuration. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -626,3 +627,33 @@ README still says kH/s, so a raw `/summary` response and console rate from
 the affected Windows build are required to settle this upstream contract and
 certify the corrected unit. Sweep console rate formatting had independent
 1,000-fold label errors (MH vs GH, kH vs MH), which were corrected.
+
+## BUG-012 — Preserve sibling workers when saving a worker assignment
+
+**Status:** Implemented, verification pending (`[~]`, 2026-10-19)
+**Priority:** P1
+**Area:** Worker assignment and shared GPU miner configuration
+
+### Report and diagnosis
+
+Changing a worker in the Workers page can make other workers appear stopped.
+`WorkerAssignmentService.assign` synchronizes the shared device list for each
+affected coin/miner pair. The adapter's `applyConfig` stops the entire
+coin-specific miner process before writing that list, but the assignment path
+only restarted the selected worker from the browser. Even saving an unchanged
+assignment could rewrite the same list and stop all its workers.
+
+### Remedy
+
+`synchronizeConfiguredDevices` now skips a write when the shared device list
+has not changed. When it must change, it captures currently mining workers
+still assigned to that coin/miner and starts them again after the configuration
+write. A worker moved away is not restarted by the old configuration.
+
+### Verification required
+
+- With two GPUs assigned to the same coin and miner, change or save one worker
+  and confirm the sibling resumes and continues hashing.
+- Confirm changing one GPU's assignment does not start it under its old coin;
+  check both German and English Workers-page status after the action.
+- No automated test or live miner run has been performed for this remedy yet.
