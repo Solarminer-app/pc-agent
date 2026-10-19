@@ -3398,3 +3398,4 @@ changes were preserved.
 - Replaced direct driver application for NVIDIA SRBMiner tuning candidates and saved Auto Tuning profiles with documented SRBMiner options (`--gpu-cclock0`, `--gpu-mclock0`, `--gpu-moffset0`, `--gpu-plimit0`). The Auto Tuning service addresses the active miner-software adapter through `MinerNativeTuning`; SRBMiner's Pearl and shared GPU-coin adapters both implement it.
 - Candidate/profile changes restart the isolated GPU process because SRBMiner exposes no documented runtime OC command API. A failed tuning run clears the temporary native profile before driver recovery.
 - Added command-construction coverage in `SrbMinerVersionTest`. Physical GPU/driver validation remains required.
+- Fixed the memory-offset fallback: after an ineffective offset readback, the remaining calibration candidates now exclude offsets and continue with core/power-only candidates.

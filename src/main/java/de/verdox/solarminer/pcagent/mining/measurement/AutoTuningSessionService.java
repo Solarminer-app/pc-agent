@@ -120,7 +120,10 @@ public class AutoTuningSessionService {
             caps = new GpuTuningService.Capabilities(caps.deviceId(), caps.coreClockControl(), false,
                     caps.voltageControl(), caps.coreMinMhz(), caps.coreMaxMhz(), caps.memoryMinMhz(),
                     caps.memoryMaxMhz(), caps.reason(), caps.supportedPairs());
-        if (selection.core() && !caps.coreClockControl() || selection.memory()
+        // A missing memory control must not prevent a core/power calibration. This is common
+        // on RTX 20 cards before a memory-offset API is verified; SRBMiner's own adapter can
+        // later expose memory control without changing this generic safety rule.
+        if (selection.core() && !caps.coreClockControl() || !selection.core() && selection.memory()
                 && !caps.memoryClockControl() && offsetRange == null)
             throw new IllegalStateException("auto_tuning_selected_control_unavailable");
         List<BayesianGpuOptimizer.Candidate> candidates = candidates(gpu, caps, observedClocks,
@@ -333,7 +336,7 @@ public class AutoTuningSessionService {
                                 caps.coreClockControl(), false, caps.voltageControl(), caps.coreMinMhz(), caps.coreMaxMhz(),
                                 caps.memoryMinMhz(), caps.memoryMaxMhz(), caps.reason(), caps.supportedPairs());
                         activeCandidates = candidates(gpu, coreOnly, observedClocks, startingWatts,
-                                offsetBaseline, selection);
+                                null, selection);
                         historical = historicalObservations(context, activeCandidates);
                     }
                     continue;
@@ -355,7 +358,7 @@ public class AutoTuningSessionService {
                             caps.coreClockControl(), false, caps.voltageControl(), caps.coreMinMhz(), caps.coreMaxMhz(),
                             caps.memoryMinMhz(), caps.memoryMaxMhz(), caps.reason(), caps.supportedPairs());
                     activeCandidates = candidates(gpu, coreOnly, observedClocks, startingWatts,
-                            offsetBaseline, selection);
+                            null, selection);
                     if (activeCandidates.isEmpty()) throw new IllegalStateException("auto_tuning_no_safe_clock_candidates");
                     historical = historicalObservations(context, activeCandidates);
                 }
