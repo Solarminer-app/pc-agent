@@ -42,9 +42,11 @@ exploration ceiling. Other operating modes and the power sweep remain available.
 - When power tuning is selected, the candidate search tests three distinct
   power-cap tiers that include the
   manual starting target when it is inside the safe range. The first tier
-  sampled is the starting target. Each power tier first measures the minimum
-  and maximum driver-reported memory setting when writable, then uses up to two
-  Bayesian-selected clock points (twelve candidates total). NVIDIA
+  sampled is the starting target. Each power tier has six candidate rounds.
+  It first measures the minimum and maximum driver-reported memory setting;
+  when offset and fixed-memory controls are both available, it also measures
+  both offset boundaries. Remaining rounds use Bayesian-selected clock points
+  (eighteen candidates total). NVIDIA
   candidates use only supported memory/core pairs reported by the driver; when
   memory locks are unavailable they use pairs at the highest listed memory
   clock no higher than the currently observed memory clock. A writable clock
@@ -393,7 +395,7 @@ Smile provides Gaussian-process regression, but still requires the application
 to implement the discrete candidate grid and acquisition function. Its core
 libraries are dual-licensed under GPLv3 or commercial terms; this change keeps
 the Agent's dependency set unchanged and implements the small RBF Gaussian
-process plus expected-improvement step locally for a maximum of twelve
+process plus expected-improvement step locally for a maximum of eighteen
 observations per run. This bounded matrix size keeps the solver straightforward
 and avoids adding a second ML runtime to the standalone Agent. ojAlgo provides
 LP/QP/MIP modeling and linear algebra, but not a ready Gaussian-process Bayesian

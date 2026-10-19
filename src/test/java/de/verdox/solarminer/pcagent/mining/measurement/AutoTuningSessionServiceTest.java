@@ -155,12 +155,12 @@ class AutoTuningSessionServiceTest {
             while (service.status().running() && System.nanoTime() < deadline) Thread.sleep(10);
             assertEquals("auto_tuning_complete", service.status().phase());
             assertEquals(3, store.matrix("GPU-a", "pearl", "srbminer-multi", "3.7.3", "Test", "AMD").size());
-            assertEquals(12, store.measurements().stream().filter(row -> "RESULT".equals(row.type())
+            assertEquals(18, store.measurements().stream().filter(row -> "RESULT".equals(row.type())
                     && !"earlier-run".equals(row.runId())).count());
-            assertEquals(192, store.measurements().stream().filter(row -> "SAMPLE".equals(row.type())).count());
+            assertEquals(288, store.measurements().stream().filter(row -> "SAMPLE".equals(row.type())).count());
             ArgumentCaptor<Integer> firstCore = ArgumentCaptor.forClass(Integer.class);
             ArgumentCaptor<Integer> firstMemory = ArgumentCaptor.forClass(Integer.class);
-            verify(tuning, times(12)).apply(eq("GPU-a"), firstCore.capture(), any(), firstMemory.capture(), any());
+            verify(tuning, times(18)).apply(eq("GPU-a"), firstCore.capture(), any(), firstMemory.capture(), any());
             assertEquals(1400, firstCore.getAllValues().getFirst());
             assertEquals(400, firstMemory.getAllValues().getFirst());
             verify(tuning).restoreDefaults("GPU-a");

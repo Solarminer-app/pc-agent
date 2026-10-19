@@ -20,7 +20,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** On-demand, per-GPU Gaussian-process calibration against live miner telemetry. */
 @Service
 public class AutoTuningSessionService {
-    private static final int MAX_CANDIDATES = 12, SAMPLES_PER_CANDIDATE = 16, MAX_RUN_MINUTES = 40;
+    /** Six candidates per safe power tier: four memory anchors plus two Bayesian refinements. */
+    private static final int MAX_CANDIDATES = 18, SAMPLES_PER_CANDIDATE = 16, MAX_RUN_MINUTES = 40;
     // Driver-reported offset limits are writable bounds, not stability evidence.
     private static final int MAX_UNVERIFIED_MEMORY_UNDERCLOCK_MHZ = 1500;
     private static final int MAX_UNVERIFIED_MEMORY_OVERCLOCK_MHZ = 100;
