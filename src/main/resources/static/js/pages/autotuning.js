@@ -2,7 +2,7 @@
   const $ = id => document.getElementById(id);
   const t = window.SolarMinerUI.t;
   const devices = $('devices');
-  let activeSession = null, pollTimer = null, savedProfiles = [];
+  let activeSession = null, pollTimer = null, savedProfiles = [], measurementHistory = [];
   const node = (tag, className, text) => { const el = document.createElement(tag); if (className) el.className = className; if (text) el.textContent = text; return el; };
   const adviceKey = (reason, vendor) => {
     const key = String(reason || '');
@@ -69,15 +69,34 @@
       });
       calibration.append(tuneButton); card.append(calibration);
       const profiles = savedProfiles.filter(row => row.deviceId === gpu.deviceId && row.coinId === gpu.coinId)
-        .sort((a, b) => a.powerLimitWatts - b.powerLimitWatts);
+        .sort((a, b) => String(b.calibratedAt || '').localeCompare(String(a.calibratedAt || '')));
       if (profiles.length) {
-        const saved = node('div', 'tuning-profiles'); saved.append(node('h4', '', t('auto_tuning_saved_matrix')));
-        for (const profile of profiles) saved.append(node('p', '', t('auto_tuning_saved_tier', {
+        const saved = node('div', 'tuning-profiles'); saved.append(node('h4', '', t('auto_tuning_saved_profiles', {count: profiles.length})));
+        for (const profile of profiles.slice(0, 6)) saved.append(node('p', '', t('auto_tuning_saved_tier', {
           software: profile.softwareId, version: profile.softwareVersion || '—', power: profile.powerLimitWatts,
           core: profile.coreMhz ?? '—', memory: profile.memoryMhz ?? '—',
           efficiency: Number(profile.efficiencyHashesPerWatt).toFixed(3)
         })));
         card.append(saved);
+      }
+      const history = measurementHistory.find(row => row.deviceId === gpu.deviceId);
+      if (history) {
+        const saved = node('div', 'tuning-profiles');
+        saved.append(node('h4', '', t('auto_tuning_history_title')),
+          node('p', '', t('auto_tuning_history_counts', {samples: history.samples,
+            stable: history.stable, unstable: history.unstable})));
+        for (const result of [...history.recent].reverse()) {
+          const score = result.hashrateHs > 0 && result.measuredWatts > 0
+            ? (result.hashrateHs / result.measuredWatts).toFixed(3) : '—';
+          saved.append(node('p', '', t('auto_tuning_history_point', {
+            status: t(result.stable ? 'auto_tuning_stable' : 'auto_tuning_unstable'),
+            power: result.powerLimitWatts, core: result.coreMhz ?? '—',
+            memory: result.memoryMhz ?? '—', efficiency: score
+          }) + (result.reason ? ` · ${t(result.reason)}` : '')));
+        }
+        const all = node('a', '', t('auto_tuning_history_export'));
+        all.href = `/api/agent/local/gpu-tuning/measurements?deviceId=${encodeURIComponent(gpu.deviceId)}&limit=0`;
+        saved.append(all); card.append(saved);
       }
       const form = node('form', 'tuning-form');
       form.append(node('h4', '', t('auto_tuning_manual_title')));
@@ -141,12 +160,14 @@
   }
   async function load() {
     try {
-      const [response, profileResponse] = await Promise.all([
+      const [response, profileResponse, historyResponse] = await Promise.all([
         fetch('/api/agent/local/gpu-tuning', {cache: 'no-store'}),
-        fetch('/api/agent/local/gpu-tuning/profiles', {cache: 'no-store'})
+        fetch('/api/agent/local/gpu-tuning/profiles', {cache: 'no-store'}),
+        fetch('/api/agent/local/gpu-tuning/measurement-summary', {cache: 'no-store'})
       ]);
-      if (!response.ok || !profileResponse.ok) throw new Error('gpu_clock_controls_unavailable');
-      savedProfiles = await profileResponse.json(); draw(await response.json()); await loadSession();
+      if (!response.ok || !profileResponse.ok || !historyResponse.ok) throw new Error('gpu_clock_controls_unavailable');
+      [savedProfiles, measurementHistory] = await Promise.all([profileResponse.json(), historyResponse.json()]);
+      draw(await response.json()); await loadSession();
     }
     catch (error) { reportError(error); }
   }

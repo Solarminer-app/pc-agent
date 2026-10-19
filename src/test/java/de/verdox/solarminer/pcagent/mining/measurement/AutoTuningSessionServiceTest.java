@@ -82,6 +82,8 @@ class AutoTuningSessionServiceTest {
             while (service.status().running() && System.nanoTime() < deadline) Thread.sleep(10);
             assertEquals("auto_tuning_complete", service.status().phase());
             assertEquals(3, store.matrix("GPU-a", "pearl", "srbminer-multi", "3.7.3", "Test", "AMD").size());
+            assertEquals(12, store.measurements().stream().filter(row -> "RESULT".equals(row.type())).count());
+            assertEquals(96, store.measurements().stream().filter(row -> "SAMPLE".equals(row.type())).count());
             verify(tuning).restoreDefaults("GPU-a");
             verify(power, atLeastOnce()).setAutoTuningPowerTarget(150, gpu);
         } finally { service.shutdown(); }

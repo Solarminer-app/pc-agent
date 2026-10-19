@@ -11,6 +11,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /** Local-only driver capability and calibration controls for the Auto Tuning page. */
 @RestController
@@ -50,6 +53,42 @@ public class GpuTuningController {
 
     @GetMapping("/profiles")
     public List<AutoTuningProfileStore.Profile> profiles() { return profiles.all(); }
+
+    @GetMapping("/measurements")
+    public List<AutoTuningProfileStore.Measurement> measurements(
+            @RequestParam(required = false) String deviceId,
+            @RequestParam(defaultValue = "100") int limit) {
+        if (limit < 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "gpu_tuning_request_invalid");
+        List<AutoTuningProfileStore.Measurement> rows = profiles.measurements().stream()
+                .filter(row -> deviceId == null || deviceId.equals(row.deviceId())).toList();
+        return limit == 0 || rows.size() <= limit ? rows : rows.subList(rows.size() - limit, rows.size());
+    }
+
+    @GetMapping("/measurement-summary")
+    public List<MeasurementHistory> measurementSummary() {
+        Map<String, HistoryBuilder> byDevice = new LinkedHashMap<>();
+        for (AutoTuningProfileStore.Measurement row : profiles.measurements()) {
+            HistoryBuilder history = byDevice.computeIfAbsent(row.deviceId(), ignored -> new HistoryBuilder());
+            if ("SAMPLE".equals(row.type())) history.samples++;
+            if ("RESULT".equals(row.type())) {
+                if (Boolean.TRUE.equals(row.stable())) history.stable++;
+                else history.unstable++;
+                history.recent.add(row);
+                if (history.recent.size() > 5) history.recent.removeFirst();
+            }
+        }
+        return byDevice.entrySet().stream().map(entry -> new MeasurementHistory(entry.getKey(),
+                entry.getValue().samples, entry.getValue().stable, entry.getValue().unstable,
+                List.copyOf(entry.getValue().recent))).toList();
+    }
+
+    private static final class HistoryBuilder {
+        int samples, stable, unstable;
+        final List<AutoTuningProfileStore.Measurement> recent = new ArrayList<>();
+    }
+
+    public record MeasurementHistory(String deviceId, int samples, int stable, int unstable,
+                                     List<AutoTuningProfileStore.Measurement> recent) { }
 
     @PostMapping("/start")
     public AutoTuningSessionService.Session start(@RequestBody Start request) {

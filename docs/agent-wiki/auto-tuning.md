@@ -37,9 +37,24 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   Twelve candidate windows of eight five-second samples need eight minutes of
   sampling; driver writes, miner settling and recovery make roughly 9–12
   minutes a practical estimate. A run that cannot confirm one stable point in
-  each tier before the deadline fails without replacing the prior matrix.
-- Every tier needs a stable candidate with share evidence before the three-row
-  matrix is persisted. On completion, cancellation or failure, calibration
+  each tier before the deadline fails, but its individual measurements remain saved.
+- Every raw sampling step and every candidate result is appended to
+  `auto-tuning-profiles.json.measurements.jsonl` and forced to disk before the
+  next step. The record includes run ID/time, GPU/model/vendor, coin/algorithm,
+  miner software/version, requested cap/clocks, available hash/power/temperature,
+  effective clocks, share counters, stability and typed failure reason. Invalid
+  or unavailable readings stay explicit instead of being stored as zero.
+  A write failure aborts calibration and triggers the existing driver restore.
+  Existing `auto-tuning-profiles.json` matrices are loaded as legacy verified
+  points; they are never discarded by a new session.
+- Every stable candidate with share evidence becomes a reusable profile,
+  including points from a run that later fails or is cancelled. The current
+  operating mode selects the best measured hashes per watt for its exact
+  device/model/vendor, coin/algorithm and miner software/version. The complete
+  stable candidate set remains available for later profit repricing; unstable
+  results remain visible for diagnosis and never become operating profiles.
+  The three-tier readiness check still applies before autonomous profile
+  selection. On completion, cancellation or failure, calibration
   restores driver clock defaults and the power limit captured at session start.
   In Auto Tuning mode, successful calibration then applies the most efficient
   confirmed tier and its core/memory clocks. On later starts the matching
@@ -88,6 +103,10 @@ needs live validation on each OS and GPU family.
   device and assigned coin; `/session` returns phase, candidate, sample progress
   and completed observations. `/cancel` requests safe cleanup.
 - `GET /api/agent/local/gpu-tuning/profiles` returns local cached profiles.
+- `GET /api/agent/local/gpu-tuning/measurement-summary` returns per-GPU counts
+  and the five latest candidate results for the page. `GET /measurements`
+  under the same route returns the latest 100 events by default; `limit=0`
+  returns all events, optionally filtered by `deviceId`. Both are local-only.
 - `POST /{deviceId}/apply` and `/restore` expose bounded local clock controls
   for diagnostics and manual preparation. These writes share the run lock and
   are protected by the same-origin local-write filter.
