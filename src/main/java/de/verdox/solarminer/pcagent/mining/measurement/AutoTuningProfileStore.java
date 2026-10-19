@@ -186,20 +186,27 @@ public class AutoTuningProfileStore {
 
     public synchronized List<Profile> matrix(String deviceId, String coinId, String softwareId,
                                              String softwareVersion, String model, String vendor, String algorithm) {
-        List<Profile> rows = candidates(deviceId, coinId, softwareId, softwareVersion, model, vendor, algorithm);
+        List<Profile> rows = aggregatedCandidates(deviceId, coinId, softwareId, softwareVersion, model, vendor, algorithm);
         if (rows.stream().map(Profile::powerLimitWatts).distinct().count() < 3) return List.of();
+        Map<Integer, Profile> bestAtPower = new LinkedHashMap<>();
+        for (Profile row : rows) bestAtPower.merge(row.powerLimitWatts(), row,
+            (left, right) -> Comparator.comparingDouble(Profile::efficiencyHashesPerWatt)
+                    .thenComparing(Profile::calibratedAt).compare(left, right) >= 0 ? left : right);
+        return bestAtPower.values().stream().sorted(Comparator.comparingInt(Profile::powerLimitWatts)).toList();
+    }
+
+    /** Median-combines repeat measurements but retains every distinct stable clock/power setting. */
+    public synchronized List<Profile> aggregatedCandidates(String deviceId, String coinId, String softwareId,
+                                                             String softwareVersion, String model, String vendor,
+                                                             String algorithm) {
+        List<Profile> rows = candidates(deviceId, coinId, softwareId, softwareVersion, model, vendor, algorithm);
         Map<String, List<Profile>> repeatedSettings = new LinkedHashMap<>();
         for (Profile row : rows) repeatedSettings.computeIfAbsent(row.powerLimitWatts() + "|"
                 + row.coreMhz() + "|" + row.memoryMhz() + "|" + row.memoryOffsetMhz()
                 + "|" + row.memoryOffsetPstate(), ignored -> new ArrayList<>()).add(row);
-        Map<Integer, Profile> bestAtPower = new LinkedHashMap<>();
-        for (List<Profile> repeats : repeatedSettings.values()) {
-            Profile row = aggregate(repeats);
-            bestAtPower.merge(row.powerLimitWatts(), row,
-                (left, right) -> Comparator.comparingDouble(Profile::efficiencyHashesPerWatt)
-                        .thenComparing(Profile::calibratedAt).compare(left, right) >= 0 ? left : right);
-        }
-        return bestAtPower.values().stream().sorted(Comparator.comparingInt(Profile::powerLimitWatts)).toList();
+        return repeatedSettings.values().stream().map(AutoTuningProfileStore::aggregate)
+                .sorted(Comparator.comparingInt(Profile::powerLimitWatts)
+                        .thenComparing(Profile::calibratedAt)).toList();
     }
 
     private static Profile aggregate(List<Profile> repeats) {

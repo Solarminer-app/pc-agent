@@ -85,6 +85,24 @@ class AutoTuningProfileStoreTest {
     }
 
     @Test
+    void keepsEveryDistinctStableSettingForEconomicSelection() {
+        Path file = directory.resolve("economic-candidates.json");
+        AutoTuningProfileStore store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), file.toString());
+        assertTrue(store.appendMeasurement(measurement("run-1", "RESULT", 100, 900, true, null, 1000d)));
+        assertTrue(store.appendMeasurement(measurement("run-1", "RESULT", 100, 1300, true, null, 1050d)));
+        assertTrue(store.appendMeasurement(measurement("run-1", "RESULT", 150, 1200, true, null, 1000d)));
+        assertTrue(store.appendMeasurement(measurement("run-1", "RESULT", 200, 1200, true, null, 1000d)));
+
+        var all = store.aggregatedCandidates("GPU-a", "pearl", "srbminer-multi", "3.7.3",
+                "RTX", "NVIDIA", "PearlHash");
+        assertEquals(4, all.size());
+        assertEquals(List.of(900, 1300), all.stream().filter(row -> row.powerLimitWatts() == 100)
+                .map(AutoTuningProfileStore.Profile::coreMhz).toList());
+        assertEquals(3, store.matrix("GPU-a", "pearl", "srbminer-multi", "3.7.3",
+                "RTX", "NVIDIA", "PearlHash").size());
+    }
+
+    @Test
     void offsetMeasurementsSurviveReloadAndKeepDistinctProfiles() {
         Path file = directory.resolve("offset-history.json");
         ObjectMapper json = new ObjectMapper().findAndRegisterModules();

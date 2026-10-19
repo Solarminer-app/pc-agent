@@ -26,10 +26,14 @@ public class AutoTuningProfileEconomicsService {
 
     public Comparison compare(String deviceId, String coinId, String softwareId, String softwareVersion,
                               String model, String vendor, int budgetWatts, String algorithm) {
-        List<AutoTuningProfileStore.Profile> candidates = profiles.matrix(deviceId, coinId, softwareId,
-                softwareVersion, model, vendor, algorithm).stream()
+        List<AutoTuningProfileStore.Profile> efficientCandidates = profiles.matrix(deviceId, coinId, softwareId,
+                softwareVersion, model, vendor, algorithm);
+        // Three complete power tiers remain the admission gate, but profit considers every
+        // stable clock/memory point in those tiers rather than only their efficiency winner.
+        List<AutoTuningProfileStore.Profile> candidates = efficientCandidates.isEmpty() ? List.of()
+                : profiles.aggregatedCandidates(deviceId, coinId, softwareId, softwareVersion, model, vendor, algorithm).stream()
                 .filter(profile -> profile.powerLimitWatts() <= budgetWatts).toList();
-        Projection efficient = candidates.stream()
+        Projection efficient = efficientCandidates.stream().filter(profile -> profile.powerLimitWatts() <= budgetWatts)
                 .max(Comparator.comparingDouble(AutoTuningProfileStore.Profile::efficiencyHashesPerWatt)
                         .thenComparingInt(profile -> -profile.powerLimitWatts()))
                 .map(this::project).orElse(null);

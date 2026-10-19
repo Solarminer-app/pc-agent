@@ -109,6 +109,9 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   daily profit for its exact
   device/model/vendor, coin/algorithm and miner software/version. The complete
   stable candidate set remains available for later profit repricing; the latter
+  evaluates every distinct stable clock/memory/power point after repeated
+  measurements of that exact setting are median-combined, rather than reducing
+  each power tier to its efficiency winner first. It
   selection uses fresh market data and the configured electricity tariff at
   application time, subtracts measured 24-hour electricity cost, and remains
   unavailable if either input is missing or stale. It excludes fees, rejected
