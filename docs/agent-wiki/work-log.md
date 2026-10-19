@@ -3324,3 +3324,35 @@ changes were preserved.
   after the write. Updated BUG-012 and the worker operating-mode contract.
 - Verification pending: no tests or live miner run were performed. Confirm
   sibling hashrate restoration and reassignment behavior on a two-GPU agent.
+
+## 2026-10-19 — Queue per-GPU Auto Tuning and paginate worker histories
+
+- Found that the calibration run lock is global by design, but automatic
+  `startWhenReady` requests for other GPUs were discarded while a run was
+  active. This can explain a second GPU such as the RTX 3080 having no samples
+  when it was the later request; the actual device order remains unconfirmed.
+- Added a per-device queue that drains sequentially after each run and removes
+  requests when a worker leaves Auto Tuning or stops. The Auto Tuning page now
+  switches between GPUs in that mode and plots the most recent saved sample run
+  for the selected worker with localized empty/loading failure states.
+- Verification: `compileJava --offline`, `node --check` for `autotuning.js`,
+  both-locale catalog/render checks, untranslated-literal scan, and
+  `git diff --check` passed. No automated tests or RTX 3080 live run were
+  performed. Confirm two real workers calibrate in order, produce samples and
+  render; capture the RTX 3080 worker order and measurement API response.
+
+## 2026-10-19 — Clear saved Auto Tuning data per GPU
+
+- Added a same-origin local `DELETE` endpoint and per-device Auto Tuning page
+  action. It removes all stable profile rows and raw sample/result events for
+  that physical GPU, then clears the stale completed-session panel. The user
+  confirms the destructive action; a running calibration/run-lock operation
+  rejects it. A currently mining `AUTO_TUNING` worker is asked to recalibrate
+  after the store is cleared.
+- Profile JSON and measurement JSONL are rewritten through atomic file writes;
+  the in-memory store is updated only after both writes succeed. Both locales
+  explain the scope, busy state, success and storage failure.
+- Verification: `compileJava --offline`, `node --check` for `autotuning.js`,
+  both-locale catalog/render checks, untranslated-literal scan, and
+  `git diff --check` passed. No automated tests were run; storage failure and
+  delete/reload/recalibrate behavior have not been exercised against a live Agent.

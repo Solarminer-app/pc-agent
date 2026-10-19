@@ -20,6 +20,11 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   the regular miner adapter.
 - A single `LocalRunLock` protects a calibration. Worker mode changes,
   benchmarks, sweeps, and power actions already using that lock cannot race it.
+  When multiple workers enter `AUTO_TUNING`, their calibration requests queue
+  per GPU and run sequentially after the lock is released. Leaving the mode or
+  stopping a queued worker removes its pending request. The page's worker
+  history switcher shows the most recent saved sampling run for each GPU in
+  this mode; the live progress header still identifies the one active session.
 - Stopping the worker or leaving `AUTO_TUNING` cancels an active session and
   waits for its recovery path before restoring driver clock defaults. The
   selected operating mode then applies its own power target. A recovery timeout
@@ -144,6 +149,12 @@ needs live validation on each OS and GPU family.
   and the five latest candidate results for the page. `GET /measurements`
   under the same route returns the latest 100 events by default; `limit=0`
   returns all events, optionally filtered by `deviceId`. Both are local-only.
+- `DELETE /api/agent/local/gpu-tuning/{deviceId}/calibration-data` removes all
+  saved profiles and raw measurement events for that physical GPU, across its
+  coin/miner combinations. The page asks for confirmation and refreshes the
+  view. It is rejected while a calibration or other run-lock operation is
+  active. If the GPU is already mining in `AUTO_TUNING`, a fresh calibration
+  request is made after deletion; otherwise its next active start can calibrate.
 - `POST /{deviceId}/apply` and `/restore` expose bounded local clock controls
   for diagnostics and manual preparation. These writes share the run lock and
   are protected by the same-origin local-write filter.
@@ -160,7 +171,9 @@ needs live validation on each OS and GPU family.
 
 The local UI reports calibration phase, candidate/sample progress, approximate
 remaining sampling time and saved history after reload without displaying raw
-miner output. During and after a session it also plots the raw sample timeline
+miner output. It paginates through the measurement timeline for workers in
+`AUTO_TUNING`, including prior saved runs, while live progress identifies the
+currently active GPU. During and after a session it also plots the raw sample timeline
 for observed core/memory clocks, temperature, measured power, hashrate and
 estimated gross fiat revenue per kWh. Hovering or tapping a point reveals its
 time and candidate settings. Charts refresh with the session and use the same

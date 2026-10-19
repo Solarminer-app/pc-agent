@@ -46,6 +46,8 @@ public class AutoTuningSessionService {
     });
     private final AtomicBoolean cancel = new AtomicBoolean();
     private final AtomicBoolean awaitingWorker = new AtomicBoolean();
+    private final Deque<QueuedWorker> queuedWorkers = new ArrayDeque<>();
+    private final Set<String> awaitingRecovery = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Set<String> unsafeDevices = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile String awaitingDeviceId;
     private volatile Session session = Session.idle();
@@ -128,38 +130,78 @@ public class AutoTuningSessionService {
     }
 
     /** Called by the operating mode after miner startup; the miner may need time to report MINING. */
-    public void startWhenReady(String deviceId, String coinId) {
-        if (session.running() || !awaitingWorker.compareAndSet(false, true)) return;
-        awaitingDeviceId = deviceId;
+    public synchronized void startWhenReady(String deviceId, String coinId) {
+        if (deviceId == null || coinId == null
+                || session.running() && deviceId.equals(session.deviceId())
+                || deviceId.equals(awaitingDeviceId)
+                || queuedWorkers.stream().anyMatch(row -> row.deviceId().equals(deviceId))) return;
+        queuedWorkers.addLast(new QueuedWorker(deviceId, coinId));
+        startNextQueuedWorker();
+    }
+
+    private synchronized void startNextQueuedWorker() {
+        if (session.running() || awaitingWorker.get() || !awaitingRecovery.isEmpty() || queuedWorkers.isEmpty()) return;
+        QueuedWorker request = queuedWorkers.removeFirst();
+        if (!awaitingWorker.compareAndSet(false, true)) {
+            queuedWorkers.addFirst(request);
+            return;
+        }
+        awaitingDeviceId = request.deviceId();
         cancel.set(false);
         try {
             executor.execute(() -> {
+                boolean started = false;
                 try {
                     for (int attempt = 0; attempt < 30 && !cancel.get(); attempt++) {
-                        if (controls == null || !"AUTO_TUNING".equals(controls.get().powerModeFor(deviceId))) return;
-                        if (session.running()) return;
-                        MinerStats.Worker active = worker(deviceId);
+                        if (controls == null || !"AUTO_TUNING".equals(controls.get().powerModeFor(request.deviceId()))) return;
+                        if (session.running()) break;
+                        MinerStats.Worker active = worker(request.deviceId());
                         if (!runLock.busy() && active != null
                                 && active.miningStatus() == MinerStats.MinerStatus.MINING) {
-                            start(deviceId, coinId);
+                            start(request.deviceId(), request.coinId());
+                            started = true;
                             return;
                         }
                         Thread.sleep(1_000);
                     }
-                    session = session.failed("auto_tuning_requires_active_worker");
+                    if (!cancel.get() && controls != null
+                            && "AUTO_TUNING".equals(controls.get().powerModeFor(request.deviceId()))) {
+                        if (session.running()) queuedWorkers.addFirst(request);
+                        else session = session.failed("auto_tuning_requires_active_worker");
+                    }
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                 } catch (RuntimeException failure) {
-                    session = session.failed(Objects.toString(failure.getMessage(), "auto_tuning_failed"));
-                } finally { awaitingDeviceId = null; awaitingWorker.set(false); }
+                    String reason = Objects.toString(failure.getMessage(), "auto_tuning_failed");
+                    if (("power_mode_busy".equals(reason) || "auto_tuning_busy".equals(reason))
+                            && controls != null && "AUTO_TUNING".equals(controls.get().powerModeFor(request.deviceId())))
+                        queuedWorkers.addFirst(request);
+                    else session = session.failed(reason);
+                } finally {
+                    awaitingDeviceId = null;
+                    awaitingWorker.set(false);
+                    if (!started) startNextQueuedWorker();
+                }
             });
-        } catch (RuntimeException rejected) { awaitingDeviceId = null; awaitingWorker.set(false); }
+        } catch (RuntimeException rejected) {
+            awaitingDeviceId = null;
+            awaitingWorker.set(false);
+            queuedWorkers.addFirst(request);
+        }
     }
 
     public Session status() { return session; }
     public synchronized Session cancel() { cancel.set(true); return session; }
+    public synchronized boolean clearCompletedSession(String deviceId) {
+        if (deviceId == null || session.running() && deviceId.equals(session.deviceId())) return false;
+        if (deviceId.equals(session.deviceId())) session = Session.idle();
+        return true;
+    }
     public void cancelForDevice(String deviceId) {
-        if (deviceId == null || (!deviceId.equals(session.deviceId()) && !deviceId.equals(awaitingDeviceId))) return;
+        if (deviceId == null) return;
+        synchronized (this) { queuedWorkers.removeIf(row -> row.deviceId().equals(deviceId)); }
+        if (!deviceId.equals(session.deviceId()) && !deviceId.equals(awaitingDeviceId)) return;
+        awaitingRecovery.add(deviceId);
         cancel.set(true);
         // A worker stop must not race a final candidate write. Let the tuning thread run its
         // recovery path before the caller stops the miner or applies another power mode.
@@ -169,10 +211,18 @@ public class AutoTuningSessionService {
             try { Thread.sleep(50); }
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
         }
-        if (session.running() && deviceId.equals(session.deviceId()))
+        if (session.running() && deviceId.equals(session.deviceId())
+                || awaitingWorker.get() && deviceId.equals(awaitingDeviceId)) {
+            awaitingRecovery.remove(deviceId);
             throw new IllegalStateException("auto_tuning_stop_recovery_timeout");
-        if (!tuning.restoreDefaults(deviceId).applied())
-            throw new IllegalStateException("gpu_clock_restore_failed");
+        }
+        try {
+            if (!tuning.restoreDefaults(deviceId).applied())
+                throw new IllegalStateException("gpu_clock_restore_failed");
+        } finally {
+            awaitingRecovery.remove(deviceId);
+            startNextQueuedWorker();
+        }
     }
 
     @PreDestroy
@@ -313,7 +363,10 @@ public class AutoTuningSessionService {
             boolean powerRestored = power.setAutoTuningPowerTarget(originalPower, gpu);
             session = session.failed(!gpuReset ? "auto_tuning_gpu_reset_failed"
                     : clocksRestored && powerRestored ? reason : "gpu_clock_restore_failed");
-        } finally { runLock.end(); }
+        } finally {
+            runLock.end();
+            startNextQueuedWorker();
+        }
     }
 
     private boolean recoverWorker(LocalGpuPowerService.Gpu gpu, Coin coin, int originalPower) throws InterruptedException {
@@ -609,6 +662,7 @@ public class AutoTuningSessionService {
                                  double score, int validSamples, Double hashrateHs, Double measuredWatts,
                                  Integer observedCoreMhz, Integer observedMemoryMhz, String detail,
                                  Integer memoryOffsetMhz) { }
+    private record QueuedWorker(String deviceId, String coinId) { }
     public record Session(boolean running, String phase, Instant startedAt, String deviceId, String model,
                           String coinId, String algorithm, String softwareId, int candidateIndex, int candidateCount,
                           Integer currentCoreMhz, Integer currentMemoryMhz, Integer currentPowerWatts,

@@ -49,6 +49,7 @@
 .tuning-profiles { margin-top: 18px; padding: 14px 16px; border: 1px solid #355744; border-radius: 10px; background: #17291f; }
 .tuning-profiles h4 { color: #ade0ba; }
 .tuning-profiles p { margin: 8px 0 0; color: #b9d0c0; font-size: 11px; line-height: 1.5; }
+.tuning-clear-data { margin-top: 14px; }
 .tuning-reason { margin: 14px 0 0; padding: 10px 12px; border-radius: 8px; background: #253127; color: #d7d7af; font-size: 11px; line-height: 1.5; }
 .tuning-reason p { margin: 0; }
 .tuning-advice,.tuning-reason .tuning-advice { margin: 8px 0 0; color: #dce8dc; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
@@ -58,6 +59,13 @@
 #session-state .panel-head { margin-bottom: 10px; }
 #session-state progress { width: 100%; height: 8px; accent-color: #8bddbc; }
 #session-state .notice-line { margin: 8px 0; }
+.tuning-worker-chart { margin: 18px 0; padding: 20px; border: 1px solid #456b58; background: #182921; }
+.tuning-worker-chart-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.tuning-worker-chart-heading .kicker { margin: 0 0 4px; }
+.tuning-worker-chart-heading h2 { margin: 0; font-size: 17px; }
+.tuning-worker-chart-controls { display: flex; gap: 8px; }
+.tuning-worker-chart .tuning-graphs { margin-bottom: 0; }
+.tuning-worker-chart .tuning-graphs-heading { display: none; }
 .tuning-graphs { margin: 22px 0 18px; }
 .tuning-graphs-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .tuning-graphs-heading h3 { margin: 0; font-size: 16px; }
@@ -74,5 +82,5 @@
 .tuning-graph-current { display: block; margin: -3px 0 0 51px; color: #eef4f7; font-size: 13px; font-variant-numeric: tabular-nums; }
 .tuning-graph-empty { min-height: 110px; display: grid; place-items: center; color: #91a2b3; font-size: 11px; text-align: center; }
 @media (max-width: 520px) { .tuning-graphs-heading { align-items: flex-start; flex-direction: column; gap: 4px; } }
-@media (max-width: 700px) { .tuning-page .tuning-hero { min-height: 0; margin-top: 14px; padding: 25px 22px; } .tuning-hero-mark { opacity: .17; right: -25px; } #devices > .tuning-card { padding: 19px; } .tuning-calibration { align-items: stretch; flex-direction: column; } .tuning-calibration .button { align-self: flex-start; } }
+@media (max-width: 700px) { .tuning-page .tuning-hero { min-height: 0; margin-top: 14px; padding: 25px 22px; } .tuning-hero-mark { opacity: .17; right: -25px; } #devices > .tuning-card { padding: 19px; } .tuning-calibration { align-items: stretch; flex-direction: column; } .tuning-calibration .button { align-self: flex-start; } .tuning-worker-chart-heading { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 420px) { .tuning-stats { gap: 7px; }.tuning-stat { padding: 11px; }.tuning-range-heading { align-items: flex-start; flex-direction: column; gap: 4px; }.tuning-range-heading span { text-align: left; }.tuning-form .button-row .button { width: 100%; } }

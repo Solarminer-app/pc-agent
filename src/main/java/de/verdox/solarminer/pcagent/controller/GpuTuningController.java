@@ -54,6 +54,24 @@ public class GpuTuningController {
     @GetMapping("/profiles")
     public List<AutoTuningProfileStore.Profile> profiles() { return profiles.all(); }
 
+    @DeleteMapping("/{deviceId}/calibration-data")
+    public Map<String, Boolean> clearCalibrationData(@PathVariable String deviceId) {
+        if (power.snapshot().stream().noneMatch(gpu -> gpu.deviceId().equals(deviceId)))
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "gpu_not_found");
+        if (!runLock.tryBegin("gpu-tuning-data-clear"))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "auto_tuning_busy");
+        try {
+            if (!sessions.clearCompletedSession(deviceId))
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "auto_tuning_busy");
+            if (!profiles.clearDevice(deviceId))
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "auto_tuning_clear_failed");
+        } finally { runLock.end(); }
+        if (workers.workers().stream().anyMatch(worker -> deviceId.equals(worker.deviceId())
+                && worker.status() == de.verdox.solarminer.pcagent.dto.MinerStats.MinerStatus.MINING))
+            workers.maybeStartAutoTuning(deviceId);
+        return Map.of("cleared", true);
+    }
+
     @GetMapping("/measurements")
     public List<AutoTuningProfileStore.Measurement> measurements(
             @RequestParam(required = false) String deviceId,

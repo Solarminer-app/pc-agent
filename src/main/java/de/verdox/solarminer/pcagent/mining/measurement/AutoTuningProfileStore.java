@@ -8,10 +8,12 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -77,6 +79,55 @@ public class AutoTuningProfileStore {
     public synchronized List<Profile> all() { return profiles.values().stream().flatMap(List::stream).toList(); }
 
     public synchronized List<Measurement> measurements() { return List.copyOf(measurements); }
+
+    /** Remove every saved profile and raw measurement belonging to one physical GPU. */
+    public synchronized boolean clearDevice(String deviceId) {
+        if (deviceId == null || deviceId.isBlank()) return false;
+        Map<String, List<Profile>> previousProfiles = new LinkedHashMap<>(profiles);
+        List<Measurement> previousMeasurements = new ArrayList<>(measurements);
+        Map<String, List<Profile>> nextProfiles = new LinkedHashMap<>();
+        profiles.forEach((key, rows) -> {
+            List<Profile> remaining = rows.stream().filter(row -> !deviceId.equals(row.deviceId())).toList();
+            if (!remaining.isEmpty()) nextProfiles.put(key, remaining);
+        });
+        List<Measurement> nextMeasurements = measurements.stream()
+                .filter(row -> !deviceId.equals(row.deviceId())).toList();
+        if (!de.verdox.solarminer.pcagent.support.AtomicFileStore.writeJson(file, nextProfiles, json,
+                file.getFileName().toString())) return false;
+        if (!writeMeasurements(nextMeasurements)) {
+            de.verdox.solarminer.pcagent.support.AtomicFileStore.writeJson(file, previousProfiles, json,
+                    file.getFileName().toString());
+            return false;
+        }
+        profiles.clear();
+        profiles.putAll(nextProfiles);
+        measurements.clear();
+        measurements.addAll(nextMeasurements);
+        return true;
+    }
+
+    private boolean writeMeasurements(List<Measurement> rows) {
+        Path temporary = measurementFile.resolveSibling(measurementFile.getFileName() + ".tmp-" + java.util.UUID.randomUUID());
+        try {
+            Files.createDirectories(measurementFile.getParent());
+            try (var writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                for (Measurement row : rows) {
+                    writer.write(json.writeValueAsString(row));
+                    writer.newLine();
+                }
+            }
+            try {
+                Files.move(temporary, measurementFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, measurementFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return true;
+        } catch (Exception failure) {
+            try { Files.deleteIfExists(temporary); } catch (Exception ignored) { }
+            return false;
+        }
+    }
 
     /** Persist every raw sample and candidate outcome before continuing calibration. */
     public synchronized boolean appendMeasurement(Measurement measurement) {

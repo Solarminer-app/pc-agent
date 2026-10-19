@@ -38,6 +38,7 @@ remains. The assigned task always takes precedence.
 | [~] | P1 | BUG-010 | Selected Pearl or Quantus GPUs can be rejected from a power sweep despite a working miner route. |
 | [~] | P1 | BUG-011 | PeakMiner sweep can report a managed-miner ownership conflict and an implausible PH/s rate. |
 | [~] | P1 | BUG-012 | Saving one worker's assignment can stop other GPUs sharing its coin/miner configuration. |
+| [~] | P1 | BUG-013 | Auto Tuning drops calibration requests for GPUs while another GPU is being calibrated. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -657,3 +658,39 @@ write. A worker moved away is not restarted by the old configuration.
 - Confirm changing one GPU's assignment does not start it under its old coin;
   check both German and English Workers-page status after the action.
 - No automated test or live miner run has been performed for this remedy yet.
+
+## BUG-013 — Queue Auto Tuning for multiple workers and show each history
+
+**Status:** Implemented, verification pending (`[~]`, 2026-10-19)
+**Priority:** P1
+**Area:** Per-GPU Auto Tuning scheduling and measurement history UI
+
+### Report and diagnosis
+
+When more than one GPU uses `AUTO_TUNING`, only one worker's measurement chart
+is visible, and the RTX 3080 has no measurement data. `LocalRunLock` correctly
+serializes calibrations, but `startWhenReady` returned immediately whenever a
+session was running. The second GPU's request was therefore discarded rather
+than waiting for the first calibration to finish. The Auto Tuning page also
+plotted only the current session's samples.
+
+This explains missing RTX 3080 data if it was the second GPU whose mode/start
+requested calibration. If it was first, its specific missing sample cause is
+not established by this report and still needs its per-device API/measurement
+record inspected.
+
+### Remedy
+
+Automatic calibration requests are now queued per device and started one at a
+time after the active session releases the run lock. Stopping/leaving the mode
+removes that device's queued request. The Auto Tuning page now paginates through
+workers in that mode and graphs the most recent saved sample run for each GPU;
+a worker without samples receives a localized empty-state message.
+
+### Verification required
+
+- Put two GPUs in `AUTO_TUNING`; confirm both are calibrated sequentially and
+  each has sample records and a selectable graph.
+- Confirm leaving the mode while queued removes that GPU from the queue and
+  both locales render the navigation, progress and empty state correctly.
+- No automated test or live RTX 3080 calibration was performed for this remedy.

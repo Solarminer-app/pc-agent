@@ -13,9 +13,10 @@
     }
     return `${new Intl.NumberFormat(window.SolarMinerI18n.locale || 'de-DE', {maximumFractionDigits: 3}).format(scaled)} ${unit}`;
   };
-  const devices = $('devices');
+  const devices = $('devices'), chartHost = $('session-charts');
   let activeSession = null, pollTimer = null, savedProfiles = [], measurementHistory = [], earnings = [];
-  let runMeasurements = [], loadedRunKey = null;
+  let tuningRows = [], chartDeviceId = null, lastSessionKey = null;
+  const deviceSamples = new Map();
   const fiatPerKwh = (coinId, hashrateHs, watts) => {
     const forecast = earnings.find(row => row.coin === coinId);
     if (!forecast?.available || forecast.stale || !(forecast.usdPerDay > 0)
@@ -171,6 +172,11 @@
         all.href = `/api/agent/local/gpu-tuning/measurements?deviceId=${encodeURIComponent(gpu.deviceId)}&limit=0`;
         saved.append(all); card.append(saved);
       }
+      const clearData = node('button', 'button subtle tuning-clear-data', t('auto_tuning_clear_data'));
+      clearData.type = 'button';
+      clearData.setAttribute('aria-label', t('auto_tuning_clear_data_for', {device: gpu.model || gpu.deviceId}));
+      clearData.addEventListener('click', () => { void clearCalibrationData(gpu, clearData); });
+      card.append(clearData);
       if (caps.reason) {
         const reason = node('div', 'tuning-reason'); reason.append(node('p', '', t(caps.reason)));
         const advice = adviceKey(caps.reason, gpu.vendor);
@@ -182,6 +188,91 @@
         card.append(reason);
       }
       devices.append(card);
+    }
+  }
+  async function clearCalibrationData(gpu, button) {
+    if (!window.confirm(t('auto_tuning_clear_confirm', {device: gpu.model || gpu.deviceId}))) return;
+    button.disabled = true;
+    try {
+      const response = await fetch(`/api/agent/local/gpu-tuning/${encodeURIComponent(gpu.deviceId)}/calibration-data`, {method: 'DELETE'});
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message || body.detail || 'auto_tuning_clear_failed');
+      }
+      savedProfiles = savedProfiles.filter(row => row.deviceId !== gpu.deviceId);
+      measurementHistory = measurementHistory.filter(row => row.deviceId !== gpu.deviceId);
+      deviceSamples.delete(gpu.deviceId);
+      status(t('auto_tuning_clear_success'));
+      await load();
+    } catch (error) {
+      status(t('auto_tuning_clear_error', {error: t(error.message)}), true);
+      button.disabled = false;
+    }
+  }
+  function selectChartDevice(deviceId) {
+    chartDeviceId = deviceId;
+    void drawTuningCharts(true);
+  }
+  async function samplesForDevice(deviceId) {
+    const response = await fetch(`/api/agent/local/gpu-tuning/measurements?deviceId=${encodeURIComponent(deviceId)}&limit=3000`, {cache: 'no-store'});
+    if (!response.ok) throw new Error('gpu_clock_controls_unavailable');
+    const all = await response.json();
+    const latest = all.filter(row => row.type === 'SAMPLE').at(-1);
+    const runId = latest?.runId;
+    const samples = all.filter(row => row.type === 'SAMPLE' && runId && row.runId === runId);
+    return {samples, coinId: latest?.coinId};
+  }
+  async function drawTuningCharts(refreshSelected = false) {
+    chartHost.replaceChildren();
+    const active = tuningRows.filter(row => row.powerMode === 'AUTO_TUNING');
+    if (!active.length) return;
+    if (!active.some(row => row.deviceId === chartDeviceId)) {
+      chartDeviceId = active.find(row => row.deviceId === activeSession?.deviceId)?.deviceId || active[0].deviceId;
+    }
+    const index = active.findIndex(row => row.deviceId === chartDeviceId);
+    const selected = active[index];
+    const section = node('section', 'panel tuning-worker-chart');
+    const heading = node('div', 'tuning-worker-chart-heading');
+    const label = node('div');
+    label.append(node('p', 'kicker', t('auto_tuning_worker_history_eyebrow')),
+      node('h2', '', t('auto_tuning_worker_of', {worker: selected.model || selected.deviceId, current: index + 1, total: active.length})));
+    const controls = node('div', 'tuning-worker-chart-controls');
+    const previous = node('button', 'button subtle', t('auto_tuning_previous_worker'));
+    previous.type = 'button'; previous.disabled = active.length < 2;
+    previous.setAttribute('aria-label', t('auto_tuning_previous_worker'));
+    previous.addEventListener('click', () => selectChartDevice(active[(index - 1 + active.length) % active.length].deviceId));
+    const next = node('button', 'button subtle', t('auto_tuning_next_worker'));
+    next.type = 'button'; next.disabled = active.length < 2;
+    next.setAttribute('aria-label', t('auto_tuning_next_worker'));
+    next.addEventListener('click', () => selectChartDevice(active[(index + 1) % active.length].deviceId));
+    controls.append(previous, next); heading.append(label, controls); section.append(heading);
+    const currentRun = activeSession?.deviceId === selected.deviceId && activeSession?.running;
+    if (currentRun) {
+      const progress = t('auto_tuning_progress', {current: activeSession.candidateIndex, total: activeSession.candidateCount,
+        model: activeSession.model || activeSession.deviceId, coin: t(activeSession.coinId || '')});
+      section.append(node('p', 'muted', progress));
+    }
+    section.append(node('p', 'muted', t('auto_tuning_worker_history_device', {device: selected.deviceId})));
+    const cached = deviceSamples.get(selected.deviceId);
+    if (cached?.samples?.length) renderRunCharts(section, cached.samples, cached.coinId);
+    else section.append(node('p', 'tuning-graph-empty', t('auto_tuning_no_worker_measurements')));
+    chartHost.append(section);
+    if (cached && !refreshSelected) return;
+    try {
+      const loaded = await samplesForDevice(selected.deviceId);
+      if (chartDeviceId !== selected.deviceId) return;
+      deviceSamples.set(selected.deviceId, loaded);
+      const charts = section.querySelector('.tuning-graphs');
+      if (charts) charts.remove();
+      const empty = section.querySelector('.tuning-graph-empty');
+      if (empty) empty.remove();
+      if (loaded.samples.length) renderRunCharts(section, loaded.samples, loaded.coinId);
+      else section.append(node('p', 'tuning-graph-empty', t('auto_tuning_no_worker_measurements')));
+    } catch (_) {
+      if (chartDeviceId === selected.deviceId && !cached?.samples?.length) {
+        const empty = section.querySelector('.tuning-graph-empty');
+        if (empty) empty.textContent = t('auto_tuning_measurements_unavailable');
+      }
     }
   }
   async function send(url, body) {
@@ -201,6 +292,7 @@
       [savedProfiles, measurementHistory] = await Promise.all([profileResponse.json(), historyResponse.json()]);
       earnings = earningsResponse.ok ? await earningsResponse.json() : [];
       const rows = await response.json();
+      tuningRows = rows;
       autoTuningDevices = new Set(rows.filter(row => row.powerMode === 'AUTO_TUNING').map(row => row.deviceId));
       draw(rows); await loadSession();
     }
@@ -216,6 +308,7 @@
       const devicesResponse = await fetch('/api/agent/local/gpu-tuning', {cache: 'no-store'});
       if (devicesResponse.ok) {
         const rows = await devicesResponse.json();
+        tuningRows = rows;
         const next = new Set(rows.filter(row => row.powerMode === 'AUTO_TUNING').map(row => row.deviceId));
         if (next.size !== autoTuningDevices.size || [...next].some(id => !autoTuningDevices.has(id))) {
           autoTuningDevices = next;
@@ -223,17 +316,14 @@
         }
       }
       const runKey = `${activeSession.deviceId || ''}:${activeSession.startedAt || ''}`;
-      if (runKey !== loadedRunKey) { runMeasurements = []; loadedRunKey = runKey; }
-      drawSession();
-      if (activeSession.deviceId) {
-        const measurementsResponse = await fetch(`/api/agent/local/gpu-tuning/measurements?deviceId=${encodeURIComponent(activeSession.deviceId)}&limit=3000`, {cache: 'no-store'});
-        if (measurementsResponse.ok) {
-          const all = await measurementsResponse.json();
-          runMeasurements = all.filter(row => row.type === 'SAMPLE' && row.coinId === activeSession.coinId
-            && row.at && new Date(row.at).getTime() >= new Date(activeSession.startedAt).getTime());
-          drawSession();
-        }
+      if (runKey !== lastSessionKey) {
+        lastSessionKey = runKey;
+        if (activeSession.deviceId) deviceSamples.delete(activeSession.deviceId);
+        if (!chartDeviceId) chartDeviceId = activeSession.deviceId;
       }
+      drawSession();
+      if (activeSession.deviceId && chartDeviceId === activeSession.deviceId) deviceSamples.delete(activeSession.deviceId);
+      await drawTuningCharts();
       if (wasRunning && !activeSession.running) { await load(); return; }
       if (activeSession.running) pollTimer = setTimeout(loadSession, 2500);
     } catch (_) { /* The device inventory remains available if a progress refresh fails. */ }
@@ -259,7 +349,6 @@
         host.append(node('p', 'muted', t('auto_tuning_eta', {minutes: Math.ceil(remaining * 5 / 60)})));
       }
     }
-    if (runMeasurements.length && autoTuningDevices.has(activeSession.deviceId)) renderRunCharts(host, runMeasurements, activeSession.coinId);
     for (const row of activeSession.observations || []) {
       host.append(node('p', row.stable ? 'notice-line' : 'muted', t('auto_tuning_observation', {
         status: t(row.stable ? 'auto_tuning_stable' : 'auto_tuning_unstable'),
