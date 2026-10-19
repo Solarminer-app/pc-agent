@@ -14,8 +14,10 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   page also allows an operator to rerun an active worker with its saved tuning
   selection. Manual bounded clock controls live on the Power Limits page and
   use the same driver capability service; voltage writes remain unavailable.
-  Live measurement
-  graphs are shown only while the worker is in `AUTO_TUNING` mode.
+  Live calibration details and measurement graphs are shown only while that
+  worker has a running calibration. They are removed when its run completes,
+  fails, or is cancelled; compact saved profiles, measurement-history counts,
+  and the local raw-data export remain available on the worker card.
   A worker must have live
   hash telemetry, writable power control, at least one driver-reported clock
   control, and a readable GPU temperature. The active process stays managed by

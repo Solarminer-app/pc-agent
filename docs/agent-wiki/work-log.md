@@ -3409,3 +3409,7 @@ changes were preserved.
 - Added the persisted local `auto-tuning-concurrency.json` setting and the Auto Tuning page control for 1–64 simultaneous GPU calibrations. The local API exposes the setting at `GET`/`PUT /api/agent/local/gpu-tuning/concurrency` and retains a per-device session in `GET /sessions`; the prior single-session endpoint remains compatible.
 - Auto Tuning has a shared measurement lane in `LocalRunLock`: independent GPUs may calibrate in parallel up to the configured limit, while benchmarks, efficiency sweeps, manual clock writes and power-mode changes remain excluded until the final session releases it.
 - Verification: focused AutoTuning session tests and `MeasurementRunGuardTest`, German/English catalog validation, literal scan, render simulation, JavaScript syntax check and diff whitespace check.
+## 2026-10-19 — Hide completed Auto Tuning run detail
+
+- The large live calibration detail panel and telemetry graphs now render only for workers with a running Auto Tuning session. As soon as a worker completes, fails, or is cancelled, its panel is removed without hiding the compact saved-profile/history summaries or local raw-measurement export.
+- Verification: `node --check src/main/resources/static/js/pages/autotuning.js`, both locale catalog/render checks, and `git diff --check`.

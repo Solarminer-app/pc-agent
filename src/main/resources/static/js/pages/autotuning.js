@@ -273,7 +273,8 @@
   }
   async function drawTuningCharts(refreshSelected = false) {
     chartHost.replaceChildren();
-    const active = tuningRows.filter(row => row.powerMode === 'AUTO_TUNING');
+    const runningDeviceIds = new Set(activeSessions.filter(session => session.running).map(session => session.deviceId));
+    const active = tuningRows.filter(row => row.powerMode === 'AUTO_TUNING' && runningDeviceIds.has(row.deviceId));
     if (!active.length) return;
     if (!active.some(row => row.deviceId === chartDeviceId)) {
       chartDeviceId = active.find(row => row.deviceId === activeSession?.deviceId)?.deviceId || active[0].deviceId;
@@ -384,7 +385,7 @@
   }
   function drawSession() {
     const host = $('session-state'); host.replaceChildren();
-    if (!activeSession || activeSession.phase === 'idle') return;
+    if (!activeSession?.running) return;
     const phase = t(activeSession.phase);
     const header = node('div', 'panel-head');
     header.append(node('h2', '', phase));
