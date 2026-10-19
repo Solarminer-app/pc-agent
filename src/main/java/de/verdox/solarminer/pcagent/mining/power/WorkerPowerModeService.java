@@ -183,7 +183,10 @@ public class WorkerPowerModeService {
             }
             if (profile == null || profile.powerLimitWatts() < gpu.minWatts() || gpuTuning == null)
                 return new Selection(choice.mode(), null, "auto_tuning_budget_below_profile");
-            var clocks = gpuTuning.apply(deviceId, profile.coreMhz(), profile.coreMhz(), profile.memoryMhz(), profile.memoryMhz());
+            var clocks = profile.memoryOffsetMhz() == null
+                    ? gpuTuning.apply(deviceId, profile.coreMhz(), profile.coreMhz(), profile.memoryMhz(), profile.memoryMhz())
+                    : gpuTuning.apply(deviceId, profile.coreMhz(), profile.coreMhz(), null, null,
+                    profile.memoryOffsetMhz(), profile.memoryOffsetPstate());
             if (!clocks.applied()) return new Selection(choice.mode(), null, clocks.reason());
             if (!gpus.setAutoTuningPowerTarget(profile.powerLimitWatts(), gpu)) {
                 gpuTuning.restoreDefaults(deviceId);

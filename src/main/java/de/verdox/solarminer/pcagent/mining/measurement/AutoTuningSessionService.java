@@ -94,7 +94,13 @@ public class AutoTuningSessionService {
         if (software == null || software.isBlank())
             throw new IllegalStateException("auto_tuning_miner_unavailable");
         String softwareVersion = miners.minerVersionForWorker(coin, deviceId);
-        List<BayesianGpuOptimizer.Candidate> candidates = candidates(gpu, caps, observedClocks, startingWatts);
+        GpuTuningService.MemoryOffsetRange offsetRange = tuning.memoryOffsetRange(deviceId);
+        if (offsetRange == null && "NVIDIA".equalsIgnoreCase(gpu.vendor())
+                && gpu.model() != null && gpu.model().matches("(?i).*RTX\\s*20[0-9]{2}.*"))
+            caps = new GpuTuningService.Capabilities(caps.deviceId(), caps.coreClockControl(), false,
+                    caps.voltageControl(), caps.coreMinMhz(), caps.coreMaxMhz(), caps.memoryMinMhz(),
+                    caps.memoryMaxMhz(), caps.reason(), caps.supportedPairs());
+        List<BayesianGpuOptimizer.Candidate> candidates = candidates(gpu, caps, observedClocks, startingWatts, offsetRange);
         if (candidates.isEmpty()) throw new IllegalStateException("auto_tuning_no_safe_clock_candidates");
         if (candidates.stream().map(BayesianGpuOptimizer.Candidate::powerWatts).distinct().count() < 3)
             throw new IllegalStateException("auto_tuning_power_range_too_narrow");
@@ -105,7 +111,8 @@ public class AutoTuningSessionService {
         cancel.set(false);
         session = new Session(true, "auto_tuning_phase_prepare", Instant.now(), deviceId, gpu.model(), coin.id(),
                 coin.assignmentAlgorithm(), software, 0, plannedCandidates, null, null, null, 0, SAMPLES_PER_CANDIDATE, List.of(), null);
-        try { executor.execute(() -> run(gpu, coin, software, softwareVersion, caps, observedClocks, candidates)); }
+        GpuTuningService.Capabilities runCaps = caps;
+        try { executor.execute(() -> run(gpu, coin, software, softwareVersion, runCaps, observedClocks, offsetRange, candidates)); }
         catch (RuntimeException rejected) {
             session = Session.idle();
             runLock.end();
@@ -160,6 +167,7 @@ public class AutoTuningSessionService {
 
     private void run(LocalGpuPowerService.Gpu gpu, Coin coin, String software, String softwareVersion,
                      GpuTuningService.Capabilities caps, GpuTuningService.ClockTelemetry observedClocks,
+                     GpuTuningService.MemoryOffsetRange offsetBaseline,
                      List<BayesianGpuOptimizer.Candidate> candidates) {
         RunContext context = new RunContext(UUID.randomUUID().toString(), gpu, coin, software, softwareVersion);
         int originalPower = gpu.currentPowerLimitWatts();
@@ -189,7 +197,10 @@ public class AutoTuningSessionService {
                         .toList());
                 training.addAll(tierObservations);
                 BayesianGpuOptimizer.Candidate candidate = BayesianGpuOptimizer.next(tierCandidates, training, tierObservations);
-                if (index == 0 && caps.memoryClockControl() && observedClocks != null)
+                if (index == 0 && tierCandidates.stream().anyMatch(row -> row.memoryOffsetMhz() != null))
+                    candidate = tierCandidates.stream().filter(row -> row.memoryOffsetMhz() != null
+                            && row.memoryOffsetMhz() != 0).findFirst().orElse(candidate);
+                else if (index == 0 && caps.memoryClockControl() && observedClocks != null)
                     candidate = tierCandidates.stream()
                             .filter(row -> row.memoryMhz() != null
                                     && Math.abs(row.memoryMhz() - observedClocks.memoryMhz())
@@ -197,8 +208,11 @@ public class AutoTuningSessionService {
                             .findFirst().orElse(candidate);
                 if (candidate == null) continue;
                 session = session.withCandidate(candidate, ++measuredCandidates);
-                GpuTuningService.ApplyResult clockWrite = tuning.apply(gpu.deviceId(), candidate.coreMhz(), candidate.coreMhz(),
-                        candidate.memoryMhz(), candidate.memoryMhz());
+                GpuTuningService.ApplyResult clockWrite = candidate.memoryOffsetMhz() == null
+                        ? tuning.apply(gpu.deviceId(), candidate.coreMhz(), candidate.coreMhz(),
+                        candidate.memoryMhz(), candidate.memoryMhz())
+                        : tuning.apply(gpu.deviceId(), candidate.coreMhz(), candidate.coreMhz(),
+                        null, null, candidate.memoryOffsetMhz(), candidate.memoryOffsetPstate());
                 boolean capApplied = clockWrite.applied() && power.setAutoTuningPowerTarget(candidate.powerWatts(), gpu);
                 if (!capApplied) {
                     saveMeasurement(context, candidate, "RESULT", null, null, null, null, null,
@@ -207,9 +221,18 @@ public class AutoTuningSessionService {
                     observations.add(new BayesianGpuOptimizer.Observation(candidate, 0, false,
                             clockWrite.applied() ? "gpu_power_control_unavailable" : clockWrite.reason()));
                     session = session.withObservations(observations);
+                    if (!clockWrite.applied() && candidate.memoryOffsetMhz() != null) {
+                        if (!tuning.restoreDefaults(gpu.deviceId()).applied())
+                            throw new IllegalStateException("gpu_clock_restore_failed");
+                        GpuTuningService.Capabilities coreOnly = new GpuTuningService.Capabilities(caps.deviceId(),
+                                caps.coreClockControl(), false, caps.voltageControl(), caps.coreMinMhz(), caps.coreMaxMhz(),
+                                caps.memoryMinMhz(), caps.memoryMaxMhz(), caps.reason(), caps.supportedPairs());
+                        activeCandidates = candidates(gpu, coreOnly, observedClocks, startingWatts);
+                        historical = historicalObservations(context, activeCandidates);
+                    }
                     continue;
                 }
-                SampleSummary sample = collect(context, candidate, deadline);
+                SampleSummary sample = collect(context, candidate, deadline, observedClocks, offsetBaseline);
                 saveMeasurement(context, candidate, "RESULT", sample.samples() > 0 ? sample.hashrateHs() : null,
                         sample.samples() > 0 ? sample.watts() : null, sample.maxTemperatureC(),
                         sample.observedCoreMhz(), sample.observedMemoryMhz(), sample.samples(),
@@ -273,7 +296,8 @@ public class AutoTuningSessionService {
     }
 
     private SampleSummary collect(RunContext context, BayesianGpuOptimizer.Candidate candidate,
-                                  long deadline) throws InterruptedException {
+                                  long deadline, GpuTuningService.ClockTelemetry baselineClocks,
+                                  GpuTuningService.MemoryOffsetRange offsetBaseline) throws InterruptedException {
         List<Double> rates = new ArrayList<>(), watts = new ArrayList<>(), temps = new ArrayList<>();
         List<Integer> observedCore = new ArrayList<>(), observedMemory = new ArrayList<>();
         int consecutiveMemoryMismatches = 0;
@@ -298,8 +322,16 @@ public class AutoTuningSessionService {
             boolean validTemp = temp != null && Double.isFinite(temp);
             GpuTuningService.ClockTelemetry clocks = validRate && validPower && validTemp
                     && "NVIDIA".equalsIgnoreCase(gpu.vendor()) ? tuning.readEffectiveClocks(gpu.deviceId()) : null;
-            boolean memoryMismatch = clocks != null && candidate.memoryMhz() != null
-                    && Math.abs(clocks.memoryMhz() - candidate.memoryMhz()) > memoryTolerance(candidate.memoryMhz());
+            boolean offsetNoEffect = clocks != null && candidate.memoryOffsetMhz() != null
+                    && baselineClocks != null && offsetBaseline != null
+                    && candidate.memoryOffsetPstate() == offsetBaseline.pstate()
+                    && !candidate.memoryOffsetMhz().equals(offsetBaseline.currentMhz())
+                    && Math.abs(clocks.memoryMhz() - baselineClocks.memoryMhz()) < 20;
+            boolean memoryMismatch = clocks != null && (candidate.memoryMhz() != null
+                    && Math.abs(clocks.memoryMhz() - candidate.memoryMhz()) > memoryTolerance(candidate.memoryMhz())
+                    || candidate.memoryOffsetMhz() != null && !Objects.equals(candidate.memoryOffsetMhz(),
+                    tuning.readMemoryOffset(gpu.deviceId(), candidate.memoryOffsetPstate()))
+                    || offsetNoEffect);
             String issue = !validRate || !validPower ? "auto_tuning_sample_unavailable"
                     : !validTemp ? "auto_tuning_temperature_unavailable"
                     : temp > maxTemperatureC ? "auto_tuning_temperature_limit"
@@ -370,7 +402,8 @@ public class AutoTuningSessionService {
                 gpu.deviceId(), gpu.model(), gpu.vendor(), coin.id(), coin.assignmentAlgorithm(),
                 context.software(), context.softwareVersion(), candidate.coreMhz(), candidate.memoryMhz(),
                 candidate.powerWatts(), type, hashrate, watts, temperature, observedCore, observedMemory,
-                validSamples, accepted, rejected, stable, reason)))
+                validSamples, accepted, rejected, stable, reason,
+                candidate.memoryOffsetMhz(), candidate.memoryOffsetPstate())))
             throw new IllegalStateException("auto_tuning_observation_save_failed");
     }
 
@@ -385,7 +418,9 @@ public class AutoTuningSessionService {
             double[] scores = prior.stream()
                     .filter(row -> row.powerLimitWatts() == candidate.powerWatts()
                             && Objects.equals(row.coreMhz(), candidate.coreMhz())
-                            && Objects.equals(row.memoryMhz(), candidate.memoryMhz()))
+                            && Objects.equals(row.memoryMhz(), candidate.memoryMhz())
+                            && Objects.equals(row.memoryOffsetMhz(), candidate.memoryOffsetMhz())
+                            && Objects.equals(row.memoryOffsetPstate(), candidate.memoryOffsetPstate()))
                     .mapToDouble(AutoTuningProfileStore.Profile::efficiencyHashesPerWatt).toArray();
             if (scores.length > 0) observations.add(new BayesianGpuOptimizer.Observation(candidate,
                     SampleCollector.median(scores), true, null));
@@ -411,6 +446,14 @@ public class AutoTuningSessionService {
                                                             GpuTuningService.Capabilities caps,
                                                             GpuTuningService.ClockTelemetry observedClocks,
                                                             int startWatts) {
+        return candidates(gpu, caps, observedClocks, startWatts, null);
+    }
+
+    static List<BayesianGpuOptimizer.Candidate> candidates(LocalGpuPowerService.Gpu gpu,
+                                                            GpuTuningService.Capabilities caps,
+                                                            GpuTuningService.ClockTelemetry observedClocks,
+                                                            int startWatts,
+                                                            GpuTuningService.MemoryOffsetRange offsetRange) {
         Integer safeMaxWatts = gpu.safeTuningMaxWatts();
         if (safeMaxWatts == null || safeMaxWatts < gpu.minWatts()) return List.of();
         List<Integer> cores = values(caps.coreClockControl(), caps.coreMinMhz(), caps.coreMaxMhz());
@@ -418,6 +461,26 @@ public class AutoTuningSessionService {
         if (startWatts < gpu.minWatts() || startWatts > safeMaxWatts) return List.of();
         List<Integer> power = powerTiers(gpu.minWatts(), startWatts, safeMaxWatts);
         Set<BayesianGpuOptimizer.Candidate> unique = new LinkedHashSet<>();
+        if (offsetRange != null && observedClocks != null && caps.coreClockControl()) {
+            int low = Math.max(-200, offsetRange.minMhz());
+            int high = Math.min(100, offsetRange.maxMhz());
+            if (low <= high) {
+                List<Integer> offsets = new ArrayList<>(new LinkedHashSet<>(List.of(
+                        Math.clamp(-100, low, high), Math.clamp(0, low, high), Math.clamp(100, low, high))));
+                List<Integer> coreTargets = caps.supportedPairs().stream()
+                        .filter(pair -> pair.memoryMhz() == observedClocks.memoryMhz())
+                        .map(GpuTuningService.ClockPair::coreMhz).distinct()
+                        .sorted(Comparator.comparingInt((Integer core) -> Math.abs(core - observedClocks.coreMhz())))
+                        .toList();
+                if (coreTargets.isEmpty()) coreTargets = cores;
+                for (int target : power) for (int core : coreTargets) for (int offset : offsets)
+                    unique.add(new BayesianGpuOptimizer.Candidate(core, null, target,
+                            position(core, caps.coreMinMhz(), caps.coreMaxMhz()),
+                            position(offset, low, high), position(target, gpu.minWatts(), safeMaxWatts),
+                            offset, offsetRange.pstate()));
+                return List.copyOf(unique);
+            }
+        }
         if (!caps.supportedPairs().isEmpty()) {
             int highestSupportedMemory = caps.supportedPairs().stream()
                     .mapToInt(GpuTuningService.ClockPair::memoryMhz)
@@ -482,20 +545,30 @@ public class AutoTuningSessionService {
     }
     public record RunObservation(Integer coreMhz, Integer memoryMhz, int powerWatts, boolean stable,
                                  double score, int validSamples, Double hashrateHs, Double measuredWatts,
-                                 Integer observedCoreMhz, Integer observedMemoryMhz, String detail) { }
+                                 Integer observedCoreMhz, Integer observedMemoryMhz, String detail,
+                                 Integer memoryOffsetMhz) { }
     public record Session(boolean running, String phase, Instant startedAt, String deviceId, String model,
                           String coinId, String algorithm, String softwareId, int candidateIndex, int candidateCount,
                           Integer currentCoreMhz, Integer currentMemoryMhz, Integer currentPowerWatts,
                           int sampleIndex, int sampleCount, List<RunObservation> observations,
-                          AutoTuningProfileStore.Profile result) {
+                          AutoTuningProfileStore.Profile result, Integer currentMemoryOffsetMhz) {
+        public Session(boolean running, String phase, Instant startedAt, String deviceId, String model,
+                       String coinId, String algorithm, String softwareId, int candidateIndex, int candidateCount,
+                       Integer currentCoreMhz, Integer currentMemoryMhz, Integer currentPowerWatts,
+                       int sampleIndex, int sampleCount, List<RunObservation> observations,
+                       AutoTuningProfileStore.Profile result) {
+            this(running, phase, startedAt, deviceId, model, coinId, algorithm, softwareId, candidateIndex,
+                    candidateCount, currentCoreMhz, currentMemoryMhz, currentPowerWatts, sampleIndex,
+                    sampleCount, observations, result, null);
+        }
         static Session idle() { return new Session(false, "idle", null, null, null, null, null, null, 0, 0,
                 null, null, null, 0, 0, List.of(), null); }
         Session withPhase(String phase) { return new Session(true, phase, startedAt, deviceId, model, coinId, algorithm,
-                softwareId, candidateIndex, candidateCount, currentCoreMhz, currentMemoryMhz, currentPowerWatts, sampleIndex, sampleCount, observations, result); }
+                softwareId, candidateIndex, candidateCount, currentCoreMhz, currentMemoryMhz, currentPowerWatts, sampleIndex, sampleCount, observations, result, currentMemoryOffsetMhz); }
         Session withCandidate(BayesianGpuOptimizer.Candidate c, int index) { return new Session(true, "auto_tuning_phase_sampling", startedAt,
-                deviceId, model, coinId, algorithm, softwareId, index, candidateCount, c.coreMhz(), c.memoryMhz(), c.powerWatts(), 0, SAMPLES_PER_CANDIDATE, observations, result); }
+                deviceId, model, coinId, algorithm, softwareId, index, candidateCount, c.coreMhz(), c.memoryMhz(), c.powerWatts(), 0, SAMPLES_PER_CANDIDATE, observations, result, c.memoryOffsetMhz()); }
         Session withSampleIndex(int value) { return new Session(running, phase, startedAt, deviceId, model, coinId, algorithm,
-                softwareId, candidateIndex, candidateCount, currentCoreMhz, currentMemoryMhz, currentPowerWatts, value, sampleCount, observations, result); }
+                softwareId, candidateIndex, candidateCount, currentCoreMhz, currentMemoryMhz, currentPowerWatts, value, sampleCount, observations, result, currentMemoryOffsetMhz); }
         Session withObservations(List<BayesianGpuOptimizer.Observation> rows) {
             List<RunObservation> values = rows.stream().map(row -> {
                 SampleSummary sample = row.sample();
@@ -504,15 +577,15 @@ public class AutoTuningSessionService {
                         sample == null || sample.samples() == 0 ? null : sample.hashrateHs(),
                         sample == null || sample.samples() == 0 ? null : sample.watts(),
                         sample == null ? null : sample.observedCoreMhz(),
-                        sample == null ? null : sample.observedMemoryMhz(), row.detail());
+                        sample == null ? null : sample.observedMemoryMhz(), row.detail(), row.candidate().memoryOffsetMhz());
             }).toList();
             return new Session(running, phase, startedAt, deviceId, model, coinId, algorithm, softwareId, candidateIndex,
-                    candidateCount, currentCoreMhz, currentMemoryMhz, currentPowerWatts, sampleIndex, sampleCount, values, result);
+                    candidateCount, currentCoreMhz, currentMemoryMhz, currentPowerWatts, sampleIndex, sampleCount, values, result, currentMemoryOffsetMhz);
         }
         Session completed(AutoTuningProfileStore.Profile profile, String phase) { return new Session(false, phase, startedAt, deviceId,
                 model, coinId, algorithm, softwareId, candidateCount, candidateCount, profile.coreMhz(), profile.memoryMhz(),
-                profile.powerLimitWatts(), sampleCount, sampleCount, observations, profile); }
+                profile.powerLimitWatts(), sampleCount, sampleCount, observations, profile, profile.memoryOffsetMhz()); }
         Session failed(String detail) { return new Session(false, detail, startedAt, deviceId, model, coinId, algorithm, softwareId,
-                candidateIndex, candidateCount, currentCoreMhz, currentMemoryMhz, currentPowerWatts, sampleIndex, sampleCount, observations, result); }
+                candidateIndex, candidateCount, currentCoreMhz, currentMemoryMhz, currentPowerWatts, sampleIndex, sampleCount, observations, result, currentMemoryOffsetMhz); }
     }
 }

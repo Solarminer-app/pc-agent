@@ -1,6 +1,9 @@
 (() => {
   const $ = id => document.getElementById(id);
   const t = window.SolarMinerUI.t;
+  const memorySetting = row => row.memoryOffsetMhz == null
+    ? t('auto_tuning_memory_clock', {clock: row.memoryMhz ?? '—'})
+    : t('auto_tuning_memory_offset', {offset: `${row.memoryOffsetMhz > 0 ? '+' : ''}${row.memoryOffsetMhz}`});
   const efficiencyRate = value => {
     if (!(value > 0) || !Number.isFinite(Number(value))) return '—';
     let scaled = Number(value), unit = 'H/s/W';
@@ -74,7 +77,7 @@
         for (const point of points) {
           const dot = svgNode('circle', {cx: x(point.index), cy: y(point.value), r: points.length > 80 ? 2.2 : 3.3, fill: metric.color, class: 'tuning-graph-point'});
           const row = point.row;
-          dot.append(svgNode('title', {}, `${new Date(row.at).toLocaleTimeString(window.SolarMinerI18n.locale || 'de-DE')} · ${metric.display ? metric.display(point.value) : `${metricNumber(point.value)} ${metric.unit}`} · ${t('auto_tuning_candidate', {core: row.observedCoreMhz ?? row.coreMhz ?? '—', memory: row.observedMemoryMhz ?? row.memoryMhz ?? '—', power: row.powerLimitWatts})}`));
+          dot.append(svgNode('title', {}, `${new Date(row.at).toLocaleTimeString(window.SolarMinerI18n.locale || 'de-DE')} · ${metric.display ? metric.display(point.value) : `${metricNumber(point.value)} ${metric.unit}`} · ${t('auto_tuning_candidate', {core: row.observedCoreMhz ?? row.coreMhz ?? '—', memory: memorySetting(row), power: row.powerLimitWatts})}`));
           svg.append(dot);
         }
         svg.append(svgNode('text', {x: 58, y: 170, class: 'tuning-graph-axis'}, t('auto_tuning_graph_first')),
@@ -129,11 +132,15 @@
       }
       card.append(stats);
       const caps = gpu.tuning;
+      const rtx20 = gpu.vendor?.toUpperCase() === 'NVIDIA' && /RTX\s*20\d{2}/i.test(gpu.model || '');
+      const manualMemoryControl = caps.memoryClockControl && !rtx20;
       const capabilities = node('div', 'tuning-capabilities');
-      for (const [label, supported] of [[t('auto_tuning_core_supported'), caps.coreClockControl], [t('auto_tuning_memory_supported'), caps.memoryClockControl]]) {
+      for (const [label, supported] of [[t('auto_tuning_core_supported'), caps.coreClockControl],
+        ...(!rtx20 ? [[t('auto_tuning_memory_supported'), caps.memoryClockControl]] : [])]) {
         capabilities.append(node('span', `tuning-capability ${supported ? 'available' : 'unavailable'}`, `${supported ? '✓' : '—'} ${label}`));
       }
       card.append(capabilities);
+      if (rtx20) card.append(node('p', 'muted', t('auto_tuning_rtx20_offset_hint')));
       const calibration = node('div', 'tuning-calibration');
       const calibrationCopy = node('div'); calibrationCopy.append(node('strong', '', t('auto_tuning_calibration_title')), node('p', '', t('auto_tuning_calibration_hint')));
       const prerequisite = !gpu.coinId ? 'auto_tuning_requires_gpu_coin'
@@ -158,7 +165,7 @@
         const saved = node('div', 'tuning-profiles'); saved.append(node('h4', '', t('auto_tuning_saved_profiles', {count: profiles.length})));
         for (const profile of profiles.slice(0, 6)) saved.append(node('p', '', t('auto_tuning_saved_tier', {
           software: profile.softwareId, version: profile.softwareVersion || '—', power: profile.powerLimitWatts,
-          core: profile.coreMhz ?? '—', memory: profile.memoryMhz ?? '—',
+          core: profile.coreMhz ?? '—', memory: memorySetting(profile),
           efficiency: efficiencyRate(profile.efficiencyHashesPerWatt),
           fiat: fiatPerKwh(profile.coinId, profile.hashrateHs, profile.measuredWatts)
         })));
@@ -176,7 +183,7 @@
           saved.append(node('p', '', t('auto_tuning_history_point', {
             status: t(result.stable ? 'auto_tuning_stable' : 'auto_tuning_unstable'),
             power: result.powerLimitWatts, core: result.coreMhz ?? '—',
-            memory: result.memoryMhz ?? '—', efficiency: score,
+            memory: memorySetting(result), efficiency: score,
             fiat: fiatPerKwh(result.coinId, result.hashrateHs, result.measuredWatts)
           }) + (result.reason ? ` · ${t(result.reason)}` : '')));
         }
@@ -188,8 +195,8 @@
       form.append(node('h4', '', t('auto_tuning_manual_title')));
       const coreMin = numberField(`${t('auto_tuning_core_range')} · ${t('minimum')}`, caps.coreMinMhz, caps.coreMinMhz, caps.coreMaxMhz, !caps.coreClockControl, t('minimum'));
       const coreMax = numberField(`${t('auto_tuning_core_range')} · ${t('maximum')}`, caps.coreMaxMhz, caps.coreMinMhz, caps.coreMaxMhz, !caps.coreClockControl, t('maximum'));
-      const memMin = numberField(`${t('auto_tuning_memory_range')} · ${t('minimum')}`, caps.memoryMinMhz, caps.memoryMinMhz, caps.memoryMaxMhz, !caps.memoryClockControl, t('minimum'));
-      const memMax = numberField(`${t('auto_tuning_memory_range')} · ${t('maximum')}`, caps.memoryMaxMhz, caps.memoryMinMhz, caps.memoryMaxMhz, !caps.memoryClockControl, t('maximum'));
+      const memMin = numberField(`${t('auto_tuning_memory_range')} · ${t('minimum')}`, caps.memoryMinMhz, caps.memoryMinMhz, caps.memoryMaxMhz, !manualMemoryControl, t('minimum'));
+      const memMax = numberField(`${t('auto_tuning_memory_range')} · ${t('maximum')}`, caps.memoryMaxMhz, caps.memoryMinMhz, caps.memoryMaxMhz, !manualMemoryControl, t('maximum'));
       const rangeGroup = (name, minField, maxField, supported, hint) => {
         const group = node('div', 'tuning-range-group');
         const heading = node('div', 'tuning-range-heading'); heading.append(node('strong', '', name), node('span', '',
@@ -198,7 +205,7 @@
         group.append(heading, fields); return group;
       };
       form.append(rangeGroup(t('auto_tuning_core_range'), coreMin, coreMax, caps.coreClockControl, t('auto_tuning_range_hint', {min: caps.coreMinMhz, max: caps.coreMaxMhz})),
-        rangeGroup(t('auto_tuning_memory_range'), memMin, memMax, caps.memoryClockControl, t('auto_tuning_range_hint', {min: caps.memoryMinMhz, max: caps.memoryMaxMhz})));
+        rangeGroup(t('auto_tuning_memory_range'), memMin, memMax, manualMemoryControl, t('auto_tuning_range_hint', {min: caps.memoryMinMhz, max: caps.memoryMaxMhz})));
       const actions = node('div', 'button-row');
       const apply = node('button', 'button primary', t('auto_tuning_apply')); apply.type = 'submit';
       const restore = node('button', 'button subtle', t('auto_tuning_restore')); restore.type = 'button';
@@ -213,8 +220,8 @@
           await send(`/api/agent/local/gpu-tuning/${encodeURIComponent(gpu.deviceId)}/apply`, {
             coreMinMhz: caps.coreClockControl ? Number(coreMin.input.value) : null,
             coreMaxMhz: caps.coreClockControl ? Number(coreMax.input.value) : null,
-            memoryMinMhz: caps.memoryClockControl ? Number(memMin.input.value) : null,
-            memoryMaxMhz: caps.memoryClockControl ? Number(memMax.input.value) : null
+            memoryMinMhz: manualMemoryControl ? Number(memMin.input.value) : null,
+            memoryMaxMhz: manualMemoryControl ? Number(memMax.input.value) : null
           }); status(t('auto_tuning_saved')); await load();
         } catch (error) { reportError(error, gpu.vendor); }
         finally { apply.disabled = !caps.coreClockControl && !caps.memoryClockControl; }
@@ -312,7 +319,7 @@
       const progress = document.createElement('progress'); progress.max = activeSession.candidateCount; progress.value = activeSession.candidateIndex || 0;
       progress.setAttribute('aria-label', label); host.append(progress);
       host.append(node('p', 'muted', activeSession.currentPowerWatts == null ? t('auto_tuning_waiting_for_hashrate')
-        : `${t('auto_tuning_candidate', {core: activeSession.currentCoreMhz ?? '—', memory: activeSession.currentMemoryMhz ?? '—', power: activeSession.currentPowerWatts ?? '—'})} · ${t('auto_tuning_sample_progress', {current: activeSession.sampleIndex, total: activeSession.sampleCount})}`));
+        : `${t('auto_tuning_candidate', {core: activeSession.currentCoreMhz ?? '—', memory: memorySetting({memoryMhz: activeSession.currentMemoryMhz, memoryOffsetMhz: activeSession.currentMemoryOffsetMhz}), power: activeSession.currentPowerWatts ?? '—'})} · ${t('auto_tuning_sample_progress', {current: activeSession.sampleIndex, total: activeSession.sampleCount})}`));
       if (activeSession.running) {
         const remaining = Math.max(0, (activeSession.candidateCount - activeSession.candidateIndex) * activeSession.sampleCount
           + (activeSession.sampleCount - activeSession.sampleIndex));
@@ -328,13 +335,13 @@
         efficiency: row.score > 0 ? efficiencyRate(row.score) : '—', samples: row.validSamples,
         fiat: fiatPerKwh(activeSession.coinId, row.hashrateHs, row.measuredWatts),
       }) + ` · ${t('auto_tuning_candidate', {
-        core: row.coreMhz ?? '—', memory: row.memoryMhz ?? '—', power: row.powerWatts
+        core: row.coreMhz ?? '—', memory: memorySetting(row), power: row.powerWatts
       })}` + (row.observedCoreMhz == null ? '' : ` · ${t('auto_tuning_observed_clocks', {
         core: row.observedCoreMhz, memory: row.observedMemoryMhz ?? '—'
       })}`) + (row.detail ? ` · ${t(row.detail)}` : '')));
     }
     if (activeSession.result) host.append(node('p', 'notice-line', t('auto_tuning_result', {
-      core: activeSession.result.coreMhz ?? '—', memory: activeSession.result.memoryMhz ?? '—',
+      core: activeSession.result.coreMhz ?? '—', memory: memorySetting(activeSession.result),
       power: activeSession.result.powerLimitWatts, efficiency: efficiencyRate(activeSession.result.efficiencyHashesPerWatt),
       fiat: fiatPerKwh(activeSession.coinId, activeSession.result.hashrateHs, activeSession.result.measuredWatts)
     })));

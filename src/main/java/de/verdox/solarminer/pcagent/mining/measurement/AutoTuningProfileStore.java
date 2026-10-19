@@ -139,7 +139,8 @@ public class AutoTuningProfileStore {
         if (rows.stream().map(Profile::powerLimitWatts).distinct().count() < 3) return List.of();
         Map<String, List<Profile>> repeatedSettings = new LinkedHashMap<>();
         for (Profile row : rows) repeatedSettings.computeIfAbsent(row.powerLimitWatts() + "|"
-                + row.coreMhz() + "|" + row.memoryMhz(), ignored -> new ArrayList<>()).add(row);
+                + row.coreMhz() + "|" + row.memoryMhz() + "|" + row.memoryOffsetMhz()
+                + "|" + row.memoryOffsetPstate(), ignored -> new ArrayList<>()).add(row);
         Map<Integer, Profile> bestAtPower = new LinkedHashMap<>();
         for (List<Profile> repeats : repeatedSettings.values()) {
             Profile row = aggregate(repeats);
@@ -157,7 +158,8 @@ public class AutoTuningProfileStore {
         int samples = (int) Math.min(Integer.MAX_VALUE, repeats.stream().mapToLong(Profile::stableSamples).sum());
         return new Profile(latest.deviceId(), latest.model(), latest.vendor(), latest.coinId(), latest.algorithm(),
                 latest.softwareId(), latest.softwareVersion(), latest.coreMhz(), latest.memoryMhz(),
-                latest.powerLimitWatts(), hashrate, watts, samples, hashrate / watts, latest.calibratedAt());
+                latest.powerLimitWatts(), hashrate, watts, samples, hashrate / watts, latest.calibratedAt(),
+                latest.memoryOffsetMhz(), latest.memoryOffsetPstate());
     }
 
     public synchronized Profile forBudget(String deviceId, String coinId, String softwareId,
@@ -220,14 +222,26 @@ public class AutoTuningProfileStore {
                               Double hashrateHs, Double measuredWatts, Double temperatureC,
                               Integer observedCoreMhz, Integer observedMemoryMhz,
                               Integer validSamples, Long acceptedShares, Long rejectedShares,
-                              Boolean stable, String reason) {
+                              Boolean stable, String reason, Integer memoryOffsetMhz, Integer memoryOffsetPstate) {
+        public Measurement(String runId, Instant at, String deviceId, String model, String vendor,
+                           String coinId, String algorithm, String softwareId, String softwareVersion,
+                           Integer coreMhz, Integer memoryMhz, int powerLimitWatts, String type,
+                           Double hashrateHs, Double measuredWatts, Double temperatureC,
+                           Integer observedCoreMhz, Integer observedMemoryMhz,
+                           Integer validSamples, Long acceptedShares, Long rejectedShares,
+                           Boolean stable, String reason) {
+            this(runId, at, deviceId, model, vendor, coinId, algorithm, softwareId, softwareVersion,
+                    coreMhz, memoryMhz, powerLimitWatts, type, hashrateHs, measuredWatts, temperatureC,
+                    observedCoreMhz, observedMemoryMhz, validSamples, acceptedShares, rejectedShares,
+                    stable, reason, null, null);
+        }
         Profile stableProfile() {
             if (!"RESULT".equals(type) || !Boolean.TRUE.equals(stable) || hashrateHs == null
                     || measuredWatts == null || !Double.isFinite(hashrateHs) || !Double.isFinite(measuredWatts)
                     || hashrateHs <= 0 || measuredWatts <= 0 || validSamples == null || validSamples <= 0) return null;
             return new Profile(deviceId, model, vendor, coinId, algorithm, softwareId, softwareVersion,
                     coreMhz, memoryMhz, powerLimitWatts, hashrateHs, measuredWatts, validSamples == null ? 0 : validSamples,
-                    hashrateHs / measuredWatts, at);
+                    hashrateHs / measuredWatts, at, memoryOffsetMhz, memoryOffsetPstate);
         }
     }
 
@@ -238,7 +252,16 @@ public class AutoTuningProfileStore {
     public record Profile(String deviceId, String model, String vendor, String coinId, String algorithm,
                           String softwareId, String softwareVersion, Integer coreMhz, Integer memoryMhz, Integer powerLimitWatts,
                           double hashrateHs, double measuredWatts, int stableSamples,
-                          double efficiencyHashesPerWatt, Instant calibratedAt) {
+                          double efficiencyHashesPerWatt, Instant calibratedAt,
+                          Integer memoryOffsetMhz, Integer memoryOffsetPstate) {
+        public Profile(String deviceId, String model, String vendor, String coinId, String algorithm,
+                       String softwareId, String softwareVersion, Integer coreMhz, Integer memoryMhz,
+                       Integer powerLimitWatts, double hashrateHs, double measuredWatts, int stableSamples,
+                       double efficiencyHashesPerWatt, Instant calibratedAt) {
+            this(deviceId, model, vendor, coinId, algorithm, softwareId, softwareVersion, coreMhz, memoryMhz,
+                    powerLimitWatts, hashrateHs, measuredWatts, stableSamples, efficiencyHashesPerWatt,
+                    calibratedAt, null, null);
+        }
         public Profile(String deviceId, String model, String vendor, String coinId, String algorithm,
                        String softwareId, Integer coreMhz, Integer memoryMhz, Integer powerLimitWatts,
                        double hashrateHs, double measuredWatts, int stableSamples,

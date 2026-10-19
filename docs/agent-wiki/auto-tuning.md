@@ -215,6 +215,34 @@ detects this after three valid readbacks and switches to core-only tuning; a
 live rerun is needed to verify the fallback. Earlier stable points with a
 requested and observed 6800 MHz memory clock do not prove the lock worked,
 because 6800 MHz was already the operating clock.
+The operator later reported that ASUS GPU Tweak III can change the memory
+clock on both RTX 2080 Ti cards, and clarified that it uses an offset. This
+rules out a general inability of those cards to adjust memory frequency; it
+does not establish that NVIDIA's `--lock-memory-clocks` path works on this
+Windows driver/setup. `nvidia-smi -lmc` requests an absolute lock range,
+whereas an offset changes the nominal operating clock. NVIDIA documents
+`nvmlDeviceGetClockOffsets` and `nvmlDeviceSetClockOffsets` for Maxwell and
+newer GPUs on driver 555+; the former reports the device/P-state-specific
+offset bounds and current value. NVIDIA's current NVML guide describes the
+absolute memory lock as fully supported on Ampere and newer devices, unlike
+these Turing cards. The Agent now uses the shared `de.verdox.gputoolkit`
+NVML adapter for NVIDIA core targets and memory offsets during offset
+calibration on Windows. It reads the active P-state and driver limits,
+intersects them with a conservative -200/+100 MHz exploration window, and
+checks the offset after every write. The first nonzero trial also checks
+that the effective memory clock actually moves. If the adapter is unavailable
+on an RTX 20 card, calibration explores core and power only; it does not
+try absolute memory locks. Raw samples and profiles store the requested
+offset/P-state separately from the observed effective memory MHz. A recovery
+marker preserves the original offset across a crash and restores it on
+startup. A Windows RTX 2080 Ti live rerun is still required to establish
+that NVML writes work on the operator's driver and GPU. The GPU Tweak result
+has not yet been paired with an Agent readback under the same workload.
+Do not infer an offset range from `--query-supported-clocks` or relabel
+absolute lock settings as offsets.
+See the [ASUS GPU Tweak III guide](https://www.asus.com/us/support/faq/1048435/),
+[NVIDIA NVML changes](https://docs.nvidia.com/deploy/nvml-api/change-log.html)
+and [NVIDIA memory lock contract](https://docs.nvidia.com/deploy/nvml-api/latest/api/group__nvmlDeviceCommands.html).
 The raw export also shows a requested 1710 MHz core at the 180 W cap running
 near 1380 MHz while producing about 370 MH/s at 175 W. The former symmetric
 target comparison discarded that power-limited point, although its measured

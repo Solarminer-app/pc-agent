@@ -8,6 +8,7 @@
   const preferences = window.SolarMinerPreferences;
   let overview, telemetry, settings, assessment, energy, agentUi = null, energyError = null, uiRequested = false;
   let networkAgents = null;
+  let gpuPrerequisites = null;
   let benchmarkRunning = false, sweepWorkerIds = new Set();
   let activeBenchmark = null, activeSweep = null;
   const openSweepPlans = new Set();
@@ -61,6 +62,37 @@
       row.append(copy);
       if (alert.href) { const link = ui.element('a', '', alert.actionKey); link.href = alert.href; row.append(link); }
       list.append(row);
+    }
+  }
+
+  function renderGpuPrerequisites() {
+    const root = $('gpu-prerequisites-list');
+    const summary = $('gpu-prerequisites-summary');
+    root.replaceChildren();
+    if (!gpuPrerequisites) { summary.textContent = t('gpu_prereq_checking'); return; }
+    if (!gpuPrerequisites.length) { summary.textContent = t('gpu_prereq_no_gpu'); return; }
+    const blocked = gpuPrerequisites.filter(device => device.state === 'MISSING').length;
+    const unknown = gpuPrerequisites.filter(device => device.state === 'UNKNOWN').length;
+    const limited = gpuPrerequisites.some(device => (device.checks || []).some(check =>
+      !check.required && check.state === 'MISSING' && check.code !== 'persistence'));
+    const optionalUnknown = gpuPrerequisites.some(device => (device.checks || []).some(check =>
+      !check.required && check.state === 'UNKNOWN' && check.code !== 'container_runtime'));
+    summary.textContent = t(blocked ? 'gpu_prereq_attention' : unknown || optionalUnknown ? 'gpu_prereq_uncertain'
+      : limited ? 'gpu_prereq_optional_limits' : 'gpu_prereq_all_ready');
+    for (const device of gpuPrerequisites) {
+      const card = ui.element('article', `gpu-prerequisite-card ${device.state === 'READY' ? 'good' : 'attention'}`);
+      const title = document.createElement('strong'); title.textContent = `${device.model} · ${device.vendor}`;
+      const status = ui.element('span', 'tag', device.state === 'READY' ? 'gpu_prereq_ready'
+        : device.state === 'UNKNOWN' ? 'gpu_prereq_unknown' : 'gpu_prereq_missing');
+      card.append(title, status);
+      const issues = (device.checks || []).filter((check, index, checks) => check.reasonCode
+        && check.state !== 'NOT_APPLICABLE' && checks.findIndex(other => other.reasonCode === check.reasonCode) === index);
+      if (issues.length) {
+        const list = document.createElement('ul');
+        for (const check of issues) list.append(ui.element('li', '', check.reasonCode));
+        card.append(list);
+      }
+      root.append(card);
     }
   }
 
@@ -440,6 +472,9 @@
         window.setTimeout(() => window.SolarMinerLive.refresh('ui'), 0);
       }
     });
+  window.SolarMinerLive.channel('gpu-prerequisites',
+    {endpoint: '/api/agent/local/gpu-prerequisites', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
+    .subscribe((data, meta) => { gpuPrerequisites = meta.error ? null : data; renderGpuPrerequisites(); });
   window.SolarMinerLive.channel('settings', {endpoint: '/api/agent/local/power-control/settings', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})
     .subscribe((data, meta) => { settings = meta.error ? null : data; if (overview) render(overview); });
   window.SolarMinerLive.channel('node-assessment', {endpoint: '/api/agent/local/node-assessment', maxAgeMs: 30000, transport: 'rest', pollMs: 30000})

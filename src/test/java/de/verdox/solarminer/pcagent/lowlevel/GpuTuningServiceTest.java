@@ -7,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -14,6 +15,53 @@ import static org.mockito.Mockito.*;
 
 class GpuTuningServiceTest {
     @TempDir Path directory;
+
+    @Test
+    void toolkitOffsetWriteIsBoundedVerifiedAndRecoveredWithOriginalValue() throws Exception {
+        String oldOs = System.getProperty("os.name");
+        System.setProperty("os.name", "Windows 11");
+        try {
+            LocalGpuPowerService power = nvidia();
+            when(power.runTuningCommand(any())).thenAnswer(invocation -> {
+                List<String> command = invocation.getArgument(0);
+                if (command.contains("--query-gpu=pstate")) return "P2\n";
+                if (command.contains("--lock-memory-clocks-info")) return "deferred";
+                return "6800, 1200\n6800, 1500\n";
+            });
+            AtomicInteger currentOffset = new AtomicInteger(25);
+            AtomicInteger coreTarget = new AtomicInteger();
+            GpuTuningService.MemoryOffsetDriver driver = new GpuTuningService.MemoryOffsetDriver() {
+                @Override public GpuTuningService.MemoryOffsetRange probe(int index, int pstate) {
+                    assertEquals(0, index); assertEquals(2, pstate);
+                    return new GpuTuningService.MemoryOffsetRange(2, -250, 150, currentOffset.get());
+                }
+                @Override public void set(int index, int pstate, int offsetMhz) {
+                    currentOffset.set(offsetMhz);
+                }
+                @Override public void setCoreTarget(int index, int coreMhz) { coreTarget.set(coreMhz); }
+            };
+            Path marker = directory.resolve("offset-recovery.json");
+            GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(), marker.toString(), driver);
+
+            assertEquals("gpu_clock_target_out_of_range", tuning.apply("GPU-test", 1200, 1200,
+                    null, null, 120, 2).reason());
+            assertEquals(25, currentOffset.get());
+            assertTrue(tuning.apply("GPU-test", 1200, 1200, null, null, -100, 2).applied());
+            assertEquals(1200, coreTarget.get());
+            assertEquals(-100, currentOffset.get());
+            assertEquals(25, new ObjectMapper().readTree(Files.readString(marker))
+                    .get("GPU-test").get("originalOffsetMhz").asInt());
+            verify(power, never()).runTuningCommand(List.of("nvidia-smi", "-i", "GPU-test",
+                    "--lock-memory-clocks=6800,6800"));
+
+            new GpuTuningService(power, new ObjectMapper(), marker.toString(), driver).recoverInterruptedTuning();
+            assertEquals(25, currentOffset.get());
+            assertFalse(Files.exists(marker));
+        } finally {
+            if (oldOs == null) System.clearProperty("os.name");
+            else System.setProperty("os.name", oldOs);
+        }
+    }
 
     @Test
     void discoversNvidiaCoreAndMemoryBoundsSeparately() throws Exception {

@@ -58,6 +58,11 @@
         <div id="status-strip" class="sticky-strip" aria-label="Betriebsstatus" data-i18n-aria-label="operating_status"></div>
         <div id="notice" class="notice error" role="status" aria-live="polite" hidden></div>
         <section id="alerts" class="alert-list" aria-label="Meldungen" data-i18n-aria-label="notifications"></section>
+        <section class="section panel gpu-prerequisites" aria-labelledby="gpu-prerequisites-title">
+            <div class="panel-head"><div><p class="kicker" data-i18n="gpu_prereq_kicker">GPU-TREIBER</p><h2 id="gpu-prerequisites-title" data-i18n="gpu_prereq_title">GPU-Voraussetzungen</h2></div></div>
+            <p id="gpu-prerequisites-summary" class="muted" role="status" aria-live="polite" data-i18n="gpu_prereq_checking">GPU-Voraussetzungen werden geprüft …</p>
+            <div id="gpu-prerequisites-list" class="gpu-prerequisites-list"></div>
+        </section>
         <div class="dashboard-live-layout">
             <section id="live-workers" class="section live-workers panel" aria-labelledby="live-workers-title">
                 <div class="panel-head"><div><p class="kicker" data-i18n="network_mining">MINING IM NETZWERK</p><h2 id="live-workers-title" data-i18n="active_workers_on_this_and_shared_agents">Aktive Worker auf diesem und freigegebenen Agents</h2></div>

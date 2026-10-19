@@ -82,7 +82,12 @@ final class BayesianGpuOptimizer {
     }
 
     record Candidate(Integer coreMhz, Integer memoryMhz, int powerWatts,
-                     double corePosition, double memoryPosition, double powerPosition) {
+                     double corePosition, double memoryPosition, double powerPosition,
+                     Integer memoryOffsetMhz, Integer memoryOffsetPstate) {
+        Candidate(Integer coreMhz, Integer memoryMhz, int powerWatts,
+                  double corePosition, double memoryPosition, double powerPosition) {
+            this(coreMhz, memoryMhz, powerWatts, corePosition, memoryPosition, powerPosition, null, null);
+        }
         double[] vector() { return new double[]{corePosition, memoryPosition, powerPosition}; }
     }
     record Observation(Candidate candidate, double score, boolean stable, String detail,

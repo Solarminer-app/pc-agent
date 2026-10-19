@@ -28,12 +28,20 @@ public class GpuTuningService {
     private final Path recoveryFile;
     private final java.util.Set<String> recoveryPending = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Set<String> memoryTouched = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Map<String, OffsetRecovery> offsetRecovery = new java.util.concurrent.ConcurrentHashMap<>();
+    private final MemoryOffsetDriver offsetDriver;
     private final java.util.Map<String, Capabilities> capabilityCache = new java.util.concurrent.ConcurrentHashMap<>();
 
+    @org.springframework.beans.factory.annotation.Autowired
     public GpuTuningService(LocalGpuPowerService power, ObjectMapper json,
                             @Value("${solarminer.agent.gpu-tuning-recovery-file:./solarminer-agent/gpu-tuning-recovery.json}") String recoveryPath) {
+        this(power, json, recoveryPath, new ToolkitClockDriver());
+    }
+
+    GpuTuningService(LocalGpuPowerService power, ObjectMapper json, String recoveryPath, MemoryOffsetDriver offsetDriver) {
         this.power = power;
         this.json = json;
+        this.offsetDriver = offsetDriver;
         this.recoveryFile = Path.of(recoveryPath).toAbsolutePath().normalize();
         try {
             if (Files.isRegularFile(recoveryFile)) {
@@ -43,7 +51,12 @@ public class GpuTuningService {
                 }); // Older markers did not record touched domains; reset both conservatively.
                 else if (marker.isObject()) marker.fields().forEachRemaining(entry -> {
                     recoveryPending.add(entry.getKey());
-                    if (entry.getValue().asBoolean()) memoryTouched.add(entry.getKey());
+                    if (entry.getValue().isObject()) {
+                        if (entry.getValue().path("memoryTouched").asBoolean()) memoryTouched.add(entry.getKey());
+                        if (entry.getValue().hasNonNull("offsetPstate") && entry.getValue().hasNonNull("originalOffsetMhz"))
+                            offsetRecovery.put(entry.getKey(), new OffsetRecovery(entry.getValue().get("offsetPstate").asInt(),
+                                    entry.getValue().get("originalOffsetMhz").asInt()));
+                    } else if (entry.getValue().asBoolean()) memoryTouched.add(entry.getKey());
                 });
             }
         } catch (Exception ignored) { /* A malformed safety marker is reported as unavailable through capability status. */ }
@@ -79,6 +92,36 @@ public class GpuTuningService {
             Integer core = integer(values[0]), memory = integer(values[1]);
             return core == null || memory == null ? null : new ClockTelemetry(core, memory);
         } catch (Exception ignored) { return null; }
+    }
+
+    /** The active P-state has its own driver-reported offset range. Only Windows NVML is used. */
+    public MemoryOffsetRange memoryOffsetRange(String deviceId) {
+        LocalGpuPowerService.Gpu gpu = find(deviceId);
+        if (gpu == null || !"NVIDIA".equalsIgnoreCase(gpu.vendor())
+                || !isWindows()) return null;
+        try {
+            String state = power.runTuningCommand(List.of("nvidia-smi", "-i", gpu.deviceId(),
+                    "--query-gpu=pstate", "--format=csv,noheader,nounits")).strip();
+            if (!state.matches("P[0-9]+")) return null;
+            int pstate = Integer.parseInt(state.substring(1));
+            return memoryOffsetRangeForPstate(gpu, pstate);
+        } catch (Exception | LinkageError ignored) { return null; }
+    }
+
+    private MemoryOffsetRange memoryOffsetRangeForPstate(LocalGpuPowerService.Gpu gpu, int pstate) {
+        try {
+            MemoryOffsetRange reported = offsetDriver.probe(gpu.index(), pstate);
+            return reported != null && reported.pstate() == pstate
+                    && reported.minMhz() <= reported.currentMhz()
+                    && reported.currentMhz() <= reported.maxMhz() ? reported : null;
+        } catch (Exception | LinkageError ignored) { return null; }
+    }
+
+    public Integer readMemoryOffset(String deviceId, int pstate) {
+        LocalGpuPowerService.Gpu gpu = find(deviceId);
+        if (gpu == null || !"NVIDIA".equalsIgnoreCase(gpu.vendor())) return null;
+        try { return offsetDriver.probe(gpu.index(), pstate).currentMhz(); }
+        catch (Exception | LinkageError ignored) { return null; }
     }
 
     /** Driver I/O used only by background refresh and explicit calibration/write actions. */
@@ -169,21 +212,63 @@ public class GpuTuningService {
     /** Apply one bounded clock range and reject writes the driver does not confirm. */
     public ApplyResult apply(String deviceId, Integer coreMinMhz, Integer coreMaxMhz,
                              Integer memoryMinMhz, Integer memoryMaxMhz) {
+        return apply(deviceId, coreMinMhz, coreMaxMhz, memoryMinMhz, memoryMaxMhz, null, null);
+    }
+
+    public ApplyResult apply(String deviceId, Integer coreMinMhz, Integer coreMaxMhz,
+                             Integer memoryMinMhz, Integer memoryMaxMhz,
+                             Integer memoryOffsetMhz, Integer memoryOffsetPstate) {
         LocalGpuPowerService.Gpu gpu = find(deviceId);
         if (gpu == null) return new ApplyResult(false, "gpu_not_found");
+        if (memoryMinMhz != null && "NVIDIA".equalsIgnoreCase(gpu.vendor())
+                && gpu.model() != null && gpu.model().matches("(?i).*RTX\\s*20[0-9]{2}.*"))
+            return new ApplyResult(false, "gpu_memory_clock_control_unavailable");
+        if (memoryOffsetMhz != null && (memoryMinMhz != null || memoryMaxMhz != null || memoryOffsetPstate == null
+                || !"NVIDIA".equalsIgnoreCase(gpu.vendor())))
+            return new ApplyResult(false, "gpu_tuning_request_invalid");
+        MemoryOffsetRange offsetRange = null;
+        if (memoryOffsetMhz != null) {
+            offsetRange = memoryOffsetRangeForPstate(gpu, memoryOffsetPstate);
+            if (offsetRange == null)
+                return new ApplyResult(false, "gpu_memory_offset_unavailable");
+            // Keep exploration deliberately narrower than the driver limits.
+            if (memoryOffsetMhz < Math.max(-200, offsetRange.minMhz())
+                    || memoryOffsetMhz > Math.min(100, offsetRange.maxMhz()))
+                return new ApplyResult(false, "gpu_clock_target_out_of_range");
+        }
         Capabilities caps = refreshCapabilities(deviceId);
         if (!valid(coreMinMhz, coreMaxMhz, caps.coreMinMhz(), caps.coreMaxMhz(), caps.coreClockControl())
                 || !valid(memoryMinMhz, memoryMaxMhz, caps.memoryMinMhz(), caps.memoryMaxMhz(), caps.memoryClockControl()))
             return new ApplyResult(false, "gpu_clock_target_out_of_range");
-        if (coreMinMhz == null && memoryMinMhz == null) return new ApplyResult(false, "gpu_tuning_request_invalid");
-        if (!persistRecovery(deviceId, memoryMinMhz != null)) return new ApplyResult(false, "gpu_tuning_recovery_save_failed");
+        if (coreMinMhz == null && memoryMinMhz == null && memoryOffsetMhz == null)
+            return new ApplyResult(false, "gpu_tuning_request_invalid");
+        if (!persistRecovery(deviceId, memoryMinMhz != null,
+                offsetRange == null ? null : new OffsetRecovery(offsetRange.pstate(), offsetRange.currentMhz())))
+            return new ApplyResult(false, "gpu_tuning_recovery_save_failed");
         try {
             String vendor = gpu.vendor().toUpperCase(Locale.ROOT);
             if ("NVIDIA".equals(vendor)) {
-                if (coreMinMhz != null) power.runTuningCommand(List.of("nvidia-smi", "-i", gpu.deviceId(),
-                        "--lock-gpu-clocks=" + coreMinMhz + "," + coreMaxMhz));
+                if (coreMinMhz != null) {
+                    boolean writtenByToolkit = false;
+                    if (coreMinMhz.equals(coreMaxMhz) && isWindows()) {
+                        try {
+                            offsetDriver.setCoreTarget(gpu.index(), coreMinMhz);
+                            writtenByToolkit = true;
+                        } catch (Exception | LinkageError failure) {
+                            if (memoryOffsetMhz != null) throw new IOException("GPU toolkit core target failed", failure);
+                        }
+                    }
+                    if (!writtenByToolkit) power.runTuningCommand(List.of("nvidia-smi", "-i", gpu.deviceId(),
+                            "--lock-gpu-clocks=" + coreMinMhz + "," + coreMaxMhz));
+                }
                 if (memoryMinMhz != null) power.runTuningCommand(List.of("nvidia-smi", "-i", gpu.deviceId(),
                         "--lock-memory-clocks=" + memoryMinMhz + "," + memoryMaxMhz));
+                if (memoryOffsetMhz != null) {
+                    offsetDriver.set(gpu.index(), memoryOffsetPstate, memoryOffsetMhz);
+                    Integer observed = readMemoryOffset(deviceId, memoryOffsetPstate);
+                    if (!Objects.equals(observed, memoryOffsetMhz))
+                        throw new IOException("NVML memory offset readback mismatch");
+                }
             } else if ("AMD".equals(vendor)) {
                 power.runTuningCommand(List.of("amd-smi", "set", "--gpu", gpu.deviceId(), "--perf-level", "MANUAL"));
                 if (coreMinMhz != null) power.runTuningCommand(List.of("amd-smi", "set", "--gpu", gpu.deviceId(), "--clk-limit", "sclk", "min", coreMinMhz.toString()));
@@ -196,7 +281,7 @@ public class GpuTuningService {
                         "--frequencyrange", coreMinMhz + "," + coreMaxMhz));
             }
             return new ApplyResult(true, null);
-        } catch (Exception ex) {
+        } catch (Exception | LinkageError ex) {
             String cause = Objects.toString(ex.getMessage(), "").toLowerCase(Locale.ROOT);
             ApplyResult rollback = restoreDefaults(deviceId);
             if (rollback.applied()) clearRecovery(deviceId);
@@ -223,8 +308,24 @@ public class GpuTuningService {
             String vendor = gpu.vendor().toUpperCase(Locale.ROOT);
             if ("NVIDIA".equals(vendor)) {
                 power.runTuningCommand(List.of("nvidia-smi", "-i", gpu.deviceId(), "--reset-gpu-clocks"));
-                if (memoryTouched.contains(deviceId) || operatorRequested && refreshCapabilities(deviceId).memoryClockControl())
+                boolean rtx20 = gpu.model() != null && gpu.model().matches("(?i).*RTX\\s*20[0-9]{2}.*");
+                if (memoryTouched.contains(deviceId) || operatorRequested && !rtx20
+                        && refreshCapabilities(deviceId).memoryClockControl())
                     power.runTuningCommand(List.of("nvidia-smi", "-i", gpu.deviceId(), "--reset-memory-clocks"));
+                OffsetRecovery previous = offsetRecovery.get(deviceId);
+                if (previous != null) {
+                    offsetDriver.set(gpu.index(), previous.pstate(), operatorRequested ? 0 : previous.originalMhz());
+                    if (!Objects.equals(readMemoryOffset(deviceId, previous.pstate()),
+                            operatorRequested ? 0 : previous.originalMhz()))
+                        throw new IOException("NVML memory offset restore mismatch");
+                } else if (operatorRequested && rtx20) {
+                    MemoryOffsetRange current = memoryOffsetRange(deviceId);
+                    if (current != null && current.currentMhz() != 0) {
+                        offsetDriver.set(gpu.index(), current.pstate(), 0);
+                        if (!Objects.equals(readMemoryOffset(deviceId, current.pstate()), 0))
+                            throw new IOException("NVML memory offset reset mismatch");
+                    }
+                }
             } else if ("AMD".equals(vendor)) {
                 power.runTuningCommand(List.of("amd-smi", "set", "--gpu", gpu.deviceId(), "--perf-level", "AUTO"));
             } else if ("INTEL".equals(vendor)) {
@@ -232,19 +333,21 @@ public class GpuTuningService {
             } else return new ApplyResult(false, "gpu_vendor_unsupported");
             clearRecovery(deviceId);
             return new ApplyResult(true, null);
-        } catch (Exception ex) {
+        } catch (Exception | LinkageError ex) {
             return new ApplyResult(false, "gpu_clock_restore_failed");
         }
     }
 
-    private synchronized boolean persistRecovery(String deviceId, boolean memoryRequested) {
+    private synchronized boolean persistRecovery(String deviceId, boolean memoryRequested, OffsetRecovery offset) {
         boolean added = recoveryPending.add(deviceId);
         boolean memoryAdded = memoryRequested && memoryTouched.add(deviceId);
+        boolean offsetAdded = offset != null && offsetRecovery.putIfAbsent(deviceId, offset) == null;
         boolean saved = de.verdox.solarminer.pcagent.support.AtomicFileStore.writeJson(recoveryFile,
                 recoveryMarker(), json, recoveryFile.getFileName().toString());
         if (!saved) {
             if (added) recoveryPending.remove(deviceId);
             if (memoryAdded) memoryTouched.remove(deviceId);
+            if (offsetAdded) offsetRecovery.remove(deviceId);
         }
         return saved;
     }
@@ -252,20 +355,38 @@ public class GpuTuningService {
     private synchronized void clearRecovery(String deviceId) {
         recoveryPending.remove(deviceId);
         memoryTouched.remove(deviceId);
+        offsetRecovery.remove(deviceId);
         if (recoveryPending.isEmpty()) {
             try { Files.deleteIfExists(recoveryFile); } catch (Exception ignored) { }
         } else de.verdox.solarminer.pcagent.support.AtomicFileStore.writeJson(recoveryFile,
                 recoveryMarker(), json, recoveryFile.getFileName().toString());
     }
 
-    private java.util.Map<String, Boolean> recoveryMarker() {
-        java.util.Map<String, Boolean> marker = new java.util.TreeMap<>();
-        for (String id : recoveryPending) marker.put(id, memoryTouched.contains(id));
+    private java.util.Map<String, Object> recoveryMarker() {
+        java.util.Map<String, Object> marker = new java.util.TreeMap<>();
+        for (String id : recoveryPending) {
+            OffsetRecovery offset = offsetRecovery.get(id);
+            marker.put(id, offset == null ? memoryTouched.contains(id)
+                    : java.util.Map.of("memoryTouched", memoryTouched.contains(id),
+                    "offsetPstate", offset.pstate(), "originalOffsetMhz", offset.originalMhz()));
+        }
         return marker;
+    }
+
+    private record OffsetRecovery(int pstate, int originalMhz) { }
+    public record MemoryOffsetRange(int pstate, int minMhz, int maxMhz, int currentMhz) { }
+    public interface MemoryOffsetDriver {
+        MemoryOffsetRange probe(int gpuIndex, int pstate) throws Exception;
+        void set(int gpuIndex, int pstate, int offsetMhz) throws Exception;
+        void setCoreTarget(int gpuIndex, int coreMhz) throws Exception;
     }
 
     private LocalGpuPowerService.Gpu find(String id) {
         return power.refresh().stream().filter(g -> Objects.equals(g.deviceId(), id)).findFirst().orElse(null);
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("windows");
     }
 
     private static boolean valid(Integer min, Integer max, Integer lower, Integer upper, boolean supported) {

@@ -66,6 +66,26 @@ class AutoTuningSessionServiceTest {
     }
 
     @Test
+    void rtxOffsetCandidatesKeepRequestedOffsetSeparateFromObservedMemoryClock() {
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 1, "GPU-2080-1", "NVIDIA GeForce RTX 2080 Ti",
+                100, 300, 100, 300, 260, 250.0, "measured", true, null, 300);
+        var caps = new GpuTuningService.Capabilities("GPU-2080-1", true, true, false,
+                300, 1600, 405, 7000, null,
+                List.of(new GpuTuningService.ClockPair(6800, 1400),
+                        new GpuTuningService.ClockPair(6800, 1600),
+                        new GpuTuningService.ClockPair(405, 300)));
+
+        var rows = AutoTuningSessionService.candidates(gpu, caps,
+                new GpuTuningService.ClockTelemetry(1400, 6800), 260,
+                new GpuTuningService.MemoryOffsetRange(2, -250, 150, 0));
+
+        assertEquals(18, rows.size());
+        assertTrue(rows.stream().allMatch(row -> row.memoryMhz() == null && row.memoryOffsetPstate() == 2));
+        assertEquals(java.util.Set.of(-100, 0, 100), rows.stream()
+                .map(BayesianGpuOptimizer.Candidate::memoryOffsetMhz).collect(java.util.stream.Collectors.toSet()));
+    }
+
+    @Test
     void calibratesThreeTiersWithoutShareCountersDespiteTwoHashrateOutliersAndRestoresPower() throws Exception {
         MiningService mining = mock(MiningService.class);
         LocalGpuPowerService power = mock(LocalGpuPowerService.class);
@@ -181,7 +201,7 @@ class AutoTuningSessionServiceTest {
     }
 
     @Test
-    void ineffectiveMemoryLockFallsBackToCoreOnlyCandidates() throws Exception {
+    void rtx2080WithoutVerifiedOffsetAvoidsAbsoluteMemoryLock() throws Exception {
         MiningService mining = mock(MiningService.class);
         LocalGpuPowerService power = mock(LocalGpuPowerService.class);
         GpuTuningService tuning = mock(GpuTuningService.class);
@@ -223,15 +243,73 @@ class AutoTuningSessionServiceTest {
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
             while (service.status().running() && System.nanoTime() < deadline) Thread.sleep(10);
             assertEquals("auto_tuning_complete", service.status().phase());
-            var failure = store.measurements().stream().filter(row -> "RESULT".equals(row.type())
-                    && "auto_tuning_memory_lock_ineffective".equals(row.reason())).findFirst().orElseThrow();
-            assertEquals(405, failure.memoryMhz());
-            assertEquals(6800, failure.observedMemoryMhz());
-            assertEquals(3, failure.validSamples());
+            assertTrue(store.measurements().stream().noneMatch(row -> row.memoryMhz() != null));
             assertEquals(3, store.matrix("GPU-2080", "pearl", "srbminer-multi", "3.7.3",
                     "NVIDIA GeForce RTX 2080 Ti", "NVIDIA").size());
             assertTrue(store.measurements().stream().filter(row -> "RESULT".equals(row.type())
                     && Boolean.TRUE.equals(row.stable())).allMatch(row -> row.memoryMhz() == null));
+        } finally { service.shutdown(); }
+    }
+
+    @Test
+    void offsetReadbackWithoutEffectiveMemoryChangeFallsBackToCoreOnly() throws Exception {
+        MiningService mining = mock(MiningService.class);
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        GpuTuningService tuning = mock(GpuTuningService.class);
+        LocalRunLock lock = mock(LocalRunLock.class);
+        MinerFactory miners = mock(MinerFactory.class);
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 1, "GPU-offset", "NVIDIA GeForce RTX 2080 Ti",
+                100, 260, 100, 260, 180, 120.0, "measured", true, null, 260);
+        when(power.refresh()).thenReturn(List.of(gpu));
+        when(power.snapshot()).thenReturn(List.of(gpu));
+        when(power.readTemperatureC(gpu)).thenReturn(60.0);
+        when(power.configuredPowerLimitWatts(gpu)).thenReturn(180);
+        when(power.setAutoTuningPowerTarget(anyInt(), eq(gpu))).thenReturn(true);
+        when(tuning.refreshCapabilities("GPU-offset")).thenReturn(new GpuTuningService.Capabilities(
+                "GPU-offset", true, false, false, 1200, 1710, 6800, 6800, null,
+                List.of(new GpuTuningService.ClockPair(6800, 1200),
+                        new GpuTuningService.ClockPair(6800, 1710))));
+        when(tuning.memoryOffsetRange("GPU-offset")).thenReturn(
+                new GpuTuningService.MemoryOffsetRange(2, -200, 100, 0));
+        AtomicInteger core = new AtomicInteger(1710);
+        AtomicInteger offset = new AtomicInteger();
+        when(tuning.apply(anyString(), any(), any(), isNull(), isNull(), anyInt(), anyInt()))
+                .thenAnswer(invocation -> {
+                    core.set(invocation.getArgument(1));
+                    offset.set(invocation.getArgument(5));
+                    return new GpuTuningService.ApplyResult(true, null);
+                });
+        when(tuning.apply(anyString(), any(), any(), isNull(), isNull())).thenAnswer(invocation -> {
+            core.set(invocation.getArgument(1));
+            return new GpuTuningService.ApplyResult(true, null);
+        });
+        when(tuning.readMemoryOffset("GPU-offset", 2)).thenAnswer(invocation -> offset.get());
+        when(tuning.readEffectiveClocks("GPU-offset")).thenAnswer(invocation ->
+                new GpuTuningService.ClockTelemetry(core.get(), 6800));
+        when(tuning.restoreDefaults("GPU-offset")).thenReturn(new GpuTuningService.ApplyResult(true, null));
+        when(lock.tryBegin("auto-tuning")).thenReturn(true);
+        when(miners.minerSoftwareForWorker(any(), eq("GPU-offset"))).thenReturn("srbminer-multi");
+        when(miners.minerVersionForWorker(any(), eq("GPU-offset"))).thenReturn("3.7.3");
+        when(mining.getWorkerStats()).thenReturn(List.of(new MinerStats.Worker(
+                MinerStats.MinerStatus.MINING, "Test", "PearlHash", 100d / 1e12, 60,
+                180, 100, 180, 260, 120, List.of(), "GPU", "Test", "GPU-offset",
+                null, null, MinerStats.PoolTelemetry.unavailable())));
+        AutoTuningProfileStore store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(),
+                directory.resolve("offset-ineffective-profiles.json").toString());
+        AutoTuningSessionService service = new AutoTuningSessionService(mining, power, tuning, store, lock,
+                miners, 85, 0);
+        try {
+            assertTrue(service.start("GPU-offset", "pearl").running());
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+            while (service.status().running() && System.nanoTime() < deadline) Thread.sleep(10);
+            assertEquals("auto_tuning_complete", service.status().phase());
+            var failure = store.measurements().stream().filter(row -> "RESULT".equals(row.type())
+                    && "auto_tuning_memory_lock_ineffective".equals(row.reason())).findFirst().orElseThrow();
+            assertEquals(-100, failure.memoryOffsetMhz());
+            assertEquals(6800, failure.observedMemoryMhz());
+            assertEquals(3, failure.validSamples());
+            assertTrue(store.measurements().stream().filter(row -> "RESULT".equals(row.type())
+                    && Boolean.TRUE.equals(row.stable())).allMatch(row -> row.memoryOffsetMhz() == null));
         } finally { service.shutdown(); }
     }
 }

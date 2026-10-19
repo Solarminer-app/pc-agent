@@ -84,6 +84,27 @@ class AutoTuningProfileStoreTest {
                 "RTX", "NVIDIA", "PearlHash").size());
     }
 
+    @Test
+    void offsetMeasurementsSurviveReloadAndKeepDistinctProfiles() {
+        Path file = directory.resolve("offset-history.json");
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        AutoTuningProfileStore store = new AutoTuningProfileStore(json, file.toString());
+        for (int offset : List.of(-100, 0)) {
+            var row = new AutoTuningProfileStore.Measurement("run-offset", Instant.parse("2026-10-19T12:00:00Z"),
+                    "GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash", "srbminer-multi", "3.7.3",
+                    1200, null, 150, "RESULT", offset == -100 ? 1200d : 1000d, 140d, 60d,
+                    1200, 6800 + offset, 16, null, null, true, null, offset, 2);
+            assertTrue(store.appendMeasurement(row));
+        }
+
+        AutoTuningProfileStore loaded = new AutoTuningProfileStore(json, file.toString());
+        assertEquals(2, loaded.measurements().size());
+        assertEquals(2, loaded.candidates("GPU-a", "pearl", "srbminer-multi", "3.7.3",
+                "RTX", "NVIDIA", "PearlHash").size());
+        assertEquals(-100, loaded.candidates("GPU-a", "pearl", "srbminer-multi", "3.7.3",
+                "RTX", "NVIDIA", "PearlHash").getFirst().memoryOffsetMhz());
+    }
+
     private static AutoTuningProfileStore.Measurement measurement(String run, String type, int power,
                                                                   int core, Boolean stable, String reason) {
         return measurement(run, type, power, core, stable, reason, core == 1300 ? 1100d : 1000d);
