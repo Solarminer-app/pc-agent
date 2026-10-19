@@ -2,19 +2,24 @@
 
 Auto Tuning is a local per-worker operating mode and calibration flow. It is
 scoped by GPU device ID, assigned GPU coin/algorithm, and selected miner
-software. It does not replace the existing operating modes or power sweep yet;
-those remain available while this path is exercised.
+software. The saved Power Limits target is its starting point, not its
+operating cap. The driver-reported default power limit is the automatic
+exploration ceiling. Other operating modes and the power sweep remain available.
 
 ## Calibration flow
 
-- The operator opens `/autotuning.html` and starts a calibration for an assigned
-  GPU that is already mining the assigned algorithm. A worker must have live
+- Selecting `AUTO_TUNING` starts an uncalibrated worker at its saved manual
+  target, waits for the miner to report `MINING`, then starts calibration.
+  The operator may also start or repeat calibration on `/autotuning.html`.
+  A worker must have live
   hash telemetry, writable power control, at least one driver-reported clock
   control, and a readable GPU temperature. The active process stays managed by
   the regular miner adapter.
 - A single `LocalRunLock` protects a calibration. Worker mode changes,
   benchmarks, sweeps, and power actions already using that lock cannot race it.
-- The test candidate searches three distinct power-cap tiers, with up to four
+- The test candidate searches three distinct power-cap tiers that include the
+  manual starting target when it is inside the safe range. The first tier
+  sampled is the starting target. The search runs with up to four
   Bayesian-selected clock points per tier (twelve candidates total). NVIDIA
   candidates use only supported memory/core pairs reported by the driver; when
   memory locks are unavailable they use pairs at the highest listed memory
@@ -36,6 +41,9 @@ those remain available while this path is exercised.
 - Every tier needs a stable candidate with share evidence before the three-row
   matrix is persisted. On completion, cancellation or failure, calibration
   restores driver clock defaults and the power limit captured at session start.
+  In Auto Tuning mode, successful calibration then applies the most efficient
+  confirmed tier and its core/memory clocks. On later starts the matching
+  profile is reused; no calibration is required before first selecting the mode.
   The `gpu-tuning-recovery.json` marker is written before clock changes and
   retried at Agent startup/shutdown if restoration was interrupted.
 
@@ -83,15 +91,16 @@ needs live validation on each OS and GPU family.
 - `POST /{deviceId}/apply` and `/restore` expose bounded local clock controls
   for diagnostics and manual preparation. These writes share the run lock and
   are protected by the same-origin local-write filter.
-- The worker operating mode `AUTO_TUNING` is selectable on GPUs. It requires a
+- The worker operating mode `AUTO_TUNING` is selectable on GPUs. It uses a
   matrix matching the current device, model/vendor, coin/algorithm, miner software and
-  pinned miner version. It applies the highest tier no greater than an assigned
-  per-GPU budget before the miner starts. CPU workers cannot select this mode.
-- C10 Node economic plans may include `autoTuningBudgets:{workerId:watts}` for
-  active Auto Tuning workers. The Agent publishes each calibrated tier with
-  local market forecast and validates the exact budget against its own matrix.
-  Node chooses the highest economic tier within the current PV budget and only
-  sends watts; it never sends driver commands. Older on/off plans remain valid.
+  pinned miner version when available. Local operation chooses the tier with
+  the highest measured hashes per watt within the safe driver stock limit.
+  CPU workers cannot select this mode.
+- The current Node evaluates the Agent's most efficient tier and sends only
+  on/off decisions in C10 plans. The Agent still accepts the older optional
+  `autoTuningBudgets:{workerId:watts}` field for compatibility with existing
+  Node versions; that legacy field selects a tier within the supplied budget.
+  New Node plans do not send it and never send driver commands.
 
 The local UI reports calibration phase, candidate/sample progress, approximate
 remaining sampling time and saved tiers after reload without displaying raw

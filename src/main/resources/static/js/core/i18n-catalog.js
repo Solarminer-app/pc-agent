@@ -103,7 +103,7 @@ window.SolarMinerI18nCatalog = {
         "auto_tuning_gpu_label": {de: "GPU", en: "GPU"},
         "auto_tuning_measured_power": {de: "Aktuelle Leistung", en: "Current draw"},
         "auto_tuning_calibration_title": {de: "Automatische Kalibrierung", en: "Automatic calibration"},
-        "auto_tuning_calibration_hint": {de: "Misst stabile Taktwerte für diesen Worker.", en: "Measures stable clock settings for this worker."},
+        "auto_tuning_calibration_hint": {de: "Misst Power Target, Core- und Speichertakt. Der Betriebsmodus startet die Messung selbst, wenn noch kein Profil vorliegt.", en: "Measures power target, core and memory clocks. The operating mode starts calibration when no profile exists."},
         "auto_tuning_manual_title": {de: "Manuelle Taktgrenzen", en: "Manual clock limits"},
         "auto_tuning_not_supported": {de: "Vom Treiber nicht unterstützt", en: "Not supported by driver"},
         "auto_tuning_start": {de: "Kalibrierung starten", en: "Start calibration"},
@@ -136,7 +136,10 @@ window.SolarMinerI18nCatalog = {
         "auto_tuning_apply_failed": {de: "Das beste Tuning-Profil konnte nicht angewendet werden.", en: "The best tuning profile could not be applied."},
         "auto_tuning_cancelled": {de: "Kalibrierung abgebrochen.", en: "Calibration cancelled."},
         "gpu_tuning_recovery_save_failed": {de: "Wiederherstellungsdaten konnten nicht gespeichert werden; Taktwerte wurden nicht geändert.", en: "Recovery state could not be saved; clock values were not changed."},
-        "auto_tuning_intro": {de: "Treiberfähigkeiten prüfen und GPU-Taktbereiche für eine lokale Kalibrierung sicher verwalten.", en: "Inspect driver capabilities and safely manage GPU clock ranges for local calibration."},
+        "auto_tuning_intro": {de: "Der Betriebsmodus startet beim manuellen Power Target und sucht selbstständig nach der effizientesten sicheren Kombination aus Leistung und Takten.", en: "The operating mode starts at the manual power target and searches for the most efficient safe combination of power and clocks."},
+        "auto_tuning_start_target_unsafe": {de: "Das manuelle Power Target liegt außerhalb des sicheren Auto-Tuning-Bereichs. Wähle auf der Leistungsgrenzen-Seite einen Wert zwischen Treiberminimum und Treiberstandardwert.", en: "The manual power target is outside the safe Auto Tuning range. Choose a value between the driver minimum and default on the Power Limits page."},
+        "auto_tuning_current_target_unsafe": {de: "Das aktuelle GPU-Power-Target liegt über dem Treiberstandardwert. Stelle zuerst ein sicheres Limit ein.", en: "The current GPU power target exceeds the driver's default. Apply a safe limit first."},
+        "auto_tuning_driver_default_power_unavailable": {de: "Der Treiber meldet kein Standard-Power-Target; Auto Tuning kann die sichere Obergrenze nicht bestimmen.", en: "The driver does not report a default power target, so Auto Tuning cannot determine a safe upper bound."},
         "auto_tuning_clock_notice": {de: "Core- und Speichertakt werden nur angeboten, wenn der installierte Treiber sie unterstützt. Spannungsoffsets sind über die verfügbaren Treiber-Schnittstellen nicht einheitlich steuerbar.", en: "Core and memory clocks are offered only when the installed driver supports them. Voltage offsets cannot be controlled consistently through the available driver interfaces."},
         "auto_tuning_no_devices": {de: "Keine GPU gefunden.", en: "No GPU found."},
         "auto_tuning_saved_matrix": {de: "Gespeicherte Leistungsstufen", en: "Saved power tiers"},
@@ -812,8 +815,8 @@ window.SolarMinerI18nCatalog = {
         },
         "choose_hardware": {de: "Hardware wählen", en: "Choose hardware"},
         "choose_how_much_power_your_gpus_may_use_unde": {
-            de: "Lege den zulässigen Leistungsbereich deiner GPUs fest. Treibergrenzen geben den verfügbaren Bereich vor. Beim Anwenden wird das aktuelle Treiberlimit sofort an diesen Bereich angepasst; beim nächsten Miner-Start wird die Grenze erneut geprüft.",
-            en: "Choose the allowed power range for your GPUs. Driver limits define the available range. Applying the range immediately adjusts the current driver limit; the limit is checked again at the next miner start."
+            de: "Lege das manuelle Power Target je GPU fest. Auto Tuning nutzt es als Startpunkt und testet Leistungsstufen bis höchstens zum Standardwert des Treibers. Beim Anwenden wird das aktuelle Treiberlimit angepasst.",
+            en: "Set the manual power target for each GPU. Auto Tuning uses it as its starting point and tests power levels no higher than the driver's default. Applying it updates the current driver limit."
         },
         "choose_kryptex_with_your_own_etc_wallet_or_c": {
             de: "Wähle Kryptex mit eigener ETC-Wallet oder bestätige das SolarMiner-Standardziel. Die Fee-Route muss vor dem Start freigeschaltet sein.",

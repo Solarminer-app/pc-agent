@@ -74,12 +74,16 @@ public class WorkerPowerModeService {
                     .filter(gpu -> deviceId.equals(gpu.deviceId())).findFirst().orElse(null);
             if (card == null || !card.supportsDynamicPowerScaling())
                 return new Selection(mode, null, "gpu_power_control_unavailable");
+            Integer safeMaxWatts = card.safeTuningMaxWatts();
+            if (safeMaxWatts == null) return new Selection(mode, null, "auto_tuning_driver_default_power_unavailable");
+            int startingWatts = gpus.configuredPowerLimitWatts(card);
+            if (startingWatts < card.minWatts() || startingWatts > safeMaxWatts)
+                return new Selection(mode, null, "auto_tuning_start_target_unsafe");
             String version = miners == null ? null : miners.minerVersionForWorker(coin, deviceId);
             AutoTuningProfileStore.Profile profile = autoTuningProfiles == null ? null
-                    : autoTuningProfiles.forBudget(deviceId, coin.id(), softwareId, version,
-                    card.model(), card.vendor(), card.maxWatts(), coin.assignmentAlgorithm());
-            if (profile == null || profile.powerLimitWatts() == null || profile.powerLimitWatts() < card.minWatts())
-                return new Selection(mode, null, "auto_tuning_mode_requires_calibration");
+                    : autoTuningProfiles.mostEfficientWithinBudget(deviceId, coin.id(), softwareId, version,
+                    card.model(), card.vendor(), safeMaxWatts, coin.assignmentAlgorithm());
+            if (profile == null) return new Selection(mode, startingWatts, null);
             return new Selection(mode, profile.powerLimitWatts(), null);
         }
         LocalGpuPowerService.Gpu gpu = gpus.discover().stream().filter(card -> deviceId.equals(card.deviceId())).findFirst().orElse(null);
@@ -129,6 +133,18 @@ public class WorkerPowerModeService {
         return applyForBudget(deviceId, coinId, null);
     }
 
+    public boolean needsAutoTuningCalibration(String deviceId, String coinId) {
+        Coin coin = Coin.byIdOrNull(coinId);
+        if (coin == null || autoTuningProfiles == null) return true;
+        LocalGpuPowerService.Gpu gpu = gpus.discover().stream()
+                .filter(card -> deviceId.equals(card.deviceId())).findFirst().orElse(null);
+        if (gpu == null || gpu.safeTuningMaxWatts() == null) return true;
+        String software = miners == null ? null : miners.minerSoftwareForWorker(coin, deviceId);
+        String version = miners == null ? null : miners.minerVersionForWorker(coin, deviceId);
+        return autoTuningProfiles.mostEfficientWithinBudget(deviceId, coin.id(), software, version,
+                gpu.model(), gpu.vendor(), gpu.safeTuningMaxWatts(), coin.assignmentAlgorithm()) == null;
+    }
+
     public boolean restoreAutoTuningClocks(String deviceId) {
         return gpuTuning != null && gpuTuning.restoreDefaults(deviceId).applied();
     }
@@ -146,18 +162,30 @@ public class WorkerPowerModeService {
             return choice;
         }
         if ("AUTO_TUNING".equals(choice.mode())) {
+            Integer safeMaxWatts = gpu.safeTuningMaxWatts();
+            if (safeMaxWatts == null) return new Selection(choice.mode(), null, "auto_tuning_driver_default_power_unavailable");
+            if (budgetWatts != null && budgetWatts > safeMaxWatts)
+                return new Selection(choice.mode(), null, "auto_tuning_budget_above_safe_limit");
             Coin coin = Coin.byIdOrNull(coinId);
             String softwareId = coin == null || miners == null ? null : miners.minerSoftwareForWorker(coin, deviceId);
             String version = coin == null || miners == null ? null : miners.minerVersionForWorker(coin, deviceId);
             AutoTuningProfileStore.Profile profile = autoTuningProfiles == null || coin == null ? null
+                    : budgetWatts == null
+                    ? autoTuningProfiles.mostEfficientWithinBudget(deviceId, coin.id(), softwareId, version,
+                    gpu.model(), gpu.vendor(), safeMaxWatts, coin.assignmentAlgorithm())
                     : autoTuningProfiles.forBudget(deviceId, coin.id(), softwareId, version,
-                    gpu.model(), gpu.vendor(), budgetWatts == null ? gpu.maxWatts() : budgetWatts,
-                    coin.assignmentAlgorithm());
-            if (profile == null || profile.powerLimitWatts() < gpu.minWatts() || gpuTuning == null) return new Selection(choice.mode(), null,
-                    budgetWatts == null ? "auto_tuning_mode_requires_calibration" : "auto_tuning_budget_below_profile");
+                    gpu.model(), gpu.vendor(), budgetWatts, coin.assignmentAlgorithm());
+            if (profile == null && budgetWatts == null) {
+                if (gpuTuning == null || !gpuTuning.restoreDefaults(deviceId).applied()
+                        || !gpus.setTotalPowerTarget(choice.watts(), List.of(gpu)))
+                    return new Selection(choice.mode(), null, "power_mode_apply_failed");
+                return choice;
+            }
+            if (profile == null || profile.powerLimitWatts() < gpu.minWatts() || gpuTuning == null)
+                return new Selection(choice.mode(), null, "auto_tuning_budget_below_profile");
             var clocks = gpuTuning.apply(deviceId, profile.coreMhz(), profile.coreMhz(), profile.memoryMhz(), profile.memoryMhz());
             if (!clocks.applied()) return new Selection(choice.mode(), null, clocks.reason());
-            if (!gpus.setTotalPowerTarget(profile.powerLimitWatts(), List.of(gpu))) {
+            if (!gpus.setAutoTuningPowerTarget(profile.powerLimitWatts(), gpu)) {
                 gpuTuning.restoreDefaults(deviceId);
                 return new Selection(choice.mode(), null, "power_mode_apply_failed");
             }

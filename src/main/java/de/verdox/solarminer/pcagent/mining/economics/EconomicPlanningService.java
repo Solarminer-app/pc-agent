@@ -105,12 +105,12 @@ public class EconomicPlanningService {
         LocalGpuPowerService.Gpu gpu = gpus.snapshot().stream().filter(card -> id.equals(card.deviceId())).findFirst().orElse(null);
         List<AutoTuningTier> autoTuningTiers = List.of();
         if ("AUTO_TUNING".equals(controls.get().powerModeFor(id)) && selected != null && selected.isGpu()
-                && gpu != null && autoTuningProfiles != null) {
+                && gpu != null && gpu.safeTuningMaxWatts() != null && autoTuningProfiles != null) {
             autoTuningTiers = autoTuningProfiles.matrix(id, selectedCoin,
                     miners.minerSoftwareForWorker(selected, id), miners.minerVersionForWorker(selected, id),
                     gpu.model(), gpu.vendor(), selected.assignmentAlgorithm()).stream()
                     .filter(point -> point.powerLimitWatts() >= gpu.minWatts()
-                            && point.powerLimitWatts() <= gpu.maxWatts()).map(point -> {
+                            && point.powerLimitWatts() <= gpu.safeTuningMaxWatts()).map(point -> {
                 MarketDataService.Forecast forecast = market.forecastForProfile(selectedCoin, point.hashrateHs());
                 return new AutoTuningTier(point.powerLimitWatts(), point.hashrateHs(), point.calibratedAt(),
                         forecast != null && forecast.available() && !forecast.stale() ? forecast.usdPerDay() : null,

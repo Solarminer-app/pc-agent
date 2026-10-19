@@ -75,6 +75,16 @@ public class AutoTuningProfileStore {
                 .max(java.util.Comparator.comparingInt(Profile::powerLimitWatts)).orElse(null);
     }
 
+    /** Local autonomous mode optimizes efficiency; explicit solar budgets select a tier separately. */
+    public synchronized Profile mostEfficientWithinBudget(String deviceId, String coinId, String softwareId,
+                                                            String softwareVersion, String model, String vendor,
+                                                            int budgetWatts, String algorithm) {
+        return matrix(deviceId, coinId, softwareId, softwareVersion, model, vendor, algorithm).stream()
+                .filter(row -> row.powerLimitWatts() <= budgetWatts)
+                .max(java.util.Comparator.comparingDouble(Profile::efficiencyHashesPerWatt)
+                        .thenComparingInt(row -> -row.powerLimitWatts())).orElse(null);
+    }
+
     public synchronized boolean saveMatrix(List<Profile> rows) {
         if (rows == null || rows.size() < 3 || rows.stream().anyMatch(row -> row == null || row.powerLimitWatts() == null
                 || row.powerLimitWatts() <= 0 || !Double.isFinite(row.efficiencyHashesPerWatt())

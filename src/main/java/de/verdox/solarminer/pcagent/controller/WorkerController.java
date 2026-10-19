@@ -89,8 +89,13 @@ public class WorkerController {
     public WorkerAssignmentService.WorkerView powerMode(@PathVariable String deviceId, @RequestBody PowerModeRequest request) {
         if (runLock != null && !runLock.tryBegin("worker-power-mode"))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "power_mode_busy");
-        try { return savePowerMode(deviceId, request); }
+        WorkerAssignmentService.WorkerView result;
+        try { result = savePowerMode(deviceId, request); }
         finally { if (runLock != null) runLock.end(); }
+        if (request != null && "AUTO_TUNING".equals(request.mode())
+                && result.status() == de.verdox.solarminer.pcagent.dto.MinerStats.MinerStatus.MINING)
+            workers.maybeStartAutoTuning(deviceId);
+        return result;
     }
 
     private WorkerAssignmentService.WorkerView savePowerMode(String deviceId, PowerModeRequest request) {

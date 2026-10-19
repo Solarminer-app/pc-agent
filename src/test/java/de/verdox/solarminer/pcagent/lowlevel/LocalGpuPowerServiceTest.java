@@ -59,6 +59,24 @@ class LocalGpuPowerServiceTest {
     }
 
     @Test
+    void autoTuningCanProbeAboveManualStartButNeverAboveDriverStockCap() {
+        NvidiaRunner runner = new NvidiaRunner(Map.of("GPU-one", 220));
+        LocalGpuPowerService service = service(runner);
+        service.discover();
+        assertTrue(service.updateUserPowerLimit("GPU-one", 180).success());
+        LocalGpuPowerService.Gpu gpu = service.refresh().getFirst();
+
+        assertEquals(180, service.configuredPowerLimitWatts(gpu));
+        assertEquals(260, gpu.safeTuningMaxWatts());
+        assertTrue(service.setAutoTuningPowerTarget(240, gpu));
+        assertEquals(240, runner.limits.get("GPU-one"));
+        assertFalse(service.setAutoTuningPowerTarget(270, gpu));
+        assertEquals(240, runner.limits.get("GPU-one"));
+        assertTrue(service.restoreConfiguredPowerLimit("GPU-one"));
+        assertEquals(180, runner.limits.get("GPU-one"));
+    }
+
+    @Test
     void userLimitFailureReportsTheDriverReasonAndKeepsPreviousLimits() {
         NvidiaRunner runner = new NvidiaRunner(Map.of("GPU-one", 220));
         LocalGpuPowerService service = service(runner);

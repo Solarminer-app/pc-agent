@@ -21,13 +21,40 @@ class WorkerPowerModeServiceTest {
     @TempDir Path directory;
 
     @Test
+    void uncalibratedModeStartsAtSavedManualTargetBelowDriverStockCap() {
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        AgentControlSettingsService controls = new AgentControlSettingsService(json,
+                directory.resolve("baseline-control.json").toString());
+        assertTrue(controls.setWorkerPowerMode("GPU-baseline", "AUTO_TUNING"));
+        LocalGpuPowerService gpus = mock(LocalGpuPowerService.class);
+        var card = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-baseline", "Test", 80, 220,
+                80, 150, 150, 100.0, "measured", true, null, 200);
+        when(gpus.discover()).thenReturn(List.of(card));
+        when(gpus.configuredPowerLimitWatts(card)).thenReturn(150);
+        when(gpus.setTotalPowerTarget(150, List.of(card))).thenReturn(true);
+        GpuTuningService tuning = mock(GpuTuningService.class);
+        when(tuning.restoreDefaults("GPU-baseline")).thenReturn(new GpuTuningService.ApplyResult(true, null));
+        WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus,
+                new GpuEfficiencyStore(json, directory.resolve("baseline-sweeps.json").toString()),
+                new MiningPerformanceProfileStore(json, directory.resolve("baseline-bench.json").toString()), 80);
+        modes.setAutoTuning(new AutoTuningProfileStore(json, directory.resolve("baseline-profiles.json").toString()), tuning);
+
+        assertTrue(modes.needsAutoTuningCalibration("GPU-baseline", "pearl"));
+        assertEquals(150, modes.select("GPU-baseline", "pearl").watts());
+        assertNull(modes.apply("GPU-baseline", "pearl").error());
+        verify(gpus).setTotalPowerTarget(150, List.of(card));
+    }
+
+    @Test
     void autoTuningModeRequiresMatchingProfileAndAppliesClockAndPowerSettings() {
         ObjectMapper json = new ObjectMapper().findAndRegisterModules();
         LocalGpuPowerService gpus = mock(LocalGpuPowerService.class);
         LocalGpuPowerService.Gpu card = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test", 80, 250,
-                100, 220, 200, 150.0, "measured", true, null);
+                100, 220, 200, 150.0, "measured", true, null, 220);
         when(gpus.discover()).thenReturn(List.of(card));
-        when(gpus.setTotalPowerTarget(150, List.of(card))).thenReturn(true);
+        when(gpus.configuredPowerLimitWatts(card)).thenReturn(200);
+        when(gpus.setAutoTuningPowerTarget(150, card)).thenReturn(true);
+        when(gpus.setAutoTuningPowerTarget(100, card)).thenReturn(true);
         AutoTuningProfileStore profiles = new AutoTuningProfileStore(json, directory.resolve("auto-profiles.json").toString());
         var profile = new AutoTuningProfileStore.Profile("GPU-a", "Test", "NVIDIA", "pearl", "PearlHash",
                 "srbminer-multi", 1200, 800, 150, 100.0, 125, 8, .8, Instant.now());
@@ -47,12 +74,16 @@ class WorkerPowerModeServiceTest {
         modes.setMinerFactory(miners);
         GpuTuningService tuning = mock(GpuTuningService.class);
         when(tuning.apply("GPU-a", 1200, 1200, 800, 800)).thenReturn(new GpuTuningService.ApplyResult(true, null));
+        when(tuning.apply("GPU-a", 1100, 1100, 700, 700)).thenReturn(new GpuTuningService.ApplyResult(true, null));
         modes.setAutoTuning(profiles, tuning);
 
         assertNull(modes.selectForMode("GPU-a", "pearl", "AUTO_TUNING").error());
+        assertEquals(100, modes.selectForMode("GPU-a", "pearl", "AUTO_TUNING").watts());
+        assertNull(modes.apply("GPU-a", "pearl").error());
         assertNull(modes.applyForBudget("GPU-a", "pearl", 175).error());
+        verify(gpus).setAutoTuningPowerTarget(100, card);
         verify(tuning).apply("GPU-a", 1200, 1200, 800, 800);
-        verify(gpus).setTotalPowerTarget(150, List.of(card));
+        verify(gpus).setAutoTuningPowerTarget(150, card);
     }
 
     @Test

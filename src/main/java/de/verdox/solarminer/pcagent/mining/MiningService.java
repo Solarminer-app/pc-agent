@@ -58,6 +58,12 @@ public class MiningService {
     private de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes;
     private de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService coinRevenueMode;
     private de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock localRunLock;
+    private de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSessionService autoTuning;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAutoTuning(@org.springframework.context.annotation.Lazy de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSessionService service) {
+        this.autoTuning = service;
+    }
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setWorkerPowerModes(de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes) {
@@ -262,15 +268,19 @@ public class MiningService {
             boolean economicPlanLock = localRunLock != null && "economic-plan".equals(localRunLock.holder());
             return coinRevenueMode.applyBestStartPoint(gpu.deviceId(), coinId, mode, true, economicPlanLock).success();
         }
-        if (workerPowerModes != null && workerPowerModes.applyForBudget(gpu.deviceId(), coinId,
-                "AUTO_TUNING".equals(mode) ? gpu.currentPowerLimitWatts() : null).error() != null) return false;
-        return target.get().startGpu(vendor, index);
+        if (workerPowerModes != null && workerPowerModes.apply(gpu.deviceId(), coinId).error() != null) return false;
+        boolean started = target.get().startGpu(vendor, index);
+        if (started && "AUTO_TUNING".equals(mode) && workerPowerModes != null && autoTuning != null
+                && workerPowerModes.needsAutoTuningCalibration(gpu.deviceId(), coinId))
+            autoTuning.startWhenReady(gpu.deviceId(), coinId);
+        return started;
     }
 
     private boolean stopGpuForCoin(String coinId, String vendor, int index) {
         LocalGpuPowerService.Gpu gpu = gpuPowerService.discover().stream()
                 .filter(card -> card.vendor().equals(vendor) && card.index() == index).findFirst().orElse(null);
         if (gpu == null) return true;
+        if (autoTuning != null) autoTuning.cancelForDevice(gpu.deviceId());
         boolean stopped = miners.gpuMinerForWorker(coinId, gpu.deviceId())
                 .map(miner -> miner.stopGpu(vendor, index)).orElse(true);
         return stopped && (!"AUTO_TUNING".equals(controls.get().powerModeFor(gpu.deviceId()))
@@ -323,6 +333,7 @@ public class MiningService {
             LocalGpuPowerService.Gpu gpu = gpuPowerService.discover().stream()
                     .filter(card -> card.deviceId().equals(deviceId)).findFirst().orElse(null);
             if (gpu == null) return false;
+            if (autoTuning != null) autoTuning.cancelForDevice(deviceId);
             boolean foundRunningProcess = false;
             boolean stopped = true;
             for (Coin coin : Coin.gpuCoins()) for (MinerFactory.GpuMinerAdapter adapter : adapters(coin)) {
@@ -358,6 +369,7 @@ public class MiningService {
     }
 
     private boolean stopActiveGpus() {
+        if (autoTuning != null) selectedGpus().forEach(gpu -> autoTuning.cancelForDevice(gpu.deviceId()));
         return activeGpuMiner().stopAll();
     }
 

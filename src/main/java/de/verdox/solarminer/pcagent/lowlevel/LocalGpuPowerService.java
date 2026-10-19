@@ -62,6 +62,11 @@ public class LocalGpuPowerService {
                       int minWatts, int maxWatts, Integer currentPowerLimitWatts, Double currentWatts,
                       String usageMeasurement, boolean supportsDynamicPowerScaling, String regulationError,
                       Integer driverDefaultWatts) {
+        /** The manual target is an exploration start, not a ceiling; stock is the safety ceiling. */
+        public Integer safeTuningMaxWatts() {
+            return driverDefaultWatts;
+        }
+
         public Gpu(String vendor, int index, String deviceId, String model, int driverMinWatts, int driverMaxWatts,
                    int minWatts, int maxWatts, Integer currentPowerLimitWatts, Double currentWatts,
                    String usageMeasurement, boolean supportsDynamicPowerScaling, String regulationError) {
@@ -417,6 +422,11 @@ public class LocalGpuPowerService {
         return current != null && (current == target || setTotalPowerTarget(target, List.of(gpu)));
     }
 
+    /** The operator's manual Power Limits target, independent of the cap currently applied by a mode. */
+    public int configuredPowerLimitWatts(Gpu gpu) {
+        return userPowerLimits.getOrDefault(gpu.deviceId(), gpu.maxWatts());
+    }
+
     /** Sets and pins one temporary sweep cap so miner startup cannot replace it with the saved cap. */
     public synchronized boolean setSweepPowerTarget(long watts, Gpu gpu) {
         if (!setTotalPowerTarget(watts, List.of(gpu))) return false;
@@ -435,14 +445,31 @@ public class LocalGpuPowerService {
 
     /** Applies a multi-GPU transaction; every modified card is rolled back from its live snapshot on failure. */
     public synchronized boolean setTotalPowerTarget(long watts, List<Gpu> requested) {
+        return setTotalPowerTarget(watts, requested, false);
+    }
+
+    /** Single-card Auto Tuning writes may exceed the saved manual target, never the driver stock cap. */
+    public synchronized boolean setAutoTuningPowerTarget(int watts, Gpu requested) {
+        return setTotalPowerTarget(watts, List.of(requested), true);
+    }
+
+    private boolean setTotalPowerTarget(long watts, List<Gpu> requested, boolean autoTuning) {
         lastPowerTargetError = null;
         discoveredAt = 0;
         Map<String, Gpu> now = new HashMap<>();
         discover().forEach(g -> now.put(g.deviceId(), g));
         List<Gpu> cards = requested.stream().map(g -> now.get(g.deviceId())).filter(Objects::nonNull).toList();
+        if (autoTuning && cards.size() == 1) cards = cards.stream().map(g -> {
+            Integer ceiling = g.safeTuningMaxWatts();
+            return ceiling == null ? g : new Gpu(g.vendor(), g.index(), g.deviceId(), g.model(),
+                    g.driverMinWatts(), g.driverMaxWatts(), g.minWatts(), ceiling,
+                    g.currentPowerLimitWatts(), g.currentWatts(), g.usageMeasurement(),
+                    g.supportsDynamicPowerScaling(), g.regulationError(), g.driverDefaultWatts());
+        }).toList();
         if (cards.size() != requested.size() || cards.isEmpty()
                 || cards.stream().map(Gpu::deviceId).distinct().count() != cards.size()
-                || cards.stream().anyMatch(g -> !g.supportsDynamicPowerScaling())) {
+                || cards.stream().anyMatch(g -> !g.supportsDynamicPowerScaling()
+                        || autoTuning && (g.safeTuningMaxWatts() == null || g.minWatts() > g.safeTuningMaxWatts()))) {
             lastPowerTargetError = "GPU fehlt oder Power-Limit-Steuerung ist nicht verfügbar";
             return false;
         }

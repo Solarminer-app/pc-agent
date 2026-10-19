@@ -36,6 +36,12 @@ public class WorkerAssignmentService {
     private final ProxyConfigurationService proxy;
     private de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes;
     private de.verdox.solarminer.pcagent.mining.economics.WorkerCoinRevenueModeService coinRevenueMode;
+    private de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSessionService autoTuning;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAutoTuning(@org.springframework.context.annotation.Lazy de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSessionService service) {
+        this.autoTuning = service;
+    }
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setWorkerPowerModes(de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService workerPowerModes) {
@@ -118,6 +124,14 @@ public class WorkerAssignmentService {
         return startWithMode(deviceId, false);
     }
 
+    public void maybeStartAutoTuning(String deviceId) {
+        if (autoTuning == null || workerPowerModes == null
+                || !"AUTO_TUNING".equals(controls.get().powerModeFor(deviceId))) return;
+        String coinId = controls.get().coinFor(deviceId);
+        if (workerPowerModes.needsAutoTuningCalibration(deviceId, coinId))
+            autoTuning.startWhenReady(deviceId, coinId);
+    }
+
     /** Economic plans already hold the local run lock while applying on/off actions. */
     public synchronized boolean startUnderEconomicPlan(String deviceId) {
         return startWithMode(deviceId, true);
@@ -181,6 +195,7 @@ public class WorkerAssignmentService {
         if (!miner.resumeGpu(hardware.vendor, hardware.index))
             throw new IllegalStateException(error(miner.lastError(),
                     "GPU miner could not start. Check its console, installation and proxy fee route."));
+        if (applyPowerMode && autoTuningBudgetWatts == null) maybeStartAutoTuning(deviceId);
         return true;
     }
 

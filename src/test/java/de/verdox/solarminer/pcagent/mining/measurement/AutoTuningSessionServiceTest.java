@@ -21,16 +21,23 @@ class AutoTuningSessionServiceTest {
     @TempDir Path directory;
 
     @Test
+    void powerTiersIncludeManualStartAndBothSafeBounds() {
+        assertEquals(List.of(80, 150, 200), AutoTuningSessionService.powerTiers(80, 150, 200));
+        assertEquals(List.of(80, 140, 200), AutoTuningSessionService.powerTiers(80, 80, 200));
+        assertEquals(List.of(80, 140, 200), AutoTuningSessionService.powerTiers(80, 200, 200));
+    }
+
+    @Test
     void buildsCoreOnlyCandidatesFromHighestSupportedMemoryClock() {
         var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-n", "Test", 80, 200,
-                80, 200, 150, 120.0, "measured", true, null);
+                80, 200, 150, 120.0, "measured", true, null, 200);
         var caps = new GpuTuningService.Capabilities("GPU-n", true, false, false,
                 900, 1400, null, null, null,
                 List.of(new GpuTuningService.ClockPair(4000, 900),
                         new GpuTuningService.ClockPair(7000, 1100),
                         new GpuTuningService.ClockPair(7000, 1400)));
 
-        var candidates = AutoTuningSessionService.candidates(gpu, caps);
+        var candidates = AutoTuningSessionService.candidates(gpu, caps, null, 150);
 
         assertEquals(6, candidates.size());
         assertEquals(3, candidates.stream().map(BayesianGpuOptimizer.Candidate::powerWatts).distinct().count());
@@ -45,11 +52,13 @@ class AutoTuningSessionServiceTest {
         LocalRunLock lock = mock(LocalRunLock.class);
         MinerFactory miners = mock(MinerFactory.class);
         var gpu = new LocalGpuPowerService.Gpu("AMD", 0, "GPU-a", "Test", 80, 200,
-                80, 200, 150, 120.0, "measured", true, null);
+                80, 200, 150, 120.0, "measured", true, null, 200);
         when(power.refresh()).thenReturn(List.of(gpu));
         when(power.snapshot()).thenReturn(List.of(gpu));
         when(power.readTemperatureC(gpu)).thenReturn(60.0);
         when(power.setTotalPowerTarget(anyLong(), anyList())).thenReturn(true);
+        when(power.configuredPowerLimitWatts(gpu)).thenReturn(150);
+        when(power.setAutoTuningPowerTarget(anyInt(), eq(gpu))).thenReturn(true);
         when(tuning.refreshCapabilities("GPU-a")).thenReturn(new GpuTuningService.Capabilities(
                 "GPU-a", true, true, false, 1000, 1400, 400, 800, null));
         when(tuning.apply(anyString(), any(), any(), any(), any()))
@@ -74,7 +83,7 @@ class AutoTuningSessionServiceTest {
             assertEquals("auto_tuning_complete", service.status().phase());
             assertEquals(3, store.matrix("GPU-a", "pearl", "srbminer-multi", "3.7.3", "Test", "AMD").size());
             verify(tuning).restoreDefaults("GPU-a");
-            verify(power, atLeastOnce()).setTotalPowerTarget(150, List.of(gpu));
+            verify(power, atLeastOnce()).setAutoTuningPowerTarget(150, gpu);
         } finally { service.shutdown(); }
     }
 }
