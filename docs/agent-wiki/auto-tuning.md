@@ -104,11 +104,16 @@ exploration ceiling. Other operating modes and the power sweep remain available.
 - Every stable candidate becomes a reusable profile without waiting for a share,
   including points from a run that later fails or is cancelled. The current
   operating mode combines repeated measurements of the exact same cap/core/
-  memory setting using median hashrate and power, then selects the best
-  resulting hashes per watt for its exact
+  memory setting using median hashrate and power. Per GPU, the operator can
+  select either the best resulting hashes per watt or the highest approximate
+  daily profit for its exact
   device/model/vendor, coin/algorithm and miner software/version. The complete
-  stable candidate set remains available for later profit repricing; unstable
-  results remain visible for diagnosis and never become operating profiles.
+  stable candidate set remains available for later profit repricing; the latter
+  selection uses fresh market data and the configured electricity tariff at
+  application time, subtracts measured 24-hour electricity cost, and remains
+  unavailable if either input is missing or stale. It excludes fees, rejected
+  shares and actual pool accounting. Unstable results remain visible for
+  diagnosis and never become operating profiles.
   The three-tier readiness check still applies before autonomous profile
   selection. On completion, cancellation or failure, calibration
   restores driver clock defaults and the power limit captured at session start.

@@ -37,6 +37,8 @@
     return el;
   };
   const metricNumber = value => new Intl.NumberFormat(window.SolarMinerI18n.locale || 'de-DE', {maximumFractionDigits: 2}).format(value);
+  const money = value => value == null || !Number.isFinite(Number(value)) ? '—'
+    : `${new Intl.NumberFormat(window.SolarMinerI18n.locale || 'de-DE', {style: 'currency', currency: 'USD', maximumFractionDigits: 2}).format(value)}`;
   function renderRunCharts(host, samples, coinId) {
     const section = node('section', 'tuning-graphs');
     const title = node('div', 'tuning-graphs-heading');
@@ -173,6 +175,33 @@
         });
         label.append(input, node('span', '', t(labelKey))); selectionBox.append(label);
       }
+      const goalLabel = node('label', 'tuning-selection-option');
+      const goal = node('select');
+      goal.append(new Option(t('auto_tuning_goal_efficiency'), 'EFFICIENCY'),
+        new Option(t('auto_tuning_goal_profit'), 'PROFIT_PER_DAY'));
+      goal.value = selected.goal || 'EFFICIENCY';
+      const profitAvailable = Boolean(gpu.comparison?.profit);
+      goal.options[1].disabled = !profitAvailable;
+      goal.addEventListener('change', async () => {
+        const previous = selected.goal || 'EFFICIENCY';
+        const next = {...selected, goal: goal.value};
+        try {
+          const response = await fetch(`/api/agent/local/gpu-tuning/${encodeURIComponent(gpu.deviceId)}/selection`, {
+            method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(next)
+          });
+          if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(body.message || body.detail || 'auto_tuning_selection_save_failed');
+          }
+          gpu.selection = await response.json(); Object.assign(selected, gpu.selection);
+          status(t('auto_tuning_selection_saved'));
+        } catch (error) {
+          goal.value = previous;
+          status(t(error.message || 'auto_tuning_selection_save_error'), true);
+        }
+      });
+      goalLabel.append(node('span', '', t('auto_tuning_goal_label')), goal);
+      selectionBox.append(goalLabel, node('p', 'muted', profitAvailable ? t('auto_tuning_goal_profit_hint') : t('auto_tuning_profit_unavailable')));
       const tuneNow = node('button', 'button tuning-run-selected', t('auto_tuning_run_selected'));
       tuneNow.type = 'button'; tuneNow.disabled = !gpu.coinId || gpu.workerStatus !== 'MINING';
       tuneNow.addEventListener('click', async () => {
@@ -200,6 +229,17 @@
           fiat: fiatPerKwh(profile.coinId, profile.hashrateHs, profile.measuredWatts)
         })));
         card.append(saved);
+      }
+      if (gpu.comparison?.efficiency) {
+        const comparison = node('div', 'tuning-profiles tuning-profile-comparison');
+        comparison.append(node('h4', '', t('auto_tuning_goal_comparison')));
+        for (const [key, projection] of [['auto_tuning_goal_efficiency_card', gpu.comparison.efficiency],
+          ['auto_tuning_goal_profit_card', gpu.comparison.profit]]) {
+          if (!projection) continue;
+          const profile = projection.profile;
+          comparison.append(node('p', '', `${t(key)} · ${profile.powerLimitWatts} W · ${efficiencyRate(profile.efficiencyHashesPerWatt)} · ${t('auto_tuning_goal_revenue_value', {amount: money(projection.grossUsdPerDay)})} · ${t('auto_tuning_goal_cost_value', {amount: money(projection.electricityUsdPerDay)})} · ${t('auto_tuning_goal_profit_value', {amount: money(projection.profitUsdPerDay)})}`));
+        }
+        card.append(comparison);
       }
       const history = measurementHistory.find(row => row.deviceId === gpu.deviceId);
       if (history) {

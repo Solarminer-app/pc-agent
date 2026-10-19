@@ -55,7 +55,18 @@ public class AutoTuningSelectionStore {
         return true;
     }
 
-    public record Selection(boolean core, boolean memory, boolean power) {
-        public static final Selection DEFAULT = new Selection(true, true, true);
+    public record Selection(boolean core, boolean memory, boolean power, Goal goal) {
+        public Selection {
+            goal = goal == null ? Goal.EFFICIENCY : goal;
+        }
+
+        /** Compatibility with saved selections from before the operating goal existed. */
+        public Selection(boolean core, boolean memory, boolean power) {
+            this(core, memory, power, Goal.EFFICIENCY);
+        }
+
+        public static final Selection DEFAULT = new Selection(true, true, true, Goal.EFFICIENCY);
     }
+
+    public enum Goal { EFFICIENCY, PROFIT_PER_DAY }
 }

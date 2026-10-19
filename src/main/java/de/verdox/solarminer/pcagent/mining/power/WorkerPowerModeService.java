@@ -7,6 +7,8 @@ import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.mining.measurement.GpuEfficiencyStore;
 import de.verdox.solarminer.pcagent.mining.measurement.MiningPerformanceProfileStore;
 import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore;
+import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSelectionStore;
+import de.verdox.solarminer.pcagent.mining.economics.AutoTuningProfileEconomicsService;
 import de.verdox.solarminer.pcagent.lowlevel.GpuTuningService;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,10 +27,20 @@ public class WorkerPowerModeService {
     private de.verdox.solarminer.pcagent.miner.MinerFactory miners;
     private AutoTuningProfileStore autoTuningProfiles;
     private GpuTuningService gpuTuning;
+    private AutoTuningSelectionStore autoTuningSelections;
+    private AutoTuningProfileEconomicsService autoTuningEconomics;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setMinerFactory(de.verdox.solarminer.pcagent.miner.MinerFactory miners) { this.miners = miners; }
     @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAutoTuning(AutoTuningProfileStore profiles, GpuTuningService tuning,
+                              AutoTuningSelectionStore selections,
+                              @org.springframework.context.annotation.Lazy AutoTuningProfileEconomicsService economics) {
+        this.autoTuningProfiles = profiles; this.gpuTuning = tuning;
+        this.autoTuningSelections = selections; this.autoTuningEconomics = economics;
+    }
+
+    /** Focused-test compatibility; production wiring also supplies selection and economics services. */
     public void setAutoTuning(AutoTuningProfileStore profiles, GpuTuningService tuning) {
         this.autoTuningProfiles = profiles; this.gpuTuning = tuning;
     }
@@ -80,9 +92,16 @@ public class WorkerPowerModeService {
             if (startingWatts < card.minWatts() || startingWatts > safeMaxWatts)
                 return new Selection(mode, null, "auto_tuning_start_target_unsafe");
             String version = miners == null ? null : miners.minerVersionForWorker(coin, deviceId);
-            AutoTuningProfileStore.Profile profile = autoTuningProfiles == null ? null
-                    : autoTuningProfiles.mostEfficientWithinBudget(deviceId, coin.id(), softwareId, version,
-                    card.model(), card.vendor(), safeMaxWatts, coin.assignmentAlgorithm());
+            if (autoTuningSelections != null
+                    && autoTuningSelections.get(deviceId).goal() == AutoTuningSelectionStore.Goal.PROFIT_PER_DAY
+                    && autoTuningProfiles != null
+                    && !autoTuningProfiles.matrix(deviceId, coin.id(), softwareId, version, card.model(), card.vendor(),
+                    coin.assignmentAlgorithm()).isEmpty()
+                    && (autoTuningEconomics == null || autoTuningEconomics.compare(deviceId, coin.id(), softwareId,
+                    version, card.model(), card.vendor(), safeMaxWatts, coin.assignmentAlgorithm()).profit() == null))
+                return new Selection(mode, null, "auto_tuning_profit_unavailable");
+            AutoTuningProfileStore.Profile profile = selectedAutoTuningProfile(deviceId, coin.id(), softwareId,
+                    version, card, safeMaxWatts, coin.assignmentAlgorithm());
             if (profile == null) return new Selection(mode, startingWatts, null);
             return new Selection(mode, profile.powerLimitWatts(), null);
         }
@@ -171,8 +190,8 @@ public class WorkerPowerModeService {
             String version = coin == null || miners == null ? null : miners.minerVersionForWorker(coin, deviceId);
             AutoTuningProfileStore.Profile profile = autoTuningProfiles == null || coin == null ? null
                     : budgetWatts == null
-                    ? autoTuningProfiles.mostEfficientWithinBudget(deviceId, coin.id(), softwareId, version,
-                    gpu.model(), gpu.vendor(), safeMaxWatts, coin.assignmentAlgorithm())
+                    ? selectedAutoTuningProfile(deviceId, coin.id(), softwareId, version, gpu, safeMaxWatts,
+                    coin.assignmentAlgorithm())
                     : autoTuningProfiles.forBudget(deviceId, coin.id(), softwareId, version,
                     gpu.model(), gpu.vendor(), budgetWatts, coin.assignmentAlgorithm());
             if (profile == null && budgetWatts == null) {
@@ -210,6 +229,20 @@ public class WorkerPowerModeService {
     }
 
     private static boolean positive(Double value) { return value != null && Double.isFinite(value) && value > 0; }
+
+    private AutoTuningProfileStore.Profile selectedAutoTuningProfile(String deviceId, String coinId,
+            String softwareId, String version, LocalGpuPowerService.Gpu gpu, int budgetWatts, String algorithm) {
+        if (autoTuningProfiles == null) return null;
+        AutoTuningSelectionStore.Goal goal = autoTuningSelections == null ? AutoTuningSelectionStore.Goal.EFFICIENCY
+                : autoTuningSelections.get(deviceId).goal();
+        if (goal == AutoTuningSelectionStore.Goal.PROFIT_PER_DAY && autoTuningEconomics != null) {
+            var profit = autoTuningEconomics.compare(deviceId, coinId, softwareId, version, gpu.model(), gpu.vendor(),
+                    budgetWatts, algorithm).profit();
+            if (profit != null) return profit.profile();
+        }
+        return autoTuningProfiles.mostEfficientWithinBudget(deviceId, coinId, softwareId, version,
+                gpu.model(), gpu.vendor(), budgetWatts, algorithm);
+    }
     private record Point(int watts, double hashesPerWatt) { }
     public record Selection(String mode, Integer watts, String error) { }
 }

@@ -29,6 +29,8 @@
 .tuning-selection { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 18px; }
 .tuning-selection-option { display: inline-flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid #304052; border-radius: 9px; cursor: pointer; }
 .tuning-selection-option input { accent-color: #6fe0bd; }
+.tuning-selection-option select { min-height: 28px; border: 1px solid #43546a; border-radius: 6px; background: #101a25; color: #eef4f7; font: inherit; font-size: 12px; }
+.tuning-selection > .muted { flex-basis: 100%; margin: 0; font-size: 11px; }
 .tuning-selection-option input:disabled { cursor: not-allowed; }
 .tuning-capability { display: inline-flex; align-items: center; padding: 5px 8px; border: 1px solid #364657; border-radius: 6px; color: #a7b7c8; font-size: 10px; }
 .tuning-capability.available { border-color: #35634f; background: #1a332a; color: #9ee5bd; }
@@ -54,6 +56,7 @@
 .tuning-profiles { margin-top: 18px; padding: 14px 16px; border: 1px solid #355744; border-radius: 10px; background: #17291f; }
 .tuning-profiles h4 { color: #ade0ba; }
 .tuning-profiles p { margin: 8px 0 0; color: #b9d0c0; font-size: 11px; line-height: 1.5; }
+.tuning-profile-comparison { border-color: #37516a; background: #152534; }
 .tuning-clear-data { margin-top: 14px; }
 .tuning-reason { margin: 14px 0 0; padding: 10px 12px; border-radius: 8px; background: #253127; color: #d7d7af; font-size: 11px; line-height: 1.5; }
 .tuning-reason p { margin: 0; }

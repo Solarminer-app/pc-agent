@@ -3413,3 +3413,9 @@ changes were preserved.
 
 - The large live calibration detail panel and telemetry graphs now render only for workers with a running Auto Tuning session. As soon as a worker completes, fails, or is cancelled, its panel is removed without hiding the compact saved-profile/history summaries or local raw-measurement export.
 - Verification: `node --check src/main/resources/static/js/pages/autotuning.js`, both locale catalog/render checks, and `git diff --check`.
+
+## 2026-10-20 — Select Auto Tuning efficiency or daily profit
+
+- Added a persisted per-GPU Auto-Tuning goal: highest measured efficiency remains the default, while `≈` daily profit selects the stable clock/power profile with the highest fresh gross forecast less its measured 24-hour electricity cost. The goal is available only when the configured tariff converts to USD and current market data prices a saved profile; it never silently treats missing inputs as zero or duplicates calibration profiles.
+- Each GPU card compares its efficient and daily-profit candidates, including measured cap/efficiency plus projected electricity cost and profit. The UI is localized in German and English and states that fees and actual pool payouts are excluded.
+- Verification: focused `WorkerPowerModeServiceTest`, `compileJava --offline`, Auto-Tuning JavaScript syntax, closed-catalog/literal checks, both-locale render simulation, and `git diff --check`.

@@ -7,6 +7,7 @@ import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSessionService;
 import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore;
 import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSelectionStore;
 import de.verdox.solarminer.pcagent.mining.WorkerAssignmentService;
+import de.verdox.solarminer.pcagent.mining.economics.AutoTuningProfileEconomicsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -27,10 +28,12 @@ public class GpuTuningController {
     private final AutoTuningProfileStore profiles;
     private final WorkerAssignmentService workers;
     private final AutoTuningSelectionStore selections;
+    private final AutoTuningProfileEconomicsService economics;
 
     public GpuTuningController(LocalGpuPowerService power, GpuTuningService tuning, LocalRunLock runLock,
                                AutoTuningSessionService sessions, AutoTuningProfileStore profiles,
-                               WorkerAssignmentService workers, AutoTuningSelectionStore selections) {
+                               WorkerAssignmentService workers, AutoTuningSelectionStore selections,
+                               AutoTuningProfileEconomicsService economics) {
         this.power = power;
         this.tuning = tuning;
         this.runLock = runLock;
@@ -38,6 +41,7 @@ public class GpuTuningController {
         this.profiles = profiles;
         this.workers = workers;
         this.selections = selections;
+        this.economics = economics;
     }
 
     @GetMapping
@@ -49,8 +53,19 @@ public class GpuTuningController {
                     worker == null ? null : worker.coin(), worker == null || worker.status() == null ? null : worker.status().name(),
                     tuning.capabilities(gpu.deviceId()), worker == null ? "MANUAL" : worker.powerMode(),
                     tuning.memoryOffsetRange(gpu.deviceId()), tuning.readEffectiveClocks(gpu.deviceId()), gpu.supportsDynamicPowerScaling(),
-                    selections.get(gpu.deviceId()));
+                    selections.get(gpu.deviceId()), comparison(gpu, worker));
         }).toList();
+    }
+
+    private AutoTuningProfileEconomicsService.Comparison comparison(LocalGpuPowerService.Gpu gpu,
+                                                                      WorkerAssignmentService.WorkerView worker) {
+        if (worker == null || worker.coin() == null) return null;
+        AutoTuningProfileStore.Profile sample = profiles.all().stream()
+                .filter(profile -> gpu.deviceId().equals(profile.deviceId()) && worker.coin().equals(profile.coinId()))
+                .max(java.util.Comparator.comparing(AutoTuningProfileStore.Profile::calibratedAt)).orElse(null);
+        if (sample == null || gpu.safeTuningMaxWatts() == null) return null;
+        return economics.compare(gpu.deviceId(), sample.coinId(), sample.softwareId(), sample.softwareVersion(),
+                gpu.model(), gpu.vendor(), gpu.safeTuningMaxWatts(), sample.algorithm());
     }
 
     @GetMapping("/session")
@@ -146,6 +161,15 @@ public class GpuTuningController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "gpu_not_found");
         if (selection == null || !selection.core() && !selection.memory() && !selection.power())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "auto_tuning_selection_required");
+        if (selection.goal() == AutoTuningSelectionStore.Goal.PROFIT_PER_DAY) {
+            LocalGpuPowerService.Gpu gpu = power.snapshot().stream()
+                    .filter(value -> deviceId.equals(value.deviceId())).findFirst().orElse(null);
+            WorkerAssignmentService.WorkerView worker = workers.workers().stream()
+                    .filter(value -> deviceId.equals(value.deviceId())).findFirst().orElse(null);
+            var comparison = gpu == null ? null : comparison(gpu, worker);
+            if (comparison == null || comparison.profit() == null)
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "auto_tuning_profit_unavailable");
+        }
         if (!selections.set(deviceId, selection))
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "auto_tuning_selection_save_failed");
         return selection;
@@ -177,7 +201,8 @@ public class GpuTuningController {
                          Double measuredWatts, String coinId, String workerStatus,
                          GpuTuningService.Capabilities tuning, String powerMode,
                          GpuTuningService.MemoryOffsetRange memoryOffsetRange, GpuTuningService.ClockTelemetry clocks, boolean powerControl,
-                         AutoTuningSelectionStore.Selection selection) { }
+                         AutoTuningSelectionStore.Selection selection,
+                         AutoTuningProfileEconomicsService.Comparison comparison) { }
     public record Apply(Integer coreMinMhz, Integer coreMaxMhz, Integer memoryMinMhz, Integer memoryMaxMhz,
                         Integer memoryOffsetMhz, Integer memoryOffsetPstate) { }
     public record Start(String deviceId, String coinId) { }
