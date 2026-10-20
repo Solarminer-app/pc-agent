@@ -3436,3 +3436,158 @@ changes were preserved.
 
 - A base Auto Tuning calibration still covers all three power tiers with 18 samples. When one tier has at least three stable measurements and its best hashes-per-watt is at least 5% above that tier's median, the agent may spend up to twelve additional samples in that tier's closest unmeasured core/memory neighbourhood. Flat and unstable runs do not extend.
 - The conditional budget raises the timeout from 40 to 60 minutes only for useful deep refinement. This is intended to resolve low-memory PearlHash operating regions on TITAN RTX-class cards rather than prematurely retaining a 5000 MHz memory profile. Focused unit coverage verifies the eligibility rule; live hardware validation remains required.
+
+
+## 2026-10-20 — Broad Auto Tuning search and independent confirmation
+
+- Replaced the premature nearest-winner shortcut with three-point initial coverage,
+  continued distant exploration, Gaussian-process expected improvement and shrinking
+  steps around up to three distinct stable regions. Controlled midpoint probes resolve
+  observed efficiency cliffs without assuming monotonicity. Offset and absolute-memory
+  candidates use separate model categories; driver limits and write/recovery gates remain.
+- Six optional refinement windows rotate across eligible power tiers. The two strongest
+  still-supported settings per tier are independently reapplied for 32 samples, versus
+  16 during search. At most 24 search and six confirmation windows fit the existing
+  60-minute deadline; refinement reserves confirmation time and restart overhead.
+- Persisted `SEARCH_RESULT` events retain provisional results without publishing them as
+  operating profiles, including after restart. Successful final `RESULT` records remain
+  compatible with the existing profile and economic-selection contracts. Each required
+  tier must have a successful confirmation from the current run. Legacy profiles remain
+  available. Local history includes search results and labels profile verification;
+  progress, introductory guidance and failure messages are localized in German/English.
+- Verification: full `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test
+  standaloneJar --offline` passed. Regression cases include continued exploration,
+  distinct regions, midpoint eligibility, scale invariance, a lucky search leader losing
+  confirmation, failed confirmations creating no profiles, and history replay. Closed
+  i18n catalog, literal scan, both-locale render simulation, JavaScript syntax and
+  `git diff --check` passed. Real GPU convergence and thermal/pool behaviour remain unverified.
+
+Deutsch: Die Kandidatensuche erkundet mehrere Bereiche und verfeinert gute Regionen
+mit kleineren Schritten. Vorläufige Suchwerte werden getrennt gespeichert; erst eine
+erneute, doppelt so lange Messung erzeugt ein neues Betriebsprofil. Bis zu 30 Messfenster
+bleiben auf 60 Minuten begrenzt. Vollständige Tests, Standalone-Build und die Sprachtests
+für Deutsch und Englisch sind erfolgreich. Die Verbesserung auf echter GPU-Hardware
+muss noch gemessen werden. Externe Miner-/Treibertexte bleiben unverändert.
+
+## 2026-10-20 — Independent operations frontend and full-stack audit / Eigenständiges Betriebsfrontend
+
+- Audited the existing static frontend, rendering patterns, live loader, controller
+  boundaries and LAN collection. Durable bilingual report, source evidence,
+  architecture, new contracts and explicit remaining scope are in
+  [frontend-console-audit.md](frontend-console-audit.md).
+- Added `/console/index.html` with independent HTML/CSS/JavaScript and closed
+  German/English translations; no legacy frontend files or old controllers are
+  called. New controllers: `ConsoleWorkspaceController`, `ConsoleCommandController`
+  and `ConsoleConfigurationController`. Only domain services remain shared.
+- Added background local inventory, server-side filters/pagination (1–50 rows),
+  keyed row updates, bounded table scrolling, source-age/control gates, exact
+  worker details, local/peer Start/Pause, bounded asynchronous batch jobs with
+  per-target results, explicit miner installation/assignment and local agent
+  naming/LAN permission settings. Missing identities on older peers remain
+  monitor-only, with distinct display rows. Known service errors use new localized
+  codes; unknown external tool/miner diagnostic detail stays verbatim in a labelled
+  disclosure. Mining watts are reported values, not a wall-meter measurement.
+- Fixed the shared LAN domain collector's lazy submit/join pipeline: it now
+  submits every peer request before joining. Two loopback HTTP servers with a
+  response barrier verify real request overlap. No external protocol changed.
+- Verification: JDK 21 `sh gradlew test standaloneJar --offline` passed, **361
+  tests, zero failures/errors/skips**. Existing DE/EN catalog/literal/render
+  checks passed. New `check-operations-i18n.cjs` verifies both locales, API failure
+  keys and implementation independence. Playwright/Chromium fixture with 2,000
+  workers passed bounded DOM, search/pagination, retained focus, dialog/Escape,
+  permission/stale/offline states, partial 50-worker batch/no write retry,
+  install/assignment/settings, DE/EN reload and 390 px mobile checks.
+- No real miners were started for verification. Real GPU/LAN/pool validation and
+  deployment remain unperformed. Wallet/pool, benchmark, update, manual power/clock
+  and Auto Tuning editors are not yet implemented in this independent frontend;
+  the old system remains separately available for comparison. Parallel changes
+  to existing Auto Tuning/controllers/assets in the workspace were preserved.
+
+Deutsch: Die neue Betriebskonsole und ihre drei Controller sind unabhängig von
+alten Frontend-Dateien und alten Controllern. Sie bietet skalierbare Worker- und
+LAN-Steuerung, Details, Sammelaktionen mit Einzelergebnissen, Installation,
+Zuweisung und lokale Agent-Freigaben. Ein tatsächlich sequenzieller LAN-Abruf im
+gemeinsamen Fachdienst wurde parallelisiert und mit zwei HTTP-Testservern geprüft.
+Alle 361 Java-Tests, Standalone-Build, Sprachprüfungen und der Browser-Test mit
+2.000 simulierten Workern sind erfolgreich. Hardwarebetrieb und die noch nicht
+neu implementierten Spezialeditoren bleiben ausdrücklich offen; die alte
+Oberfläche bleibt zum getrennten Vergleich erhalten.
+## 2026-10-20 — Separate local debug port / Getrennter lokaler Debug-Port
+
+- Set the Gradle `bootRun` task to pass `--server.port=8085`; packaged, Docker
+  and launcher starts continue using the normal `8084` default. The discovery
+  service reads `server.port`, so a locally debugged agent advertises `8085` to
+  LAN peers.
+- Documented the local URL in the development README sections. There is no new
+  UI text and no locale-specific behavior to translate.
+- Verification: inspected the focused Gradle and documentation diff and ran
+  `git diff --check`. A full build was not run for this configuration-only
+  change.
+
+Deutsch: `bootRun` startet für lokales Debugging auf Port `8085`; reguläre
+Starts bleiben auf `8084`. Die LAN-Erkennung veröffentlicht den tatsächlichen
+Entwicklungsport. Die Entwicklungsdokumentation nennt die lokale URL. Es gibt
+keine neue UI-Beschriftung oder Übersetzung.
+
+## 2026-10-20 — Complete independent console specialist tools / Eigenständige Spezialwerkzeuge ergänzt
+
+- Added `/console/tools.html` and independent `tools.js`, `tools.css` and
+  `tools-i18n.js`, linked from the new operations sidebar and local worker
+  details. Old frontend files and controllers remain separately available; no
+  old controller, browser script, stylesheet or translation runtime is reused.
+- Added `ConsoleToolsController` plus `ConsolePayoutService`, `ConsoleToolsService`,
+  `ConsoleToolsReadService` and `ConsoleToolJobs`. The requested remaining flows
+  now include wallet/pool routes and available balances, LIVE/INSTALLED
+  benchmarks, restart/resume/cancel efficiency sweeps, bounded live results and
+  profile exports, GPU limits, stopped-worker operating modes, per-worker
+  remote/boot settings, electricity tariff, Auto Tuning dimensions/goals/
+  concurrency/start/cancel/data clearing, manual clocks/offsets/restore, native
+  or Docker update handling and incremental miner logs/full download.
+- A paused CPU in manual mode can set its estimated session-local thread budget
+  without starting mining. GPU/CPU limits and mode changes retain domain
+  validation and measurement locks. Route validation precedes any stop/write;
+  all targeted GPU adapters validate before the first mutation. Default pool
+  and login remain one authoritative target, including the exact CPU login.
+  Cross-adapter write failures are reported as partial and do not pretend
+  transactional success. No active coin is selected implicitly.
+- Tool tasks have fixed client-generated IDs, readback after ambiguous HTTP
+  acceptance, explicit per-action status and bounded execution/history. A
+  repeated identical ID does not repeat the write during retention. Displayed
+  context identifies the device/coin or worker count without persisting wallet
+  payloads in browser task history. Update completion checks the actual new
+  running release tag; an applied task alone is not update/mining proof.
+- Requested sections collect off the HTTP thread and retain original source
+  age after failure. Tuning reads are device-scoped before serialization and
+  limited to 200 history readings. Normal profile/live result tables and the
+  worker picker are bounded; a benchmark page can select/clear a whole visible
+  page while retaining selection across pages. Full history is an explicit
+  JSON export. UTF-8 log chunks preserve decoder state, HTML-looking output
+  stays inert text, and display is capped at 200,000 characters.
+- Verification: JDK 21 `sh gradlew test standaloneJar --offline` passed with
+  **380 tests, zero failures/errors/skips**. New tests cover CPU/default route
+  preservation, validation-before-stop, multi-GPU prevalidation, integer/bounds
+  checks, measurement exclusion, stopped CPU/mode behavior, update rejection,
+  fixed-ID deduplication, non-blocking cold reads, retained failure timestamps,
+  bounded large live sessions and the new same-origin HTTP/log boundary.
+- Both locale checks, legacy static render/literal checks, JavaScript syntax
+  and focused whitespace checks passed. The overview browser fixture passed
+  with 2,000 workers; the specialist fixture passed with 1,000 workers,
+  a 50-row picker, page selection, all main tool flows, split UTF-8/inert logs,
+  lost acceptance response with no repeated mutation, restart/version
+  confirmation, global tuning concurrency before device selection, DE/EN,
+  and 390 px mobile layout. Browser APIs are entirely mocked; no real miner,
+  pool, driver or launcher update was executed.
+- Durable contract and bilingual behavior/limits: [frontend-console-tools.md](frontend-console-tools.md).
+  Real target-host GPU/CPU, pool accounting and native-launcher/Docker update
+  acceptance remain separate; no deployment or release was performed.
+
+Deutsch: Die zuvor fehlenden Werkzeuge sind jetzt unabhängig in der neuen
+Oberfläche verfügbar: Wallets/Pools, Benchmarks/Sweeps, Leistung und Betriebsmodi,
+Auto Tuning und Taktraten, Agent-Updates und Miner-Ausgabe. Alte Controller oder
+Frontend-Dateien werden nicht eingebunden. Schreibaufträge besitzen feste IDs;
+unklare Antworten lösen keine automatische Wiederholung aus. Bestehende
+Messsperren, tatsächliche Hardwaregrenzen und Standard-Auszahlungsziele bleiben
+maßgeblich. Alle 380 Java-Tests, der Standalone-Build, beide Sprachprüfungen und
+die Browserprüfungen für 2.000 bzw. 1.000 simulierte Worker sind erfolgreich.
+Die Tests ersetzen keine Hardware-, Pool- oder Launcher-Abnahme; es wurde nichts
+ausgerollt und kein realer Miner oder Updatevorgang gestartet.

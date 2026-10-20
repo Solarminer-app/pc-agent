@@ -40,39 +40,46 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   waits for its recovery path before restoring driver clock defaults. The
   selected operating mode then applies its own power target. A recovery timeout
   or failed restore blocks the stop/mode change with a localized error.
-- When power tuning is selected, the candidate search tests three distinct
-  power-cap tiers that include the
-  manual starting target when it is inside the safe range. The first tier
-  sampled is the starting target. Each power tier has six candidate rounds.
-  It first measures the minimum and maximum driver-reported memory setting;
-  when offset and fixed-memory controls are both available, it also measures
-  both offset boundaries. Remaining rounds use Bayesian-selected clock points
-  (eighteen candidates total). Candidate order does not trust the driver's clock-list
-  order: it begins at a conservative interior point, covers a distant point, then uses
-  the remaining tier budget to refine the most efficient stable core/memory neighbourhood.
-  If that base run has at least three stable readings in one power tier and its best
-  point is at least 5% more efficient than that tier's median, the session may add up
-  to twelve more candidates in that same local core/memory region. This conditional
-  refinement extends the maximum session time from 40 to 60 minutes; flat or unstable
-  runs still finish after the base budget.
-  NVIDIA
-  candidates use only supported memory/core pairs reported by the driver; when
-  memory locks are unavailable they use pairs at the highest listed memory
-  clock no higher than the currently observed memory clock. A writable clock
-  is not capped at the frequency observed before calibration: every reported
-  supported pair within the driver bounds remains eligible, including memory
-  and core clocks above the current operating point. AMD/Intel keep their probed
-  discrete ranges. Matching stable measurements from earlier runs seed the
-  Bayesian chooser, while each new run may remeasure the same setting. The
-  model scales observed efficiency scores before expected-improvement selection,
-  so H/s/W magnitude does not suppress exploration. The objective is median
-  hashrate divided by measured GPU watts at each tier.
-  Eighteen sampled combinations make this an exploratory search, not proof of
-  the absolute global optimum across all supported clock pairs.
-- Each candidate uses sixteen five-second samples (80 seconds). A candidate is
+- When power tuning is selected, calibration covers three safe power tiers including
+  the manual starting target. Each tier has six initial search windows. Driver-safe
+  memory boundary anchors remain; the chooser covers three widely separated points
+  before local refinement, and reserves every fourth subsequent trial for distant
+  exploration. Other slots alternate Gaussian-process expected improvement with
+  refinement around up to three spatially distinct stable regions. Refinement step
+  sizes shrink on successive turns. Absolute memory settings and memory offsets
+  are separate model categories. Score normalization is independent of hash units.
+  For pairs with at least a 20% efficiency difference and exactly one varying
+  dimension, an available interior midpoint can be probed to resolve a performance
+  cliff. Neither side is discarded and monotonicity is not assumed.
+- After eighteen base search windows, tiers with at least three stable points and
+  a best score at least 5% above their median may receive six additional search
+  windows in total, rotating between eligible tiers. Flat runs proceed directly
+  to confirmation. The two strongest distinct, still-supported settings per tier
+  are independently reapplied and measured for 32 five-second samples (160 seconds).
+  Only these successful confirmations become new operating profiles. Failure to
+  confirm any candidate in a required tier fails the run with an explicit reason;
+  raw search data survives. Existing legacy profiles remain usable.
+- Search is bounded to 24 windows; confirmation adds at most six more (30 total).
+  Base search plus six confirmations takes 40 minutes of sampling, or 48 minutes
+  with all six refinement windows, before driver/process overhead. The absolute
+  deadline remains 60 minutes. Refinement reserves time for confirmation plus
+  three minutes of overhead. Candidate count and current window length are exposed
+  to the local UI; its remaining-time estimate includes longer final windows.
+- Candidate generation retains driver-supported pairs and safety bounds. Offset
+  ranges use sixteen subintervals plus zero where allowed; generic clock ranges
+  use eight subintervals, allowing bounded midpoint and shrinking-step refinement.
+  Matching confirmed history seeds the model without excluding remeasurement in
+  a new run. Search results are local append-only `SEARCH_RESULT` records; `RESULT`
+  retains its existing persisted operating-profile meaning and JSON shape. Only
+  confirmations from the current run satisfy completion. Local history counts
+  include both kinds and distinguish search measurements from profile verification.
+- Search candidates use sixteen five-second samples (80 seconds); confirmations use
+  thirty-two (160 seconds). A search candidate is
   unstable when more than two valid hashrate readings differ from the median
   by over 20%, fewer than fourteen readings have valid hash and power telemetry,
-  or temperature exceeds 85 C (configurable within 65–90 C). Share counters
+  or temperature exceeds 85 C (configurable within 65–90 C). Confirmation requires
+  at least 28 valid samples and permits at most four hashrate outliers, preserving
+  the same one-eighth tolerance. Share counters
   are saved when available but do not determine candidate stability: a share
   can take longer than the measurement window on some coins. NVIDIA effective
   core/memory clocks are read under load. A core clock below its requested
@@ -89,14 +96,9 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   the point. AMD/Intel effective-clock readback still needs
   driver-specific validation. A worker exit scores the point zero; the agent
   restores defaults, attempts a bounded miner restart and continues only if
-  restoration and restart succeed. The session stops after 40 minutes.
-  Eighteen candidate windows of sixteen five-second samples need 24 minutes
-  of sampling; driver writes, temperature/clock telemetry, miner settling and
-  recovery add to that time. The first live Quantus run reached candidate 12
-  with only three of sixteen samples after 25 minutes, so the old deadline was
-  insufficient for that host. A run that cannot confirm one stable point in
-  each tier before the deadline
-  fails, but its individual measurements remain saved.
+  restoration and restart succeed. The session stops after 60 minutes. A run that
+  cannot confirm a stable point in each required tier before the deadline fails,
+  but its individual measurements remain saved.
 - Every raw sampling step and every candidate result is appended to
   `auto-tuning-profiles.json.measurements.jsonl` and forced to disk before the
   next step. The record includes run ID/time, GPU/model/vendor, coin/algorithm,
@@ -408,13 +410,40 @@ returned clock pairs. No write, calibration, miner-share, or solar-switch test
 was performed. This path is ready for controlled component exploration, but
 does not meet the planned end-to-end acceptance criteria yet.
 
+## Kandidatensuche und Bestätigung / Candidate search and confirmation (2026-10-20)
+
+Deutsch: Die Suche prüft zunächst weit auseinanderliegende Punkte und erkundet
+später regelmäßig weitere Bereiche. Bis zu drei gute Regionen werden abwechselnd
+mit kleineren Schritten verfeinert. Deutliche Leistungsunterschiede entlang einer
+einzelnen Einstellung werden durch Zwischenmessungen eingegrenzt; es wird keine
+monotone Effizienzkurve vorausgesetzt. Pro Leistungsstufe werden die zwei besten
+Kandidaten erneut angewendet und jeweils 160 Sekunden statt 80 Sekunden gemessen.
+Nur erfolgreiche Bestätigungen werden neue Betriebsprofile. Höchstens 24 Such-
+und sechs Bestätigungsfenster passen in das unveränderte 60-Minuten-Zeitlimit;
+Treiberwechsel und Miner-Neustarts benötigen zusätzliche Zeit. Alte Profile bleiben
+nutzbar. Suchdaten und Fehlschläge bleiben lokal erhalten. Deutsch und Englisch
+zeigen die Bestätigungsphase sowie deren Fehlerursache an.
+
+English: The calibration-flow section above describes the current search and
+confirmation contract. Earlier dated audit entries below are historical. The
+new regression tests cover continued exploration, distinct regions, controlled
+midpoint probes, score-unit invariance, a lucky search winner losing confirmation,
+failed confirmations publishing no profiles, and persisted search/profile separation.
+Real GPU convergence, thermal settling and pool behaviour still need live validation.
+
+Verifikation: Die automatischen Tests prüfen Exploration, getrennte Suchregionen,
+Zwischenmessungen, Einheitenunabhängigkeit, Rangwechsel bei der Bestätigung und
+die Speicherung. Konvergenz auf echter Hardware, thermisches Einschwingen und
+Pool-Verhalten sind weiterhin live zu prüfen. Externe Miner-/Treibertexte bleiben
+unverändert; neue Agent- und UI-Texte liegen auf Deutsch und Englisch vor.
+
 ## Java optimizer library choice
 
 Smile provides Gaussian-process regression, but still requires the application
 to implement the discrete candidate grid and acquisition function. Its core
 libraries are dual-licensed under GPLv3 or commercial terms; this change keeps
 the Agent's dependency set unchanged and implements the small RBF Gaussian
-process plus expected-improvement step locally for a maximum of eighteen
+process plus expected-improvement step locally for a maximum of twenty-four search
 observations per run. This bounded matrix size keeps the solver straightforward
 and avoids adding a second ML runtime to the standalone Agent. ojAlgo provides
 LP/QP/MIP modeling and linear algebra, but not a ready Gaussian-process Bayesian

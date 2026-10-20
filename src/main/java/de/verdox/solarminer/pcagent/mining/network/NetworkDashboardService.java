@@ -170,10 +170,12 @@ public class NetworkDashboardService {
         } else {
             // Peer fetches run concurrently; one slow machine never delays the others.
             try (var fetches = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
-                peerCards = peers.stream()
+                // Materialize submissions BEFORE joining. A lazy submit -> join pipeline
+                // would finish each peer before submitting the next one (N × timeout).
+                var requests = peers.stream()
                         .map(peer -> java.util.concurrent.CompletableFuture.supplyAsync(() -> peerCard(peer), fetches))
-                        .map(java.util.concurrent.CompletableFuture::join)
                         .toList();
+                peerCards = requests.stream().map(java.util.concurrent.CompletableFuture::join).toList();
             }
         }
         List<AgentCard> result = new ArrayList<>();

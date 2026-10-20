@@ -100,14 +100,17 @@ class AutoTuningSessionServiceTest {
                 new GpuTuningService.ClockTelemetry(1400, 6800), 260,
                 new GpuTuningService.MemoryOffsetRange(2, -250, 150, 0));
 
-        assertEquals(45, rows.size());
+        assertEquals(117, rows.size());
         assertTrue(rows.stream().anyMatch(row -> row.memoryMhz() == 405 && row.memoryOffsetMhz() == null));
         assertTrue(rows.stream().anyMatch(row -> row.memoryMhz() == 6800 && row.memoryOffsetMhz() == null));
         assertTrue(rows.stream().filter(row -> row.memoryOffsetMhz() != null)
                 .allMatch(row -> row.memoryMhz() == null && row.memoryOffsetPstate() == 2));
-        assertEquals(java.util.Set.of(-250, -163, -75, 0, 12, 100), rows.stream()
-                .filter(row -> row.memoryOffsetMhz() != null)
-                .map(BayesianGpuOptimizer.Candidate::memoryOffsetMhz).collect(java.util.stream.Collectors.toSet()));
+        var offsets = rows.stream().filter(row -> row.memoryOffsetMhz() != null)
+                .map(BayesianGpuOptimizer.Candidate::memoryOffsetMhz).distinct().sorted().toList();
+        assertEquals(18, offsets.size());
+        assertEquals(-250, offsets.getFirst());
+        assertEquals(100, offsets.getLast());
+        assertTrue(offsets.contains(0));
     }
 
     @Test
@@ -175,13 +178,16 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
             while (service.status().running() && System.nanoTime() < deadline) Thread.sleep(10);
             assertEquals("auto_tuning_complete", service.status().phase());
             assertEquals(3, store.matrix("GPU-a", "pearl", "srbminer-multi", "3.7.3", "Test", "AMD").size());
-            assertEquals(18, store.measurements().stream().filter(row -> "RESULT".equals(row.type())
+            assertEquals(6, store.measurements().stream().filter(row -> "RESULT".equals(row.type())
                     && !"earlier-run".equals(row.runId())).count());
-            assertEquals(288, store.measurements().stream().filter(row -> "SAMPLE".equals(row.type())).count());
+            assertEquals(18, store.measurements().stream().filter(row -> "SEARCH_RESULT".equals(row.type())).count());
+            assertEquals(480, store.measurements().stream().filter(row -> "SAMPLE".equals(row.type())).count());
+            assertTrue(store.measurements().stream().filter(row -> "RESULT".equals(row.type())
+                    && !"earlier-run".equals(row.runId())).allMatch(row -> row.validSamples() == 32));
             ArgumentCaptor<Integer> firstCore = ArgumentCaptor.forClass(Integer.class);
             ArgumentCaptor<Integer> firstMemory = ArgumentCaptor.forClass(Integer.class);
-            verify(tuning, times(18)).apply(eq("GPU-a"), firstCore.capture(), any(), firstMemory.capture(), any());
-            assertEquals(1200, firstCore.getAllValues().getFirst());
+            verify(tuning, times(24)).apply(eq("GPU-a"), firstCore.capture(), any(), firstMemory.capture(), any());
+            assertEquals(1150, firstCore.getAllValues().getFirst());
             assertEquals(400, firstMemory.getAllValues().getFirst());
             verify(tuning).restoreDefaults("GPU-a");
             verify(power, atLeastOnce()).setAutoTuningPowerTarget(150, gpu);
@@ -227,7 +233,7 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
             while (service.status().running() && System.nanoTime() < deadline) Thread.sleep(10);
             assertEquals("auto_tuning_complete", service.status().phase());
             var mismatch = store.measurements().stream()
-                    .filter(row -> "RESULT".equals(row.type()) && "auto_tuning_clock_not_reached".equals(row.reason()))
+                    .filter(row -> "SEARCH_RESULT".equals(row.type()) && "auto_tuning_clock_not_reached".equals(row.reason()))
                     .findFirst().orElseThrow();
             assertEquals(16, mismatch.validSamples());
             assertEquals(500, mismatch.coreMhz());
@@ -365,7 +371,7 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
             while (service.status().running() && System.nanoTime() < deadline) Thread.sleep(10);
             assertEquals("auto_tuning_complete", service.status().phase());
-            var failure = store.measurements().stream().filter(row -> "RESULT".equals(row.type())
+            var failure = store.measurements().stream().filter(row -> "SEARCH_RESULT".equals(row.type())
                     && "auto_tuning_memory_lock_ineffective".equals(row.reason())).findFirst().orElseThrow();
             assertEquals(-200, failure.memoryOffsetMhz());
             assertEquals(6800, failure.observedMemoryMhz());
@@ -435,4 +441,84 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
             assertThrows(IllegalStateException.class, () -> service.start("GPU-titan", "pearl"));
         } finally { service.shutdown(); }
     }
+    @Test
+    void longerConfirmationRejectsLuckySearchWinner() throws Exception {
+        verifyConfirmation(false);
+    }
+
+    @Test
+    void failedConfirmationsNeverPublishSearchPointsAsProfiles() throws Exception {
+        verifyConfirmation(true);
+    }
+
+    private void verifyConfirmation(boolean failAll) throws Exception {
+        MiningService mining = mock(MiningService.class);
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        GpuTuningService tuning = mock(GpuTuningService.class);
+        LocalRunLock lock = mock(LocalRunLock.class);
+        MinerFactory miners = mock(MinerFactory.class);
+        var gpu = new LocalGpuPowerService.Gpu("AMD", 0, "GPU-confirm", "Test", 80, 200,
+                80, 200, 150, 120.0, "measured", true, null, 200);
+        when(power.refresh()).thenReturn(List.of(gpu));
+        when(power.snapshot()).thenReturn(List.of(gpu));
+        when(power.readTemperatureC(gpu)).thenReturn(60d);
+        when(power.configuredPowerLimitWatts(gpu)).thenReturn(150);
+        when(power.setAutoTuningPowerTarget(anyInt(), eq(gpu))).thenReturn(true);
+        when(tuning.refreshCapabilities(gpu.deviceId())).thenReturn(new GpuTuningService.Capabilities(
+                gpu.deviceId(), true, true, false, 1000, 1400, 400, 800, null));
+        when(tuning.apply(anyString(), any(), any(), any(), any()))
+                .thenReturn(new GpuTuningService.ApplyResult(true, null));
+        when(tuning.restoreDefaults(gpu.deviceId())).thenReturn(new GpuTuningService.ApplyResult(true, null));
+        when(lock.tryBeginAutoTuning()).thenReturn(true);
+        when(miners.minerSoftwareForWorker(any(), eq(gpu.deviceId()))).thenReturn("srbminer-multi");
+        when(miners.minerVersionForWorker(any(), eq(gpu.deviceId()))).thenReturn("3.7.3");
+        Path file = directory.resolve("confirmation-" + failAll + ".json");
+        var store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), file.toString());
+        var service = new AutoTuningSessionService(mining, power, tuning, store, lock, miners, 85, 0);
+        when(mining.getWorkerStats()).thenAnswer(invocation -> {
+            var session = service.status();
+            boolean confirming = "auto_tuning_phase_confirming".equals(session.phase());
+            boolean lucky = Integer.valueOf(1150).equals(session.currentCoreMhz())
+                    && Integer.valueOf(400).equals(session.currentMemoryMhz());
+            double rate = confirming && failAll ? 0 : lucky ? confirming ? 50 : 200 : 100;
+            return List.of(new MinerStats.Worker(MinerStats.MinerStatus.MINING, "Test", "PearlHash", rate / 1e12, 60,
+                    150, 80, 150, 200, 120, List.of(), "GPU", "Test", gpu.deviceId(),
+                    null, null, MinerStats.PoolTelemetry.unavailable()));
+        });
+        try {
+            service.start(gpu.deviceId(), "pearl");
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+            while (service.status().running() && System.nanoTime() < deadline) Thread.sleep(10);
+            assertFalse(service.status().running());
+            var reloaded = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), file.toString());
+            assertTrue(reloaded.measurements().stream().anyMatch(row -> "SEARCH_RESULT".equals(row.type())
+                    && Boolean.TRUE.equals(row.stable()) && row.hashrateHs() == 200));
+            if (failAll) {
+                assertEquals("auto_tuning_no_confirmed_tier", service.status().phase());
+                assertTrue(reloaded.all().isEmpty());
+            } else {
+                assertEquals("auto_tuning_complete", service.status().phase());
+                assertEquals(100d, service.status().result().hashrateHs());
+                assertTrue(reloaded.all().stream().allMatch(row -> row.stableSamples() == 32 && row.hashrateHs() <= 100));
+                assertEquals(3, reloaded.matrix(gpu.deviceId(), "pearl", "srbminer-multi", "3.7.3", "Test", "AMD").size());
+            }
+        } finally { service.shutdown(); }
+    }
+
+    @Test
+    void finalistsIncludeTwoDistinctStableCandidatesPerTierAndExcludeRemovedControls() {
+        var a = new BayesianGpuOptimizer.Candidate(900, 5000, 100, .1, 0, 0);
+        var b = new BayesianGpuOptimizer.Candidate(1100, 5000, 100, .5, 0, 0);
+        var c = new BayesianGpuOptimizer.Candidate(1200, 5000, 100, .7, 0, 0);
+        var removed = new BayesianGpuOptimizer.Candidate(1400, 7000, 200, 1, 1, 1);
+        var otherTier = new BayesianGpuOptimizer.Candidate(900, 5000, 200, .1, 0, 1);
+        var observations = List.of(new BayesianGpuOptimizer.Observation(a, 10, true, null),
+                new BayesianGpuOptimizer.Observation(b, 9, true, null),
+                new BayesianGpuOptimizer.Observation(c, 8, true, null),
+                new BayesianGpuOptimizer.Observation(removed, 20, true, null),
+                new BayesianGpuOptimizer.Observation(otherTier, 7, true, null));
+        assertEquals(List.of(a, b, otherTier), AutoTuningSessionService.confirmationCandidates(
+                observations, List.of(a, b, c, otherTier)));
+    }
+
 }

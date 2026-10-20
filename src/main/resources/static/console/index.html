@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102c27">
+  <title data-text="title">Betriebskonsole</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/console/console.css?v=20261020-2">
+  <script src="/console/i18n.js?v=20261020-2" defer></script>
+  <script src="/console/console.js?v=20261020-2" defer></script>
+</head>
+<body>
+<a class="skip" href="#main" data-text="skip">Zum Inhalt springen</a>
+<aside class="sidebar">
+  <a class="brand" href="/console/index.html"><span class="brand-mark" aria-hidden="true">☼</span> SolarMiner <small>PC-AGENT</small></a>
+  <div class="sidebar-label" data-text="operations">Betrieb</div>
+  <nav data-label="operations">
+    <a class="nav-item current" href="#workers" data-text="workers">Worker</a>
+    <a class="nav-item" href="#machines" data-text="machines">Agents</a>
+    <a class="nav-item" href="/console/tools.html" data-text="tools_link">Werkzeuge & Einstellungen</a>
+    <a class="nav-item" href="#settings" data-text="settings">Agent-Einstellungen</a>
+    <a class="nav-item" href="#activity" data-text="activity">Aktionen</a>
+  </nav>
+  <div class="sidebar-bottom"><span class="preview" data-text="preview">Neue Oberfläche · Vorschau</span>
+    <a class="comparison" href="/" data-text="comparison">Alte Oberfläche öffnen ↗</a>
+    <p data-text="comparison_note">Zum Vergleich und für bisherige Spezialfunktionen. Die neue Konsole verwendet eigene Dateien und APIs.</p>
+  </div>
+</aside>
+<div class="workspace">
+  <header class="topbar"><span class="breadcrumb">SolarMiner <span aria-hidden="true">/</span> <span data-text="title">Betriebskonsole</span></span>
+    <div class="top-actions"><span id="connection" class="connection" role="status" data-text="loading">Daten werden geladen …</span>
+      <select id="language" data-label="language"><option value="de">Deutsch</option><option value="en">English</option></select>
+      <button id="refresh" type="button" data-text="refresh">Aktualisieren</button>
+    </div>
+  </header>
+  <main id="main">
+    <div class="heading"><div><p class="eyebrow" data-text="network">Lokales Netzwerk</p><h1 data-text="subtitle">Alle Worker. Ein klarer Überblick.</h1>
+      <p class="muted" data-text="intro">Mining auf diesem PC und freigegebenen Agents im lokalen Netzwerk steuern.</p></div></div>
+    <noscript><p>Für die Betriebskonsole muss JavaScript aktiviert sein. / Enable JavaScript to use the operations console.</p></noscript>
+    <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
+    <section class="metrics" data-label="operations">
+      <article class="metric"><span data-text="active_workers">Aktive Worker</span><strong id="active">—</strong><small id="total">—</small></article>
+      <article class="metric"><span data-text="measured_power">Gemeldete Mining-Leistung</span><strong id="watts">—</strong><small id="coverage">—</small></article>
+      <article class="metric"><span data-text="issues">Handlungsbedarf</span><strong id="issues">—</strong><small data-text="issues_hint">Fehler, veraltete Daten oder fehlende Voraussetzungen</small></article>
+      <article class="metric"><span data-text="agents_count">Agents im Netzwerk</span><strong id="agents-count">—</strong><small data-text="agents_hint">Dieser PC und automatisch entdeckte Agents</small></article>
+    </section>
+    <section id="workers" class="panel">
+      <div class="panel-head"><h2 data-text="workers">Worker</h2><span id="updated" class="muted" data-text="loading">Daten werden geladen …</span></div>
+      <form id="filters" class="filters" role="search">
+        <input id="search" type="search" maxlength="200" data-label="search" data-placeholder="search_hint" placeholder="Modell, Geräte-ID, Coin, Algorithmus oder Agent …">
+        <select id="agent-filter" data-label="agent_filter"><option value="" data-text="all_agents">Alle Agents</option></select>
+        <select id="state-filter" data-label="state_filter"><option value="" data-text="all_states">Alle Zustände</option><option value="attention" data-text="attention">Handlungsbedarf</option><option value="MINING" data-text="MINING">Mining</option><option value="STARTING" data-text="STARTING">Startet</option><option value="STOPPED" data-text="STOPPED">Gestoppt</option><option value="PAUSED" data-text="PAUSED">Pausiert</option><option value="ERROR" data-text="ERROR">Fehler</option></select>
+      </form>
+      <div class="selection-bar"><span id="selection" data-text="selected">0</span><button id="start-selected" class="primary" type="button" data-text="start" disabled>Starten</button><button id="pause-selected" type="button" data-text="pause" disabled>Pausieren</button><button id="clear-selection" class="text-button" type="button" data-text="clear">Auswahl aufheben</button><span class="muted selection-hint" data-text="selection_hint">Auswahl gilt für diese Seite. Maximal 50 Worker pro Aktion.</span></div>
+      <div class="table-scroll" tabindex="0" data-label="workers">
+        <table><thead><tr><th><input id="select-page" type="checkbox" data-label="select_page"></th><th data-text="model">Worker / Modell</th><th data-text="agent">Agent</th><th data-text="status">Zustand</th><th data-text="algorithm">Aktiver Algorithmus</th><th class="numeric" data-text="hashrate">Hashrate</th><th class="numeric" data-text="power">Leistung</th><th class="numeric" data-text="temperature">Temperatur</th><th data-text="action">Aktion</th></tr></thead><tbody id="worker-rows"></tbody></table>
+      </div>
+      <div id="empty" class="empty" hidden><h3 data-text="empty">Keine passenden Worker</h3><p class="muted" data-text="empty_hint">Filter zurücksetzen oder auf den ersten Hardware-Stand warten. Unzugewiesene Geräte erscheinen ebenfalls hier.</p><button id="reset" data-text="reset" type="button">Filter zurücksetzen</button></div>
+      <div class="pagination"><span id="page-info" class="muted">—</span><div><button id="previous" type="button" data-text="previous" disabled>Zurück</button><button id="next" type="button" data-text="next" disabled>Weiter</button></div></div>
+      <p class="footnote" data-text="missing_note">— bedeutet: kein verfügbarer Messwert. Hashraten verschiedener Algorithmen werden nicht addiert.</p>
+    </section>
+    <section id="machines" class="section"><div class="section-head"><div><p class="eyebrow" data-text="network">Lokales Netzwerk</p><h2 data-text="machines">Agents</h2></div><p class="muted" data-text="machine_hint">Sichtbarkeit und Fernsteuerung werden auf jedem Agent separat freigegeben.</p></div><div id="machine-list" class="machine-grid"></div></section>
+    <section id="settings" class="section panel"><div class="panel-head"><h2 data-text="settings">Agent-Einstellungen</h2></div>
+      <p class="footnote" data-text="settings_hint">Diese Freigaben gelten nur für diesen PC. Fernaktionen benötigen zusätzlich die Freigabe jedes Workers.</p>
+      <form id="settings-form" class="settings-form">
+        <label for="agent-name" data-text="agent_name">Name dieses Agents</label><input id="agent-name" maxlength="40" type="text" disabled>
+        <label class="check-label"><input id="sharing" type="checkbox" disabled><span data-text="sharing">Worker-Daten im lokalen Netzwerk sichtbar machen</span></label>
+        <label class="check-label"><input id="external-control" type="checkbox" disabled><span data-text="external_control">Fernsteuerung durch Node und LAN-Agents erlauben</span></label>
+        <button id="settings-save" type="submit" data-text="save" disabled>Speichern</button><p id="settings-status" class="muted" role="status" data-text="settings_load_first">Einstellungen werden geladen …</p>
+      </form>
+    </section>
+    <section id="activity" class="section panel"><div class="panel-head"><h2 data-text="activity">Aktionen</h2></div><p class="footnote" data-text="job_note">„Ausgeführt“ bestätigt den Steuerbefehl. Erfolgreiches Mining erkennst du an aktuellen Hashraten und Shares.</p><div id="jobs"><p class="activity-empty" data-text="activity_empty">Noch keine Aktionen in dieser Sitzung.</p></div></section>
+    <footer data-text="preview_note">Vorschau: Worker- und LAN-Steuerung mit eigenständigen Werkzeugen für Wallets, Benchmarks, Leistung, Auto Tuning, Updates und Diagnose.</footer>
+  </main>
+</div>
+<dialog id="detail" aria-labelledby="detail-title"><div class="dialog-head"><div><p id="detail-agent" class="eyebrow"></p><h2 id="detail-title"></h2></div><button id="close-detail" type="button" data-text="close">Schließen</button></div><div id="detail-content"></div><div class="dialog-actions"><button id="detail-start" class="primary" type="button" data-text="start">Starten</button><button id="detail-pause" type="button" data-text="pause">Pausieren</button></div></dialog>
+</body>
+</html>

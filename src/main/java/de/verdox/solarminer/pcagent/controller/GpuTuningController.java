@@ -122,7 +122,7 @@ public class GpuTuningController {
         for (AutoTuningProfileStore.Measurement row : profiles.measurements()) {
             HistoryBuilder history = byDevice.computeIfAbsent(row.deviceId(), ignored -> new HistoryBuilder());
             if ("SAMPLE".equals(row.type())) history.samples++;
-            if ("RESULT".equals(row.type())) {
+            if ("RESULT".equals(row.type()) || "SEARCH_RESULT".equals(row.type())) {
                 if (Boolean.TRUE.equals(row.stable())) history.stable++;
                 else history.unstable++;
                 history.recent.add(row);

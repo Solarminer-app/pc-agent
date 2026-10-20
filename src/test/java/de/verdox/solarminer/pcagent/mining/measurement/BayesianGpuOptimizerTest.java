@@ -72,7 +72,7 @@ class BayesianGpuOptimizerTest {
     }
 
     @Test
-    void refinesTheBestStableCoreAndMemoryAreaAfterInitialCoverage() {
+    void continuesBroadCoverageRatherThanCommittingAfterTwoReadings() {
         var low = new BayesianGpuOptimizer.Candidate(840, 810, 100, .3, .1, 0);
         var distant = new BayesianGpuOptimizer.Candidate(2100, 7000, 100, 1, 1, 0);
         var nearby = new BayesianGpuOptimizer.Candidate(1050, 810, 100, .42, .1, 0);
@@ -81,6 +81,55 @@ class BayesianGpuOptimizerTest {
                 new BayesianGpuOptimizer.Observation(low, .36, true, null),
                 new BayesianGpuOptimizer.Observation(distant, .13, true, null));
 
-        assertEquals(nearby, BayesianGpuOptimizer.next(List.of(low, distant, nearby, farMemory), attempted, attempted));
+        assertEquals(farMemory, BayesianGpuOptimizer.next(List.of(low, distant, nearby, farMemory), attempted, attempted));
     }
+    @Test
+    void periodicExplorationEscapesAnAlreadySampledNeighbourhood() {
+        var a = new BayesianGpuOptimizer.Candidate(900, 5000, 100, .3, .3, 0);
+        var b = new BayesianGpuOptimizer.Candidate(950, 5000, 100, .35, .3, 0);
+        var c = new BayesianGpuOptimizer.Candidate(1000, 5000, 100, .4, .3, 0);
+        var near = new BayesianGpuOptimizer.Candidate(1050, 5000, 100, .45, .3, 0);
+        var far = new BayesianGpuOptimizer.Candidate(1600, 7000, 100, 1, 1, 0);
+        var readings = List.of(new BayesianGpuOptimizer.Observation(a, 10, true, null),
+                new BayesianGpuOptimizer.Observation(b, 11, true, null),
+                new BayesianGpuOptimizer.Observation(c, 12, true, null));
+        assertEquals(far, BayesianGpuOptimizer.next(List.of(a, b, c, near, far), readings));
+    }
+
+    @Test
+    void retainsDistinctPromisingRegionsInsteadOfThreeAdjacentWinners() {
+        var a = new BayesianGpuOptimizer.Candidate(900, 5000, 100, .1, .1, 0);
+        var adjacent = new BayesianGpuOptimizer.Candidate(950, 5000, 100, .12, .1, 0);
+        var b = new BayesianGpuOptimizer.Candidate(1400, 5000, 100, .7, .1, 0);
+        var c = new BayesianGpuOptimizer.Candidate(1600, 7000, 100, 1, 1, 0);
+        var regions = BayesianGpuOptimizer.regions(List.of(
+                new BayesianGpuOptimizer.Observation(a, 10, true, null),
+                new BayesianGpuOptimizer.Observation(adjacent, 9.9, true, null),
+                new BayesianGpuOptimizer.Observation(b, 9, true, null),
+                new BayesianGpuOptimizer.Observation(c, 8, true, null)));
+        assertEquals(List.of(a, b, c), regions.stream().map(BayesianGpuOptimizer.Observation::candidate).toList());
+    }
+
+    @Test
+    void probesMemoryCliffAtMidpointOnlyWhenOtherDimensionsAreFixed() {
+        var low = new BayesianGpuOptimizer.Candidate(900, 5000, 100, .3, 0, 0);
+        var high = new BayesianGpuOptimizer.Candidate(900, 7000, 100, .3, 1, 0);
+        var middle = new BayesianGpuOptimizer.Candidate(900, 6000, 100, .3, .5, 0);
+        var confounded = new BayesianGpuOptimizer.Candidate(1200, 6000, 100, .7, .5, 0);
+        var readings = List.of(new BayesianGpuOptimizer.Observation(low, 10, true, null),
+                new BayesianGpuOptimizer.Observation(high, 20, true, null));
+        assertEquals(middle, BayesianGpuOptimizer.cliffMidpoint(List.of(confounded, middle), readings));
+        assertNull(BayesianGpuOptimizer.cliffMidpoint(List.of(confounded), readings));
+    }
+
+    @Test
+    void expectedImprovementWithFiveReadingsIsIndependentOfScoreUnits() {
+        var candidates = java.util.stream.IntStream.rangeClosed(0, 10)
+                .mapToObj(i -> new BayesianGpuOptimizer.Candidate(500 + i * 100, 5000, 100, i / 10d, 0, 0)).toList();
+        var small = java.util.stream.IntStream.range(0, 5).mapToObj(i ->
+                new BayesianGpuOptimizer.Observation(candidates.get(i * 2), .1 + .02 * i, true, null)).toList();
+        var large = small.stream().map(o -> new BayesianGpuOptimizer.Observation(o.candidate(), o.score() * 1e6, true, null)).toList();
+        assertEquals(BayesianGpuOptimizer.next(candidates, small), BayesianGpuOptimizer.next(candidates, large));
+    }
+
 }

@@ -28,6 +28,8 @@ Start with [pc-agent.md](pc-agent.md) — the ownership map for the source tree.
 | [refactoring-adapter-layers.md](refactoring-adapter-layers.md) | Adapter-layer refactoring program: phases 0–5 checklist (authoritative progress), hard wire/seam rules |
 | [rest-sse-loading-plan.md](rest-sse-loading-plan.md) | Loading-strategy plan (P1–P6): static data via REST once, config via REST+POST response, live via event-driven SSE with `invalidate(section)` dirty flags |
 | [docker-lan-discovery.md](docker-lan-discovery.md) | Host-network ports and UDP broadcast limits for LAN discovery |
+| [frontend-console-tools.md](frontend-console-tools.md) | Independent wallet/pool, benchmark, power, Auto Tuning, update and log tools / Eigenständige Spezialwerkzeuge |
+| [frontend-console-audit.md](frontend-console-audit.md) | Independent operations frontend: audit, DE/EN UI, new controllers, scalability/transport contract and verification / Eigenständige Betriebskonsole und Analyse |
 | [frontend-i18n.md](frontend-i18n.md) | German/English catalog contract and verification |
 | [../KNOWN_BUGS.md](../KNOWN_BUGS.md) | Prioritized PC-Agent defect backlog; agents check it after scoping their assigned work when capacity permits |
 | [Economic dispatch (C10)](economic-dispatch.md) | Node capability/short-lived-plan boundary and cold-start policy |
@@ -54,6 +56,11 @@ layout; they map to the repository root here.
 ## Build & test on this host
 
 `./gradlew` may not be executable: run `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test`.
+
+The Gradle `bootRun` development launch uses port `8085` so it can run beside a
+normally installed Agent on `8084`. Spring's configured `server.port` also
+feeds the Agent's LAN discovery announcement, so discovered development peers
+advertise the reachable port.
 
 ## Work log
 

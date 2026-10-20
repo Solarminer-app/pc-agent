@@ -66,7 +66,7 @@ tasks.named<BootRun>("bootRun") {
         languageVersion.set(JavaLanguageVersion.of(21))
     })
     workingDir = rootProject.projectDir
-    args("--solarminer.agent.standalone=true")
+    args("--server.port=8085", "--solarminer.agent.standalone=true")
 }
 
 tasks.register("printPcAgentVersion") {

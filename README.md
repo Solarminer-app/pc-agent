@@ -25,7 +25,8 @@ Output: `build/distributions/solarminer-pc-agent-standalone.jar`. Run it with:
 java -jar build/distributions/solarminer-pc-agent-standalone.jar --solarminer.agent.standalone=true
 ```
 
-For development, `./gradlew bootRun` starts Spring Boot directly.
+For development, `./gradlew bootRun` starts Spring Boot directly on
+`http://127.0.0.1:8085/`, leaving the normal Agent port `8084` available.
 
 See [standalone/README.md](standalone/README.md) for the Windows launcher and
 the Linux/Docker bootstrap scripts, and [standalone/DOCKER.md](standalone/DOCKER.md)

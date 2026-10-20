@@ -123,6 +123,19 @@ class AutoTuningProfileStoreTest {
                 "RTX", "NVIDIA", "PearlHash").getFirst().memoryOffsetMhz());
     }
 
+    @Test
+    void searchResultsSurviveReloadWithoutBecomingOperatingProfiles() {
+        Path file = directory.resolve("search.json");
+        var json = new ObjectMapper().findAndRegisterModules();
+        var store = new AutoTuningProfileStore(json, file.toString());
+        assertTrue(store.appendMeasurement(measurement("run", "SEARCH_RESULT", 100, 1200, true, null, 5000d)));
+        assertTrue(store.appendMeasurement(measurement("run", "RESULT", 100, 1200, true, null, 1000d)));
+        var loaded = new AutoTuningProfileStore(json, file.toString());
+        assertEquals(2, loaded.measurements().size());
+        assertEquals(1, loaded.all().size());
+        assertEquals(1000d, loaded.find("GPU-a", "pearl", "srbminer-multi").hashrateHs());
+    }
+
     private static AutoTuningProfileStore.Measurement measurement(String run, String type, int power,
                                                                   int core, Boolean stable, String reason) {
         return measurement(run, type, power, core, stable, reason, core == 1300 ? 1100d : 1000d);

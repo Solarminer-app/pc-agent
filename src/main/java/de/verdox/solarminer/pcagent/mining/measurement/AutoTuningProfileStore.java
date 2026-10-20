@@ -134,9 +134,9 @@ public class AutoTuningProfileStore {
         if (measurement == null || measurement.at() == null || measurement.runId() == null
                 || measurement.deviceId() == null || measurement.coinId() == null
                 || measurement.softwareId() == null || measurement.powerLimitWatts() <= 0
-                || measurement.type() == null || !List.of("SAMPLE", "RESULT").contains(measurement.type())) return false;
+                || measurement.type() == null || !List.of("SAMPLE", "SEARCH_RESULT", "RESULT").contains(measurement.type())) return false;
         Profile stable = measurement.stableProfile();
-        if (Boolean.TRUE.equals(measurement.stable()) && stable == null) return false;
+        if ("RESULT".equals(measurement.type()) && Boolean.TRUE.equals(measurement.stable()) && stable == null) return false;
         try {
             Files.createDirectories(measurementFile.getParent());
             byte[] line = (json.writeValueAsString(measurement) + "\n").getBytes(StandardCharsets.UTF_8);

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#102c27" />
+    <title data-text="tool_title">Werkzeuge</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/console/console.css?v=20261020-2" />
+    <link rel="stylesheet" href="/console/tools.css?v=20261020-2" />
+    <script src="/console/i18n.js?v=20261020-2" defer></script>
+    <script src="/console/tools-i18n.js?v=20261020-2" defer></script>
+    <script src="/console/tools.js?v=20261020-2" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#main" data-text="skip">Zum Inhalt springen</a>
+    <aside class="sidebar">
+      <a class="brand" href="/console/index.html"
+        ><span class="brand-mark" aria-hidden="true">☼</span> SolarMiner
+        <small>PC-AGENT</small></a
+      >
+      <div class="sidebar-label" data-text="tool_title">Werkzeuge</div>
+      <nav data-label="tool_title">
+        <a class="nav-item" href="/console/index.html" data-text="operations"
+          >Betrieb</a
+        >
+        <a class="nav-item" href="#wallets" data-text="tool_wallets"
+          >Wallets & Pools</a
+        >
+        <a class="nav-item" href="#measurements" data-text="tool_measurements"
+          >Benchmarks</a
+        >
+        <a class="nav-item" href="#hardware" data-text="tool_hardware"
+          >Leistung & Betriebsmodi</a
+        >
+        <a class="nav-item" href="#tuning" data-text="tool_tuning"
+          >Auto Tuning & Taktraten</a
+        >
+        <a class="nav-item" href="#updates" data-text="tool_updates"
+          >Agent-Updates</a
+        >
+        <a class="nav-item" href="#logs" data-text="tool_logs">Miner-Konsole</a>
+      </nav>
+      <div class="sidebar-bottom">
+        <span class="preview" data-text="preview"
+          >Neue Oberfläche · Vorschau</span
+        ><a class="comparison" href="/" data-text="comparison"
+          >Alte Oberfläche öffnen ↗</a
+        >
+      </div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <span class="breadcrumb"
+          >SolarMiner / <span data-text="tool_title">Werkzeuge</span></span
+        >
+        <div class="top-actions">
+          <span
+            id="tool-connection"
+            class="connection"
+            role="status"
+            data-text="loading"
+            >Daten werden geladen …</span
+          >
+          <select id="language" data-label="language">
+            <option value="de">Deutsch</option>
+            <option value="en">English</option>
+          </select>
+          <button id="tool-refresh" type="button" data-text="refresh">
+            Aktualisieren
+          </button>
+        </div>
+      </header>
+      <main id="main">
+        <div class="heading">
+          <p class="eyebrow" data-text="local">Dieser PC</p>
+          <h1 id="tool-heading" data-text="tool_title">Werkzeuge</h1>
+          <p class="muted" data-text="tool_intro">
+            Einrichten, messen und optimieren – direkt auf diesem Agent.
+          </p>
+        </div>
+        <p
+          class="notice"
+          id="tool-notice"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></p>
+        <section id="tool-worker-picker" class="panel picker">
+          <div class="panel-head">
+            <h2 data-text="tool_choose_workers">Worker auswählen</h2>
+            <span id="picker-count" class="muted"></span>
+            <div id="picker-batch" class="tool-actions" hidden>
+              <button
+                id="picker-select-page"
+                type="button"
+                data-text="tool_select_page"
+              >
+                Diese Seite auswählen</button
+              ><button id="picker-clear" type="button" data-text="clear">
+                Auswahl aufheben
+              </button>
+            </div>
+          </div>
+          <form id="picker-search-form" class="filters">
+            <input
+              id="picker-search"
+              type="search"
+              data-label="search"
+              data-placeholder="search_hint"
+            /><button type="submit" data-text="search">
+              Worker durchsuchen
+            </button>
+          </form>
+          <div id="picker-rows" class="picker-rows"></div>
+          <div class="pagination">
+            <button id="picker-prev" type="button" data-text="previous">
+              Zurück</button
+            ><span id="picker-page" class="muted"></span
+            ><button id="picker-next" type="button" data-text="next">
+              Weiter
+            </button>
+          </div>
+        </section>
+        <section
+          id="tool-panel"
+          class="section panel"
+          aria-labelledby="tool-heading"
+        >
+          <div id="tool-content"></div>
+        </section>
+        <section class="section panel">
+          <div class="panel-head"><h2 data-text="activity">Aktionen</h2></div>
+          <p class="footnote" data-text="tool_tasks_hint">
+            Aufträge werden nicht automatisch wiederholt. Der Verlauf bleibt
+            nach einem Seitenwechsel verfügbar.
+          </p>
+          <div id="tool-tasks"></div>
+        </section>
+        <noscript><p>JavaScript aktivieren. / Enable JavaScript.</p></noscript>
+      </main>
+    </div>
+  </body>
+</html>

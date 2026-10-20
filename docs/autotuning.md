@@ -1,3 +1,12 @@
+> Aktueller Implementierungsstand / Current implementation (2026-10-20):
+> Die Kandidatensuche verwendet breite Exploration, mehrere Suchregionen und
+> längere Wiederholungsmessungen vor der Profilspeicherung. Bis zu 24 Suchfenster
+> mit 16 Messpunkten und sechs Bestätigungen mit 32 Messpunkten, maximal 60 Minuten.
+> Candidate search uses broad exploration, multiple regions and longer independent
+> confirmation before publishing profiles: up to 24 search windows of 16 samples
+> and six confirmation windows of 32 samples, bounded to 60 minutes.
+> Siehe / See [current contract / aktueller Vertrag](agent-wiki/auto-tuning.md).
+
 # Autonomous Solar-Mining GPU Optimization Agent
 
 ## 1. System Overview

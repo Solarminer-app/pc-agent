@@ -250,7 +250,7 @@
           const score = result.hashrateHs > 0 && result.measuredWatts > 0
             ? efficiencyRate(result.hashrateHs / result.measuredWatts) : '—';
           saved.append(node('p', '', t('auto_tuning_history_point', {
-            status: t(result.stable ? 'auto_tuning_stable' : 'auto_tuning_unstable'),
+            status: `${t(result.type === 'SEARCH_RESULT' ? 'auto_tuning_search_attempt' : 'auto_tuning_confirmation_attempt')} · ${t(result.stable ? 'auto_tuning_stable' : 'auto_tuning_unstable')}`,
             power: result.powerLimitWatts, core: result.coreMhz ?? '—',
             memory: memorySetting(result), efficiency: score,
             fiat: fiatPerKwh(result.coinId, result.hashrateHs, result.measuredWatts)
@@ -438,7 +438,10 @@
       host.append(node('p', 'muted', activeSession.currentPowerWatts == null ? t('auto_tuning_waiting_for_hashrate')
         : `${t('auto_tuning_candidate', {core: activeSession.currentCoreMhz ?? '—', memory: memorySetting({memoryMhz: activeSession.currentMemoryMhz, memoryOffsetMhz: activeSession.currentMemoryOffsetMhz}), power: activeSession.currentPowerWatts ?? '—'})} · ${t('auto_tuning_sample_progress', {current: activeSession.sampleIndex, total: activeSession.sampleCount})}`));
       if (activeSession.running) {
-        const remaining = Math.max(0, (activeSession.candidateCount - activeSession.candidateIndex) * activeSession.sampleCount
+        const futureCandidates = Math.max(0, activeSession.candidateCount - activeSession.candidateIndex);
+        const confirmationExtra = activeSession.phase === 'auto_tuning_phase_confirming'
+          ? 0 : Math.min(6, futureCandidates) * 16;
+        const remaining = Math.max(0, futureCandidates * activeSession.sampleCount + confirmationExtra
           + (activeSession.sampleCount - activeSession.sampleIndex));
         host.append(node('p', 'muted', t('auto_tuning_eta', {minutes: Math.ceil(remaining * 5 / 60)})));
       }

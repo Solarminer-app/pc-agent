@@ -269,6 +269,21 @@ the currently running miner. A start or mode change refreshes the row promptly.
 - Start and switch modes for CPU and GPU workers, including a coin change, and
   compare each row with the live process and miner console on target hardware.
 
+### 2026-10-20 — Independent operations-console handling / Eigenständige Betriebskonsole
+
+The new console read model keeps assigned coin/software separate from the live
+algorithm and uses `WorkerView.telemetry().currentAlgorithm()` while mining.
+`ConsoleWorkspaceServiceTest.observedAlgorithmWinsOverAssignmentWithoutChangingConfiguredCoin`
+covers an assigned Pearl worker reporting live KawPow. The new command UI also
+keeps pending/accepted commands distinct from confirmed live telemetry. This is
+not evidence that every legacy page or the underlying mode-switch issue is fixed;
+BUG-004 remains under investigation. See [console audit](agent-wiki/frontend-console-audit.md).
+
+Deutsch: Die neue Konsole trennt gespeicherte Zuweisung und tatsächlich gemeldeten
+Algorithmus. Ein Test deckt die abweichende Live-Meldung ab. Bestätigte Befehle
+werden nicht als Nachweis aktiven Minings dargestellt. Der alte Fehler bleibt
+für bestehende Seiten und den eigentlichen Moduswechsel weiter offen.
+
 ## BUG-005 — Continue the power-limit test queue across coins
 
 **Status:** Under investigation (`[~]`, 2026-10-16)
@@ -413,6 +428,17 @@ Sweep läuft”. Idle workers retain their actual paused/stopped/error status.
 - On 2026-10-17, focused `NetworkDashboardServiceTest` passed for sweep targets,
   stopped workers and the existing benchmark flag. Both locale checks and the
   static render simulation passed; real miner/browser verification remains open.
+
+### 2026-10-20 — New console / Neue Konsole
+
+The independent console obtains benchmark/sweep flags from the domain session
+services and displays localized measurement labels separately from the miner's
+`MINING` status. It does not reuse the old table renderers. Live measurement
+validation remains open; this does not change BUG-007's legacy/hardware status.
+
+Deutsch: Die neue Konsole übernimmt Messzustände direkt aus den Sitzungsdiensten
+und zeigt sie getrennt vom Mining-Zustand an. Eine Hardware-Prüfung steht noch
+aus; daraus wird keine Behebung der alten Oberfläche abgeleitet.
 
 ## BUG-008 — Break the worker revenue startup dependency cycle
 
