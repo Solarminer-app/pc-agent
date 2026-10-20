@@ -161,15 +161,6 @@ public class GpuTuningController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "gpu_not_found");
         if (selection == null || !selection.core() && !selection.memory() && !selection.power())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "auto_tuning_selection_required");
-        if (selection.goal() == AutoTuningSelectionStore.Goal.PROFIT_PER_DAY) {
-            LocalGpuPowerService.Gpu gpu = power.snapshot().stream()
-                    .filter(value -> deviceId.equals(value.deviceId())).findFirst().orElse(null);
-            WorkerAssignmentService.WorkerView worker = workers.workers().stream()
-                    .filter(value -> deviceId.equals(value.deviceId())).findFirst().orElse(null);
-            var comparison = gpu == null ? null : comparison(gpu, worker);
-            if (comparison == null || comparison.profit() == null)
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "auto_tuning_profit_unavailable");
-        }
         if (!selections.set(deviceId, selection))
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "auto_tuning_selection_save_failed");
         return selection;

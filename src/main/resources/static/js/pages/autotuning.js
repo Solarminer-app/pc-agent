@@ -181,7 +181,6 @@
         new Option(t('auto_tuning_goal_profit'), 'PROFIT_PER_DAY'));
       goal.value = selected.goal || 'EFFICIENCY';
       const profitAvailable = Boolean(gpu.comparison?.profit);
-      goal.options[1].disabled = !profitAvailable;
       goal.addEventListener('change', async () => {
         const previous = selected.goal || 'EFFICIENCY';
         const next = {...selected, goal: goal.value};

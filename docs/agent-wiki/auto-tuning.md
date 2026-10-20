@@ -47,7 +47,15 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   It first measures the minimum and maximum driver-reported memory setting;
   when offset and fixed-memory controls are both available, it also measures
   both offset boundaries. Remaining rounds use Bayesian-selected clock points
-  (eighteen candidates total). NVIDIA
+  (eighteen candidates total). Candidate order does not trust the driver's clock-list
+  order: it begins at a conservative interior point, covers a distant point, then uses
+  the remaining tier budget to refine the most efficient stable core/memory neighbourhood.
+  If that base run has at least three stable readings in one power tier and its best
+  point is at least 5% more efficient than that tier's median, the session may add up
+  to twelve more candidates in that same local core/memory region. This conditional
+  refinement extends the maximum session time from 40 to 60 minutes; flat or unstable
+  runs still finish after the base budget.
+  NVIDIA
   candidates use only supported memory/core pairs reported by the driver; when
   memory locks are unavailable they use pairs at the highest listed memory
   clock no higher than the currently observed memory clock. A writable clock
@@ -114,8 +122,10 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   each power tier to its efficiency winner first. It
   selection uses fresh market data and the configured electricity tariff at
   application time, subtracts measured 24-hour electricity cost, and remains
-  unavailable if either input is missing or stale. It excludes fees, rejected
-  shares and actual pool accounting. Unstable results remain visible for
+  unavailable if either input is missing or stale. Missing profit data never
+  blocks Auto Tuning or profile calibration: the saved profit preference
+  temporarily uses the measured efficiency winner and resumes profit selection
+  when fresh inputs return. It excludes fees, rejected shares and actual pool accounting. Unstable results remain visible for
   diagnosis and never become operating profiles.
   The three-tier readiness check still applies before autonomous profile
   selection. On completion, cancellation or failure, calibration

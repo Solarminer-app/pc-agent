@@ -15,14 +15,17 @@ class BayesianGpuOptimizerTest {
         List<BayesianGpuOptimizer.Candidate> candidates = List.of(low, middle, high);
         var observations = new java.util.ArrayList<BayesianGpuOptimizer.Observation>();
 
-        assertSame(low, BayesianGpuOptimizer.next(candidates, observations));
-        observations.add(new BayesianGpuOptimizer.Observation(low, 1.0, true, null));
-        assertNotSame(low, BayesianGpuOptimizer.next(candidates, observations));
-        observations.add(new BayesianGpuOptimizer.Observation(middle, 1.4, true, null));
+        var first = BayesianGpuOptimizer.next(candidates, observations);
+        assertSame(middle, first);
+        observations.add(new BayesianGpuOptimizer.Observation(first, 1.0, true, null));
+        var second = BayesianGpuOptimizer.next(candidates, observations);
+        assertNotNull(second);
+        assertNotEquals(first, second);
+        observations.add(new BayesianGpuOptimizer.Observation(second, 1.4, true, null));
         var last = BayesianGpuOptimizer.next(candidates, observations);
         assertNotNull(last);
-        assertNotEquals(low, last);
-        assertNotEquals(middle, last);
+        assertNotEquals(first, last);
+        assertNotEquals(second, last);
         observations.add(new BayesianGpuOptimizer.Observation(last, 1.3, true, null));
         assertNull(BayesianGpuOptimizer.next(candidates, observations));
     }
@@ -57,5 +60,27 @@ class BayesianGpuOptimizerTest {
 
         assertEquals(BayesianGpuOptimizer.next(List.of(a, b, c, d), lowScores),
                 BayesianGpuOptimizer.next(List.of(a, b, c, d), highScores));
+    }
+
+    @Test
+    void startsAtEfficientInteriorInsteadOfDriverOrderedExtreme() {
+        var high = new BayesianGpuOptimizer.Candidate(2100, 7000, 180, 1, 1, .5);
+        var low = new BayesianGpuOptimizer.Candidate(300, 405, 180, 0, 0, .5);
+        var efficientInterior = new BayesianGpuOptimizer.Candidate(900, 810, 180, .35, .35, .5);
+
+        assertEquals(efficientInterior, BayesianGpuOptimizer.next(List.of(high, low, efficientInterior), List.of(), List.of()));
+    }
+
+    @Test
+    void refinesTheBestStableCoreAndMemoryAreaAfterInitialCoverage() {
+        var low = new BayesianGpuOptimizer.Candidate(840, 810, 100, .3, .1, 0);
+        var distant = new BayesianGpuOptimizer.Candidate(2100, 7000, 100, 1, 1, 0);
+        var nearby = new BayesianGpuOptimizer.Candidate(1050, 810, 100, .42, .1, 0);
+        var farMemory = new BayesianGpuOptimizer.Candidate(840, 5000, 100, .3, .7, 0);
+        var attempted = List.of(
+                new BayesianGpuOptimizer.Observation(low, .36, true, null),
+                new BayesianGpuOptimizer.Observation(distant, .13, true, null));
+
+        assertEquals(nearby, BayesianGpuOptimizer.next(List.of(low, distant, nearby, farMemory), attempted, attempted));
     }
 }

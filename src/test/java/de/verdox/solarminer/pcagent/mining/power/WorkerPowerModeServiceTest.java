@@ -6,6 +6,8 @@ import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
 import de.verdox.solarminer.pcagent.mining.measurement.GpuEfficiencyStore;
 import de.verdox.solarminer.pcagent.mining.measurement.MiningPerformanceProfileStore;
 import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore;
+import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningSelectionStore;
+import de.verdox.solarminer.pcagent.mining.economics.AutoTuningProfileEconomicsService;
 import de.verdox.solarminer.pcagent.lowlevel.GpuTuningService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -84,6 +86,43 @@ class WorkerPowerModeServiceTest {
         verify(gpus).setAutoTuningPowerTarget(100, card);
         verify(tuning).apply("GPU-a", 1200, 1200, 800, 800);
         verify(gpus).setAutoTuningPowerTarget(150, card);
+    }
+
+    @Test
+    void profitGoalFallsBackToEfficiencyWhileMarketDataIsUnavailable() {
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        LocalGpuPowerService gpus = mock(LocalGpuPowerService.class);
+        LocalGpuPowerService.Gpu card = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-profit", "Test", 80, 250,
+                100, 220, 200, 150.0, "measured", true, null, 220);
+        when(gpus.discover()).thenReturn(List.of(card));
+        when(gpus.configuredPowerLimitWatts(card)).thenReturn(200);
+        AutoTuningProfileStore profiles = new AutoTuningProfileStore(json, directory.resolve("profit-profiles.json").toString());
+        assertTrue(profiles.saveMatrix(List.of(
+                new AutoTuningProfileStore.Profile("GPU-profit", "Test", "NVIDIA", "pearl", "PearlHash",
+                        "srbminer-multi", 1100, 700, 100, 80.0, 90, 8, .89, Instant.now()),
+                new AutoTuningProfileStore.Profile("GPU-profit", "Test", "NVIDIA", "pearl", "PearlHash",
+                        "srbminer-multi", 1200, 800, 150, 100.0, 125, 8, .8, Instant.now()),
+                new AutoTuningProfileStore.Profile("GPU-profit", "Test", "NVIDIA", "pearl", "PearlHash",
+                        "srbminer-multi", 1300, 900, 200, 120.0, 180, 8, .67, Instant.now()))));
+        AgentControlSettingsService controls = new AgentControlSettingsService(json, directory.resolve("profit-control.json").toString());
+        assertTrue(controls.setWorkerPowerMode("GPU-profit", "AUTO_TUNING"));
+        WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus,
+                new GpuEfficiencyStore(json, directory.resolve("profit-sweeps.json").toString()),
+                new MiningPerformanceProfileStore(json, directory.resolve("profit-bench.json").toString()), 80);
+        de.verdox.solarminer.pcagent.miner.MinerFactory miners = mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class);
+        when(miners.minerSoftwareForWorker(any(), eq("GPU-profit"))).thenReturn("srbminer-multi");
+        modes.setMinerFactory(miners);
+        AutoTuningSelectionStore selections = new AutoTuningSelectionStore();
+        assertTrue(selections.set("GPU-profit", new AutoTuningSelectionStore.Selection(true, true, true,
+                AutoTuningSelectionStore.Goal.PROFIT_PER_DAY)));
+        AutoTuningProfileEconomicsService economics = mock(AutoTuningProfileEconomicsService.class);
+        when(economics.compare(anyString(), anyString(), any(), any(), any(), any(), anyInt(), anyString()))
+                .thenReturn(new AutoTuningProfileEconomicsService.Comparison(null, null));
+        modes.setAutoTuning(profiles, mock(GpuTuningService.class), selections, economics);
+
+        var choice = modes.selectForMode("GPU-profit", "pearl", "AUTO_TUNING");
+        assertNull(choice.error());
+        assertEquals(100, choice.watts());
     }
 
     @Test

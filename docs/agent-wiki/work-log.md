@@ -3420,3 +3420,19 @@ changes were preserved.
 - Each GPU card compares its efficient and daily-profit candidates, including measured cap/efficiency plus projected electricity cost and profit. The UI is localized in German and English and states that fees and actual pool payouts are excluded.
 - Corrected daily-profit selection to examine every distinct stable clock/memory/power setting after median-combining repeat measurements. Completion of all three power tiers remains required, but a less efficient setting is no longer discarded before its absolute daily profit is evaluated.
 - Verification: focused `WorkerPowerModeServiceTest`, `compileJava --offline`, Auto-Tuning JavaScript syntax, closed-catalog/literal checks, both-locale render simulation, and `git diff --check`.
+
+## 2026-10-20 — Keep Auto Tuning available without a profit projection
+
+- Diagnosed boot-start retries reporting `auto_tuning_profit_unavailable`: a persisted daily-profit preference was incorrectly treated as a hard prerequisite for the `AUTO_TUNING` worker mode. The mode-save path then rolled back to the prior mode, so no queued calibration could create or reuse a profile.
+- Profit is now a selection preference only. When tariff or market data is absent/stale, the agent starts and calibrates normally and selects the measured efficiency winner until a current profit projection becomes available. The local UI permits saving that preference and explains the localized fallback in German and English.
+- Verification: focused `WorkerPowerModeServiceTest` (including the no-market fallback), `scripts/check-i18n.cjs`, `scripts/scan-i18n-literals.cjs`, and `git diff --check` passed. Live validation remains pending on the affected multi-GPU PC-Agent.
+
+## 2026-10-20 — Targeted GPU Auto Tuning refinement
+
+- Changed the discrete Bayesian candidate order so NVIDIA's driver-reported clock ordering can no longer make a maximum-clock point the first measurement. Each power tier begins from a conservative interior core/memory point, covers a distant point, then allocates its remaining measurements to the nearest unmeasured core/memory points around the strongest stable hashes-per-watt result.
+- This retains the bounded 18-point/40-minute calibration contract while resolving the efficient region much more finely for both core and memory clocks. Tests cover the driver-order-independent seed and local core/memory refinement; live TITAN RTX validation remains required.
+
+## 2026-10-20 — Conditional deep refinement for proven efficient GPU regions
+
+- A base Auto Tuning calibration still covers all three power tiers with 18 samples. When one tier has at least three stable measurements and its best hashes-per-watt is at least 5% above that tier's median, the agent may spend up to twelve additional samples in that tier's closest unmeasured core/memory neighbourhood. Flat and unstable runs do not extend.
+- The conditional budget raises the timeout from 40 to 60 minutes only for useful deep refinement. This is intended to resolve low-memory PearlHash operating regions on TITAN RTX-class cards rather than prematurely retaining a 5000 MHz memory profile. Focused unit coverage verifies the eligibility rule; live hardware validation remains required.

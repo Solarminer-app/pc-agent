@@ -145,7 +145,7 @@ window.SolarMinerI18nCatalog = {
         "auto_tuning_goal_comparison": {de: "Profilvergleich", en: "Profile comparison"},
         "auto_tuning_goal_efficiency_card": {de: "Effizientestes Profil", en: "Most efficient profile"},
         "auto_tuning_goal_profit_card": {de: "Bestes Gewinnprofil", en: "Best profit profile"},
-        "auto_tuning_profit_unavailable": {de: "Für den Tagesgewinn fehlt ein Stromtarif oder aktuelle Marktdaten.", en: "Daily profit needs an electricity rate and current market data."},
+        "auto_tuning_profit_unavailable": {de: "Für den Tagesgewinn fehlt ein Stromtarif oder aktuelle Marktdaten. Bis dahin läuft Auto Tuning mit dem effizientesten gemessenen Profil weiter.", en: "Daily profit needs an electricity rate and current market data. Until then, Auto Tuning continues with the most efficient measured profile."},
         "auto_tuning_goal_profit_value": {de: "≈ Gewinn pro 24 h: {amount}", en: "≈ Profit per 24 h: {amount}"},
         "auto_tuning_goal_revenue_value": {de: "Bruttoertrag pro 24 h: {amount}", en: "Gross revenue per 24 h: {amount}"},
         "auto_tuning_goal_cost_value": {de: "Stromkosten pro 24 h: {amount}", en: "Electricity cost per 24 h: {amount}"},

@@ -17,7 +17,15 @@ final class BayesianGpuOptimizer {
         List<Candidate> available = candidates.stream()
                 .filter(candidate -> attempted.stream().noneMatch(row -> row.candidate().equals(candidate))).toList();
         if (available.isEmpty()) return null;
-        if (observations.isEmpty()) return available.getFirst();
+        // Supported-clock listings are driver ordered, not efficiency ordered.  Start from a
+        // conservative interior point instead of trusting that order (which commonly starts at
+        // the highest clock), then deliberately cover a distant point before refining.
+        if (attempted.isEmpty()) return efficientInterior(available);
+        if (attempted.size() >= 2) {
+            Candidate refinement = nearestToBestStable(available, attempted);
+            if (refinement != null) return refinement;
+        }
+        if (observations.isEmpty()) return efficientInterior(available);
         if (observations.size() == 1) return farthest(available, observations);
         double scale = Math.max(1, observations.stream().mapToDouble(row -> Math.abs(row.score())).max().orElse(0));
         double[][] covariance = new double[observations.size()][observations.size()];
@@ -50,8 +58,28 @@ final class BayesianGpuOptimizer {
                 .orElse(null);
     }
 
+    /**
+     * Seed around the lower interior of each tunable dimension.  The first live reading is
+     * therefore useful for efficiency tuning while still leaving enough range for the next
+     * exploration point to detect a performance cliff.
+     */
+    private static Candidate efficientInterior(List<Candidate> candidates) {
+        return candidates.stream().min(java.util.Comparator.comparingDouble(candidate ->
+                squaredDistance(candidate.vector(), new double[]{.35, .35, .5}))).orElse(null);
+    }
+
+    /** After two live trials, spend the remaining tier budget resolving the best stable area. */
+    private static Candidate nearestToBestStable(List<Candidate> candidates, List<Observation> attempted) {
+        Observation best = attempted.stream().filter(Observation::stable)
+                .max(java.util.Comparator.comparingDouble(Observation::score)).orElse(null);
+        if (best == null) return null;
+        return candidates.stream().min(java.util.Comparator.comparingDouble(candidate ->
+                distance(candidate.vector(), best.candidate().vector()))).orElse(null);
+    }
+
     private static double kernel(double[] a, double[] b) { return Math.exp(-0.5 * distance(a, b) / (LENGTH_SCALE * LENGTH_SCALE)); }
-    private static double distance(double[] a, double[] b) { double sum = 0; for (int i = 0; i < a.length; i++) { double d = a[i] - b[i]; sum += d * d; } return sum; }
+    private static double distance(double[] a, double[] b) { return squaredDistance(a, b); }
+    private static double squaredDistance(double[] a, double[] b) { double sum = 0; for (int i = 0; i < a.length; i++) { double d = a[i] - b[i]; sum += d * d; } return sum; }
     private static double dot(double[] a, double[] b) { double sum = 0; for (int i = 0; i < a.length; i++) sum += a[i] * b[i]; return sum; }
 
     /** Stable Gaussian elimination with diagonal jitter; sample batches stay small (&lt;20). */

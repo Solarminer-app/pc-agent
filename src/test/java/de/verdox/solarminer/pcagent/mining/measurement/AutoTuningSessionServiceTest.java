@@ -31,6 +31,26 @@ class AutoTuningSessionServiceTest {
     }
 
     @Test
+    void extendsOnlyAProvenEfficientPowerTier() {
+        var efficient = new BayesianGpuOptimizer.Candidate(840, 810, 100, .3, .1, 0);
+        var nearby = new BayesianGpuOptimizer.Candidate(1005, 810, 100, .4, .1, 0);
+        var poor = new BayesianGpuOptimizer.Candidate(2100, 7000, 100, 1, 1, 0);
+        var otherTier = new BayesianGpuOptimizer.Candidate(840, 810, 190, .3, .1, 1);
+
+        var best = AutoTuningSessionService.promisingEfficientRegion(List.of(
+                new BayesianGpuOptimizer.Observation(efficient, .36, true, null),
+                new BayesianGpuOptimizer.Observation(nearby, .31, true, null),
+                new BayesianGpuOptimizer.Observation(poor, .13, true, null),
+                new BayesianGpuOptimizer.Observation(otherTier, .40, true, null)));
+
+        assertEquals(efficient, best.candidate());
+        assertNull(AutoTuningSessionService.promisingEfficientRegion(List.of(
+                new BayesianGpuOptimizer.Observation(efficient, .36, true, null),
+                new BayesianGpuOptimizer.Observation(nearby, .35, true, null),
+                new BayesianGpuOptimizer.Observation(poor, .34, true, null))));
+    }
+
+    @Test
     void buildsCoreOnlyCandidatesFromHighestSupportedMemoryClock() {
         var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-n", "Test", 80, 200,
                 80, 200, 150, 120.0, "measured", true, null, 200);
@@ -161,7 +181,7 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
             ArgumentCaptor<Integer> firstCore = ArgumentCaptor.forClass(Integer.class);
             ArgumentCaptor<Integer> firstMemory = ArgumentCaptor.forClass(Integer.class);
             verify(tuning, times(18)).apply(eq("GPU-a"), firstCore.capture(), any(), firstMemory.capture(), any());
-            assertEquals(1400, firstCore.getAllValues().getFirst());
+            assertEquals(1200, firstCore.getAllValues().getFirst());
             assertEquals(400, firstMemory.getAllValues().getFirst());
             verify(tuning).restoreDefaults("GPU-a");
             verify(power, atLeastOnce()).setAutoTuningPowerTarget(150, gpu);

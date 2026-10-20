@@ -92,14 +92,10 @@ public class WorkerPowerModeService {
             if (startingWatts < card.minWatts() || startingWatts > safeMaxWatts)
                 return new Selection(mode, null, "auto_tuning_start_target_unsafe");
             String version = miners == null ? null : miners.minerVersionForWorker(coin, deviceId);
-            if (autoTuningSelections != null
-                    && autoTuningSelections.get(deviceId).goal() == AutoTuningSelectionStore.Goal.PROFIT_PER_DAY
-                    && autoTuningProfiles != null
-                    && !autoTuningProfiles.matrix(deviceId, coin.id(), softwareId, version, card.model(), card.vendor(),
-                    coin.assignmentAlgorithm()).isEmpty()
-                    && (autoTuningEconomics == null || autoTuningEconomics.compare(deviceId, coin.id(), softwareId,
-                    version, card.model(), card.vendor(), safeMaxWatts, coin.assignmentAlgorithm()).profit() == null))
-                return new Selection(mode, null, "auto_tuning_profit_unavailable");
+            // Profit is a preference for selecting an already calibrated profile, not a
+            // prerequisite for mining or calibration. Market/tariff data can be briefly
+            // unavailable at startup; selectedAutoTuningProfile safely falls back to the
+            // measured efficiency winner until a current profit projection is available.
             AutoTuningProfileStore.Profile profile = selectedAutoTuningProfile(deviceId, coin.id(), softwareId,
                     version, card, safeMaxWatts, coin.assignmentAlgorithm());
             if (profile == null) return new Selection(mode, startingWatts, null);

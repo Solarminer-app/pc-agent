@@ -20,8 +20,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** On-demand, per-GPU Gaussian-process calibration against live miner telemetry. */
 @Service
 public class AutoTuningSessionService {
-    /** Six candidates per safe power tier: four memory anchors plus two Bayesian refinements. */
-    private static final int MAX_CANDIDATES = 18, SAMPLES_PER_CANDIDATE = 16, MAX_RUN_MINUTES = 40;
+    /** Six candidates per safe power tier, then a bounded local refinement of a proven efficient region. */
+    private static final int BASE_CANDIDATES = 18, MAX_CANDIDATES = 30,
+            SAMPLES_PER_CANDIDATE = 16, MAX_RUN_MINUTES = 60;
+    private static final double REFINEMENT_ADVANTAGE = 1.05;
     // Driver-reported offset limits are writable bounds, not stability evidence.
     private static final int MAX_UNVERIFIED_MEMORY_UNDERCLOCK_MHZ = 1500;
     private static final int MAX_UNVERIFIED_MEMORY_OVERCLOCK_MHZ = 100;
@@ -148,7 +150,7 @@ public class AutoTuningSessionService {
         if (selection.power() && candidates.stream().map(BayesianGpuOptimizer.Candidate::powerWatts).distinct().count() < 3)
             throw new IllegalStateException("auto_tuning_power_range_too_narrow");
         int tierCount = (int) candidates.stream().map(BayesianGpuOptimizer.Candidate::powerWatts).distinct().count();
-        int candidatesPerTier = Math.max(1, MAX_CANDIDATES / tierCount);
+        int candidatesPerTier = Math.max(1, BASE_CANDIDATES / tierCount);
         int plannedCandidates = candidates.stream().collect(java.util.stream.Collectors.groupingBy(
                 BayesianGpuOptimizer.Candidate::powerWatts)).values().stream()
                 .mapToInt(rows -> Math.min(candidatesPerTier, rows.size())).sum();
@@ -285,12 +287,19 @@ public class AutoTuningSessionService {
                             .thenComparingInt(Integer::intValue)).toList();
             if (tiers.isEmpty() || selection.power() && tiers.size() < 3)
                 throw new IllegalStateException("auto_tuning_power_range_too_narrow");
-            int candidatesPerTier = Math.max(1, MAX_CANDIDATES / tiers.size());
+            int candidatesPerTier = Math.max(1, BASE_CANDIDATES / tiers.size());
             List<BayesianGpuOptimizer.Observation> historical = historicalObservations(context, activeCandidates);
             for (int index = 0; index < MAX_CANDIDATES; index++) {
                 if (state.cancel.get()) break;
                 if (System.nanoTime() >= deadline) throw new IllegalStateException("auto_tuning_time_limit");
-                int tierWatts = tiers.get(Math.min(index / candidatesPerTier, tiers.size() - 1));
+                boolean localRefinement = index >= BASE_CANDIDATES;
+                BayesianGpuOptimizer.Observation efficientRegion = localRefinement
+                        ? promisingEfficientRegion(observations) : null;
+                if (localRefinement && efficientRegion == null) break;
+                if (localRefinement && state.session.candidateCount() < MAX_CANDIDATES)
+                    update(state, state.session.withCandidateCount(MAX_CANDIDATES));
+                int tierWatts = localRefinement ? efficientRegion.candidate().powerWatts()
+                        : tiers.get(Math.min(index / candidatesPerTier, tiers.size() - 1));
                 List<BayesianGpuOptimizer.Candidate> tierCandidates = activeCandidates.stream()
                         .filter(row -> row.powerWatts() == tierWatts).toList();
                 List<BayesianGpuOptimizer.Observation> tierObservations = observations.stream()
@@ -303,12 +312,9 @@ public class AutoTuningSessionService {
                 BayesianGpuOptimizer.Candidate candidate = BayesianGpuOptimizer.next(tierCandidates, training, tierObservations);
                 int positionInTier = index % candidatesPerTier;
                 boolean hasOffsetCandidates = tierCandidates.stream().anyMatch(row -> row.memoryOffsetMhz() != null);
-                if (positionInTier <= 1 && hasOffsetCandidates)
+                if (!localRefinement && positionInTier <= 1 && hasOffsetCandidates)
                     candidate = memoryBoundaryCandidate(tierCandidates, candidate, true, positionInTier == 0);
-                else if (hasOffsetCandidates && positionInTier <= 3
-                        && tierCandidates.stream().anyMatch(row -> row.memoryMhz() != null))
-                    candidate = memoryBoundaryCandidate(tierCandidates, candidate, false, positionInTier == 2);
-                else if (positionInTier <= 1 && selection.memory() && caps.memoryClockControl())
+                else if (!localRefinement && positionInTier <= 1 && selection.memory() && caps.memoryClockControl())
                     candidate = memoryBoundaryCandidate(tierCandidates, candidate, false, positionInTier == 0);
                 if (candidate == null) continue;
                 update(state, state.session.withCandidate(candidate, ++measuredCandidates));
@@ -770,6 +776,27 @@ public class AutoTuningSessionService {
                 .orElse(preferred);
     }
 
+    /**
+     * Continue only when a tier has enough stable evidence and its best point is materially
+     * better than that tier's median. This avoids lengthening runs that have no efficient area
+     * to resolve, while allowing a low-memory/core neighbourhood to be mapped in detail.
+     */
+    static BayesianGpuOptimizer.Observation promisingEfficientRegion(
+            List<BayesianGpuOptimizer.Observation> observations) {
+        return observations.stream().filter(BayesianGpuOptimizer.Observation::stable)
+                .collect(java.util.stream.Collectors.groupingBy(row -> row.candidate().powerWatts())).values().stream()
+                .map(rows -> {
+                    if (rows.size() < 3) return null;
+                    List<Double> scores = rows.stream().map(BayesianGpuOptimizer.Observation::score)
+                            .sorted().toList();
+                    double median = scores.get(scores.size() / 2);
+                    BayesianGpuOptimizer.Observation best = rows.stream()
+                            .max(Comparator.comparingDouble(BayesianGpuOptimizer.Observation::score)).orElse(null);
+                    return best != null && best.score() >= median * REFINEMENT_ADVANTAGE ? best : null;
+                }).filter(Objects::nonNull)
+                .max(Comparator.comparingDouble(BayesianGpuOptimizer.Observation::score)).orElse(null);
+    }
+
     static List<Integer> powerTiers(int min, int start, int max) {
         if (max - min < 2) return List.of();
         if (start <= min) return List.of(min, min + (max - min) / 2, max);
@@ -817,6 +844,8 @@ public class AutoTuningSessionService {
                 null, null, null, 0, 0, List.of(), null); }
         Session withPhase(String phase) { return new Session(true, phase, startedAt, deviceId, model, coinId, algorithm,
                 softwareId, candidateIndex, candidateCount, currentCoreMhz, currentMemoryMhz, currentPowerWatts, sampleIndex, sampleCount, observations, result, currentMemoryOffsetMhz); }
+        Session withCandidateCount(int value) { return new Session(running, phase, startedAt, deviceId, model, coinId, algorithm,
+                softwareId, candidateIndex, value, currentCoreMhz, currentMemoryMhz, currentPowerWatts, sampleIndex, sampleCount, observations, result, currentMemoryOffsetMhz); }
         Session withCandidate(BayesianGpuOptimizer.Candidate c, int index) { return new Session(true, "auto_tuning_phase_sampling", startedAt,
                 deviceId, model, coinId, algorithm, softwareId, index, candidateCount, c.coreMhz(), c.memoryMhz(), c.powerWatts(), 0, SAMPLES_PER_CANDIDATE, observations, result, c.memoryOffsetMhz()); }
         Session withSampleIndex(int value) { return new Session(running, phase, startedAt, deviceId, model, coinId, algorithm,
