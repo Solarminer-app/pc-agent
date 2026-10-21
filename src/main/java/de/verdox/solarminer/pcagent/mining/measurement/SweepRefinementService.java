@@ -121,8 +121,7 @@ public class SweepRefinementService {
             var plan = SweepTuningPlan.from(baseline, gpu.minWatts(), Math.min(gpu.maxWatts(), gpu.driverDefaultWatts()),
                     policies.ceiling(gpu.deviceId(), 85));
             if (!power.setSweepPowerTarget(plan.anchors().getFirst(), gpu)) throw new IllegalStateException("power_mode_apply_failed");
-            if (!miner.resumeGpu(gpu.vendor(), gpu.index()))
-                throw new IllegalStateException(Objects.toString(miner.lastError(), "auto_tuning_requires_active_worker"));
+            resumeForRefinement(target, miner);
             Instant deadline = Instant.now().plusSeconds(240);
             put(target, "RUNNING", "benchmark_optimization_starting");
             while (!cancelled.getAsBoolean()) {
@@ -161,8 +160,8 @@ public class SweepRefinementService {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
             detail = Objects.toString(failure.getMessage(), "auto_tuning_failed");
             state = cancelled.getAsBoolean() || failure instanceof InterruptedException ? "CANCELLED"
-                    : "auto_tuning_selected_control_unavailable".equals(detail) ? "SKIPPED" : "FAILED";
-            unsafe = detail.contains("temperature") || detail.contains("gpu_reset") || detail.contains("clock_restore") || detail.contains("unresponsive");
+                    : Set.of("auto_tuning_selected_control_unavailable", "benchmark_optimization_insufficient_curve").contains(detail) ? "SKIPPED" : "FAILED";
+            unsafe = "benchmark_stop_failed".equals(detail) || detail.contains("temperature") || detail.contains("gpu_reset") || detail.contains("clock_restore") || detail.contains("unresponsive");
         } finally {
             // Always stop before removing native settings: otherwise the adapter would restart.
             try {
@@ -178,6 +177,21 @@ public class SweepRefinementService {
         }
         return unsafe;
     }
+    private void resumeForRefinement(EfficiencySweepService.Target target, GpuCoinMiner miner) {
+        var gpu = target.gpu();
+        if (miner.resumeGpu(gpu.vendor(), gpu.index())) return;
+        String reason = miner.lastError();
+        if (reason != null && reason.startsWith("Another miner already controls ")) {
+            // Only the sweep-owned physical GPU is reaped; external processes and siblings remain alone.
+            boolean stopped = true;
+            for (Coin coin : Coin.gpuCoins()) for (var adapter : miners.gpuMinerAdapters(coin))
+                stopped = adapter.miner().stopGpu(gpu.vendor(), gpu.index()) && stopped;
+            if (!stopped) throw new IllegalStateException("benchmark_stop_failed");
+            if (miner.resumeGpu(gpu.vendor(), gpu.index())) return;
+        }
+        throw new IllegalStateException(Objects.toString(miner.lastError(), "auto_tuning_requires_active_worker"));
+    }
+
     public record Progress(String id, String deviceId, String coin, String softwareId, String state, String detail,
                            int candidateIndex, int candidateCount, int sampleIndex, int sampleCount) { }
     public record Status(boolean enabled, List<Progress> runs) { }

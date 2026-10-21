@@ -4171,3 +4171,37 @@ Keine echten Miner-/Treiberbefehle, kein Deployment und keine Hardware-/Pool-
 Abnahme; externe Miner-/Betriebssystemdiagnosen und Kennungen bleiben nach der
 bestehenden Ausnahme unverändert. Aktueller Vertrag und offene Grenzen:
 [overclocking-center.md](overclocking-center.md).
+
+## 2026-10-21 — Audit and repair PeakMiner tuning handoff / PeakMiner-Tuning prüfen
+
+Inspected the active local Agent through read-only efficiency, tuning-session,
+worker and console APIs. Four of five Peak refinements had failed (ownership,
+masked native restart, earlier thermal/recovery block, and a single stable watt
+point); the remaining TITAN RTX continued measuring with effective clock/offset
+changes. Checked pinned upstream 2.19.1 CLI semantics. Preserved the running
+session and all existing thermal/stop gates.
+
+Fixed SRB native cleanup that could restart a stopped process during Peak
+preparation, shared spawn/external-classification race, missing bounded refinement
+handoff retry, missing recovery records for native memory writes and lost native
+start diagnostics. Operating-profile native writes use the same recovery
+admission as calibration. Single-point measured curves retain the safety gate
+but now give a localized insufficient-curve skip cause. The historical competing
+PID cannot be established from the retained console, and no hardware support
+claim is inferred from the source fixes.
+
+Verification: full JDK 21 `test standaloneJar` passes, **504 tests with zero
+failures, errors or skips**. Regressions exercise the real process-registration
+visibility window with harmless sleep children, both SRB cleanup lifecycles,
+native recovery persistence/restoration, native restart cause preservation,
+failed-marker rejection and bounded physical-GPU handoff. Closed DE/EN catalog,
+render simulation, literal scan and `git diff --check` pass. External miner/OS
+output remains verbatim. No deployment or live miner/clock write. Durable source,
+live evidence, limitations and open acceptance are in
+[peak-wildrig-beta.md](peak-wildrig-beta.md).
+
+Deutsch: Laufenden Fünf-GPU-Test lesend geprüft, vier Peak-Fehler bestätigt,
+eine GPU misst weiter. Die lokal korrigierten Fehler betreffen SRB-Bereinigung,
+Prozessregistrierung, GPU-Übergabe, native Wiederherstellung und Diagnosen.
+504 Tests, JAR und Sprachprüfungen bestehen. Bestehende Arbeit und laufender Test
+bleiben erhalten; kein Deployment, kein Live-Taktbefehl und keine Hardwareabnahme.

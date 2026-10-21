@@ -85,8 +85,13 @@ public final class MinerProcessRegistry {
         ManagedGpuProcess managed = GPU_PROCESSES.get(handle.pid());
         return managed != null && managed.process().isAlive();
     }
+    /** Wait for an in-flight check/spawn/register before classifying a visible process. */
+    public static synchronized boolean unmanagedGpuCoin(ProcessHandle handle) {
+        return handle.isAlive() && !managedGpuCoin(handle);
+    }
+
     public static boolean stopSrbExceptGpuCoins() {
-        return stop(running("srbminer").stream().filter(handle -> !managedGpuCoin(handle)).toList());
+        return stop(running("srbminer").stream().filter(MinerProcessRegistry::unmanagedGpuCoin).toList());
     }
 
     private static boolean stop(List<ProcessHandle> miners) {

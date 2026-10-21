@@ -41,6 +41,7 @@ class PearlMinerExternalProcessTest {
 
         try (var registry = mockStatic(MinerProcessRegistry.class)) {
             registry.when(() -> MinerProcessRegistry.running("srbminer")).thenReturn(List.of(external));
+            registry.when(() -> MinerProcessRegistry.unmanagedGpuCoin(external)).thenReturn(true);
             assertFalse(pearl.startGpu("NVIDIA", 0));
         }
 

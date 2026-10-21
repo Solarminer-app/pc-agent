@@ -40,6 +40,33 @@ class SweepRefinementServiceTest {
                 "Test", "PearlHash", 1000d/1e12, 60, 150, 80, 150, 180, 120, List.of(), "GPU", "Test", "gpu", null, null, MinerStats.PoolTelemetry.unavailable())));
         service.begin(true, List.of(target), false);
     }
+    @Test void refinementRetriesOneManagedHandoffOnOnlyTheSelectedPhysicalGpu() {
+        when(miner.resumeGpu("AMD", 0)).thenReturn(false, true);
+        when(miner.lastError()).thenReturn("Another miner already controls AMD:0");
+        when(miners.gpuMinerAdapters(Coin.PEARL)).thenReturn(List.of(new MinerFactory.GpuMinerAdapter("srbminer-multi", miner)));
+        var result = mock(AutoTuningSessionService.Session.class);
+        when(result.phase()).thenReturn("auto_tuning_complete"); when(result.result()).thenReturn(mock(AutoTuningProfileStore.Profile.class));
+        when(tuner.refineWithinSweep(eq("gpu"), eq("pearl"), eq(baseline), any())).thenReturn(result);
+        assertFalse(service.refine(target, baseline, () -> false));
+        assertEquals("COMPLETE", service.status().runs().getFirst().state());
+        verify(miner, times(2)).resumeGpu("AMD", 0); verify(miner, never()).stopGpu("AMD", 1);
+    }
+    @Test void persistentExternalConflictIsBoundedAndRetainsTheStartCause() {
+        when(miner.resumeGpu("AMD", 0)).thenReturn(false);
+        when(miner.lastError()).thenReturn("Another miner already controls AMD:0");
+        assertFalse(service.refine(target, baseline, () -> false));
+        verify(miner, times(2)).resumeGpu("AMD", 0); verifyNoInteractions(tuner);
+        assertEquals("Another miner already controls AMD:0", service.status().runs().getFirst().detail());
+    }
+    @Test void singleStablePowerPointIsAnInsufficientCurveNotASmallDriverRange() {
+        var single = new GpuEfficiencyStore.Profile("gpu", "Test", "pearl", "PearlHash", 100, 600d, 90d, 600d/90,
+                Instant.now(), List.of(baseline.steps().getFirst()), "srbminer-multi");
+        assertFalse(service.refine(target, single, () -> false));
+        assertEquals("SKIPPED", service.status().runs().getFirst().state());
+        assertEquals("benchmark_optimization_insufficient_curve", service.status().runs().getFirst().detail());
+        verifyNoInteractions(tuner); verify(miner, never()).resumeGpu(anyString(), anyInt());
+    }
+
     @Test void automaticallyHandsOffAndStopsBeforeClearingNativeSettings() {
         var result = mock(AutoTuningSessionService.Session.class);
         when(result.phase()).thenReturn("auto_tuning_complete");

@@ -44,8 +44,11 @@ public class MeasuredOperatingPointService {
             if (!resetClocks(gpu)) return false;
             var miner = miners.gpuMiner(Coin.byIdOrNull(candidate.coin()), candidate.minerSoftwareId());
             boolean written;
-            if ("NVIDIA".equalsIgnoreCase(gpu.vendor()) && miner instanceof MinerNativeTuning nativeTuning)
+            if ("NVIDIA".equalsIgnoreCase(gpu.vendor()) && miner instanceof MinerNativeTuning nativeTuning) {
+                var prepared = clocks.prepareNativeTuning(gpu.deviceId(), profile.memoryMhz(), profile.memoryOffsetMhz(), profile.memoryOffsetPstate());
+                if (!prepared.applied()) return false;
                 written = nativeTuning.applyNativeTuning(gpu, profile);
+            }
             else written = (profile.memoryOffsetMhz() == null
                     ? clocks.apply(gpu.deviceId(), profile.coreMhz(), profile.coreMhz(), profile.memoryMhz(), profile.memoryMhz())
                     : clocks.apply(gpu.deviceId(), profile.coreMhz(), profile.coreMhz(), null, null,

@@ -906,3 +906,29 @@ Eine fertige GPU wird unabhängig freigegeben und optional gestartet. Tests
 prüfen Abschluss, späteren Abbruch, erneuten manuellen Stopp und Budgetende.
 Reale Mehr-GPU-/Windows-, Hashrate-, Pool- und automatische Warteschlangen-
 Abnahme bleiben offen; die vorhandenen Hardware-Gates werden nicht geschlossen.
+
+### 2026-10-21 — BUG-011 PeakMiner tuning audit / PeakMiner-Tuning-Audit
+
+Read-only inspection confirmed four failed Peak refinements and one still
+measuring GPU in the active local five-GPU run. GPU 1's native restart lost its
+ownership-conflict cause behind a later `worker_stopped`; GPU 3 failed refinement
+admission with the same conflict. GPU 2 remained blocked after the prior SRB
+thermal/recovery failure; GPU 4 had only one stable power point.
+
+Source fixes and regressions now cover pause-preserving SRB native cleanup
+(previously a stopped SRB could restart during Peak preparation), atomic
+classification across a managed spawn's registration window, a bounded
+per-device refinement handoff retry, native memory recovery markers and
+preservation of the actual native start failure. Single-point curves now show
+a localized insufficient-measurement skip cause. Full Java build/tests pass
+(504 tests) and DE/EN checks pass. No live miner/OC command or deployment; the
+historical competing PID and controlled hardware rerun remain open. BUG-011 is
+not closed. See [Peak audit](agent-wiki/peak-wildrig-beta.md).
+
+Deutsch: Vier Peak-Nachoptimierungen sind im laufenden Test fehlgeschlagen,
+eine GPU misst weiter. Übergabe-/Bereinigungsrace, native Wiederherstellungsdaten
+und verlorene Startursachen wurden lokal mit Regressionstests korrigiert. Die
+Temperatur-/Recovery-Sperre bleibt erhalten; ein einzelner stabiler Power-Punkt
+wird korrekt als unzureichende Messbasis erklärt. 504 Tests/Sprachprüfungen
+bestanden, aber kein Deployment und kein neuer Hardwarelauf. Der historische
+konkurrierende Prozess bleibt unbekannt; BUG-011 bleibt offen.

@@ -142,6 +142,25 @@ public class GpuTuningService {
         catch (Exception | LinkageError ignored) { return null; }
     }
 
+    /** Miner CLI writes need the same crash/cleanup recovery marker as direct driver writes. */
+    public ApplyResult prepareNativeTuning(String deviceId, Integer memoryMhz, Integer memoryOffsetMhz, Integer pstate) {
+        LocalGpuPowerService.Gpu gpu = find(deviceId);
+        if (gpu == null) return new ApplyResult(false, "gpu_not_found");
+        if (memoryMhz != null && memoryOffsetMhz != null)
+            return new ApplyResult(false, "gpu_tuning_request_invalid");
+        OffsetRecovery offset = null;
+        if (memoryOffsetMhz != null) {
+            if (pstate == null) return new ApplyResult(false, "gpu_memory_offset_unavailable");
+            var range = memoryOffsetRangeForPstate(gpu, pstate);
+            if (range == null) return new ApplyResult(false, "gpu_memory_offset_unavailable");
+            if (memoryOffsetMhz < range.minMhz() || memoryOffsetMhz > range.maxMhz())
+                return new ApplyResult(false, "gpu_clock_target_out_of_range");
+            offset = new OffsetRecovery(pstate, range.currentMhz());
+        }
+        return persistRecovery(deviceId, memoryMhz != null, offset)
+                ? new ApplyResult(true, null) : new ApplyResult(false, "gpu_tuning_recovery_save_failed");
+    }
+
     /** Driver I/O used only by background refresh and explicit calibration/write actions. */
     public Capabilities refreshCapabilities(String deviceId) {
         LocalGpuPowerService.Gpu gpu = find(deviceId);

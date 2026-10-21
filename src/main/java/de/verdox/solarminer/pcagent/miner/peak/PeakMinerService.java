@@ -488,7 +488,7 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
     @Override public boolean setPowerCap(long watts) { return power.setTotalPowerTarget(watts, selectedGpus()); }
     @Override public void appendBenchmarkEvent(String message) { console.append(Coin.PEARL.id(), message); }
     @Override public boolean hasExternalMinerProcess() {
-        return MinerProcessRegistry.running("peakminer").stream().anyMatch(handle -> !MinerProcessRegistry.managedGpuCoin(handle));
+        return MinerProcessRegistry.running("peakminer").stream().anyMatch(MinerProcessRegistry::unmanagedGpuCoin);
     }
     @Override public MinerLogDiagnostics.Diagnosis diagnosis(String vendor, int index) {
         WorkerRunState state = runs.get(vendor + ":" + index);

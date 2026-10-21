@@ -12,7 +12,7 @@ record SweepTuningPlan(List<Integer> anchors, int minimumWatts, int maximumWatts
                 .sorted(Comparator.comparingInt(GpuEfficiencyStore.StepResult::limitWatts)).toList();
         if (safe.isEmpty()) throw new IllegalStateException("benchmark_optimization_no_safe_curve_points");
         int low = safe.getFirst().limitWatts(), high = safe.getLast().limitWatts();
-        if (high - low < 2) throw new IllegalStateException("auto_tuning_power_range_too_narrow");
+        if (high - low < 2) throw new IllegalStateException("benchmark_optimization_insufficient_curve");
         var efficient = safe.stream().max(Comparator.comparingDouble(row -> row.medianHashrateHs() / row.avgPowerWatts())).orElseThrow();
         var fastest = safe.stream().max(Comparator.comparingDouble(GpuEfficiencyStore.StepResult::medianHashrateHs)
                 .thenComparing(Comparator.comparingDouble(GpuEfficiencyStore.StepResult::avgPowerWatts).reversed())).orElseThrow();

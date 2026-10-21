@@ -577,3 +577,24 @@ The separate telemetry/results presentation now supersedes the combined
 measurement graph above; see the final section of `benchmark-workflow.md`.
 Die getrennte Telemetrie-/Ergebnisansicht ersetzt den gemeinsamen Messgraphen;
 siehe den letzten Abschnitt in `benchmark-workflow.md`.
+
+### Peak handoff and native recovery follow-up / Peak-Übergabe und native Wiederherstellung
+
+2026-10-21: [PeakMiner audit](peak-wildrig-beta.md#peakminer-tuning-audit--peakminer-tuning-prüfung-2026-10-21)
+records a live five-GPU refinement snapshot and fixes to SRB pause-preserving
+cleanup, atomic managed/external process classification, bounded refinement
+handoff, per-device native failure diagnosis and durable recovery admission for
+native memory locks/offsets. Native writes now use `GpuTuningService.prepareNativeTuning`
+before invoking the adapter, including measured operating-point and Auto Tuning
+profile application. Final confirmations and temperature limits are unchanged;
+one stable power point remains insufficient for a curve-guided search and gets
+an explicit localized skip reason. Full source/504-test verification is distinct
+from the still-open controlled hardware rerun.
+
+Deutsch: Der verlinkte Audit dokumentiert den laufenden Fünf-GPU-Test und die
+Korrekturen. Native Speicheränderungen erfassen vorab den ursprünglichen Offset
+und berührte feste Takte für Bereinigung/Neustart. SRB-Bereinigung erhält einen
+vorherigen Stopp. Fehlgeschlagene native Neustarts behalten die konkrete Ursache.
+Temperaturgrenzen und lange Bestätigungen bleiben unverändert; ein einzelner
+stabiler Power-Punkt wird mit genauer Ursache übersprungen. 504 Tests ersetzen
+keinen erneuten Hardwarelauf.

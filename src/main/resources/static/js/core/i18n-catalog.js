@@ -17,6 +17,7 @@
 // data-i18n-aria-label; the German text inside the markup is only the no-JS fallback.
 window.SolarMinerI18nCatalog = {
     frontend: {
+        "benchmark_optimization_insufficient_curve": {de: "Tuning übersprungen: Die gemessene Power-Kurve enthält zu wenige unterschiedliche stabile Watt-Punkte. Stabile Messungen bleiben nutzbar.", en: "Tuning skipped: the measured power curve has too few distinct stable watt points. Stable measurements remain usable."},
         "lab_run_needs_attention": {de: "Eine GPU benötigt Aufmerksamkeit. Öffne ihren Arbeitsplatz für die genaue Ursache.", en: "A GPU needs attention. Open its workspace for the exact cause."},
         "lab_run_partial": {de: "Lauf beendet; einige Tests sind unvollständig. Details findest du je GPU.", en: "Run finished; some tests are incomplete. See each GPU for details."},
         "lab_other_tools": {de: "Kurzbenchmarks und CPU-Messungen", en: "Short benchmarks and CPU measurements"},

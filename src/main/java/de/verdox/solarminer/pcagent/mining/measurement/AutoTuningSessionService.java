@@ -5,6 +5,7 @@ import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.lowlevel.GpuTuningService;
 import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 import de.verdox.solarminer.pcagent.miner.MinerFactory;
+import de.verdox.solarminer.pcagent.miner.GpuCoinMiner;
 import de.verdox.solarminer.pcagent.miner.MinerNativeTuning;
 import de.verdox.solarminer.pcagent.mining.MiningService;
 import jakarta.annotation.PreDestroy;
@@ -481,8 +482,7 @@ public class AutoTuningSessionService {
                 if (state.ownedBySweep && !power.setSweepPowerTarget(candidate.powerWatts(), gpu))
                     throw new IllegalStateException("power_mode_apply_failed");
                 GpuTuningService.ApplyResult clockWrite = useMinerCommands
-                        ? new GpuTuningService.ApplyResult(nativeTuning.applyNativeTuning(gpu, commandProfile),
-                        "miner_native_tuning_failed")
+                        ? applyNativeCandidate(gpu, commandProfile, nativeTuning, miners.gpuMinerForWorker(coin.id(), gpu.deviceId()).orElseThrow())
                         : !selection.core() && !selection.memory()
                         ? new GpuTuningService.ApplyResult(true, null)
                         : candidate.memoryOffsetMhz() == null
@@ -503,6 +503,9 @@ public class AutoTuningSessionService {
                             || !clockWrite.applied() && "NVIDIA".equalsIgnoreCase(gpu.vendor())
                             && tuning.readEffectiveClocks(gpu.deviceId()) == null)
                         throw new IllegalStateException("auto_tuning_gpu_unresponsive");
+                    // A failed native restart can leave a stopped worker. Do not cache later
+                    // candidates onto that stopped process and hide the original start cause.
+                    if (useMinerCommands && !clockWrite.applied()) throw new IllegalStateException(clockWrite.reason());
                     if (!clockWrite.applied() && candidate.memoryOffsetMhz() != null) {
                         if (!selection.core()) throw new IllegalStateException("auto_tuning_selected_control_unavailable");
                         if (!tuning.restoreDefaults(gpu.deviceId()).applied())
@@ -612,6 +615,18 @@ public class AutoTuningSessionService {
             latest.put(gpu.deviceId(), state.session);
             if (!state.ownedBySweep) { runLock.endAutoTuning(); startNextQueuedWorker(); }
         }
+    }
+
+    private GpuTuningService.ApplyResult applyNativeCandidate(LocalGpuPowerService.Gpu gpu,
+            AutoTuningProfileStore.Profile profile, MinerNativeTuning nativeTuning, GpuCoinMiner miner) {
+        var prepared = tuning.prepareNativeTuning(gpu.deviceId(), profile.memoryMhz(), profile.memoryOffsetMhz(), profile.memoryOffsetPstate());
+        if (!prepared.applied()) return prepared;
+        if (nativeTuning.applyNativeTuning(gpu, profile)) return new GpuTuningService.ApplyResult(true, null);
+        String error = miner.gpuStates(List.of(gpu)).stream()
+                .filter(row -> row.vendor().equals(gpu.vendor()) && row.index() == gpu.index())
+                .map(de.verdox.solarminer.pcagent.miner.GpuState::lastError).filter(Objects::nonNull)
+                .filter(value -> !value.isBlank()).findFirst().orElse(miner.lastError());
+        return new GpuTuningService.ApplyResult(false, error == null || error.isBlank() ? "miner_native_tuning_failed" : error);
     }
 
     private boolean recoverWorker(RunState state, LocalGpuPowerService.Gpu gpu, Coin coin, int originalPower) throws InterruptedException {

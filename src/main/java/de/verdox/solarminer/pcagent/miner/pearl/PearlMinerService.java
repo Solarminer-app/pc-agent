@@ -477,9 +477,13 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
 
     @Override
     public synchronized boolean clearNativeTuning(LocalGpuPowerService.Gpu gpu) {
+        if (!nativeTuning.containsKey(gpu.deviceId())) return true;
+        WorkerRunState state = runs.get(gpu.vendor() + ":" + gpu.index());
+        boolean wasRunning = state != null && state.running();
+        if (wasRunning && !stopGpu(gpu.vendor(), gpu.index())) return false;
         nativeTuning.remove(gpu.deviceId());
-        return !runs.containsKey(gpu.vendor() + ":" + gpu.index()) || stopGpu(gpu.vendor(), gpu.index())
-                && startGpu(gpu.vendor(), gpu.index());
+        // Cross-miner preparation already stopped this GPU; clearing settings must preserve that stop.
+        return !wasRunning || startGpu(gpu.vendor(), gpu.index());
     }
 
     @Override
@@ -721,7 +725,7 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
 
     private boolean hasExternalMiner() {
         return MinerProcessRegistry.running("srbminer").stream()
-                .filter(handle -> !MinerProcessRegistry.managedGpuCoin(handle))
+                .filter(MinerProcessRegistry::unmanagedGpuCoin)
                 .anyMatch(handle -> runs.values().stream().noneMatch(run -> run.process != null && run.process.pid() == handle.pid()));
     }
 

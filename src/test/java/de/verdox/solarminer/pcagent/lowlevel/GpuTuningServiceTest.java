@@ -16,6 +16,36 @@ import static org.mockito.Mockito.*;
 class GpuTuningServiceTest {
     @TempDir Path directory;
 
+    @Test void nativeOffsetsAreRecordedBeforeExternalWritesAndRecoverTheirOriginalValue() throws Exception {
+        var power = nvidia(); var value = new AtomicInteger(35);
+        var driver = new GpuTuningService.MemoryOffsetDriver() {
+            public GpuTuningService.MemoryOffsetRange probe(int index, int pstate) { return new GpuTuningService.MemoryOffsetRange(pstate, -2000, 6000, value.get()); }
+            public void set(int index, int pstate, int offset) { value.set(offset); }
+            public void setCoreTarget(int index, int core) { }
+        };
+        Path marker = directory.resolve("native-offset-recovery.json");
+        var tuning = new GpuTuningService(power, new ObjectMapper(), marker.toString(), driver);
+        assertTrue(tuning.prepareNativeTuning("GPU-test", null, -1200, -1).applied());
+        assertEquals(35, value.get(), "Preparation records recovery without writing the driver");
+        value.set(-1200); // Native miner changes the physical setting after the marker is durable.
+        assertTrue(tuning.prepareNativeTuning("GPU-test", null, -1500, -1).applied()); value.set(-1500);
+        assertEquals(35, new ObjectMapper().readTree(Files.readString(marker)).get("GPU-test").get("originalOffsetMhz").asInt());
+        new GpuTuningService(power, new ObjectMapper(), marker.toString(), driver).recoverInterruptedTuning();
+        assertEquals(35, value.get()); assertFalse(Files.exists(marker));
+    }
+
+    @Test void nativeFixedMemoryIsResetAndFailedMarkerPersistencePreventsAdmission() throws Exception {
+        var power = nvidia();
+        var tuning = new GpuTuningService(power, new ObjectMapper(), directory.resolve("native-fixed.json").toString());
+        assertTrue(tuning.prepareNativeTuning("GPU-test", 5000, null, null).applied());
+        assertTrue(tuning.restoreDefaults("GPU-test").applied());
+        verify(power).runTuningCommand(List.of("nvidia-smi", "-i", "GPU-test", "--reset-memory-clocks"));
+        Path blocked = directory.resolve("not-a-directory"); Files.writeString(blocked, "test");
+        var unavailable = new GpuTuningService(power, new ObjectMapper(), blocked.resolve("marker.json").toString());
+        assertEquals("gpu_tuning_recovery_save_failed", unavailable.prepareNativeTuning("GPU-test", 5000, null, null).reason());
+        assertFalse(unavailable.hasPendingRecovery("GPU-test"));
+    }
+
     @Test
     void gpuResetTargetsOnlyRequestedUuidAndReportsDriverRejection() throws Exception {
         LocalGpuPowerService power = mock(LocalGpuPowerService.class);

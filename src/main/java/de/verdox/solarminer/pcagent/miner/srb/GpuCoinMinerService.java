@@ -377,10 +377,13 @@ public class GpuCoinMinerService extends AbstractSrbMinerEngine {
     }
 
     public synchronized boolean clearNativeTuning(String coin, LocalGpuPowerService.Gpu gpu) {
-        nativeTuning.remove(coin + ":" + gpu.deviceId());
+        String key = coin + ":" + gpu.deviceId();
+        if (!nativeTuning.containsKey(key)) return true;
         WorkerRunState run = runs.get(coin + ":" + gpu.vendor() + ":" + gpu.index());
-        return run == null || !run.running() || stopGpu(coin, gpu.vendor(), gpu.index())
-                && startGpu(coin, gpu.vendor(), gpu.index());
+        boolean wasRunning = run != null && run.running();
+        if (wasRunning && !stopGpu(coin, gpu.vendor(), gpu.index())) return false;
+        nativeTuning.remove(key);
+        return !wasRunning || startGpu(coin, gpu.vendor(), gpu.index());
     }
 
     private boolean hasUnmanagedMiner() {

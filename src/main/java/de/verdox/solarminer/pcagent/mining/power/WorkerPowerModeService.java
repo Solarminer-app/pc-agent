@@ -203,6 +203,8 @@ public class WorkerPowerModeService {
                         .filter(de.verdox.solarminer.pcagent.miner.MinerNativeTuning.class::isInstance)
                         .map(de.verdox.solarminer.pcagent.miner.MinerNativeTuning.class::cast);
                 if (nativeTuning.isPresent()) {
+                    var prepared = gpuTuning.prepareNativeTuning(deviceId, profile.memoryMhz(), profile.memoryOffsetMhz(), profile.memoryOffsetPstate());
+                    if (!prepared.applied()) return new Selection(choice.mode(), null, prepared.reason());
                     return nativeTuning.get().applyNativeTuning(gpu, profile)
                             ? new Selection(choice.mode(), profile.powerLimitWatts(), null)
                             : new Selection(choice.mode(), null, "miner_native_tuning_failed");

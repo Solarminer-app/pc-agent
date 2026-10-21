@@ -444,7 +444,7 @@ public class QuanPoolMinerService extends AbstractMinerEngine implements GpuCoin
     @Override public boolean setPowerCap(long watts) { return power.setTotalPowerTarget(watts, selectedGpus()); }
     @Override public void appendBenchmarkEvent(String message) { console.append(Coin.QUANTUS.id(), message); }
     @Override public boolean hasExternalMinerProcess() {
-        return MinerProcessRegistry.running("quanpool").stream().anyMatch(handle -> !MinerProcessRegistry.managedGpuCoin(handle));
+        return MinerProcessRegistry.running("quanpool").stream().anyMatch(MinerProcessRegistry::unmanagedGpuCoin);
     }
     @Override public MinerLogDiagnostics.Diagnosis diagnosis(String vendor, int index) {
         WorkerRunState state = runs.get(vendor + ":" + index);

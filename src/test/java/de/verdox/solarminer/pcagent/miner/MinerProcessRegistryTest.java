@@ -11,6 +11,40 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @EnabledOnOs(OS.LINUX)
 class MinerProcessRegistryTest {
+    @Test void externalProcessCheckWaitsUntilAVisibleSiblingIsRegistered() throws Exception {
+        var visible = new CompletableFuture<Process>();
+        var allowRegistration = new CountDownLatch(1);
+        Process process = null;
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        try {
+            var started = executor.submit(() -> MinerProcessRegistry.startGpu("GPU-visible-before-registration", () -> {
+                Process child = new ProcessBuilder("sleep", "60").start();
+                visible.complete(child);
+                try { if (!allowRegistration.await(5, TimeUnit.SECONDS)) throw new IOException("test registration timed out"); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IOException(interrupted); }
+                return child;
+            }));
+            process = visible.get(5, TimeUnit.SECONDS);
+            var handle = process.toHandle();
+            var checking = new CountDownLatch(1);
+            var external = executor.submit(() -> { checking.countDown(); return MinerProcessRegistry.unmanagedGpuCoin(handle); });
+            assertTrue(checking.await(5, TimeUnit.SECONDS));
+            assertThrows(TimeoutException.class, () -> external.get(100, TimeUnit.MILLISECONDS),
+                    "An adapter cannot classify the in-flight managed spawn as external");
+            allowRegistration.countDown();
+            assertSame(process, started.get(5, TimeUnit.SECONDS));
+            assertFalse(external.get(5, TimeUnit.SECONDS));
+            MinerProcessRegistry.unregisterGpuCoin(process);
+            assertTrue(MinerProcessRegistry.unmanagedGpuCoin(handle), "A genuinely unregistered live process stays blocked");
+            process.destroyForcibly(); assertTrue(process.waitFor(5, TimeUnit.SECONDS));
+            assertFalse(MinerProcessRegistry.unmanagedGpuCoin(handle), "An exited snapshot is not an external miner");
+        } finally {
+            allowRegistration.countDown();
+            if (process != null) { process.destroyForcibly(); process.waitFor(5, TimeUnit.SECONDS); MinerProcessRegistry.unregisterGpuCoin(process); }
+            executor.close();
+        }
+    }
+
     @Test void staleExitCannotReleaseAnotherProcessWithTheSamePid() {
         Process old = org.mockito.Mockito.mock(Process.class);
         Process replacement = org.mockito.Mockito.mock(Process.class);

@@ -97,3 +97,73 @@ Deutsch: Die eingebundene Version 2.19.1 nutzt nun ihre nativen OC-Parameter fü
 die gemeinsame Kalibrierung, Nachoptimierung und Profilanwendung. Parameter,
 Tests und offene Hardware-Nachweise stehen im verlinkten Tuning-Vertrag.
 Der Windows-Nachweis für Übergabe und Hashrate-Einheit (BUG-011) bleibt offen.
+
+## PeakMiner tuning audit / PeakMiner-Tuning-Prüfung (2026-10-21)
+
+Read-only local API/console inspection of the still-active combined run confirmed
+four failed PeakMiner refinements and one active refinement. GPU indexes below
+are the Agent's NVIDIA indexes, not PeakMiner's isolated local index 0.
+
+| GPU | Model | Observed result / Beobachtetes Ergebnis |
+| --- | --- | --- |
+| 0 | TITAN RTX | Still measuring; stable samples show requested core changes and memory-offset effects / Läuft weiter; stabile Messwerte zeigen Takt- und Offset-Wirkung |
+| 1 | TITAN RTX | `auto_tuning_worker_stopped`; its first native candidate failed and the console retained `Another miner already controls NVIDIA:1` / Erster nativer Kandidat scheiterte beim Neustart mit Belegungskonflikt |
+| 2 | TITAN RTX | `auto_tuning_gpu_requires_attention` after the preceding SRB refinement reported `gpu_clock_restore_failed`; the latest SRB session also retained a thermal-limit result / Nach vorherigem Wiederherstellungs-/Temperaturfehler gesperrt |
+| 3 | RTX 2080 Ti | `Another miner already controls NVIDIA:3` before refinement admission / Belegungskonflikt vor der Nachoptimierung |
+| 4 | TITAN RTX | `auto_tuning_power_range_too_narrow`; its actual Peak sweep had exactly one stable point, 100 W / Tatsächlich nur ein stabiler Power-Punkt bei 100 W |
+
+The pinned [2.19.1 CLI](https://github.com/peakminer/peakminer/blob/v2.19.1/README.md#overclocking--temperature-limits)
+confirms the parameter meanings used by the adapter. Source audit and regression
+reproduction found coordinator/lifecycle defects, rather than evidence that all
+native OC parameters are ignored:
+
+- Pearl/SRB `clearNativeTuning` restarted a previously stopped worker merely
+  because a remembered run existed, even with no native settings. Combined
+  preparation clears all adapters on the target GPU; that could reintroduce
+  SRB during a Peak handoff. Cleanup now preserves stopped state, does nothing
+  when there are no settings, and retains settings if stopping a live process
+  fails. Shared SRB follows the same stop-failure rule.
+- A visible process between `ProcessBuilder.start` and registry insertion could
+  be classified as external by another adapter. `unmanagedGpuCoin` shares the
+  spawn/register lock and checks current liveness, preserving the genuine
+  external-process guard. The same safe classification is used by GPU adapters
+  and the SRB external-stop filter. A real `sleep`-process concurrency test
+  reproduces the visibility window; it is not a GPU/miner process test.
+- Refinement startup now has the same single, device-scoped managed handoff
+  retry as the sweep start. It never kills external processes or touches a
+  sibling GPU; a failed managed stop blocks continuation.
+- Native CLI memory locks/offsets had bypassed the direct-driver recovery marker.
+  `prepareNativeTuning` now persists the touched domain and original offset
+  before a native calibration or operating-profile write. Cleanup/interrupted
+  startup restores that original offset and resets touched fixed memory.
+  Persistence failure prevents the native write.
+- A failed native restart no longer proceeds to cache another candidate onto a
+  stopped process, eventually hiding the cause as `auto_tuning_worker_stopped`.
+  The failed result retains the device-specific start error. Recovery faults
+  still override the final status for safety.
+- A single stable watt point now skips refinement with the localized
+  `benchmark_optimization_insufficient_curve`, rather than suggesting that the
+  driver's actual power range is too small. The measured-curve safety gate
+  remains; no unmeasured higher caps are invented.
+
+The live logs do not identify the historical competing PID. The reproduced
+code defects can produce the observed conflicts; they do not establish which
+one caused each historical collision. GPU 2's thermal/recovery block was not
+cleared. Physical nonzero-GPU OC mapping, recovery and Windows/Linux acceptance
+still need a controlled rerun with the patched build. No live stop/start, OC
+write, deployment or restart was performed during this audit.
+
+Verification: JDK 21 `test standaloneJar` passed, 504 tests, no failures/errors/
+skips. Added native failure/recovery-marker, SRB cleanup, bounded refinement
+handoff and atomic process-classification regressions. DE/EN catalog/render and
+untranslated-literal checks pass; miner/OS console output remains verbatim.
+
+Deutsch: Vier fehlgeschlagene Peak-Läufe sind am laufenden Agent belegt; eine
+GPU optimiert weiterhin mit sichtbaren Takteffekten. Startparameter entsprechen
+der versionierten Dokumentation. Lokal korrigiert wurden ungewollte SRB-Neustarts
+beim Bereinigen, eine Registrierungsrace, Wiederherstellungsdaten für native
+Speicheränderungen und verlorene Neustartdiagnosen. Ein einzelner stabiler
+Watt-Punkt erhält eine genaue Überspringen-Ursache. 504 Tests und Sprachprüfungen
+bestehen. Der damalige konkurrierende Prozess bleibt unbekannt; vorhandene
+Temperatur-/Recovery-Sperren bleiben erhalten. Der laufende Test wurde nicht
+verändert, der Patch nicht ausgerollt; reale Abnahme bleibt offen.
