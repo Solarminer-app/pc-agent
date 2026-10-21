@@ -13,7 +13,6 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
@@ -93,67 +92,75 @@ public abstract class AbstractSrbMinerEngine extends AbstractMinerEngine {
                 HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + run.apiPort + "/"))
                         .timeout(Duration.ofSeconds(2)).GET().build();
                 HttpResponse<String> response = apiClient.send(request, HttpResponse.BodyHandlers.ofString());
-                if (run.process != process || !process.isAlive() || run.status != MinerStats.MinerStatus.MINING) return;
-                if (response.statusCode() != 200 && policy.reportHttpErrorsSeparately()) {
-                    // Pearl historically reported non-200 as its own detail and kept polling.
-                    run.healthy = false;
-                    run.detail = "Miner API returned HTTP " + response.statusCode();
-                } else {
-                    if (response.statusCode() != 200) throw new IOException("Miner-API HTTP " + response.statusCode());
-                    JsonNode algorithms = mapper().readTree(response.body()).path("algorithms");
-                    JsonNode info = algorithms.isArray() && !algorithms.isEmpty()
-                            ? algorithms.get(0) : mapper().createObjectNode();
-                    JsonNode pool = info.path("pool");
-                    double rate = reportedHashrate(info);
-                    Instant now = Instant.now();
-                    if (rate > 0) lastPositiveHashrate = now;
-                    run.hashrate = policy.hashrateGrace()
-                            ? displayedHashrate(rate, run.hashrate, lastPositiveHashrate, now)
-                            : (Double.isFinite(rate) && rate > 0 ? rate : 0);
-                    MinerShareTelemetry.applySrbShares(pool, run);
-                    long age = pool.path("last_job_received").asLong(0);
-                    boolean poolConnected = pool.path("uptime").asLong(0) > 0;
-                    boolean recentJob = poolConnected && age > 0 && age < 120;
-                    if (poolConnected) lastPoolConnection = Instant.now();
-                    // KAWPOW jobs can validly outlive the short job-refresh cadence used by
-                    // some pools. A worker that is still producing hashes therefore proves
-                    // that it received a usable job; do not turn an old last_job_received
-                    // counter into a false pool outage (O2a: this now applies to Pearl too).
-                    // A usable job also resets the Pearl-style job-freshness stall clock.
-                    if (policy.jobUsable(poolConnected, recentJob, rate)) { hadJob = true; lastFreshJob = now; }
-                    // Pearl's historical pool health was job-based; the GPU coins require a
-                    // live hashrate. Both keep their own semantics via the policy.
-                    run.healthy = poolConnected && (policy.healthyRequiresHashrate()
-                            ? rate > 0 : (recentJob || (policy.usableJobFromHashrate() && rate > 0)));
-                    if (rate > 0) { hadHashrate = true; lastHashrate = now; }
-                    if (run.healthy) run.detail = String.format(policy.hashingDetail(), age);
-                    else if (poolConnected) run.detail = policy.connectedDetail();
-                    else run.detail = policy.waitingDetail();
+                synchronized (run) {
+                    if (!run.monitors(process)) return;
+                    if (!process.isAlive()) return;
+                    if (response.statusCode() != 200 && policy.reportHttpErrorsSeparately()) {
+                        // Pearl historically reported non-200 as its own detail and kept polling.
+                        run.healthy = false;
+                        run.detail = "Miner API returned HTTP " + response.statusCode();
+                    } else {
+                        if (response.statusCode() != 200) throw new IOException("Miner-API HTTP " + response.statusCode());
+                        JsonNode algorithms = mapper().readTree(response.body()).path("algorithms");
+                        JsonNode info = algorithms.isArray() && !algorithms.isEmpty()
+                                ? algorithms.get(0) : mapper().createObjectNode();
+                        JsonNode pool = info.path("pool");
+                        double rate = reportedHashrate(info);
+                        Instant now = Instant.now();
+                        if (rate > 0) lastPositiveHashrate = now;
+                        run.hashrate = policy.hashrateGrace()
+                                ? displayedHashrate(rate, run.hashrate, lastPositiveHashrate, now)
+                                : (Double.isFinite(rate) && rate > 0 ? rate : 0);
+                        MinerShareTelemetry.applySrbShares(pool, run);
+                        long age = pool.path("last_job_received").asLong(0);
+                        boolean poolConnected = pool.path("uptime").asLong(0) > 0;
+                        boolean recentJob = poolConnected && age > 0 && age < 120;
+                        if (poolConnected) lastPoolConnection = Instant.now();
+                        // KAWPOW jobs can validly outlive the short job-refresh cadence used by
+                        // some pools. A worker that is still producing hashes therefore proves
+                        // that it received a usable job; do not turn an old last_job_received
+                        // counter into a false pool outage (O2a: this now applies to Pearl too).
+                        // A usable job also resets the Pearl-style job-freshness stall clock.
+                        if (policy.jobUsable(poolConnected, recentJob, rate)) { hadJob = true; lastFreshJob = now; }
+                        // Pearl's historical pool health was job-based; the GPU coins require a
+                        // live hashrate. Both keep their own semantics via the policy.
+                        run.healthy = poolConnected && (policy.healthyRequiresHashrate()
+                                ? rate > 0 : (recentJob || (policy.usableJobFromHashrate() && rate > 0)));
+                        if (rate > 0) { hadHashrate = true; lastHashrate = now; }
+                        if (run.healthy) run.detail = String.format(policy.hashingDetail(), age);
+                        else if (poolConnected) run.detail = policy.connectedDetail();
+                        else run.detail = policy.waitingDetail();
+                    }
                 }
             } catch (Exception e) {
-                if (run.process != process || !process.isAlive() || run.status != MinerStats.MinerStatus.MINING) return;
-                run.hashrate = policy.hashrateGrace()
-                        ? displayedHashrate(0, run.hashrate, lastPositiveHashrate, Instant.now()) : 0;
-                run.healthy = false;
-                run.detail = policy.apiUnreachableDetail();
+                synchronized (run) {
+                    if (!run.monitors(process)) return;
+                    if (!process.isAlive()) return;
+                    run.hashrate = policy.hashrateGrace()
+                            ? displayedHashrate(0, run.hashrate, lastPositiveHashrate, Instant.now()) : 0;
+                    run.healthy = false;
+                    run.detail = policy.apiUnreachableDetail();
+                }
             }
-            if (run.status != MinerStats.MinerStatus.MINING) return;
-            // Pearl's stall clock historically tracked fresh jobs; the GPU coins' tracks the
-            // live pool connection. Both keep their own clock via the policy.
-            Instant stallAnchor = policy.jobFreshnessStall() ? lastFreshJob : lastPoolConnection;
-            if ((!hadJob && Duration.between(launched, Instant.now()).toSeconds() >= policy.startupJobSeconds())
-                    || (hadJob && Duration.between(stallAnchor, Instant.now()).toSeconds() >= policy.poolStallSeconds())
-                    || (policy.feeRouteCheck() && !feeRouteReady.getAsBoolean())) {
-                fail(run, policy.poolFailMessage().build(!hadJob, run.gpuLabel(), run.output.get()));
-                process.destroy();
-                return;
-            }
-            if (policy.hashrateStartupSeconds() > 0 && hadJob
-                    && ((!hadHashrate && Duration.between(launched, Instant.now()).toSeconds() >= policy.hashrateStartupSeconds())
-                    || (hadHashrate && Duration.between(lastHashrate, Instant.now()).toSeconds() >= policy.hashrateStallSeconds()))) {
-                fail(run, policy.hashrateFailMessage());
-                process.destroy();
-                return;
+            synchronized (run) {
+                if (!run.monitors(process)) return;
+                // Pearl's stall clock historically tracked fresh jobs; the GPU coins' tracks the
+                // live pool connection. Both keep their own clock via the policy.
+                Instant stallAnchor = policy.jobFreshnessStall() ? lastFreshJob : lastPoolConnection;
+                if ((!hadJob && Duration.between(launched, Instant.now()).toSeconds() >= policy.startupJobSeconds())
+                        || (hadJob && Duration.between(stallAnchor, Instant.now()).toSeconds() >= policy.poolStallSeconds())
+                        || (policy.feeRouteCheck() && !feeRouteReady.getAsBoolean())) {
+                    fail(run, policy.poolFailMessage().build(!hadJob, run.gpuLabel(), run.output.get()));
+                    terminateFailedProcess(process);
+                    return;
+                }
+                if (policy.hashrateStartupSeconds() > 0 && hadJob
+                        && ((!hadHashrate && Duration.between(launched, Instant.now()).toSeconds() >= policy.hashrateStartupSeconds())
+                        || (hadHashrate && Duration.between(lastHashrate, Instant.now()).toSeconds() >= policy.hashrateStallSeconds()))) {
+                    fail(run, policy.hashrateFailMessage());
+                    terminateFailedProcess(process);
+                    return;
+                }
             }
             try { Thread.sleep(5000); }
             catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
@@ -162,7 +169,7 @@ public abstract class AbstractSrbMinerEngine extends AbstractMinerEngine {
 
     /** True when the monitored process died on its own while the worker was still mining. */
     protected boolean unexpectedExit(WorkerRunState run, Process done) {
-        return run.process == done && run.status == MinerStats.MinerStatus.MINING;
+        return run.monitors(done);
     }
 
     /**
@@ -180,28 +187,18 @@ public abstract class AbstractSrbMinerEngine extends AbstractMinerEngine {
         } else {
             console().append(run.consoleId, "[SolarMiner] Stop: " + stopSource);
         }
-        process.destroy();
-        try {
-            if (!process.waitFor(5, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                if (!process.waitFor(5, TimeUnit.SECONDS)) return false;
-            }
-            if (stoppedLine != null) {
-                console().append(run.consoleId, "[SolarMiner] " + stoppedLine);
-                console().append(aggregateConsoleId(run), "[" + aggregateTag(run) + "] " + stoppedLine);
-            }
-            return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            process.destroyForcibly();
-            return false;
+        boolean stopped = run.finishStop(de.verdox.solarminer.pcagent.support.ProcessTermination.terminate(
+                List.of(process.toHandle()), Duration.ofSeconds(5)));
+        if (stopped && stoppedLine != null) {
+            console().append(run.consoleId, "[SolarMiner] " + stoppedLine);
+            console().append(aggregateConsoleId(run), "[" + aggregateTag(run) + "] " + stoppedLine);
         }
+        return stopped;
     }
 
     /** True when a crashed worker may still be restarted by the O1 watchdog (per-run bound). */
     protected static boolean restartEligible(WorkerRunState run) {
-        return run.status == MinerStats.MinerStatus.ERROR && !run.running()
-                && restartBudgetLeft(run.restartAttempts);
+        return run.restartEligible();
     }
 
     /** SRBMiner has used gpu.total, 1m and 1min hashrate fields across releases. */

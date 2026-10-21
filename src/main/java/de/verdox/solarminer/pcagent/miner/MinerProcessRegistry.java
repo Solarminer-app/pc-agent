@@ -1,16 +1,26 @@
 package de.verdox.solarminer.pcagent.miner;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
 
 /** Cross-platform view and shutdown guard for miner processes, including processes started elsewhere. */
 public final class MinerProcessRegistry {
-    private static final java.util.Set<Long> MANAGED_GPU_COIN_PIDS = java.util.concurrent.ConcurrentHashMap.newKeySet();
-    private static final java.util.Map<Long, String> GPU_COIN_DEVICES = new java.util.concurrent.ConcurrentHashMap<>();
+    private record ManagedGpuProcess(Process process, String deviceId) { }
+    private static final java.util.Map<Long, ManagedGpuProcess> GPU_PROCESSES = new java.util.concurrent.ConcurrentHashMap<>();
     private MinerProcessRegistry() { }
+
+    @FunctionalInterface
+    public interface ProcessStarter { Process start() throws java.io.IOException; }
+
+    /** Serializes check + spawn + registration across all GPU miner families. */
+    public static synchronized Process startGpu(String deviceId, ProcessStarter starter) throws java.io.IOException {
+        if (gpuCoinUsesDevice(deviceId)) throw new java.io.IOException("worker_device_busy");
+        Process process = starter.start();
+        registerGpuCoin(process, deviceId);
+        process.onExit().thenAccept(MinerProcessRegistry::unregisterGpuCoin);
+        return process;
+    }
 
     public static List<ProcessHandle> runningMiners() {
         return ProcessHandle.allProcesses().filter(ProcessHandle::isAlive)
@@ -54,20 +64,27 @@ public final class MinerProcessRegistry {
 
     public static boolean stop(String miner) { return stop(running(miner)); }
 
-    public static void registerGpuCoin(Process process) { MANAGED_GPU_COIN_PIDS.add(process.pid()); }
+    public static void registerGpuCoin(Process process) { registerGpuCoin(process, null); }
+
     public static void registerGpuCoin(Process process, String deviceId) {
-        registerGpuCoin(process);
-        GPU_COIN_DEVICES.put(process.pid(), deviceId);
+        GPU_PROCESSES.put(process.pid(), new ManagedGpuProcess(process, deviceId));
     }
+
     public static boolean gpuCoinUsesDevice(String deviceId) {
-        return runningMiners().stream().filter(MinerProcessRegistry::managedGpuCoin)
-                .anyMatch(handle -> deviceId.equals(GPU_COIN_DEVICES.get(handle.pid())) || !GPU_COIN_DEVICES.containsKey(handle.pid()));
+        return GPU_PROCESSES.values().stream().anyMatch(managed -> managed.process().isAlive()
+                && (managed.deviceId() == null || deviceId.equals(managed.deviceId())));
     }
+
     public static void unregisterGpuCoin(Process process) {
-        MANAGED_GPU_COIN_PIDS.remove(process.pid());
-        GPU_COIN_DEVICES.remove(process.pid());
+        // A delayed callback must not remove a new process if the OS has reused its PID.
+        GPU_PROCESSES.computeIfPresent(process.pid(), (pid, managed) ->
+                managed.process() == process ? null : managed);
     }
-    public static boolean managedGpuCoin(ProcessHandle handle) { return MANAGED_GPU_COIN_PIDS.contains(handle.pid()); }
+
+    public static boolean managedGpuCoin(ProcessHandle handle) {
+        ManagedGpuProcess managed = GPU_PROCESSES.get(handle.pid());
+        return managed != null && managed.process().isAlive();
+    }
     public static boolean stopSrbExceptGpuCoins() {
         return stop(running("srbminer").stream().filter(handle -> !managedGpuCoin(handle)).toList());
     }

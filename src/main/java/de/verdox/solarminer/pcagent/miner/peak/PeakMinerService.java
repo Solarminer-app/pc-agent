@@ -1,5 +1,6 @@
 package de.verdox.solarminer.pcagent.miner.peak;
 
+import de.verdox.solarminer.pcagent.miner.MinerStartContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
@@ -33,7 +34,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -120,11 +120,21 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
     }
 
     @Override public MinerConfig configuration() { return savedConfiguration; }
-    @Override public void applyConfig(MinerConfig config) throws IOException {
+    @Override public synchronized void applyConfig(MinerConfig config) throws IOException {
         validateConfig(config);
-        if (!stopAll()) throw new IOException("Peak Miner could not be stopped before saving the configuration");
         if (!proxy.matches(config.proxyUrl(), Coin.PEARL.id()))
             throw new IllegalArgumentException("SolarMiner proxy route does not match Pearl");
+        if (!config.sameRoute(savedConfiguration)) {
+            if (!stopAll()) throw new IOException("Peak Miner could not be stopped before saving the configuration");
+        } else {
+            for (WorkerRunState state : List.copyOf(runs.values())) {
+                if (!config.selects(state.gpu.vendor(), state.gpu.index())) {
+                    if (!stopGpu(state.gpu.vendor(), state.gpu.index()))
+                        throw new IOException("Peak Miner could not be stopped before saving the configuration");
+                    runs.remove(gpuKey(state.gpu), state);
+                }
+            }
+        }
         if (!de.verdox.solarminer.pcagent.support.AtomicFileStore.writeJson(configFile, config, mapper, "peak-config-"))
             throw new IOException("Peak Miner configuration could not be written");
         savedConfiguration = config;
@@ -168,7 +178,7 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
 
     @Override public synchronized boolean startAll() {
         manuallyPaused.clear();
-        runs.values().forEach(state -> state.restartAttempts = 0);
+        if (MinerStartContext.operatorRequested()) runs.values().forEach(state -> state.restartAttempts = 0);
         return startForBudget();
     }
     @Override public synchronized boolean startForBudget() {
@@ -189,9 +199,19 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
         String model = gpu.model().toUpperCase(java.util.Locale.ROOT);
         if (model.matches(".*(?:GTX|TESLA P[0-9]+|TESLA V[0-9]+|TITAN V|QUADRO P[0-9]+).*"))
             return fail("The GPU model is not supported by this miner");
-        WorkerRunState state = runs.computeIfAbsent(key, ignored -> new WorkerRunState(Coin.PEARL.id(), gpu,
+        if (!workerStartAllowed(gpu.deviceId())) {
+            lastError = "worker_manually_stopped";
+            return false;
+        }
+        WorkerRunState previousAttempt = runs.get(key);
+        if (previousAttempt != null && previousAttempt.status == MinerStats.MinerStatus.ERROR
+                && !MinerStartContext.mayRetryFailure()) {
+            lastError = previousAttempt.error;
+            return false;
+        }
+        WorkerRunState state = runs.compute(key, (ignored, previous) -> WorkerRunState.nextAttempt(previous, Coin.PEARL.id(), gpu,
                 MinerConsoleService.gpuConsoleId(Coin.PEARL, vendor, index), "Waiting for a pool job"));
-        if (state.running()) return true;
+        if (state.running()) return state.restartAllowed;
         if (!power.enforceConfiguredPowerLimit(gpu)) return fail(state, "Treiber bestätigte den Power-Cap nicht");
         refreshDefaultPayout();
         MinerConfig config = effectiveConfig();
@@ -216,7 +236,7 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
                 ProcessBuilder builder = new ProcessBuilder(command).directory(download.installDirectory().toFile())
                         .redirectErrorStream(true);
                 isolateGpu(builder, gpu);
-                process = builder.start();
+                process = MinerProcessRegistry.startGpu(gpu.deviceId(), builder::start);
             } catch (IOException | RuntimeException failure) {
                 throw failure;
             }
@@ -226,7 +246,6 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
             state.acceptedShares = null; state.rejectedShares = null;
             state.poolCounters = MinerShareTelemetry.Counters.unavailable(); state.diagnosis = null;
             lastError = null;
-            MinerProcessRegistry.registerGpuCoin(process, gpu.deviceId());
             if (runs.values().stream().noneMatch(candidate -> candidate != state && candidate.running()))
                 console.started(Coin.PEARL.id());
             console.started(state.consoleId);
@@ -235,7 +254,7 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
             Thread.ofVirtual().name("peak-health-" + index).start(() -> monitor(state, process));
             process.onExit().thenAccept(done -> {
                 MinerProcessRegistry.unregisterGpuCoin(done);
-                if (runs.get(key) == state && state.status == MinerStats.MinerStatus.MINING)
+                if (runs.get(key) == state && state.monitors(done))
                     fail(state, "Peak Miner exited (code " + done.exitValue() + ")");
             });
             return true;
@@ -285,48 +304,54 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
                 HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + state.apiPort + "/summary"))
                         .timeout(Duration.ofSeconds(2)).GET().build();
                 HttpResponse<String> response = metrics.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() != 200) throw new IOException("HTTP " + response.statusCode());
-                PeakStats stats = PeakStats.parse(mapper.readTree(response.body()));
-                // Version and fee are protocol/economic invariants. A mismatch is not a
-                // transient metrics outage and must stop this run immediately.
-                if (!download.version().equals(stats.version())) {
-                    fail(state, "Unexpected Peak miner metrics version " + stats.version());
-                    process.destroy();
-                    return;
-                }
-                if (Math.abs(stats.feePercent() - 2.0) > 0.0001) {
-                    fail(state, "Unexpected Peak miner developer fee " + stats.feePercent() + "%");
-                    process.destroy();
-                    return;
-                }
-                failures = 0;
-                state.hashrate = stats.hashrateHs();
-                temperatures.put(gpuKey(state.gpu), stats.temperatureCelsius());
-                state.acceptedShares = stats.shares().accepted();
-                state.rejectedShares = stats.shares().rejected();
-                state.poolCounters = stats.shares();
-                state.healthy = stats.hasActiveJob() && stats.hashrateHs() > 0;
-                if (stats.hasActiveJob()) lastJob = System.nanoTime();
-                state.detail = state.healthy ? "Peak Miner is hashing through the SolarMiner proxy"
-                        : stats.hasActiveJob() ? "Pool connected; waiting for GPU hashrate" : "Waiting for a pool job";
-                if (!stats.hasActiveJob() && Duration.ofNanos(System.nanoTime() - lastJob).toSeconds() >= 120) {
-                    fail(state, "Peak Miner received no pool job for 120 seconds");
-                    process.destroy();
-                    return;
-                }
-                if (!proxy.miningReady(Coin.PEARL.id()) || !proxy.feeReady(Coin.PEARL.id())) {
-                    fail(state, "Peak Miner lost its metrics or SolarMiner fee route");
-                    process.destroy();
-                    return;
+                synchronized (state) {
+                    if (!state.monitors(process)) return;
+                    if (response.statusCode() != 200) throw new IOException("HTTP " + response.statusCode());
+                    PeakStats stats = PeakStats.parse(mapper.readTree(response.body()));
+                    // Version and fee are protocol/economic invariants. A mismatch is not a
+                    // transient metrics outage and must stop this run immediately.
+                    if (!download.version().equals(stats.version())) {
+                        fail(state, "Unexpected Peak miner metrics version " + stats.version());
+                        terminateFailedProcess(process);
+                        return;
+                    }
+                    if (Math.abs(stats.feePercent() - 2.0) > 0.0001) {
+                        fail(state, "Unexpected Peak miner developer fee " + stats.feePercent() + "%");
+                        terminateFailedProcess(process);
+                        return;
+                    }
+                    failures = 0;
+                    state.hashrate = stats.hashrateHs();
+                    temperatures.put(gpuKey(state.gpu), stats.temperatureCelsius());
+                    state.acceptedShares = stats.shares().accepted();
+                    state.rejectedShares = stats.shares().rejected();
+                    state.poolCounters = stats.shares();
+                    state.healthy = stats.hasActiveJob() && stats.hashrateHs() > 0;
+                    if (stats.hasActiveJob()) lastJob = System.nanoTime();
+                    state.detail = state.healthy ? "Peak Miner is hashing through the SolarMiner proxy"
+                            : stats.hasActiveJob() ? "Pool connected; waiting for GPU hashrate" : "Waiting for a pool job";
+                    if (!stats.hasActiveJob() && Duration.ofNanos(System.nanoTime() - lastJob).toSeconds() >= 120) {
+                        fail(state, "Peak Miner received no pool job for 120 seconds");
+                        terminateFailedProcess(process);
+                        return;
+                    }
+                    if (!proxy.miningReady(Coin.PEARL.id()) || !proxy.feeReady(Coin.PEARL.id())) {
+                        fail(state, "Peak Miner lost its metrics or SolarMiner fee route");
+                        terminateFailedProcess(process);
+                        return;
+                    }
                 }
             } catch (Exception failure) {
-                failures++;
-                state.healthy = false;
-                state.detail = "Peak miner metrics are unavailable";
-                if (failures >= 24 || !proxy.miningReady(Coin.PEARL.id()) || !proxy.feeReady(Coin.PEARL.id())) {
-                    fail(state, "Peak Miner lost its metrics or SolarMiner fee route");
-                    process.destroy();
-                    return;
+                synchronized (state) {
+                    if (!state.monitors(process)) return;
+                    failures++;
+                    state.healthy = false;
+                    state.detail = "Peak miner metrics are unavailable";
+                    if (failures >= 24 || !proxy.miningReady(Coin.PEARL.id()) || !proxy.feeReady(Coin.PEARL.id())) {
+                        fail(state, "Peak Miner lost its metrics or SolarMiner fee route");
+                        terminateFailedProcess(process);
+                        return;
+                    }
                 }
             }
             try { Thread.sleep(5_000); }
@@ -358,32 +383,37 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
 
     private boolean fail(String error) { lastError = error; return false; }
     private boolean fail(WorkerRunState state, String error) {
-        state.status = MinerStats.MinerStatus.ERROR; state.healthy = false; state.hashrate = 0;
-        state.error = error; state.detail = error; lastError = error;
-        console.append(state.consoleId, "[SolarMiner] " + error);
-        console.append(Coin.PEARL.id(), "[" + state.gpuLabel() + "] " + error);
-        return false;
+        synchronized (state) {
+            if (!state.restartAllowed) return false;
+            state.scheduleRecovery();
+            state.status = MinerStats.MinerStatus.ERROR; state.healthy = false; state.hashrate = 0;
+            state.error = error; state.detail = error; lastError = error;
+            console.append(state.consoleId, "[SolarMiner] " + error);
+            console.append(Coin.PEARL.id(), "[" + state.gpuLabel() + "] " + error);
+            return false;
+        }
+    }
+
+    @Override public synchronized boolean stopDevice(String deviceId) {
+        boolean stopped = true;
+        for (WorkerRunState run : List.copyOf(runs.values()))
+            if (deviceId.equals(run.gpu.deviceId()))
+                stopped = stopGpu(run.gpu.vendor(), run.gpu.index()) && stopped;
+        return stopped;
     }
 
     @Override public synchronized boolean stopGpu(String vendor, int index) {
         String key = vendor + ":" + index;
         WorkerRunState state = runs.get(key);
         if (state == null) return true;
-        state.status = MinerStats.MinerStatus.PAUSED; state.healthy = false; state.hashrate = 0;
+        state.requestStop("Miner paused");
         temperatures.remove(key);
-        state.acceptedShares = null; state.rejectedShares = null; state.poolCounters = MinerShareTelemetry.Counters.unavailable();
-        state.detail = "Miner paused"; state.restartAttempts = 0;
         if (state.relay != null) state.relay.close();
         Process process = state.process;
         if (process == null || !process.isAlive()) return true;
         console.append(state.consoleId, "[SolarMiner] Stop: " + MinerStopContext.source());
-        process.destroy();
-        try {
-            if (!process.waitFor(5, TimeUnit.SECONDS)) process.destroyForcibly();
-            return process.waitFor(5, TimeUnit.SECONDS);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt(); process.destroyForcibly(); return false;
-        }
+        return state.finishStop(de.verdox.solarminer.pcagent.support.ProcessTermination.terminate(
+                List.of(process.toHandle()), Duration.ofSeconds(5)));
     }
     @Override public synchronized boolean stopAll() {
         boolean success = true;
@@ -403,7 +433,7 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
         String key = vendor + ":" + index;
         manuallyPaused.remove(key);
         WorkerRunState state = runs.get(key);
-        if (state != null) state.restartAttempts = 0;
+        if (state != null && MinerStartContext.operatorRequested()) state.restartAttempts = 0;
         return startGpu(vendor, index);
     }
     @Override public boolean setPowerCap(long watts) { return power.setTotalPowerTarget(watts, selectedGpus()); }
@@ -472,11 +502,10 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
     public synchronized void restartAfterUnexpectedExit() {
         if (localRuns.busy()) return;
         for (WorkerRunState state : List.copyOf(runs.values())) {
-            if (manuallyPaused.contains(gpuKey(state.gpu)) || state.status != MinerStats.MinerStatus.ERROR
-                    || (state.error != null && state.error.startsWith("Another miner already controls "))
-                    || state.running() || state.restartAttempts >= MAX_CRASH_RESTARTS) continue;
+            if (manuallyPaused.contains(gpuKey(state.gpu)) || !state.restartEligible()
+                    || (state.error != null && state.error.startsWith("Another miner already controls "))) continue;
             int attempts = ++state.restartAttempts;
-            startGpu(state.gpu.vendor(), state.gpu.index());
+            MinerStartContext.recovery(() -> startGpu(state.gpu.vendor(), state.gpu.index()));
             WorkerRunState restarted = runs.get(gpuKey(state.gpu));
             if (restarted != null) restarted.restartAttempts = attempts;
         }

@@ -186,7 +186,8 @@ public class MiningService {
     }
 
     private PowerBudgetPlanner.Cpu cpuCapability(boolean external) {
-        boolean available = (!external || controls.workerEnabled(WorkerIds.CPU)) && !cpuManuallyPaused && cpu.readyForStart();
+        boolean available = (!external || controls.workerEnabled(WorkerIds.CPU))
+                && !controls.get().manuallyStopped(WorkerIds.CPU) && !cpuManuallyPaused && cpu.readyForStart();
         return available
                 ? new PowerBudgetPlanner.Cpu(true, cpu.getMinimumControllablePowerWatts(), cpu.getEstimatedMaxCpuWattage())
                 : new PowerBudgetPlanner.Cpu(false, 0, 0);
@@ -199,7 +200,7 @@ public class MiningService {
     public synchronized boolean resumeExternally() {
         boolean attempted = false;
         boolean allStarted = true;
-        if (controls.workerEnabled(WorkerIds.CPU) && !cpuManuallyPaused && cpu.readyForStart()) {
+        if (controls.workerEnabled(WorkerIds.CPU) && !controls.get().manuallyStopped(WorkerIds.CPU) && !cpuManuallyPaused && cpu.readyForStart()) {
             attempted = true;
             if (workerPowerModes != null) {
                 var choice = workerPowerModes.select(WorkerIds.CPU, controls.get().coinFor(WorkerIds.CPU));
@@ -228,7 +229,7 @@ public class MiningService {
         desiredGpuPowerTarget = 0;
         boolean success = true;
         if (controls.workerEnabled(WorkerIds.CPU)) {
-            cpu.stopAll();
+            success = cpu.stopAll() && success;
         }
         for (LocalGpuPowerService.Gpu gpu : selectedGpus(true)) {
             if (controls.workerEnabled(gpu.deviceId()))
@@ -308,7 +309,8 @@ public class MiningService {
 
     private List<LocalGpuPowerService.Gpu> eligibleGpus(boolean external) {
         if (!external) return eligibleGpus();
-        return selectedGpus(true).stream().filter(gpu -> selectedForCoin(controls.get().coinFor(gpu.deviceId()), true).stream()
+        return selectedGpus(true).stream().filter(gpu -> !controls.get().manuallyStopped(gpu.deviceId()))
+                .filter(gpu -> selectedForCoin(controls.get().coinFor(gpu.deviceId()), true).stream()
                 .anyMatch(selected -> selected.deviceId().equals(gpu.deviceId()))).toList();
     }
 
@@ -324,26 +326,26 @@ public class MiningService {
     public synchronized boolean stopExternalWorker(String deviceId, String reason) {
         return MinerStopContext.with(reason, () -> {
             if (WorkerIds.CPU.equals(deviceId)) {
-                cpu.stopAll();
-                if (cpu.running()) return false;
+                if (!cpu.stopAll() || cpu.running()) return false;
                 desiredGlobalPowerTarget = Math.max(0, desiredGlobalPowerTarget - desiredCpuPowerTarget);
                 desiredCpuPowerTarget = 0;
                 return true;
             }
-            LocalGpuPowerService.Gpu gpu = gpuPowerService.discover().stream()
-                    .filter(card -> card.deviceId().equals(deviceId)).findFirst().orElse(null);
-            if (gpu == null) return false;
-            if (autoTuning != null) autoTuning.cancelForDevice(deviceId);
-            boolean foundRunningProcess = false;
+            RuntimeException failure = null;
+            try { if (autoTuning != null) autoTuning.cancelForDevice(deviceId); }
+            catch (RuntimeException recoveryFailure) { failure = recoveryFailure; }
             boolean stopped = true;
+            // Include dead/failed adapters: their watchdog must lose recovery authority too.
+            // An adapter failure must not prevent the remaining adapters from stopping.
             for (Coin coin : Coin.gpuCoins()) for (MinerFactory.GpuMinerAdapter adapter : adapters(coin)) {
-                if (!adapter.miner().runningGpuDeviceIds().contains(deviceId)) continue;
-                foundRunningProcess = true;
-                stopped = adapter.miner().stopGpu(gpu.vendor(), gpu.index()) && stopped;
+                try { stopped = adapter.miner().stopDevice(deviceId) && stopped; }
+                catch (RuntimeException stopFailure) {
+                    stopped = false;
+                    if (failure == null) failure = stopFailure;
+                    else failure.addSuppressed(stopFailure);
+                }
             }
-            // Preserve the existing assigned-worker stop behavior when no managed process was
-            // discovered; the runtime-first path handles a process on a different coin/miner.
-            if (!foundRunningProcess) return stopGpuForCoin(controls.get().coinFor(deviceId), gpu.vendor(), gpu.index());
+            if (failure != null) throw failure;
             return stopped && (!"AUTO_TUNING".equals(controls.get().powerModeFor(deviceId))
                     || workerPowerModes == null || workerPowerModes.restoreAutoTuningClocks(deviceId));
         });
@@ -418,6 +420,24 @@ public class MiningService {
         return desiredCpuPowerTarget == 0 || cpuWorkerMiner.running();
     }
 
+    public boolean setOperatorWorkerIntent(String deviceId, boolean stopped) {
+        return controls.setWorkerManuallyStopped(deviceId, stopped);
+    }
+
+    /** Persist local group-button authority; coin-specific actions only affect that coin's workers. */
+    public boolean setOperatorIntent(String coinId, boolean stopped) {
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        if (coinId == null || coinId.equals(controls.get().coinFor(WorkerIds.CPU))) ids.add(WorkerIds.CPU);
+        for (LocalGpuPowerService.Gpu gpu : gpuPowerService.snapshot()) {
+            boolean ownsRuntime = coinId != null && Coin.byIdOrNull(coinId) != null
+                    && Coin.byIdOrNull(coinId).isGpu() && adapters(Coin.byIdOrNull(coinId)).stream()
+                    .anyMatch(adapter -> adapter.miner().runningGpuDeviceIds().contains(gpu.deviceId()));
+            if (coinId == null || coinId.equals(controls.get().coinFor(gpu.deviceId())) || ownsRuntime)
+                ids.add(gpu.deviceId());
+        }
+        return controls.setWorkersManuallyStopped(ids, stopped);
+    }
+
     public boolean pauseMining() {
         return pauseMining(activeCoin);
     }
@@ -448,8 +468,7 @@ public class MiningService {
         boolean gpuStopped = true;
         for (Coin coin : Coin.gpuCoins()) for (MinerFactory.GpuMinerAdapter adapter : adapters(coin))
             gpuStopped = adapter.miner().stopAll() && gpuStopped;
-        cpu.stopAll();
-        return gpuStopped;
+        return cpu.stopAll() && gpuStopped;
     }
 
     public boolean resumeMining() {

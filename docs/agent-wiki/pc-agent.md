@@ -17,6 +17,26 @@ Checked against `pc-agent/src/main/java` on 2026-10-02. This describes source st
 
 ## Verified seams and gaps
 
+- **SRBMiner telemetry source (checked 2026-10-21):** Both
+  `PearlMinerService.buildCommand` and `GpuCoinMinerService.buildCommand` already
+  enable the JSON API with `--api-enable --api-port <worker port>`.
+  `AbstractSrbMinerEngine.monitorLoop` reads `http://127.0.0.1:<worker port>/`
+  every five seconds for hashrate, pool uptime/job age and share counters;
+  telemetry is not parsed from console lines. Pearl uses ports starting at
+  12000; other SRB coins use 13000 plus their coin offset and mapped GPU ID.
+  Console classification remains for failure diagnostics, and `--list-devices`
+  output remains necessary to map driver devices to SRBMiner GPU IDs. Neither
+  command builder enables remote reboot/shutdown/restart URLs. API polling on
+  loopback does not establish that SRBMiner binds its listener exclusively to
+  loopback. Source/tests were checked; no live miner or installed-release
+  verification was performed.
+  **Deutsch:** Hashrate, Shares und Poolzustand kommen bereits aus der lokalen
+  JSON-API, die alle fünf Sekunden abgefragt wird. Konsolenauswertung bleibt
+  für Fehlerdiagnosen und die GPU-Zuordnung über `--list-devices` bestehen.
+  Neustart-/Herunterfahr-URLs werden nicht aktiviert. Die lokale Abfrage belegt
+  keine ausschließliche Bindung des Miner-Listeners an Loopback. Geprüft wurden
+  Quellcode und Tests, kein laufender Miner oder installierter Release.
+
 - `MarketDataService` (merged from `FiatRateService` + `EarningsForecastService` on 2026-10-10) reads `https://currency.solarminer.app/api/v1/public/mining-networks` for gross XMR/PRL/RVN/ETC/DCR/QTC forecast inputs and `/coin-prices` independently for market quotes, including BTC, plus `/exchange-rates` for cached USD fiat rates (1 h TTL, stale fallback). It has no direct explorer, Kraken, CoinGecko or pool-stats URL. The agent refreshes successful market data every ten minutes, withholds quotes after two hours without a refresh, and marks its last network copy stale after a central failure; provider provenance and the central hostname remain visible in the forecast. The Node-facing earnings view additively reports a net estimate only when the cached proxy route plus pool/miner fee parts are all resolved; gross values remain separate, and rejected/stale shares are not inferred. `GET /external/earnings` is read-only monitoring and remains available when remote control is disabled. A market quote never certifies an available mining forecast. The public producer, schema, units and rollout gate are recorded in [currency data](currency-data.md).
 - Mining navigation uses `GET /api/agent/local/miner-catalog` for local CPU/SRBMiner file availability only. `agent.js` loads it independently of the local overview; installation data never enables start controls. The UI groups catalog entries by software ID (one SRBMiner package for its supported coins), supports selecting multiple missing packages and starts those independent downloads together. Full operational state replaces the initial catalog, and late catalog responses cannot overwrite a newer overview. Node assessment is optional, loaded after rendering the overview with a five-second timeout; its failure does not mark the local agent offline. Verified by `MiningControllerValidationTest.installationCatalogOnlyChecksLocalFilesAndReflectsRemoval`; the earlier delayed-response Chrome fixture predates the grouped catalog, and a current visual browser pass remains open.
 - Full GPU efficiency sweeps start each GPU at the standard power target reported by its driver, then measure descending power limits. The sweep reports a localized reason if that driver value is unavailable or exceeds the configured GPU limit. The cap active before the sweep is still restored after it completes.
@@ -135,3 +155,16 @@ Alle sechs UI-Seiten verwenden workspace.js/workspace.css für gruppierte Naviga
 `WorkerController` exposes `POST /api/agent/local/workers/{deviceId}/start-on-boot?enabled=true|false`. The physical Workers page shows a checkbox beside each worker. The opt-in (`workerStartOnBoot`) and manual-pause latch (`workerManualStop`) persist in `control-settings.json`, default off, and survive unrelated settings/assignment/power-mode updates. A successful local or LAN-dashboard Pause latches a manual stop; a successful local or LAN-dashboard Start or explicitly re-enabling the checkbox clears it. The checkbox stays selected during a manual stop and the row identifies the suppression.
 
 `WorkerBootStartService` snapshots opted-in device IDs at `ApplicationReadyEvent`, waits for the managed proxy gate and retries the ordinary `WorkerAssignmentService.start` path for five minutes after that gate opens. At each attempt it rechecks current assignment, opt-in and manual-stop state. A worker already mining is left alone. Newly enabling the checkbox during a running session takes effect only on the next PC-Agent start. Failed prerequisites remain governed by the existing miner/proxy/power-mode checks; no Node or LAN protocol changes were made.
+
+## Worker lifecycle audit / Worker-Lebenszyklus (2026-10-21)
+
+The [worker lifecycle record](worker-lifecycle.md) documents the process-control
+audit, per-attempt state, stable-device stops, persistent operator authority,
+selection-only configuration writes, atomic GPU process registration and the
+single bounded crash-recovery owner. It supersedes earlier notes about
+restarting sibling workers after configuration synchronization.
+
+Deutsch: Die [Lebenszyklus-Dokumentation](worker-lifecycle.md) beschreibt die
+Analyse und die aktuellen Start-/Stopp-Regeln. Reine Geräteauswahl-Änderungen
+behalten Nachbarprozesse bei; ein bewusster Benutzer-Stopp sperrt automatische
+Starts einschließlich einer späteren Messungs-Wiederherstellung.

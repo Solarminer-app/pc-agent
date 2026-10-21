@@ -160,7 +160,7 @@ public class EconomicPlanningService {
             return new CoinCapability(coin, algorithm(coin), configured, routeReady, profile, reason,
                     marketReady ? forecast.usdPerDay() : null, marketReady ? forecast.updatedAt() : null);
         }).toList();
-        return new WorkerCapability(id, type, model, selectedCoin, controls.get().workerEnabled(id),
+        return new WorkerCapability(id, type, model, selectedCoin, controls.get().workerEnabled(id) && !controls.get().manuallyStopped(id),
                 controls.get().coinPolicyFor(id), candidates, controls.get().powerModeFor(id), publishedTiers);
     }
 
@@ -298,7 +298,7 @@ public class EconomicPlanningService {
                         return PlanResult.rejected("economic_plan_worker_action_failed");
                     }
                     if (!entry.getValue() && workerCoinRevenueMode != null)
-                        workerCoinRevenueMode.cancelLocalStart(entry.getKey());
+                        workerCoinRevenueMode.resetCooldown(entry.getKey());
                 } catch (RuntimeException failure) {
                     restore(rollbackCoins, rollbackRunning);
                     return PlanResult.rejected("economic_plan_worker_action_failed");
@@ -328,7 +328,7 @@ public class EconomicPlanningService {
             try {
                 // A missing Node heartbeat must not restart a worker using stale economics.
                 if (assignments.pause(previous.getKey()) && workerCoinRevenueMode != null)
-                    workerCoinRevenueMode.cancelLocalStart(previous.getKey());
+                    workerCoinRevenueMode.resetCooldown(previous.getKey());
             } catch (RuntimeException ignored) { }
         }
         if (applied.plannedTargetWatts() != null && applied.previousTargetWatts() > 0

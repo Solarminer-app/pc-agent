@@ -657,7 +657,7 @@ certify the corrected unit. Sweep console rate formatting had independent
 
 ## BUG-012 — Preserve sibling workers when saving a worker assignment
 
-**Status:** Implemented, verification pending (`[~]`, 2026-10-19)
+**Status:** Automated regression verified; hardware acceptance pending (`[~]`, 2026-10-21)
 **Priority:** P1
 **Area:** Worker assignment and shared GPU miner configuration
 
@@ -677,13 +677,27 @@ has not changed. When it must change, it captures currently mining workers
 still assigned to that coin/miner and starts them again after the configuration
 write. A worker moved away is not restarted by the old configuration.
 
-### Verification required
+### Stronger remedy and automated verification (2026-10-21)
+
+Selection-only writes now retain unchanged processes directly in Pearl,
+shared SRBMiner, PeakMiner, QuanPool and WildRig. The assignment service no
+longer stops and restarts sibling workers. `WorkerConfigurationIsolationTest`
+verifies all five adapters with live controlled process handles and preserves
+the sibling's process, status and hashrate. The same test covers delayed API
+responses, inventory loss, operator-stop policy and automatic retry budgets.
+See [worker lifecycle](agent-wiki/worker-lifecycle.md) for the complete audit.
+
+Deutsch: Änderungen nur an der GPU-Auswahl behalten unveränderte Nachbarprozesse
+bei. Automatisierte Tests prüfen alle fünf Adapter. Reale Mehr-GPU-Prüfung und
+beide Sprachen auf dem Zielgerät stehen weiterhin aus.
+
+### Hardware verification required
 
 - With two GPUs assigned to the same coin and miner, change or save one worker
   and confirm the sibling resumes and continues hashing.
 - Confirm changing one GPU's assignment does not start it under its old coin;
   check both German and English Workers-page status after the action.
-- No automated test or live miner run has been performed for this remedy yet.
+- Automated adapter regressions pass; no live multi-GPU miner run was performed here.
 
 ## BUG-013 — Queue Auto Tuning for multiple workers and show each history
 
@@ -720,3 +734,23 @@ a worker without samples receives a localized empty-state message.
 - Confirm leaving the mode while queued removes that GPU from the queue and
   both locales render the navigation, progress and empty state correctly.
 - No automated test or live RTX 3080 calibration was performed for this remedy.
+
+
+### 2026-10-21 benchmark follow-up / Benchmark-Nachprüfung
+
+BUG-010: The ordinary installed benchmark also intersected an explicit worker
+selection with each miner's saved GPU list. It now plans from physical inventory
+and uses temporary overrides; `explicitWorkerIsMeasuredEvenWhenMissingFromSavedMinerSelection`
+verifies the selected second GPU without rewriting saved configuration. Existing
+live rollout and pool/auto-start evidence gates above remain open.
+
+BUG-010: Auch normale installierte Benchmarks schnitten ausdrücklich gewählte
+Worker mit der gespeicherten Miner-Geräteliste. Die Planung nutzt nun das
+physische Inventar und temporäre Overrides; der genannte Regressionstest prüft
+die zweite GPU ohne Umschreiben der Konfiguration. Reale Rollout-, Pool- und
+Auto-Start-Nachweise bleiben weiterhin offen.
+
+The current sweep scheduler already gives every GPU its own full curve. The
+legacy validation helpers are not evidence of current shared-reference behavior.
+Der aktuelle Sweep-Planer misst bereits pro GPU eine eigene vollständige Kurve;
+die alten Validierungshilfen belegen keine gemeinsame aktuelle Referenzmessung.

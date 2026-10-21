@@ -20,6 +20,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** On-demand, per-GPU Gaussian-process calibration against live miner telemetry. */
 @Service
 public class AutoTuningSessionService {
+    private de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService workerPolicies;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setWorkerPolicies(de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService policies) {
+        this.workerPolicies = policies;
+    }
     /** Broad search, bounded refinement, then two longer confirmations per safe power tier. */
     private static final int BASE_CANDIDATES = 18, MAX_SEARCH_CANDIDATES = 24, MAX_CANDIDATES = 30,
             SAMPLES_PER_CANDIDATE = 16, CONFIRMATION_SAMPLES = 32, MAX_RUN_MINUTES = 60;
@@ -35,6 +40,9 @@ public class AutoTuningSessionService {
     private final AutoTuningSelectionStore selections;
     private final LocalRunLock runLock;
     private final MinerFactory miners;
+    private double temperatureCeiling(String deviceId) {
+        return workerPolicies == null ? maxTemperatureC : workerPolicies.ceiling(deviceId, maxTemperatureC);
+    }
     private final double maxTemperatureC;
     private final long sampleIntervalMillis;
     private de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService controls;
@@ -101,6 +109,9 @@ public class AutoTuningSessionService {
         LocalGpuPowerService.Gpu gpu = power.refresh().stream().filter(value -> value.deviceId().equals(deviceId)).findFirst().orElse(null);
         if (gpu == null) throw new IllegalArgumentException("gpu_not_found");
         if (unsafeDevices.contains(deviceId)) throw new IllegalStateException("auto_tuning_gpu_requires_attention");
+        if (workerPolicies != null && workerPolicies.get(deviceId) != null
+                && !workerPolicies.temperatureSafe(deviceId, power.readTemperatureC(gpu), maxTemperatureC))
+            throw new IllegalStateException("auto_tuning_temperature_limit");
         if (tuning.hasPendingRecovery(deviceId)) throw new IllegalStateException("gpu_clock_restore_failed");
         if (!gpu.supportsDynamicPowerScaling() || gpu.currentPowerLimitWatts() == null)
             throw new IllegalStateException("gpu_power_control_unavailable");
@@ -126,6 +137,8 @@ public class AutoTuningSessionService {
         String software = miners.minerSoftwareForWorker(coin, deviceId);
         if (software == null || software.isBlank())
             throw new IllegalStateException("auto_tuning_miner_unavailable");
+        if (workerPolicies != null && !workerPolicies.measures(deviceId, coin.id(), software))
+            throw new IllegalArgumentException("benchmark_combination_invalid");
         String softwareVersion = miners.minerVersionForWorker(coin, deviceId);
         MinerNativeTuning nativeTuning = miners.gpuMinerForWorker(coin.id(), deviceId)
                 .filter(MinerNativeTuning.class::isInstance).map(MinerNativeTuning.class::cast).orElse(null);
@@ -445,8 +458,10 @@ public class AutoTuningSessionService {
             String reason = Objects.toString(failure.getMessage(), "auto_tuning_failed");
             boolean gpuFailure = "auto_tuning_gpu_unresponsive".equals(reason)
                     || "gpu_clock_restore_failed".equals(reason);
-            if (gpuFailure) unsafeDevices.add(gpu.deviceId());
-            if (gpuFailure) {
+            boolean thermalFailure = "auto_tuning_temperature_limit".equals(reason)
+                    || "auto_tuning_temperature_unavailable".equals(reason);
+            if (gpuFailure || thermalFailure) unsafeDevices.add(gpu.deviceId());
+            if (gpuFailure || thermalFailure) {
                 try {
                     miners.gpuMinerForWorker(coin.id(), gpu.deviceId()).ifPresent(miner ->
                             miner.pauseGpu(gpu.vendor(), gpu.index()));
@@ -509,7 +524,7 @@ public class AutoTuningSessionService {
             Double temp = gpu == null ? null : power.readTemperatureC(gpu);
             boolean validRate = Double.isFinite(rate) && rate > 0;
             boolean validPower = Double.isFinite(powerWatts) && powerWatts > 0;
-            boolean validTemp = temp != null && Double.isFinite(temp);
+            boolean validTemp = temp != null && Double.isFinite(temp) && temp > 0;
             boolean nvidia = "NVIDIA".equalsIgnoreCase(context.gpu().vendor());
             GpuTuningService.ClockTelemetry clocks = nvidia
                     ? tuning.readEffectiveClocks(context.gpu().deviceId()) : null;
@@ -522,12 +537,12 @@ public class AutoTuningSessionService {
             boolean memoryMismatch = clocks != null && (candidate.memoryMhz() != null
                     && Math.abs(clocks.memoryMhz() - candidate.memoryMhz()) > memoryTolerance(candidate.memoryMhz())
                     || candidate.memoryOffsetMhz() != null && !Objects.equals(candidate.memoryOffsetMhz(),
-                    tuning.readMemoryOffset(gpu.deviceId(), candidate.memoryOffsetPstate()))
+                    tuning.readMemoryOffset(context.gpu().deviceId(), candidate.memoryOffsetPstate()))
                     || offsetNoEffect);
             String issue = nvidia && !validTemp && clocks == null ? "auto_tuning_gpu_unresponsive"
-                    : !validRate || !validPower ? "auto_tuning_sample_unavailable"
                     : !validTemp ? "auto_tuning_temperature_unavailable"
-                    : temp > maxTemperatureC ? "auto_tuning_temperature_limit"
+                    : temp >= temperatureCeiling(state.session.deviceId()) ? "auto_tuning_temperature_limit"
+                    : !validRate || !validPower ? "auto_tuning_sample_unavailable"
                     : nvidia && clocks == null
                     ? "auto_tuning_clock_readback_unavailable"
                     : memoryMismatch ? "auto_tuning_memory_lock_ineffective" : null;
@@ -538,12 +553,11 @@ public class AutoTuningSessionService {
                     i + 1, worker.acceptedShares(), worker.rejectedShares(), null, issue);
             if ("auto_tuning_gpu_unresponsive".equals(issue))
                 return SampleSummary.unstable("auto_tuning_gpu_unresponsive", true);
-            if (!validRate || !validPower)
-                continue;
             if (!validTemp)
                 return SampleSummary.unstable("auto_tuning_temperature_unavailable", true);
-            if (temp > maxTemperatureC)
+            if (temp >= temperatureCeiling(state.session.deviceId()))
                 return SampleSummary.unstable("auto_tuning_temperature_limit", true);
+            if (!validRate || !validPower) continue;
             if (nvidia) {
                 if (clocks == null) continue;
                 observedCore.add(clocks.coreMhz()); observedMemory.add(clocks.memoryMhz());

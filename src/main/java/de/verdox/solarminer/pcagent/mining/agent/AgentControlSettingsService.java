@@ -18,7 +18,7 @@ import java.util.Map;
  * Local owner switches. They are checked by every Node-facing command, not only by the UI.
  */
 @Service
-public class AgentControlSettingsService {
+public class AgentControlSettingsService implements de.verdox.solarminer.pcagent.miner.WorkerStartPolicy {
     private final ObjectMapper json;
     private final Path file;
     private volatile Settings settings;
@@ -150,6 +150,10 @@ public class AgentControlSettingsService {
         this.settings = load();
     }
 
+    @Override public boolean mayStart(String deviceId) {
+        return !settings.manuallyStopped(deviceId);
+    }
+
     public Settings get() {
         return settings;
     }
@@ -247,33 +251,46 @@ public class AgentControlSettingsService {
         return true;
     }
 
-    /** Opt-in per physical worker. Enabling clears a prior manual stop so the intent is explicit. */
+    /** Boot opt-in per physical worker. A manual stop remains authoritative until an explicit start. */
     public synchronized boolean setWorkerStartOnBoot(String workerId, boolean enabled) {
         if (workerId == null || workerId.isBlank()) return false;
         Map<String, Boolean> starts = new java.util.HashMap<>(settings.workerStartOnBoot());
         Map<String, Boolean> stopped = new java.util.HashMap<>(settings.workerManualStop());
-        if (enabled) { starts.put(workerId, true); stopped.remove(workerId); }
-        else { starts.remove(workerId); stopped.remove(workerId); }
+        if (enabled) starts.put(workerId, true);
+        else starts.remove(workerId);
         return saveStartupState(starts, stopped);
     }
 
-    /** A local operator pause disarms the next boot until the operator starts this worker. */
+    /** A local operator pause blocks automatic starts until an explicit operator start. */
     public synchronized boolean setWorkerManuallyStopped(String workerId, boolean stopped) {
         if (workerId == null || workerId.isBlank()) return false;
+        return setWorkersManuallyStopped(java.util.Set.of(workerId), stopped);
+    }
+
+    /** Group buttons persist one complete intent before they touch any processes. */
+    public synchronized boolean setWorkersManuallyStopped(java.util.Set<String> workerIds, boolean stopped) {
         Map<String, Boolean> next = new java.util.HashMap<>(settings.workerManualStop());
-        if (stopped) next.put(workerId, true);
-        else next.remove(workerId);
-        return saveStartupState(settings.workerStartOnBoot(), next);
+        for (String workerId : workerIds) {
+            if (workerId == null || workerId.isBlank()) return false;
+            if (stopped) next.put(workerId, true);
+            else next.remove(workerId);
+        }
+        return saveStartupState(settings.workerStartOnBoot(), next, stopped);
     }
 
     private boolean saveStartupState(Map<String, Boolean> starts, Map<String, Boolean> stopped) {
+        return saveStartupState(starts, stopped, false);
+    }
+
+    private boolean saveStartupState(Map<String, Boolean> starts, Map<String, Boolean> stopped, boolean failClosed) {
         Settings next = new Settings(settings.dynamicPowerScalingEnabled(), settings.externalControlEnabled(),
                 settings.workerExternalControl(), settings.workerCoins(), settings.workerCoinPolicies(),
                 settings.networkSharingEnabled(), settings.walletTargetSharingEnabled(), settings.workerMiners(),
                 settings.workerPowerModes(), starts, stopped);
-        if (!persist(next)) return false;
-        settings = next;
-        return true;
+        boolean saved = persist(next);
+        // Disk failure must not authorize recovery after an operator stop in this process.
+        if (saved || failClosed) settings = next;
+        return saved;
     }
 
     /**

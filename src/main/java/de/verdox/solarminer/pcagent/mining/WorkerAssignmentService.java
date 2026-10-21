@@ -27,6 +27,11 @@ import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
  */
 @Service
 public class WorkerAssignmentService {
+    private de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService benchmarkPolicies;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setBenchmarkPolicies(de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService policies) {
+        this.benchmarkPolicies = policies;
+    }
     private final AgentControlSettingsService controls;
     private final MiningService mining;
     private final LocalGpuPowerService gpuPower;
@@ -149,6 +154,7 @@ public class WorkerAssignmentService {
     }
 
     private boolean startWithMode(String deviceId, boolean lockHeld) {
+        if (controls.get().manuallyStopped(deviceId)) throw new IllegalStateException("worker_manually_stopped");
         String mode = controls.get().powerModeFor(deviceId);
         if (!WorkerIds.isCpu(deviceId) && ("REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode)
                 || "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode))) {
@@ -170,6 +176,7 @@ public class WorkerAssignmentService {
     }
 
     private boolean start(String deviceId, boolean applyPowerMode, Integer autoTuningBudgetWatts) {
+        if (controls.get().manuallyStopped(deviceId)) throw new IllegalStateException("worker_manually_stopped");
         Hardware hardware = hardware(deviceId);
         Coin coin = Coin.byIdOrNull(controls.get().coinFor(deviceId));
         if (coin == null || coin == Coin.NONE) throw new IllegalStateException("Assign a coin to this worker first");
@@ -177,6 +184,11 @@ public class WorkerAssignmentService {
             if (!mining.resumeMining(coin.id())) throw new IllegalStateException(error(miners.miner(coin).lastError(),
                     "CPU miner could not start. Check the miner console, installation and proxy fee route."));
             return true;
+        }
+        if (benchmarkPolicies != null && benchmarkPolicies.get(deviceId) != null) {
+            var gpu = gpuPower.snapshot().stream().filter(card -> deviceId.equals(card.deviceId())).findFirst().orElse(null);
+            if (gpu == null || !benchmarkPolicies.temperatureSafe(deviceId, gpuPower.readTemperatureC(gpu), 90))
+                throw new IllegalStateException("benchmark_temperature_limit");
         }
         String minerId = miners.minerSoftwareForWorker(coin, deviceId);
         MinerCatalogService.MinerOption option = catalog.options(coin.id()).stream()
@@ -279,7 +291,7 @@ public class WorkerAssignmentService {
     }
 
     public synchronized boolean pause(String deviceId) {
-        hardware(deviceId);
+        if (deviceId == null || deviceId.isBlank()) throw new IllegalArgumentException("Gerät wurde nicht erkannt");
         boolean stopped = mining.stopExternalWorker(deviceId, "Worker pausiert / Worker paused");
         if (!stopped) return false;
         if (!WorkerIds.isCpu(deviceId) && workerPowerModes != null
@@ -291,7 +303,7 @@ public class WorkerAssignmentService {
 
     /** Benchmark cleanup only needs to stop a restored process; start reapplies the saved mode. */
     public synchronized boolean stopForBenchmarkRestart(String deviceId) {
-        hardware(deviceId);
+        if (deviceId == null || deviceId.isBlank()) throw new IllegalArgumentException("Gerät wurde nicht erkannt");
         return mining.stopExternalWorker(deviceId, "Benchmark: worker restart / Worker-Neustart");
     }
 
@@ -386,18 +398,9 @@ public class WorkerAssignmentService {
             MinerConfig config = miner.configuration();
             if (config == null || config.devices().equals(devices)) continue;
 
-            // Miner configuration is shared by every GPU assigned to this coin/software pair.
-            // Most adapters stop that whole process when its device list changes, so remember
-            // the unaffected live workers and bring them back after the write.
-            List<String> runningDevices = workers().stream()
-                    .filter(worker -> "GPU".equals(worker.hardwareType())
-                            && worker.status() == MinerStats.MinerStatus.MINING
-                            && assignment.coin().id().equals(controls.get().coinFor(worker.deviceId()))
-                            && assignment.minerId().equals(miners.minerSoftwareForWorker(assignment.coin(), worker.deviceId())))
-                    .map(WorkerView::deviceId).toList();
+            // Adapters retain unchanged physical workers on selection-only writes.
             miner.applyConfig(new MinerConfig(config.poolUrl(), config.proxyUrl(),
                     config.wallet(), config.worker(), devices));
-            for (String deviceId : runningDevices) start(deviceId);
         }
     }
 

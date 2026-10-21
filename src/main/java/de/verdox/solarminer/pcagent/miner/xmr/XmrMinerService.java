@@ -1,5 +1,6 @@
 package de.verdox.solarminer.pcagent.miner.xmr;
 
+import de.verdox.solarminer.pcagent.miner.MinerStartContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
@@ -98,14 +99,23 @@ public class XmrMinerService extends de.verdox.solarminer.pcagent.miner.engine.A
         this.estimatedMaxCpuWattage = estimateCpuTdp(processor.getProcessorIdentifier().getName(), totalLogicalProcessors);
     }
 
-    /** Retry a bounded number of unexpected exits while a non-zero local target remains set. */
+    private volatile boolean crashRecoveryAllowed;
+    private de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock localRuns;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLocalRuns(de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock localRuns) {
+        this.localRuns = localRuns;
+    }
+
+    /** Retry bounded unexpected exits while start intent remains active and no measurement owns the hardware. */
     @Scheduled(fixedDelay = 30_000)
     public synchronized void restartAfterUnexpectedExit() {
-        if (minerStatus != MinerStats.MinerStatus.ERROR || desiredPowerUsage <= 0 || isMiningProcessAlive()) return;
+        if (localRuns != null && localRuns.busy()) return;
+        if (!crashRecoveryAllowed || minerStatus != MinerStats.MinerStatus.ERROR || isMiningProcessAlive()) return;
         if (!restartBudgetLeft(crashRestartAttempts)) return;
         crashRestartAttempts++;
         console.append(Coin.MONERO.id(), "[SolarMiner] XMRig watchdog restart " + crashRestartAttempts + "/" + MAX_CRASH_RESTARTS);
-        startMining();
+        MinerStartContext.recovery(() -> { startMining(); return null; });
     }
 
     // --- AbstractMinerEngine accessors: the XMRig engine reuses the shared console/mapper/logger. ---
@@ -202,12 +212,21 @@ public class XmrMinerService extends de.verdox.solarminer.pcagent.miner.engine.A
     }
 
     public synchronized void startMining() {
-        if (isMiningProcessAlive()) {
+        if (!workerStartAllowed("cpu")) {
+            lastStartError = "worker_manually_stopped";
+            crashRecoveryAllowed = false;
+            return;
+        }
+        if (minerStatus == MinerStats.MinerStatus.ERROR && !MinerStartContext.mayRetryFailure()) return;
+        crashRecoveryAllowed = true;
+        if (isManagedProcessAlive()) {
             LOGGER.info("XMRig is already running.");
             return;
         }
         if (!MinerProcessRegistry.running("xmrig").isEmpty()) {
-            minerStatus = MinerStats.MinerStatus.MINING;
+            minerStatus = MinerStats.MinerStatus.ERROR;
+            crashRecoveryAllowed = false;
+            lastStartError = "xmrig_external_miner_blocks_start";
             LOGGER.info("An XMRig process is already running outside this agent; refusing to start a duplicate.");
             return;
         }
@@ -266,20 +285,14 @@ public class XmrMinerService extends de.verdox.solarminer.pcagent.miner.engine.A
             started.onExit().thenAccept(process -> {
                 try { outputThread.join(1_000); }
                 catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-                if (minerStatus == MinerStats.MinerStatus.MINING) {
-                    LOGGER.severe("XMRig process crashed or exited unexpectedly with code: " + process.exitValue());
-                    console.append(Coin.MONERO.id(), "[SolarMiner] XMRig exited with code " + process.exitValue());
-                    lastStartError = "XMRig exited with code " + process.exitValue();
-                    minerStatus = MinerStats.MinerStatus.ERROR;
-                }
-                currentHashesPerSecond = 0;
+                processExited(process);
             });
 
             if (apiPollerExecutor != null && !apiPollerExecutor.isShutdown()) {
                 apiPollerExecutor.shutdownNow();
             }
             apiPollerExecutor = Executors.newSingleThreadScheduledExecutor();
-            apiPollerExecutor.scheduleAtFixedRate(this::fetchHashrateFromApi, 5, 5, TimeUnit.SECONDS);
+            apiPollerExecutor.scheduleAtFixedRate(() -> fetchHashrateFromApi(started), 5, 5, TimeUnit.SECONDS);
 
             LOGGER.info("XMRig started successfully. PID: " + minerProcess.pid());
 
@@ -298,42 +311,51 @@ public class XmrMinerService extends de.verdox.solarminer.pcagent.miner.engine.A
         }
     }
 
+    /** The callback is scoped to the process that actually exited, never its replacement. */
+    private synchronized void processExited(Process process) {
+        if (minerProcess != process || !crashRecoveryAllowed) return;
+        if (minerStatus == MinerStats.MinerStatus.MINING) {
+            LOGGER.severe("XMRig process crashed or exited unexpectedly with code: " + process.exitValue());
+            console.append(Coin.MONERO.id(), "[SolarMiner] XMRig exited with code " + process.exitValue());
+            lastStartError = "XMRig exited with code " + process.exitValue();
+            minerStatus = MinerStats.MinerStatus.ERROR;
+        }
+        currentHashesPerSecond = 0;
+    }
+
     public synchronized void hardStopMining() {
-        if (apiPollerExecutor != null && !apiPollerExecutor.isShutdown()) {
-            apiPollerExecutor.shutdownNow();
-        }
-
-        if (isManagedProcessAlive()) {
-            console.append(Coin.MONERO.id(), "[SolarMiner] Stop requested by: " + MinerStopContext.source());
-            LOGGER.info("Sending kill signal to XMRig process...");
-            minerProcess.destroyForcibly();
-            try {
-                minerProcess.waitFor();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            LOGGER.info("XMRig process terminated.");
-            console.append(Coin.MONERO.id(), "[SolarMiner] XMRig stopped");
-        }
-        MinerProcessRegistry.stop("xmrig");
-
+        // Invalidate recovery before signalling; onExit must never interpret this as a crash.
+        crashRecoveryAllowed = false;
         minerStatus = MinerStats.MinerStatus.STOPPED;
+        if (apiPollerExecutor != null) apiPollerExecutor.shutdownNow();
+        Process stopping = minerProcess;
+        boolean stopped = true;
+        if (stopping != null && stopping.isAlive()) {
+            console.append(Coin.MONERO.id(), "[SolarMiner] Stop requested by: " + MinerStopContext.source());
+            stopped = de.verdox.solarminer.pcagent.support.ProcessTermination.terminate(
+                    List.of(stopping.toHandle()), Duration.ofSeconds(5));
+        }
+        if (stopped) minerProcess = null;
+        else {
+            minerStatus = MinerStats.MinerStatus.ERROR;
+            lastStartError = "worker_stop_failed";
+        }
         crashRestartAttempts = 0;
         currentHashesPerSecond = 0;
         acceptedShares = null;
         rejectedShares = null;
         poolCounters = MinerShareTelemetry.Counters.unavailable();
-        minerProcess = null;
     }
 
-    private void fetchHashrateFromApi() {
-        if (!isMiningProcessAlive()) {
+    private void fetchHashrateFromApi(Process sampled) {
+        if (sampled == null || !sampled.isAlive() || !crashRecoveryAllowed) {
             return;
         }
 
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create("http://127.0.0.1:1999/2/summary"))
+                    .timeout(Duration.ofSeconds(2))
                     .header("Accept", "application/json")
                     .header("Authorization", "Bearer token")
                     .GET()
@@ -341,23 +363,28 @@ public class XmrMinerService extends de.verdox.solarminer.pcagent.miner.engine.A
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-            if (response.statusCode() == 200) {
-                JsonNode root = objectMapper.readTree(response.body());
-                JsonNode hashrateNode = root.path("hashrate").path("total");
+            synchronized (this) {
+                if (minerProcess != sampled || !crashRecoveryAllowed || !sampled.isAlive()) return;
+                if (response.statusCode() == 200) {
+                    JsonNode root = objectMapper.readTree(response.body());
+                    JsonNode hashrateNode = root.path("hashrate").path("total");
 
-                if (hashrateNode.isArray() && !hashrateNode.isEmpty() && !hashrateNode.get(0).isNull()) {
-                    this.currentHashesPerSecond = (long) hashrateNode.get(0).asDouble();
-                    this.apiErrorCount = 0; // Reset error count on success
+                    if (hashrateNode.isArray() && !hashrateNode.isEmpty() && !hashrateNode.get(0).isNull()) {
+                        this.currentHashesPerSecond = (long) hashrateNode.get(0).asDouble();
+                        this.apiErrorCount = 0; // Reset error count on success
+                    }
+                    MinerShareTelemetry.Counters shares = MinerShareTelemetry.xmrig(root.path("results"), root.path("connection"));
+                    acceptedShares = shares.accepted();
+                    rejectedShares = shares.rejected();
+                    poolCounters = shares;
+                } else {
+                    handleApiError();
                 }
-                MinerShareTelemetry.Counters shares = MinerShareTelemetry.xmrig(root.path("results"), root.path("connection"));
-                acceptedShares = shares.accepted();
-                rejectedShares = shares.rejected();
-                poolCounters = shares;
-            } else {
-                handleApiError();
             }
         } catch (Exception e) {
-            handleApiError();
+            synchronized (this) {
+                if (minerProcess == sampled && crashRecoveryAllowed && sampled.isAlive()) handleApiError();
+            }
         }
     }
 
@@ -486,9 +513,13 @@ public class XmrMinerService extends de.verdox.solarminer.pcagent.miner.engine.A
         return minerStatus;
     }
     @Override public List<MinerStats.Worker> workerStats(List<LocalGpuPowerService.Gpu> cards) { return List.of(getWorkerStats()); }
-    @Override public boolean startAll() { startMining(); return isMiningProcessAlive(); }
-    @Override public boolean stopAll() { hardStopMining(); return true; }
-    @Override public boolean pauseAll() { hardStopMining(); return true; }
+    @Override public synchronized boolean startAll() {
+        if (MinerStartContext.operatorRequested()) crashRestartAttempts = 0;
+        startMining();
+        return isManagedProcessAlive() && minerStatus == MinerStats.MinerStatus.MINING;
+    }
+    @Override public boolean stopAll() { hardStopMining(); return !isMiningProcessAlive(); }
+    @Override public boolean pauseAll() { return stopAll(); }
     @Override public boolean setPowerCap(long watts) { setDesiredPowerUsage(watts); return true; }
     @Override public boolean updateProxyRoute(String proxyUrl) throws java.io.IOException {
         return configService.updateProxyRoute(XmrDownloadService.CONFIG_PATH, proxyUrl);

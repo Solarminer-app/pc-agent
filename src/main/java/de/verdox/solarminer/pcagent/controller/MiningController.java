@@ -1,5 +1,6 @@
 package de.verdox.solarminer.pcagent.controller;
 
+import de.verdox.solarminer.pcagent.miner.MinerStartContext;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import de.verdox.solarminer.pcagent.coin.Coin;
@@ -581,21 +582,33 @@ public class MiningController {
     @PostMapping("/{coin}/gpus/{vendor}/{index}/resume")
     public boolean resumeGpuCoin(@PathVariable String coin, @PathVariable String vendor, @PathVariable int index) {
         boolean resumed = localRunsFree() && lhmBootstrapService.readyForAgent()
-                && workerGpuMiner(coin, vendor, index).map(miner -> miner.resumeGpu(vendor, index)).orElse(false);
+                && gpuOperatorIntent(vendor, index, false)
+                && workerGpuMiner(coin, vendor, index).map(miner -> MinerStartContext.operator(() -> miner.resumeGpu(vendor, index))).orElse(false);
         if (resumed) reportChanged("overview", "workers", "power-control");
         return resumed;
     }
 
     @PostMapping("/{coin}/gpus/{vendor}/{index}/pause")
     public boolean pauseGpuCoin(@PathVariable String coin, @PathVariable String vendor, @PathVariable int index) {
-        boolean paused = localRunsFree() && workerGpuMiner(coin, vendor, index)
-                .map(miner -> miner.pauseGpu(vendor, index)).orElse(false);
+        if (!localRunsFree()) return false;
+        var gpu = gpuPowerService.snapshot().stream()
+                .filter(card -> card.vendor().equals(vendor) && card.index() == index).findFirst().orElse(null);
+        if (gpu == null) return false;
+        boolean saved = miningService.setOperatorWorkerIntent(gpu.deviceId(), true);
+        boolean paused = miningService.stopExternalWorker(gpu.deviceId(), "Local GPU pause");
+        if (!saved) throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR, "worker_stop_save_failed");
         if (paused) {
-            gpuPowerService.discover().stream().filter(gpu -> gpu.vendor().equals(vendor) && gpu.index() == index)
-                    .findFirst().ifPresent(gpu -> resetWorkerRevenueCooldown(gpu.deviceId()));
+            resetWorkerRevenueCooldown(gpu.deviceId());
             reportChanged("overview", "workers", "power-control");
         }
         return paused;
+    }
+
+    private boolean gpuOperatorIntent(String vendor, int index, boolean stopped) {
+        return gpuPowerService.snapshot().stream()
+                .filter(gpu -> gpu.vendor().equals(vendor) && gpu.index() == index).findFirst()
+                .map(gpu -> miningService.setOperatorWorkerIntent(gpu.deviceId(), stopped)).orElse(false);
     }
 
     private java.util.Optional<GpuCoinMiner> workerGpuMiner(String coin, String vendor, int index) {
@@ -859,18 +872,22 @@ public class MiningController {
 
     @PostMapping("/miners/{coin}/resume")
     public boolean resumeMiner(@PathVariable String coin) {
-        boolean resumed = localRunsFree() && miningService.resumeMining(coin);
+        boolean resumed = localRunsFree() && miningService.setOperatorIntent(coin, false)
+                && MinerStartContext.operator(() -> miningService.resumeMining(coin));
         if (resumed) reportChanged("overview", "workers", "power-control");
         return resumed;
     }
 
     @PostMapping("/miners/{coin}/pause")
     public boolean pauseMiner(@PathVariable String coin) {
-        boolean paused = localRunsFree() && miningService.pauseMining(coin);
+        if (!localRunsFree()) return false;
+        boolean saved = miningService.setOperatorIntent(coin, true);
+        boolean paused = miningService.pauseMining(coin);
+        if (!saved) throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR, "worker_stop_save_failed");
         if (paused) {
             if (workerCoinRevenueMode != null) {
                 workerCoinRevenueMode.resetCooldownForCoin(coin);
-                workerCoinRevenueMode.cancelLocalStartsForCoin(coin);
             }
             reportChanged("overview", "workers", "power-control");
         }
@@ -915,11 +932,14 @@ public class MiningController {
 
     @PostMapping("/pause")
     public boolean pause() {
-        boolean paused = localRunsFree() && miningService.pauseAll("Local dashboard global pause request");
+        if (!localRunsFree()) return false;
+        boolean saved = miningService.setOperatorIntent(null, true);
+        boolean paused = miningService.pauseAll("Local dashboard global pause request");
+        if (!saved) throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR, "worker_stop_save_failed");
         if (paused) {
             if (workerCoinRevenueMode != null) {
                 workerCoinRevenueMode.resetAllCooldowns();
-                workerCoinRevenueMode.cancelAllLocalStarts();
             }
             reportChanged("overview", "workers", "power-control", "energy");
         }
@@ -928,7 +948,8 @@ public class MiningController {
 
     @PostMapping("/resume")
     public boolean resume() {
-        boolean resumed = localRunsFree() && lhmBootstrapService.readyForAgent() && miningService.resumeAll();
+        boolean resumed = localRunsFree() && lhmBootstrapService.readyForAgent()
+                && miningService.setOperatorIntent(null, false) && MinerStartContext.operator(miningService::resumeAll);
         if (resumed) reportChanged("overview", "workers", "power-control", "energy");
         return resumed;
     }

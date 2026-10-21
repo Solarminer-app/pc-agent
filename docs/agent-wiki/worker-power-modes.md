@@ -42,3 +42,14 @@ The mode-change endpoint holds the local run lock while saving and applying a mo
 When a running worker's assignment changes in the Worker dialog, the browser saves the assignment and mode, then sends one start request for the new target. A failed start is shown as an action error; saving no longer silently leaves a successfully reconfigured worker paused. This browser sequence is not an atomic server transaction, so a failed mode save or start may still leave the new assignment saved and the worker stopped.
 
 For a locally started `COIN_REVENUE_PER_KWH` worker, the one-minute scheduler now retries the best measured start if the worker unexpectedly stops, including during the 30-minute switch cooldown. Explicit Worker, coin, global, LAN peer and Node pause actions clear that in-memory start intent. It is deliberately volatile across Agent restarts. Every automatic coin stop now carries a bilingual coin-switch reason into the miner console, and switch, failed start and failed restoration details are logged by the Agent. A failed start or missing candidate still leaves the worker stopped and requires investigation of the reported error; no claim of continuous mining is made without live miner, pool and driver verification.
+
+
+## 2026-10-21 selection and temperature update / Auswahl und Temperatur
+
+New GPU profiles use the two economic goals plus independent coin/software
+permissions. Legacy API mode names remain compatible. See the current
+[benchmark workflow](benchmark-workflow.md) for scope, safety and verification.
+
+Neue GPU-Profile nutzen die zwei wirtschaftlichen Ziele und getrennte Rechte
+für Coin-/Softwarewechsel. Alte API-Modi bleiben kompatibel. Der aktuelle
+[Benchmark-Ablauf](benchmark-workflow.md) beschreibt Umfang, Sicherheit und Nachweise.

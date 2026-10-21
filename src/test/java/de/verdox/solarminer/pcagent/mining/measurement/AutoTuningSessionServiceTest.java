@@ -24,6 +24,48 @@ class AutoTuningSessionServiceTest {
     @TempDir Path directory;
 
     @Test
+    void perGpuThermalLimitStopsTunerEvenWhenHashrateAndPowerAreInvalid() throws Exception {
+        var mining = mock(MiningService.class);
+        var power = mock(LocalGpuPowerService.class);
+        var tuning = mock(GpuTuningService.class);
+        var miners = mock(MinerFactory.class);
+        var miner = mock(GpuCoinMiner.class);
+        var gpu = new LocalGpuPowerService.Gpu("AMD", 0, "GPU-hot", "Test", 80, 200,
+                80, 200, 150, 120.0, "measured", true, null, 200);
+        when(power.refresh()).thenReturn(List.of(gpu));
+        when(power.snapshot()).thenReturn(List.of(gpu));
+        when(power.readTemperatureC(gpu)).thenReturn(60d, 72d);
+        when(power.configuredPowerLimitWatts(gpu)).thenReturn(150);
+        when(power.setAutoTuningPowerTarget(anyInt(), eq(gpu))).thenReturn(true);
+        when(tuning.refreshCapabilities(gpu.deviceId())).thenReturn(new GpuTuningService.Capabilities(
+                gpu.deviceId(), true, true, false, 1000, 1400, 400, 800, null));
+        when(tuning.apply(anyString(), any(), any(), any(), any())).thenReturn(new GpuTuningService.ApplyResult(true, null));
+        when(tuning.restoreDefaults(gpu.deviceId())).thenReturn(new GpuTuningService.ApplyResult(true, null));
+        when(miners.minerSoftwareForWorker(any(), eq(gpu.deviceId()))).thenReturn("srbminer-multi");
+        when(miners.gpuMinerForWorker(anyString(), eq(gpu.deviceId()))).thenReturn(java.util.Optional.of(miner));
+        when(mining.getWorkerStats()).thenReturn(List.of(new MinerStats.Worker(MinerStats.MinerStatus.MINING,
+                "Test", "PearlHash", 0, 72, 150, 80, 150, 200, 0, List.of(), "GPU", "Test", gpu.deviceId(),
+                null, null, MinerStats.PoolTelemetry.unavailable())));
+        var policy = new WorkerBenchmarkPolicyService(new ObjectMapper(), directory.resolve("thermal-policy.json").toString());
+        policy.save(gpu.deviceId(), new WorkerBenchmarkPolicyService.Policy(List.of(
+                new WorkerBenchmarkPolicyService.Pair("pearl", "srbminer-multi")), false, false, 72));
+        var store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), directory.resolve("thermal-profiles.json").toString());
+        var lock = new LocalRunLock();
+        var service = new AutoTuningSessionService(mining, power, tuning, store, lock, miners, 85, 0);
+        service.setWorkerPolicies(policy);
+        try {
+            service.start(gpu.deviceId(), "pearl");
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3);
+            while (service.status().running() && System.nanoTime() < deadline) Thread.sleep(5);
+            assertEquals("auto_tuning_temperature_limit", service.status().phase());
+            assertFalse(lock.busy());
+            assertTrue(store.all().isEmpty());
+            verify(miner).pauseGpu("AMD", 0);
+            verify(tuning, never()).resetUnresponsiveGpu(anyString());
+        } finally { service.shutdown(); }
+    }
+
+    @Test
     void powerTiersIncludeManualStartAndBothSafeBounds() {
         assertEquals(List.of(80, 150, 200), AutoTuningSessionService.powerTiers(80, 150, 200));
         assertEquals(List.of(80, 140, 200), AutoTuningSessionService.powerTiers(80, 80, 200));

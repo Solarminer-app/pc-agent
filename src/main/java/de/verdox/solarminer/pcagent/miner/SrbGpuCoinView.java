@@ -144,6 +144,11 @@ public final class SrbGpuCoinView implements GpuCoinMiner, MinerNativeTuning {
     }
 
     @Override
+    public boolean stopDevice(String deviceId) {
+        return service.stopDevice(key(), deviceId);
+    }
+
+    @Override
     public boolean stopGpu(String vendor, int index) {
         return service.stopGpu(key(), vendor, index);
     }

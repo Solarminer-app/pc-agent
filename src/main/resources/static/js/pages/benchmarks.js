@@ -543,13 +543,13 @@ let comparisonCatalog = [];
 let workersLoaded = false;
 
 function selectedWorkers() {
-    return [...document.querySelectorAll('#worker-options input:checked')].map(input => input.value);
+    return [...document.querySelectorAll('#worker-options input[data-hardware-type]:checked')].map(input => input.value);
 }
 
 function requireWorkerSelection(gpuOnly) {
     if (!workersLoaded) { notice('benchmark_worker_list_unavailable', true); return false; }
     if (!selectedWorkers().length) { notice('benchmark_select_worker', true); return false; }
-    if (gpuOnly && ![...document.querySelectorAll('#worker-options input:checked')]
+    if (gpuOnly && ![...document.querySelectorAll('#worker-options input[data-hardware-type]:checked')]
         .some(input => input.dataset.hardwareType === 'GPU')) {
         notice('benchmark_select_gpu_for_sweep', true); return false;
     }
@@ -585,7 +585,15 @@ function renderWorkerOptions(workers) {
         const text = make('span', '');
         text.append(make('strong', '', name), make('small', 'muted', worker.deviceId));
         label.append(input, text);
-        root.append(label);
+        const card = make('div', ''); card.append(label);
+        const details = document.createElement('details');
+        const summary = make('summary', '', t('benchmark_worker_policy'));
+        const editor = document.createElement('div'); details.append(summary, editor);
+        let loaded = false;
+        details.addEventListener('toggle', () => {
+            if (details.open && !loaded) { loaded = true; void window.SolarMinerBenchmarkPolicyEditor(editor, worker); }
+        });
+        card.append(details); root.append(card);
     }
     workersLoaded = true;
 }

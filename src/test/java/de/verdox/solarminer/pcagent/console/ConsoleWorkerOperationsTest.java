@@ -26,6 +26,7 @@ class ConsoleWorkerOperationsTest {
         when(mining.beginWorkerStart("GPU-0")).thenReturn(true);
         when(workers.workers()).thenReturn(List.of(ConsoleWorkspaceServiceTest.worker(0, null)));
         when(controls.get()).thenReturn(mock(AgentControlSettingsService.Settings.class));
+        when(controls.setWorkerManuallyStopped("GPU-0", false)).thenReturn(true);
         when(workers.startWithHeldRunLock("GPU-0")).thenAnswer(invocation -> {
             assertThat(lock.holder()).isEqualTo("operations-start"); return true;
         });

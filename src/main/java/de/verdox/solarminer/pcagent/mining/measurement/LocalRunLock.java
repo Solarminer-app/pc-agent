@@ -10,7 +10,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class LocalRunLock {
     private volatile String holder;
-    private int autoTuningHolders;
+    private volatile int autoTuningHolders;
 
     public synchronized boolean tryBegin(String name) {
         if (holder != null || autoTuningHolders > 0) return false;

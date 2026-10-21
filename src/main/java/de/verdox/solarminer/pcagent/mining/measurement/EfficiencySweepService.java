@@ -59,6 +59,11 @@ import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
  */
 @Service
 public class EfficiencySweepService {
+    private de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService workerPolicies;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setWorkerPolicies(de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService policies) {
+        this.workerPolicies = policies;
+    }
     private static final Logger LOGGER = Logger.getLogger(EfficiencySweepService.class.getName());
     /** Five-second samples; twelve points cover at least one minute of steady-state mining per step. */
     static final int SAMPLES_PER_STEP = 12;
@@ -78,6 +83,10 @@ public class EfficiencySweepService {
     private final int stepWatts;
     private final double maxTemperatureC;
     private final double maxRejectedRatio;
+    private final Set<String> thermalBlocked = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService controls;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setControls(de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService controls) { this.controls = controls; }
     /**
      * Time a step waits for the first valid hashrate sample. The sweep restarts the miner at
      * every power limit, and a cold restart costs real time before SRBMiner reports anything:
@@ -107,7 +116,7 @@ public class EfficiencySweepService {
         this.sharing = sharing;
         this.guard = new MeasurementRunGuard(lock, "pc-agent-efficiency-sweep");
         this.stepWatts = Math.max(5, stepWatts);
-        this.maxTemperatureC = maxTemperatureC;
+        this.maxTemperatureC = Double.isFinite(maxTemperatureC) ? Math.max(40, Math.min(90, maxTemperatureC)) : 85;
         this.maxRejectedRatio = maxRejectedRatio;
         this.startupGrace = Duration.ofSeconds(Math.max(60, startupGraceSeconds));
     }
@@ -163,6 +172,9 @@ public class EfficiencySweepService {
                 selectedWorkerIds, availableWorkers);
         if (selectedWorkerIds != null && workers.stream().noneMatch(id -> !WorkerIds.CPU.equals(id)))
             throw new IllegalArgumentException("benchmark_select_gpu_for_sweep");
+        if (workerPolicies != null && !workerPolicies.hasMeasurements(workers.stream()
+                .filter(id -> !WorkerIds.CPU.equals(id)).collect(java.util.stream.Collectors.toSet()), selection))
+            throw new IllegalArgumentException("benchmark_no_allowed_combinations");
         List<Target> targets = targets(discovered, selection, workers);
         if (targets.isEmpty())
             throw new IllegalStateException(selectedWorkerIds == null
@@ -172,12 +184,18 @@ public class EfficiencySweepService {
         if (!guard.begin("efficiency-sweep"))
             throw new IllegalStateException("Ein anderer Messlauf (Benchmark) läuft gerade; der Sweep wartet, bis er beendet ist");
         guard.resetCancel();
+        thermalBlocked.clear();
         Instant startedAt = Instant.now();
         List<List<List<Target>>> referenceBatches = referenceBatches(targetGroups(targets));
         List<List<Target>> cohorts = referenceBatches.stream().flatMap(List::stream).toList();
         List<RunStatus> runs = initialRuns(referenceBatches);
         Map<String, GpuEfficiencyStore.Profile> checkpoint = resume ? reusableProfiles(previous) : Map.of();
         if (resume) {
+            if (workerPolicies != null) checkpoint = checkpoint.entrySet().stream()
+                    .filter(entry -> entry.getValue().steps() != null && entry.getValue().steps().stream()
+                            .filter(GpuEfficiencyStore.StepResult::stable).allMatch(step -> workerPolicies.temperatureSafe(
+                                    entry.getValue().deviceId(), step.maxTemperatureC(), maxTemperatureC)))
+                    .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
             runs = applyCheckpoint(runs, previous.runs(), checkpoint);
             Set<String> compatible = runs.stream().filter(RunStatus::terminalComplete)
                     .map(RunStatus::id).collect(java.util.stream.Collectors.toSet());
@@ -246,7 +264,8 @@ public class EfficiencySweepService {
                 List<LocalGpuPowerService.Gpu> eligible = verified.values().stream()
                         .filter(gpu -> MinerCatalogService.supportedGpuVendors(softwareId, coin.id())
                                 .contains(gpu.vendor()))
-                        .filter(gpu -> MinerCatalogService.supportsGpuModel(softwareId, gpu.model())).toList();
+                        .filter(gpu -> MinerCatalogService.supportsGpuModel(softwareId, gpu.model()))
+                        .filter(gpu -> workerPolicies == null || workerPolicies.measures(gpu.deviceId(), coin.id(), softwareId)).toList();
                 if (eligible.isEmpty()) continue;
                 MinerConfig configured = miner.configuration();
                 if (configured != null) {
@@ -430,6 +449,8 @@ public class EfficiencySweepService {
             if (!power.restorePowerLimits(limitsBefore))
                 error = appendError(error, "Konnte Leistungsgrenzen nicht vollständig wiederherstellen");
             try {
+                // Safety stops survive restoration and automatic Node/worker restarts.
+                if (controls != null && !thermalBlocked.isEmpty()) controls.setWorkersManuallyStopped(thermalBlocked, true);
                 boolean restored = miners.gpuMiner(Coin.PEARL).restoreState(pearlSnapshot);
                 for (Map.Entry<GpuCoinMiner, Set<String>> entry : coinWasMining.entrySet())
                     for (String key : entry.getValue()) {
@@ -577,6 +598,9 @@ public class EfficiencySweepService {
 
     private GpuEfficiencyStore.Profile sweepTarget(Target target, List<Integer> requestedLimits,
                                                    SweepMode mode) {
+        if (thermalBlocked.contains(target.gpu().deviceId())) {
+            finishRun(target, SweepRunState.SKIPPED, "benchmark_temperature_limit"); return null;
+        }
         String label = target.gpu().model() + " · " + target.algorithm();
         // Only one miner per physical GPU: stop every other coin on this card first.
         if (!stopAllOn(target.gpu())) throw new IllegalStateException("Andere Miner auf " + target.gpu().model() + " konnten nicht angehalten werden");
@@ -655,9 +679,8 @@ public class EfficiencySweepService {
                                 : target.softwareId());
             finishRun(target, guard.cancelRequested() ? SweepRunState.CANCELLED : SweepRunState.FAILED, guard.cancelRequested() ? "Abgebrochen" : "Kein stabiler Wert gefunden");
         }
-        // Only a successful full curve is a durable profile. Validation runs intentionally
-        // measure one point, while failed and cancelled runs are useful only in this session;
-        // neither should appear beside or replace a complete saved curve.
+        // Only complete per-device curves become durable profiles. Partial and cancelled
+        // runs remain session history and never replace a complete measured curve.
         if (profile != null && best != null && mode == SweepMode.FULL && completedCurve && !guard.cancelRequested())
             store.save(profile);
         return profile;
@@ -667,7 +690,7 @@ public class EfficiencySweepService {
     private boolean mayContinueAfterUnstableStep(Target target, GpuEfficiencyStore.StepResult step) {
         if (guard.cancelRequested()) return false;
         if (step.note() != null && step.note().startsWith("GPU-Temperatur nicht lesbar")) return false;
-        if (step.maxTemperatureC() != null && step.maxTemperatureC() > maxTemperatureC)
+        if (step.maxTemperatureC() != null && step.maxTemperatureC() >= temperatureCeiling(target))
             return waitForTemperatureCooldown(target);
         return waitBeforeLowerPowerRetry();
     }
@@ -675,11 +698,11 @@ public class EfficiencySweepService {
     /** Do not run again until the stopped GPU is at least 3 °C below the trip threshold. */
     private boolean waitForTemperatureCooldown(Target target) {
         Instant deadline = Instant.now().plusMillis(TEMPERATURE_COOLDOWN_TIMEOUT_MILLIS);
-        double restartBelow = maxTemperatureC - TEMPERATURE_COOLDOWN_MARGIN_C;
+        double restartBelow = temperatureCeiling(target) - TEMPERATURE_COOLDOWN_MARGIN_C;
         while (!guard.cancelRequested() && Instant.now().isBefore(deadline)) {
             Double temperature = power.readTemperatureC(target.gpu());
-            if (temperature == null) return false;
-            if (temperature <= restartBelow) return true;
+            if (temperature == null || !Double.isFinite(temperature) || temperature <= 0) return false;
+            if (temperature <= restartBelow) { thermalBlocked.remove(target.gpu().deviceId()); return true; }
             if (!pauseForCooldown(TEMPERATURE_COOLDOWN_POLL_MILLIS)) return false;
         }
         return false;
@@ -757,6 +780,10 @@ public class EfficiencySweepService {
         return diagnosis == null ? null : diagnosis.detail();
     }
 
+    private double temperatureCeiling(Target target) {
+        return workerPolicies == null ? maxTemperatureC : workerPolicies.ceiling(target.gpu().deviceId(), maxTemperatureC);
+    }
+
     private GpuEfficiencyStore.StepResult measureStep(Target target, int limit,
                                                        List<GpuEfficiencyStore.StepResult> completedSteps) {
         if (!startMiner(target)) {
@@ -785,12 +812,16 @@ public class EfficiencySweepService {
                         diagnosis != null ? diagnosis : "Miner-Prozess ausgefallen");
             }
             Double temperature = power.readTemperatureC(target.gpu());
-            if (temperature == null)
+            if (temperature == null || !Double.isFinite(temperature) || temperature <= 0) {
+                thermalBlocked.add(target.gpu().deviceId());
                 return new GpuEfficiencyStore.StepResult(limit, null, null, null, false, "GPU-Temperatur nicht lesbar; Sicherheitshalber abgebrochen");
+            }
             maxTemp = Math.max(maxTemp, temperature);
-            if (maxTemp > maxTemperatureC)
+            if (maxTemp >= temperatureCeiling(target)) {
+                thermalBlocked.add(target.gpu().deviceId());
                 return new GpuEfficiencyStore.StepResult(limit, null, null, maxTemp, false,
-                        "GPU wurde " + Math.round(maxTemp) + " °C heiß; Grenze über dem Schwellwert von " + Math.round(maxTemperatureC) + " °C");
+                        "GPU wurde " + Math.round(maxTemp) + " °C heiß; Grenze über dem Schwellwert von " + Math.round(temperatureCeiling(target)) + " °C");
+            }
             if (worker != null && worker.miningStatus() == MinerStats.MinerStatus.MINING
                     && Double.isFinite(worker.terahashPerSecond()) && worker.terahashPerSecond() > 0
                     && Double.isFinite(worker.approximatedPowerUsageWatts()) && worker.approximatedPowerUsageWatts() > 0) {

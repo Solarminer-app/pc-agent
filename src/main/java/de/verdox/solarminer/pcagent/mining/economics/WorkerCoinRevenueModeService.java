@@ -19,6 +19,11 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Per-worker coin and power-point optimization using the existing measured hopping candidates. */
 @Service
 public class WorkerCoinRevenueModeService {
+    private de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService workerPolicies;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setWorkerPolicies(de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService policies) {
+        this.workerPolicies = policies;
+    }
     private static final Logger log = LoggerFactory.getLogger(WorkerCoinRevenueModeService.class);
     private static final Duration COOLDOWN = Duration.ofMinutes(30);
     private static final double MIN_GAIN = 0.05;
@@ -29,7 +34,6 @@ public class WorkerCoinRevenueModeService {
     private final LocalRunLock runLock;
     private final EconomicPlanningService planning;
     private final Map<String, Instant> switchedAt = new ConcurrentHashMap<>();
-    private final java.util.Set<String> locallyStarted = ConcurrentHashMap.newKeySet();
 
     public WorkerCoinRevenueModeService(AgentControlSettingsService controls, CoinHoppingService hopping,
                                         WorkerAssignmentService assignments, LocalGpuPowerService gpus, LocalRunLock runLock,
@@ -53,6 +57,7 @@ public class WorkerCoinRevenueModeService {
     }
 
     private void evaluateWorker(String id) {
+        if (controls.get().manuallyStopped(id)) return;
         Instant now = Instant.now();
         String mode = controls.get().powerModeFor(id);
         boolean dailyProfitMode = "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode);
@@ -61,31 +66,21 @@ public class WorkerCoinRevenueModeService {
         WorkerAssignmentService.WorkerView worker = assignments.workers().stream()
                 .filter(value -> id.equals(value.deviceId())).findFirst().orElse(null);
         if (worker == null) return;
-        if (worker.status() != MinerStats.MinerStatus.MINING) {
-            if (locallyStarted.contains(id) && runLock.tryBegin("worker-coin-revenue-recovery")) {
-                try {
-                    String currentMode = controls.get().powerModeFor(id);
-                    if (locallyStarted.contains(id) && automaticRevenueMode(currentMode)
-                            && !"REVENUE_PER_KWH".equals(currentMode)) {
-                        log.warn("Worker {} stopped unexpectedly; attempting to resume the best measured coin", id);
-                        StartResult recovery = applyBestStartPoint(id, worker.coin(), currentMode, true, true);
-                        if (!recovery.success()) log.warn("Worker {} could not resume: {}", id, recovery.error());
-                    }
-                } finally { runLock.end(); }
-            }
-            return;
-        }
+        // Miner engines own bounded crash recovery. Re-selecting here used to call resumeGpu
+        // and refill that budget forever, racing the engine watchdog and explicit stops.
+        if (worker.status() != MinerStats.MinerStatus.MINING) return;
         if (switchedAt.containsKey(id) && now.isBefore(switchedAt.get(id).plus(COOLDOWN))) return;
         LocalGpuPowerService.Gpu gpu = gpus.snapshot().stream()
                 .filter(value -> id.equals(value.deviceId())).findFirst().orElse(null);
         if (gpu == null || gpu.currentPowerLimitWatts() == null) return;
         List<CoinHoppingService.Candidate> choices = hopping.candidates(id, 0).stream()
+                .filter(value -> workerPolicies == null || workerPolicies.permits(id, worker.coin(), worker.minerSoftwareId(), value.coin(), value.minerSoftwareId()))
                 .filter(value -> !dailyProfitMode || value.profitUsdPerDay() != null)
                 .filter(value -> !fixedCoinMode || worker.coin().equals(value.coin()))
                 .filter(value -> !"PROFIT_PER_DAY".equals(mode)
                         || java.util.Objects.equals(worker.minerSoftwareId(), value.minerSoftwareId()))
                 .toList();
-        if (choices.isEmpty() || "COIN_REVENUE_PER_KWH".equals(mode) && choices.size() < 2) return;
+        if (choices.isEmpty()) return;
         CoinHoppingService.Candidate current = choices.stream().filter(value -> worker.coin().equals(value.coin())
                 && java.util.Objects.equals(worker.minerSoftwareId(), value.minerSoftwareId())
                 && gpu.currentPowerLimitWatts() == value.limitWatts()).findFirst().orElse(null);
@@ -97,7 +92,7 @@ public class WorkerCoinRevenueModeService {
         if (samePoint || current != null && !worthSwitching(score(current, mode), score(best, mode))) return;
         if (!runLock.tryBegin("worker-coin-revenue")) return;
         try {
-            if (!mode.equals(controls.get().powerModeFor(id))) return;
+            if (controls.get().manuallyStopped(id) || !mode.equals(controls.get().powerModeFor(id))) return;
             try {
                 boolean minerChanged = !java.util.Objects.equals(best.minerSoftwareId(), worker.minerSoftwareId());
                 boolean fixedDailyProfit = "PROFIT_PER_DAY".equals(mode);
@@ -145,18 +140,11 @@ public class WorkerCoinRevenueModeService {
         switchedAt.clear();
     }
 
-    /** An explicit operator pause or reassignment cancels automatic process recovery. */
-    public void cancelLocalStart(String workerId) { locallyStarted.remove(workerId); }
-
-    public void cancelLocalStartsForCoin(String coinId) {
-        assignments.workers().stream().filter(worker -> coinId.equals(worker.coin()))
-                .map(WorkerAssignmentService.WorkerView::deviceId).forEach(this::cancelLocalStart);
-    }
-
-    public void cancelAllLocalStarts() { locallyStarted.clear(); }
-
     public StartSelection selectBestStartPoint(String workerId, String assignedCoin, String mode) {
-        List<CoinHoppingService.Candidate> choices = hopping.candidates(workerId, 0);
+        var assignedWorker = workerPolicies == null ? null : assignments.workers().stream().filter(w -> workerId.equals(w.deviceId())).findFirst().orElse(null);
+        List<CoinHoppingService.Candidate> choices = hopping.candidates(workerId, 0).stream()
+                .filter(value -> workerPolicies == null || assignedWorker != null && workerPolicies.permits(workerId,
+                        assignedCoin, assignedWorker.minerSoftwareId(), value.coin(), value.minerSoftwareId())).toList();
         if ("REVENUE_PER_KWH".equals(mode) || "PROFIT_PER_DAY".equals(mode))
             choices = choices.stream().filter(candidate -> assignedCoin.equals(candidate.coin())).toList();
         else if (!"COIN_REVENUE_PER_KWH".equals(mode) && !"COIN_PROFIT_PER_DAY".equals(mode))
@@ -177,10 +165,6 @@ public class WorkerCoinRevenueModeService {
 
     private static boolean dailyProfitMode(String mode) {
         return "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode);
-    }
-
-    private static boolean automaticRevenueMode(String mode) {
-        return scheduledMode(mode);
     }
 
     private static boolean scheduledMode(String mode) {
@@ -214,6 +198,8 @@ public class WorkerCoinRevenueModeService {
     /** The mode-change controller already owns the run lock. */
     public StartResult applyBestStartPoint(String workerId, String assignedCoin, String mode,
                                            boolean startWorker, boolean lockHeld) {
+        if (controls.get().manuallyStopped(workerId))
+            return new StartResult(false, "worker_manually_stopped", null, null);
         StartSelection selection = selectBestStartPoint(workerId, assignedCoin, mode);
         if (selection.error() != null) return new StartResult(false, selection.error(), null, null);
         if (!lockHeld && !runLock.tryBegin("worker-revenue-start"))
@@ -244,7 +230,6 @@ public class WorkerCoinRevenueModeService {
                 if ((startWorker || (wasMining && (coinChanged || minerChanged)))
                         && !assignments.startAtCurrentPowerTarget(workerId))
                     throw new IllegalStateException("power_mode_apply_failed");
-                if (startWorker || wasMining) locallyStarted.add(workerId);
                 switchedAt.put(workerId, Instant.now());
                 return new StartResult(true, null, targetCoin, selection.candidate().limitWatts());
             } catch (RuntimeException failure) {

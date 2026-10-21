@@ -1,43 +1,50 @@
 package de.verdox.solarminer.pcagent.support;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-/**
- * The one escalation sequence for stopping managed child processes: request a graceful
- * shutdown of the process and its descendants, wait until a shared deadline, then force-kill
- * whatever survived together with its descendants. Used by the miner process registry and
- * the managed proxy child management; the per-call deadline is shared across the whole
- * batch so a batch never waits N times the grace period.
- */
+/** Bounded graceful/forced termination of an explicitly owned set of process trees. */
 public final class ProcessTermination {
-
     private ProcessTermination() { }
 
-    /** True when no process in {@code processes} is alive after the escalation. */
+    /**
+     * Snapshot descendants before signalling their parent: once a parent exits the OS may
+     * reparent its children, making a later descendants() query lose them. Each phase has
+     * one shared deadline for the entire batch. Success includes children and force kills.
+     */
     public static boolean terminate(Collection<ProcessHandle> processes, Duration grace) {
-        List<ProcessHandle> targets = new ArrayList<>(processes);
-        for (ProcessHandle target : targets) {
-            target.descendants().forEach(ProcessHandle::destroy);
-            target.destroy();
+        if (grace.isNegative()) throw new IllegalArgumentException("Negative process termination grace");
+        var targets = new LinkedHashMap<Long, ProcessHandle>();
+        for (ProcessHandle root : processes) {
+            root.descendants().forEach(child -> targets.putIfAbsent(child.pid(), child));
+            targets.putIfAbsent(root.pid(), root);
         }
-        long deadline = System.nanoTime() + grace.toNanos();
-        for (ProcessHandle target : targets) {
+        List<ProcessHandle> snapshot = List.copyOf(targets.values());
+        snapshot.stream().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroy);
+        if (awaitExit(snapshot, grace)) return true;
+        // Include any children created while the original graceful signal was pending.
+        for (ProcessHandle root : snapshot)
+            root.descendants().forEach(child -> targets.putIfAbsent(child.pid(), child));
+        snapshot = List.copyOf(targets.values());
+        snapshot.stream().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly);
+        return awaitExit(snapshot, grace);
+    }
+
+    private static boolean awaitExit(List<ProcessHandle> targets, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (targets.stream().anyMatch(ProcessHandle::isAlive)) {
             long remaining = deadline - System.nanoTime();
-            if (remaining > 0) {
-                try {
-                    TimeUnit.NANOSECONDS.sleep(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(50)));
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
+            if (remaining <= 0 || Thread.currentThread().isInterrupted()) return false;
+            try {
+                TimeUnit.NANOSECONDS.sleep(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(20)));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return false;
             }
-            if (target.isAlive()) target.destroyForcibly();
-            target.descendants().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly);
         }
-        return targets.stream().noneMatch(ProcessHandle::isAlive);
+        return true;
     }
 }

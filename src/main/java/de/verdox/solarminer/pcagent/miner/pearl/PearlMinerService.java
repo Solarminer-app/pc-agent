@@ -1,5 +1,6 @@
 package de.verdox.solarminer.pcagent.miner.pearl;
 
+import de.verdox.solarminer.pcagent.miner.MinerStartContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.dto.MinerStats;
 import de.verdox.solarminer.pcagent.dto.Pools;
@@ -111,10 +112,7 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
     public synchronized void configure(MinerConfig next) throws IOException {
         validate(next);
         MinerConfig previous = config;
-        boolean routeChanged = previous == null || !Objects.equals(previous.poolUrl(), next.poolUrl())
-                || !Objects.equals(previous.proxyUrl(), next.proxyUrl())
-                || !Objects.equals(previous.wallet(), next.wallet())
-                || !Objects.equals(previous.worker(), next.worker());
+        boolean routeChanged = !next.sameRoute(previous);
         if (routeChanged) {
             if (!stop()) throw new IOException("Pearl-GPU-Prozesse konnten nicht angehalten werden");
             runs.clear();
@@ -236,7 +234,7 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
 
     public synchronized boolean start() {
         manuallyPaused.clear();
-        resetRestartBudget();
+        if (MinerStartContext.operatorRequested()) resetRestartBudget();
         return startForBudget();
     }
 
@@ -260,7 +258,7 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
     public synchronized boolean resumeGpuManually(String vendor, int index) {
         manuallyPaused.remove(vendor + ":" + index);
         WorkerRunState resumed = runs.get(vendor + ":" + index);
-        if (resumed != null) resumed.restartAttempts = 0;
+        if (resumed != null && MinerStartContext.operatorRequested()) resumed.restartAttempts = 0;
         return startGpu(vendor, index);
     }
 
@@ -290,7 +288,7 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
             run.restartAttempts++;
             console.append(Coin.PEARL.id(), "[SolarMiner] SRBMiner watchdog restart " + run.restartAttempts
                     + "/" + MAX_CRASH_RESTARTS + " (" + run.gpuLabel() + ")");
-            startGpu(run.gpu);
+            MinerStartContext.recovery(() -> startGpu(run.gpu));
         }
     }
 
@@ -303,9 +301,20 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
 
     private synchronized boolean startGpu(LocalGpuPowerService.Gpu gpu) {
         String key = gpu.vendor() + ":" + gpu.index();
-        WorkerRunState run = runs.computeIfAbsent(key, ignored ->
-                new WorkerRunState(Coin.PEARL.id(), gpu, workerConsoleId(gpu), "Miner nicht gestartet"));
-        if (run.running()) return true;
+        if (manuallyPaused.contains(key)) return false;
+        if (!workerStartAllowed(gpu.deviceId())) {
+            lastError = "worker_manually_stopped";
+            return false;
+        }
+        WorkerRunState previousAttempt = runs.get(key);
+        if (previousAttempt != null && previousAttempt.status == MinerStats.MinerStatus.ERROR
+                && !MinerStartContext.mayRetryFailure()) {
+            lastError = previousAttempt.error;
+            return false;
+        }
+        WorkerRunState run = runs.compute(key, (ignored, previous) ->
+                WorkerRunState.nextAttempt(previous, Coin.PEARL.id(), gpu, workerConsoleId(gpu), "Miner nicht gestartet"));
+        if (run.running()) return run.restartAllowed;
         if (!gpuPowerService.enforceConfiguredPowerLimit(gpu))
             return fail(run, "Treiber bestätigte den Power-Cap nicht");
         if (MinerProcessRegistry.gpuCoinUsesDevice(gpu.deviceId()))
@@ -335,8 +344,9 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
             String worker = route.worker().substring(0, Math.min(route.worker().length(), 32 - suffix.length())) + suffix;
             List<String> command = buildCommand(executable, proxy, route.wallet(),
                     encodedWorker(route.poolUrl(), worker), apiPort, srbId, nativeTuning.get(gpu.deviceId()));
-            Process started = new ProcessBuilder(command).directory(executable.getParent().toFile())
-                    .redirectErrorStream(true).start();
+            Process started = MinerProcessRegistry.startGpu(gpu.deviceId(), () ->
+                    new ProcessBuilder(command).directory(executable.getParent().toFile())
+                            .redirectErrorStream(true).start());
             run.process = started;
             run.apiPort = apiPort;
             run.status = MinerStats.MinerStatus.MINING;
@@ -354,6 +364,7 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
             Thread.ofVirtual().name("pearl-health-" + key).start(() -> monitorLoop(run, started, SrbMonitorPolicy.pearl(),
                     () -> true, candidate -> runs.get(candidate.gpu.vendor() + ":" + candidate.gpu.index()) == candidate));
             started.onExit().thenAccept(done -> {
+                MinerProcessRegistry.unregisterGpuCoin(done);
                 try {
                     outputThread.join(1000);
                 } catch (InterruptedException e) {
@@ -411,18 +422,22 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
 
     @Override
     protected boolean fail(WorkerRunState run, String error) {
-        var diagnosis = run.diagnosis;
-        if (diagnosis != null && !error.contains(diagnosis.detail())) error = error + " · " + diagnosis.detail();
-        run.status = MinerStats.MinerStatus.ERROR;
-        run.error = error;
-        run.detail = error;
-        run.healthy = false;
-        run.hashrate = 0;
-        lastError = error;
-        LOGGER.warning(error);
-        console.append(run.consoleId, "[SolarMiner] " + error);
-        console.append(Coin.PEARL.id(), "[" + run.gpuLabel() + "] " + error);
-        return false;
+        synchronized (run) {
+            if (!run.restartAllowed) return false;
+            run.scheduleRecovery();
+            var diagnosis = run.diagnosis;
+            if (diagnosis != null && !error.contains(diagnosis.detail())) error = error + " · " + diagnosis.detail();
+            run.status = MinerStats.MinerStatus.ERROR;
+            run.error = error;
+            run.detail = error;
+            run.healthy = false;
+            run.hashrate = 0;
+            lastError = error;
+            LOGGER.warning(error);
+            console.append(run.consoleId, "[SolarMiner] " + error);
+            console.append(Coin.PEARL.id(), "[" + run.gpuLabel() + "] " + error);
+            return false;
+        }
     }
 
     static List<String> buildCommand(Path executable, URI proxy, String wallet, String worker,
@@ -573,25 +588,24 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
         return "sm1." + pool + "." + worker;
     }
 
+    @Override public synchronized boolean stopDevice(String deviceId) {
+        boolean stopped = true;
+        for (WorkerRunState run : List.copyOf(runs.values()))
+            if (deviceId.equals(run.gpu.deviceId()))
+                stopped = stopGpu(run.gpu.vendor(), run.gpu.index()) && stopped;
+        return stopped;
+    }
+
     public synchronized boolean stopGpu(String vendor, int index) {
         WorkerRunState run = runs.get(vendor + ":" + index);
         if (run == null) return true;
-        run.status = MinerStats.MinerStatus.PAUSED;
-        run.healthy = false;
-        run.hashrate = 0;
-        run.acceptedShares = null;
-        run.rejectedShares = null;
-        run.poolCounters = MinerShareTelemetry.Counters.unavailable();
-        run.detail = "Miner pausiert";
-        // An explicit stop refills the bounded O1 restart budget (mirrors the XMRig stop path).
-        run.restartAttempts = 0;
+        run.requestStop("Miner pausiert");
         return stopProcess(run, MinerStopContext.source(), true, "SRBMiner stopped");
     }
 
     public synchronized boolean stop() {
         boolean success = true;
         for (WorkerRunState run : runs.values()) success = stopGpu(run.gpu.vendor(), run.gpu.index()) && success;
-        success = MinerProcessRegistry.stopSrbExceptGpuCoins() && success;
         return success;
     }
 

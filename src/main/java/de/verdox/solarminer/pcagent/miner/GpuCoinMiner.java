@@ -20,6 +20,12 @@ public interface GpuCoinMiner extends CoinMiner {
 
     boolean stopGpu(String vendor, int index);
 
+    /** Stop by captured hardware identity, even when driver discovery currently fails. */
+    default boolean stopDevice(String deviceId) {
+        return selectedGpus().stream().filter(gpu -> deviceId.equals(gpu.deviceId()))
+                .findFirst().map(gpu -> stopGpu(gpu.vendor(), gpu.index())).orElse(true);
+    }
+
     boolean pauseGpu(String vendor, int index);
 
     boolean resumeGpu(String vendor, int index);

@@ -34,6 +34,8 @@ Start with [pc-agent.md](pc-agent.md) — the ownership map for the source tree.
 | [../KNOWN_BUGS.md](../KNOWN_BUGS.md) | Prioritized PC-Agent defect backlog; agents check it after scoping their assigned work when capacity permits |
 | [Economic dispatch (C10)](economic-dispatch.md) | Node capability/short-lived-plan boundary and cold-start policy |
 | [Revenue candidate comparison](coin-hopping.md) | Historical coin-hopping contract, retirement, and the benchmark USD/kWh comparison |
+| [Worker lifecycle / Worker-Lebenszyklus](worker-lifecycle.md) | Process ownership, operator stop authority, bounded recovery and device isolation / Prozessbesitz, Stopp-Absicht, Wiederanlauf und Geräteisolation |
+| [Benchmark workflow / Benchmark-Ablauf](benchmark-workflow.md) | Per-worker coin/software scope, two goals, independent switching and thermal safety / Worker-Auswahl, Profile, Wechselrechte und Temperaturgrenzen |
 | [Worker operating modes](worker-power-modes.md) | Per-worker manual, efficiency and revenue modes; local cap ownership and Node on/off contract |
 | [GPU Auto Tuning](auto-tuning.md) | Driver-probed core/memory clock control, Bayesian calibration sessions, profile cache and local UI |
 | [GPU Toolkit adapters](gpu-toolkit.md) | Shared GPUInterface API and NVIDIA NVML / nvidia-smi implementations |

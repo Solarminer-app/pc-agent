@@ -39,6 +39,62 @@ public final class WorkerRunState implements MinerShareTelemetry.ShareSink {
     public volatile int apiPort;
     /** Bounded crash-restart attempts for this worker; reset on operator start/stop. */
     public int restartAttempts;
+    /** Stop intent is independent of diagnostic status and survives late monitor failures. */
+    public volatile boolean restartAllowed = true;
+    private volatile java.time.Instant retryAfter = java.time.Instant.MIN;
+
+    /** Retry 30/60/120 seconds after failure; operator resume resets the attempt counter. */
+    public synchronized void scheduleRecovery() {
+        retryAfter = java.time.Instant.now().plusSeconds(30L << Math.min(restartAttempts, 2));
+    }
+
+    /** Each launch attempt has its own state; old API/output/exit callbacks keep the old state. */
+    public static WorkerRunState nextAttempt(WorkerRunState previous, String coin,
+                                             LocalGpuPowerService.Gpu gpu, String consoleId, String detail) {
+        if (previous != null && previous.running()) return previous;
+        WorkerRunState next = new WorkerRunState(coin, gpu, consoleId, detail);
+        if (previous != null) {
+            synchronized (previous) {
+                previous.restartAllowed = false;
+                next.restartAttempts = previous.restartAttempts;
+            }
+        }
+        return next;
+    }
+
+    /** Withdraw recovery before any potentially blocking process termination. */
+    public synchronized void requestStop(String detail) {
+        restartAllowed = false;
+        status = MinerStats.MinerStatus.PAUSED;
+        healthy = false;
+        hashrate = 0;
+        acceptedShares = null;
+        rejectedShares = null;
+        poolCounters = MinerShareTelemetry.Counters.unavailable();
+        this.detail = detail;
+        error = null;
+        diagnosis = null;
+        restartAttempts = 0;
+    }
+
+    /** A failed stop remains visible but never becomes a crash-restart request. */
+    public synchronized boolean finishStop(boolean terminated) {
+        if (!terminated) {
+            status = MinerStats.MinerStatus.ERROR;
+            detail = error = "worker_stop_failed";
+        }
+        return terminated;
+    }
+
+    public boolean monitors(Process candidate) {
+        return restartAllowed && process == candidate && status == MinerStats.MinerStatus.MINING;
+    }
+
+    public boolean restartEligible() {
+        return restartAllowed && status == MinerStats.MinerStatus.ERROR && !running()
+                && restartAttempts < AbstractMinerEngine.MAX_CRASH_RESTARTS
+                && !java.time.Instant.now().isBefore(retryAfter);
+    }
 
     public WorkerRunState(String coin, LocalGpuPowerService.Gpu gpu, String consoleId, String initialDetail) {
         this.coin = coin;

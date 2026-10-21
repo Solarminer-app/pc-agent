@@ -252,6 +252,7 @@
 
   function openEditor(worker) {
     selected = worker;
+    void window.SolarMinerBenchmarkPolicyEditor($('worker-benchmark-policy'), worker, miners);
     $('worker-editor-title').textContent = worker.hardwareModel;
     $('worker-editor-hardware').textContent = `${worker.hardwareType} · ${worker.deviceId}`;
     const coinSelect = $('worker-coin'); coinSelect.replaceChildren();
@@ -275,7 +276,10 @@
       coinSelect.append(option);
     }
     coinSelect.value = worker.coin; populateMinerSelect(worker.coin, worker.minerSoftwareId);
-    $('worker-power-mode').value = worker.powerMode || 'MANUAL';
+    $('worker-power-mode').value = worker.hardwareType === 'CPU' ? (worker.powerMode || 'MANUAL')
+      : ['EFFICIENCY', 'REVENUE_PER_KWH'].includes(worker.powerMode) ? 'COIN_REVENUE_PER_KWH'
+      : worker.powerMode === 'PROFIT_PER_DAY' ? 'COIN_PROFIT_PER_DAY' : worker.powerMode || 'MANUAL';
+    $('worker-power-mode').querySelector('[value="EFFICIENCY"]').hidden = worker.hardwareType !== 'CPU';
     $('worker-power-mode').querySelector('[value="COIN_REVENUE_PER_KWH"]').disabled = worker.hardwareType === 'CPU';
     $('worker-power-mode').querySelector('[value="MAX_HASHRATE"]').disabled = worker.hardwareType === 'CPU';
     $('worker-power-mode').querySelector('[value="AUTO_TUNING"]').disabled = worker.hardwareType === 'CPU';
@@ -381,12 +385,15 @@
     const resumeAfterAssignment = worker.status === 'MINING' && assignment.coin !== 'none'
       && (assignment.coin !== worker.coin || assignment.minerSoftwareId !== worker.minerSoftwareId);
     const powerMode = $('worker-power-mode').value;
+    const savePolicy = $('worker-benchmark-policy').savePolicy;
     pendingWorkers.add(worker.deviceId);
     $('worker-editor').close();
     selected = null;
     renderTable();
     let saved = false;
     try {
+      if (!savePolicy) throw new Error('benchmark_policy_loading');
+      await savePolicy();
       const response = await fetch(`/api/agent/local/workers/${encodeURIComponent(worker.deviceId)}/assignment`, {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(assignment)
       });

@@ -22,6 +22,7 @@ public final class MeasurementRunGuard {
     private final LocalRunLock lock;
     private final ExecutorService executor;
     private volatile boolean cancel;
+    private final java.util.concurrent.atomic.AtomicBoolean ownsLock = new java.util.concurrent.atomic.AtomicBoolean();
 
     public MeasurementRunGuard(LocalRunLock lock, String threadName) {
         this.lock = lock;
@@ -30,10 +31,13 @@ public final class MeasurementRunGuard {
     }
 
     /** Claims the shared hardware lock for this run; false when another measurement owns it. */
-    public boolean begin(String runName) { return lock.tryBegin(runName); }
+    public boolean begin(String runName) {
+        if (!lock.tryBegin(runName)) return false;
+        ownsLock.set(true); return true;
+    }
 
     /** Releases the shared hardware lock; call from every terminal path of a run. */
-    public void end() { lock.end(); }
+    public void end() { if (ownsLock.compareAndSet(true, false)) lock.end(); }
 
     /** True while any local measurement run (this one or the sibling service) owns the hardware. */
     public boolean lockBusy() { return lock.busy(); }

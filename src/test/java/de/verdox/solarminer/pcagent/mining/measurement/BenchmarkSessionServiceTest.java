@@ -26,6 +26,78 @@ import de.verdox.solarminer.pcagent.miner.MinerConsoleService;
 
 class BenchmarkSessionServiceTest {
     @Test
+    void explicitWorkerIsMeasuredEvenWhenMissingFromSavedMinerSelection() {
+        var a = gpu("gpu-a", "RTX 4090", 0);
+        var b = gpu("gpu-b", "RTX 4090", 1);
+        var factory = mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class);
+        var miner = mock(de.verdox.solarminer.pcagent.miner.GpuCoinMiner.class);
+        var catalog = mock(de.verdox.solarminer.pcagent.mining.MinerCatalogService.class);
+        var option = mock(de.verdox.solarminer.pcagent.mining.MinerCatalogService.MinerOption.class);
+        when(option.id()).thenReturn("srbminer-multi"); when(option.installed()).thenReturn(true);
+        when(option.selectable()).thenReturn(true); when(option.compatibleGpuVendors()).thenReturn(List.of("NVIDIA"));
+        when(catalog.options("pearl")).thenReturn(List.of(option));
+        when(factory.gpuMiner(de.verdox.solarminer.pcagent.coin.Coin.PEARL, "srbminer-multi")).thenReturn(miner);
+        when(miner.binaryAvailable()).thenReturn(true); when(miner.configured()).thenReturn(true);
+        when(miner.selectedGpus()).thenReturn(List.of(a));
+        var power = mock(LocalGpuPowerService.class); when(power.discover()).thenReturn(List.of(a, b));
+        var service = new BenchmarkSessionService(mock(MiningService.class), factory,
+                mock(BenchmarkSharingService.class), mock(MinerConsoleService.class), new LocalRunLock(),
+                mock(MiningPerformanceProfileStore.class), mock(WorkerAssignmentService.class), catalog);
+        service.setGpuPower(power);
+        try {
+            var planned = service.gpuBenchmarkBatches(List.of("pearl"), Set.of("gpu-b"), 1);
+            assertEquals(1, planned.size());
+            assertEquals(List.of(b), planned.getFirst().assignments().get(de.verdox.solarminer.pcagent.coin.Coin.PEARL));
+            org.mockito.Mockito.verify(miner, org.mockito.Mockito.never()).applyConfig(org.mockito.ArgumentMatchers.any());
+        } catch (java.io.IOException impossible) { throw new AssertionError(impossible); }
+        finally { service.close(); }
+    }
+
+    @Test
+    void telemetryFailureBeforeSnapshotFinishesSessionAndReleasesHardwareLock() throws Exception {
+        var lock = new LocalRunLock();
+        var mining = mock(MiningService.class);
+        when(mining.getWorkerStats()).thenThrow(new IllegalStateException("sensor offline"));
+        var factory = mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class);
+        when(factory.miner(org.mockito.ArgumentMatchers.any(de.verdox.solarminer.pcagent.coin.Coin.class)))
+                .thenReturn(mock(de.verdox.solarminer.pcagent.miner.CoinMiner.class));
+        var service = new BenchmarkSessionService(mining,
+                factory, mock(BenchmarkSharingService.class),
+                mock(MinerConsoleService.class), lock, mock(MiningPerformanceProfileStore.class),
+                mock(WorkerAssignmentService.class));
+        try {
+            service.start("live");
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3);
+            while ((service.status().running() || lock.busy()) && System.nanoTime() < deadline) Thread.sleep(5);
+            assertFalse(service.status().running());
+            assertFalse(lock.busy());
+            assertTrue(service.status().phase().contains("sensor offline"));
+        } finally { service.close(); }
+    }
+
+    @Test
+    void rejectedExecutorSubmissionReleasesHardwareLock() {
+        var lock = new LocalRunLock();
+        var service = new BenchmarkSessionService(mock(MiningService.class),
+                mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class), mock(BenchmarkSharingService.class),
+                mock(MinerConsoleService.class), lock, mock(MiningPerformanceProfileStore.class),
+                mock(WorkerAssignmentService.class));
+        service.close();
+        assertThrows(RuntimeException.class, () -> service.start("live"));
+        assertFalse(service.status().running());
+        assertFalse(lock.busy());
+    }
+
+    @Test
+    void miningWithoutValidHashrateTimesOutAfterStartupGrace() {
+        var zero = autoStartWorker("gpu", MinerStats.MinerStatus.MINING, 0);
+        var nan = autoStartWorker("gpu", MinerStats.MinerStatus.MINING, Double.NaN);
+        assertTrue(BenchmarkSessionService.workerUnavailable("gpu", zero, Set.of("gpu"), Instant.now().minusSeconds(1)));
+        assertTrue(BenchmarkSessionService.workerUnavailable("gpu", nan, Set.of(), Instant.now().minusSeconds(1)));
+        assertFalse(BenchmarkSessionService.workerUnavailable("gpu", zero, Set.of(), Instant.now().plusSeconds(10)));
+    }
+
+    @Test
     void autoStartUsesConfiguredWorkerPathAndKeepsFailuresPerWorker() {
         WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
         when(assignments.stopForBenchmarkRestart("cpu")).thenReturn(true);
@@ -217,7 +289,7 @@ class BenchmarkSessionServiceTest {
         when(pearl.binaryAvailable()).thenReturn(false);
 
         BenchmarkSessionService service = new BenchmarkSessionService(mock(MiningService.class), miners,
-                mock(BenchmarkSharingService.class), mock(MinerConsoleService.class), mock(LocalRunLock.class),
+                mock(BenchmarkSharingService.class), mock(MinerConsoleService.class), new LocalRunLock(),
                 mock(MiningPerformanceProfileStore.class), assignments, mock(de.verdox.solarminer.pcagent.mining.MinerCatalogService.class));
 
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> service.start("INSTALLED"));

@@ -1,5 +1,6 @@
 package de.verdox.solarminer.pcagent.console;
 
+import de.verdox.solarminer.pcagent.miner.MinerStartContext;
 import de.verdox.solarminer.pcagent.mining.MiningService;
 import de.verdox.solarminer.pcagent.mining.WorkerAssignmentService;
 import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
@@ -38,7 +39,7 @@ public class ConsoleWorkerOperations {
         if (!runLock.tryBegin("operations-assignment")) return "power_mode_busy";
         try {
             workers.assign(target.deviceId(), new WorkerAssignmentService.Assignment(assignment.coin(), assignment.minerSoftwareId()));
-            revenue.cancelLocalStart(target.deviceId());
+            revenue.resetCooldown(target.deviceId());
             return null;
         } catch (java.io.IOException failure) { return "console_preference_failed"; }
         finally { runLock.end(); }
@@ -56,16 +57,14 @@ public class ConsoleWorkerOperations {
         try {
             var worker = workers.workers().stream().filter(row -> id.equals(row.deviceId())).findFirst().orElse(null);
             if (worker == null) return "console_worker_missing";
-            boolean applied = enabled ? workers.startWithHeldRunLock(id) : workers.pause(id);
-            if (!applied) return "console_action_failed";
-            if (enabled && controls.get().manuallyStopped(id) && !controls.setWorkerManuallyStopped(id, false))
-                return "console_preference_failed";
-            if (!enabled && controls.get().startsOnBoot(id) && !controls.setWorkerManuallyStopped(id, true))
-                return "console_preference_failed";
+            boolean saved = controls.setWorkerManuallyStopped(id, !enabled);
+            if (enabled && !saved) return "console_preference_failed";
             if (!enabled) {
                 revenue.resetCooldown(id);
-                revenue.cancelLocalStart(id);
             }
+            boolean applied = enabled ? MinerStartContext.operator(() -> workers.startWithHeldRunLock(id)) : workers.pause(id);
+            if (!applied) return "console_action_failed";
+            if (!saved) return "worker_stop_save_failed";
             return null;
         } finally {
             if (locked) runLock.end();

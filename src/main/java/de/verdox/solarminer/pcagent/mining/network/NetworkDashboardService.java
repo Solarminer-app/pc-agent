@@ -1,5 +1,6 @@
 package de.verdox.solarminer.pcagent.mining.network;
 
+import de.verdox.solarminer.pcagent.miner.MinerStartContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import de.verdox.solarminer.pcagent.coin.Coin;
@@ -453,6 +454,9 @@ public class NetworkDashboardService {
         if (enabled && !ownMining.beginWorkerStart(deviceId)) return false;
         if (enabled) status.invalidate("workers", "overview");
         try {
+            boolean saved = ownControls.setWorkerManuallyStopped(deviceId, !enabled);
+            if (enabled && !saved) return false;
+            if (!enabled && coinRevenueMode != null) coinRevenueMode.resetCooldown(deviceId);
             String mode = ownControls.get().powerModeFor(deviceId);
             boolean revenueMode = ("COIN_REVENUE_PER_KWH".equals(mode) || "REVENUE_PER_KWH".equals(mode)
                     || "PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode))
@@ -462,15 +466,11 @@ public class NetworkDashboardService {
                 WorkerAssignmentService.WorkerView worker = ownWorkers.workers().stream()
                         .filter(value -> deviceId.equals(value.deviceId())).findFirst().orElse(null);
                 applied = worker != null && coinRevenueMode != null
-                        && coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), mode, true).success();
-            } else applied = enabled ? ownWorkers.start(deviceId) : ownWorkers.pause(deviceId);
-            if (applied && enabled && ownControls.get().manuallyStopped(deviceId))
-                applied = ownControls.setWorkerManuallyStopped(deviceId, false);
-            if (applied && !enabled && ownControls.get().startsOnBoot(deviceId))
-                applied = ownControls.setWorkerManuallyStopped(deviceId, true);
-            if (applied && !enabled && coinRevenueMode != null) coinRevenueMode.cancelLocalStart(deviceId);
+                        && MinerStartContext.operator(() -> coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), mode, true)).success();
+            } else applied = enabled ? MinerStartContext.operator(() -> ownWorkers.start(deviceId)) : ownWorkers.pause(deviceId);
+            if (applied && !enabled && coinRevenueMode != null) coinRevenueMode.resetCooldown(deviceId);
             if (applied) status.invalidate("workers", "overview", "power-control", "energy");
-            return applied;
+            return applied && saved;
         } finally {
             if (enabled) {
                 ownMining.endWorkerStart(deviceId);

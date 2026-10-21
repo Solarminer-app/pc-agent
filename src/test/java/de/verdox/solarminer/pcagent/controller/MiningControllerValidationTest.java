@@ -302,6 +302,7 @@ class MiningControllerValidationTest {
 
     @Test
     void localControlsAreAllowedOnceTheMeasurementRunReleasedTheLock() throws Exception {
+        when(mining.setOperatorIntent("pearl", false)).thenReturn(true);
         when(mining.resumeMining("pearl")).thenReturn(true);
         controller().perform(post("/api/agent/local/miners/pearl/resume"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$").value(true));

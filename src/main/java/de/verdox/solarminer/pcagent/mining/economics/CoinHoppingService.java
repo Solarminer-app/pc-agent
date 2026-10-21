@@ -30,6 +30,11 @@ import java.util.Objects;
  */
 @Service
 public class CoinHoppingService {
+    private de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService workerPolicies;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setWorkerPolicies(de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService policies) {
+        this.workerPolicies = policies;
+    }
     private static final Duration MAX_PROFILE_AGE = Duration.ofDays(30);
     private static final Duration MAX_MARKET_AGE = Duration.ofHours(2);
     private static final int DEFAULT_COOLDOWN_MINUTES = 30;
@@ -173,6 +178,9 @@ public class CoinHoppingService {
             Coin coin = Coin.byIdOrNull(profile.coin());
             if (coin == null || !coin.isGpu() || !coin.matchesAlgorithm(profile.algorithm())) continue;
             for (GpuEfficiencyStore.StepResult step : profile.steps()) {
+                if (workerPolicies != null && workerPolicies.get(deviceId) != null
+                        && (step.maxTemperatureC() == null || !Double.isFinite(step.maxTemperatureC())
+                        || step.maxTemperatureC() >= workerPolicies.ceiling(deviceId, 85))) continue;
                 if (!step.stable() || step.limitWatts() < gpu.minWatts() || step.limitWatts() > gpu.maxWatts()
                         || (targetWatts > 0 && step.limitWatts() != targetWatts)
                         || !positive(step.medianHashrateHs()) || !positive(step.avgPowerWatts())) continue;

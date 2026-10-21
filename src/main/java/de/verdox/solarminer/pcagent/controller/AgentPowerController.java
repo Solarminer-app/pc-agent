@@ -120,7 +120,7 @@ public class AgentPowerController {
                 return externalStatus();
             }
             if (!mining.setExternalTarget(watts)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Leistungsziel konnte nicht sicher angewendet werden");
-            if (watts <= 0 && workerCoinRevenueMode != null) workerCoinRevenueMode.cancelAllLocalStarts();
+            if (watts <= 0 && workerCoinRevenueMode != null) workerCoinRevenueMode.resetAllCooldowns();
             logExternalChange(watts <= 0 ? "Mining paused remotely (power target 0 W)" : "Power target changed remotely to " + watts + " W");
             reportChanged("overview", "power-control", "workers");
             return externalStatus();
@@ -130,7 +130,7 @@ public class AgentPowerController {
     public boolean externalPause() { return withControl(() -> {
         boolean success = mining.pauseExternally();
         if (success) {
-            if (workerCoinRevenueMode != null) workerCoinRevenueMode.cancelAllLocalStarts();
+            if (workerCoinRevenueMode != null) workerCoinRevenueMode.resetAllCooldowns();
             logExternalChange("Mining paused remotely"); reportChanged("overview", "power-control", "workers");
         }
         return success;

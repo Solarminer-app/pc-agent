@@ -3591,3 +3591,157 @@ maßgeblich. Alle 380 Java-Tests, der Standalone-Build, beide Sprachprüfungen u
 die Browserprüfungen für 2.000 bzw. 1.000 simulierte Worker sind erfolgreich.
 Die Tests ersetzen keine Hardware-, Pool- oder Launcher-Abnahme; es wurde nichts
 ausgerollt und kein realer Miner oder Updatevorgang gestartet.
+# 2026-10-21 — SRBMiner JSON telemetry verification / Prüfung der JSON-Telemetrie
+
+- Confirmed the existing source already enables SRBMiner's JSON API for both
+  Pearl and shared GPU-coin workers. `AbstractSrbMinerEngine.monitorLoop` polls
+  each worker's HTTP root every five seconds. Console parsing handles device
+  mapping and failure diagnostics, not hashrate/share/pool telemetry.
+- No runtime, UI or shared protocol change was necessary. Recorded the source
+  boundary and verification limits in [pc-agent.md](pc-agent.md).
+- JDK 21: `sh gradlew test --offline --tests '*GpuCoinMinerServiceTest'
+  --tests '*SrbMinerVersionTest' --tests '*MinerShareTelemetryTest'
+  --tests '*MinerEngineDriftTest'` passed: 25 tests, no failures/errors/skips.
+  `node scripts/check-i18n.cjs` and
+  `node scripts/check-operations-i18n.cjs` passed, including DE/EN locale
+  selection. No new operator text; external miner output remains verbatim.
+  No live miner, target-host release or pool verification was performed.
+
+Deutsch: Die Telemetrie nutzt bereits die lokale JSON-API. Deshalb war keine
+Umstellung des Laufzeitcodes nötig. 25 gezielte Java-Tests und beide
+Sprachprüfungen waren erfolgreich; die Befunde sind im Wiki dokumentiert.
+Ein laufender Miner und der installierte Release wurden nicht geprüft.
+
+# 2026-10-21 — Worker lifecycle overhaul / Überarbeitung der Worker-Steuerung
+
+- Audited operator, LAN, Node/economic, measurement and adapter process paths.
+  Recorded findings, ownership, behavioral rules and test/hardware boundaries
+  in [worker-lifecycle.md](worker-lifecycle.md).
+- Selection-only GPU configuration writes retain sibling processes in all five
+  adapters; removed assignment-time sibling restarts (BUG-012). Every attempt
+  owns its state, exit/API callbacks are process-scoped and stop intent prevents
+  late telemetry/failures from authorizing recovery.
+- Added stable-device stop dispatch across all adapters, including failed runs
+  and driver-inventory loss. A failure in one adapter or tuning recovery does
+  not prevent the remaining stops for that physical worker. Shared bounded
+  process-tree termination replaces duplicated GPU stops and XMRig's unbounded
+  wait. Managed GPU launch admission is atomic and PID-reuse callbacks cannot
+  release another process's ownership.
+- Persist operator stop intent before process termination, independently of
+  boot preferences; preserve it in memory if storage fails and still execute
+  the stop. Engines, Node capability selection and benchmark restoration obey
+  the existing stop setting through `WorkerStartPolicy`. An explicit start is
+  required to clear it. Ordinary stops no longer kill unrelated externally
+  launched XMRig/SRBMiner processes; external CPU starts no longer count as a
+  successful managed launch.
+- Removed revenue-service crash recovery and obsolete local-start tracking.
+  `MinerStartContext` separates a new operator command from automatic target
+  renewal and a bounded watchdog retry. GPU recovery uses 30/60/120-second
+  minimum delays and a three-retry limit. CPU recovery retains its three-retry
+  scan, observes measurement admission and also handles explicit starts that
+  have no watt target.
+- Added 41 regression cases (full suite grew from 380 to 421) covering every
+  GPU adapter, delayed API responses, CPU exit isolation, budget exhaustion,
+  competing real Linux child launches, PID reuse, stop/boot persistence,
+  storage failure, missing inventory and process-tree escalation. JDK 21:
+  `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test standaloneJar`
+  passed: **421 tests, 94 suites, 0 failures/errors/skips**.
+- `node scripts/check-i18n.cjs` (1,868 keys, 14 pages),
+  `node scripts/simulate-i18n-render.cjs`,
+  `node scripts/check-operations-i18n.cjs`,
+  `node scripts/scan-i18n-literals.cjs` (0 unkeyed display literals), catalog
+  syntax and `git diff --check` passed. Added DE/EN runtime diagnostics and
+  updated the shared frontend asset version. External miner output and
+  arbitrary OS diagnostics remain verbatim.
+- No live miner, hardware power write, pool accounting, deployment or real
+  Windows process termination was performed. No shared external schema, coin
+  or ASIC support was added. No commit/push/tag was performed; pre-existing
+  wiki edits were preserved.
+
+Deutsch: Die Analyse und Umsetzung sichern CPU/GPU-Prozesse pro physischem
+Worker ab. Geräteauswahl-Änderungen lassen Nachbarprozesse weiterlaufen;
+ein bewusster Stopp bleibt gegenüber Automatik und Messungs-Wiederherstellung
+maßgeblich. Automatische Zielerneuerungen umgehen das Neustartbudget nicht.
+421 Tests und Standalone-Build sowie alle Sprachprüfungen waren erfolgreich.
+Reale Ausfalltests auf Zielhardware und unter Windows stehen weiterhin aus.
+
+## 2026-10-21 — Worker benchmark scope, goals and thermal hardening
+
+**English:** Waited for the separate miner-control chat to finish before starting
+repository analysis/edits. Preserved its uncommitted lifecycle work. IntelliJ
+IDEA MCP was not available in the exposed tool registry; used focused repository
+reads and Java 21/Gradle verification. Added the durable
+[benchmark workflow](benchmark-workflow.md) contract and DE/EN operator copy.
+
+Implemented per-worker persisted coin/software combinations with explicit empty
+exclusion, separate coin/miner switching permissions and a finite GPU temperature
+ceiling. The same editor is available in Benchmarks and Workers; worker assignment
+saves its preferences first. Backend compatibility options include GPU-model
+checks. Policy writes hold the shared run lock. Existing baseline economic
+selection enforces the policy for efficiency and approximate daily profit; one
+remaining valid efficiency candidate can replace an expired current point.
+Power sweeps are the baseline; optional clock tuning is an explicit second tool,
+with its existing confirmed-profile application separate from baseline ranking.
+CPU daily-profit modes and an automatic sweep-to-tuner pipeline were not added.
+
+Fixed ordinary benchmark planning intersecting explicit GPU selection with a
+saved miner device list; temporary overrides now measure the requested physical
+GPU. Fixed unbounded MINING/zero-or-invalid-hashrate waits, premature 95-second
+startup expiry versus slow GPU initialization, leaked measurement locks on early
+snapshot/submission failure, and preparation occurring before lock admission.
+Guard release is idempotent. Fixed Tuner thermal checks being skipped by invalid
+rate/power readings and a null GPU dereference in memory-offset readback.
+
+Sweep/tuner respect per-GPU ceilings at equality and reject missing/NaN/nonpositive
+temperatures. Thermal failure stops tuning; a sweep that cannot cool safely
+persists a local stop before restoration and skips later work on that GPU.
+Regular starts and regular mining also enforce saved temperature ceilings;
+incompatible resume checkpoints are not reused. Temperature safety remains
+sampled software protection, with live hardware acceptance outstanding.
+
+A preliminary hypothesis about unpersisted sibling validation was discarded:
+current `targetGroups` already schedules a complete curve per physical GPU.
+Legacy validation helpers were not treated as shipped shared-reference behavior;
+no validation-storage change was retained. BUG-010 records the separately
+verified installed-benchmark selection correction; previous live evidence gates
+remain open.
+
+**Verification:** `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test standaloneJar`
+passed: **435 tests, 0 failures/errors/skips** (14 new regressions on top of the
+previous 421). `node scripts/check-i18n.cjs` passed (1886 keys / 14 pages / DE+EN),
+`check-operations-i18n.cjs`, `simulate-i18n-render.cjs`, `check-dashboard-startup.cjs`,
+JavaScript syntax checks and `git diff --check` passed. Real Chromium ran
+`check-benchmark-policy-browser.cjs` using real local editor/i18n assets and mocked
+APIs: DE/EN selection, separate permissions, temperature persistence, empty
+exclusion and reload passed. Browser dependencies were installed/extracted only
+under `/tmp/solarminer-benchmark-browser*`; the missing libasound runtime was
+provided through a test-only `LD_LIBRARY_PATH`, without changing system packages.
+No mining hardware, production endpoint, release, commit, push or deployment was
+used. Pool acceptance, Windows and physical multi-GPU thermal tests remain open.
+
+**Deutsch:** Vor Analyse und Änderungen auf den anderen Miner-Steuerungs-Agenten
+gewartet und dessen lokale Änderungen erhalten. Dauerhafter Vertrag und
+Bedienoberfläche sind deutsch/englisch dokumentiert. Pro Worker werden erlaubte
+Coin-/Miner-Kombinationen, getrennte Wechselrechte und Temperaturgrenzen
+persistiert. Effizienz und geschätzter Tagesgewinn beachten diese Regeln.
+Power Sweeps bilden die Basis, Tuning bleibt ein gesonderter optionaler zweiter
+Schritt mit eigener bestätigter Profilanwendung. CPU-Tagesgewinn und eine
+automatische Sweep-zu-Tuner-Kette wurden nicht ergänzt.
+
+Behoben wurden die fälschliche Begrenzung ausgewählter Benchmark-GPUs durch die
+gespeicherte Miner-Geräteliste, unbegrenztes Warten bei MINING ohne gültige
+Hashrate, zu kurze Startwartezeit, frühe Sperrlecks und Konfigurationsvorbereitung
+vor der Messsperre. Ungültige Leistungswerte umgehen die Temperaturprüfung nicht
+mehr; Speicher-Offset-Abfragen dereferenzieren keine verschwundene GPU mehr.
+Thermisch unsichere Worker werden angehalten, unsichere Wiederherstellung und
+Fortsetzung unter alten Temperaturgrenzen verhindert. Auch normale Starts und
+normales Mining prüfen gespeicherte Grenzen. Der anfängliche Verdacht zum alten
+Validierungszweig wurde verworfen: Aktuelle Sweeps messen bereits eigene
+vollständige Kurven pro GPU; eine entsprechende Speicheränderung blieb nicht
+bestehen. Die separat belegte Benchmark-Auswahlkorrektur ist in BUG-010 notiert.
+
+435 Java-Tests, Standalone-Build, Sprach-/Render-/Startprüfungen und der echte
+Chromium-Test des neuen Editors in Deutsch/Englisch sind erfolgreich. Alle
+Änderungen sind lokal. Reale Mehr-GPU-, Windows-, Temperatur- und Poolprüfungen
+sowie ein Rollout stehen aus. Externe Miner-Ausgaben und Hardware-/Gerätenamen
+bleiben unverändert; neue umgebende Bedien- und Fehlertexte sind übersetzt.

@@ -44,4 +44,18 @@ class WorkerBootSettingControllerTest {
         assertFalse(controls.get().manuallyStopped("cpu"));
         assertTrue(controls.get().startsOnBoot("cpu"));
     }
+    @Test
+    void pauseStillStopsTheWorkerWhenSavingTheStopIntentFails() {
+        AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
+        WorkerAssignmentService workers = mock(WorkerAssignmentService.class);
+        when(workers.pause("GPU-a")).thenReturn(true);
+        WorkerController controller = new WorkerController(workers, controls, mock(LocalGpuPowerService.class),
+                mock(MinerConsoleService.class), mock(AgentStatusService.class));
+        var error = assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.pause("GPU-a"));
+        assertEquals("worker_stop_save_failed", error.getReason());
+        verify(workers).pause("GPU-a");
+        verify(workers, never()).start("GPU-a");
+    }
+
 }

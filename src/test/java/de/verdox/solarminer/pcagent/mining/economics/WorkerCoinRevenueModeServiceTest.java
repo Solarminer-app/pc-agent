@@ -16,6 +16,38 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class WorkerCoinRevenueModeServiceTest {
+    @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory;
+    @Test
+    void independentSelectionPermissionsConstrainBothGoals() {
+        var hopping = mock(CoinHoppingService.class);
+        var assignments = mock(WorkerAssignmentService.class);
+        var worker = mock(WorkerAssignmentService.WorkerView.class);
+        when(worker.deviceId()).thenReturn("gpu");
+        when(worker.coin()).thenReturn("pearl");
+        when(worker.minerSoftwareId()).thenReturn("srbminer-multi");
+        when(assignments.workers()).thenReturn(List.of(worker));
+        var service = new WorkerCoinRevenueModeService(mock(AgentControlSettingsService.class), hopping,
+                assignments, mock(LocalGpuPowerService.class), new LocalRunLock(), mock(EconomicPlanningService.class));
+        var policies = new de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService(
+                new com.fasterxml.jackson.databind.ObjectMapper(), directory.resolve("selection.json").toString());
+        service.setWorkerPolicies(policies);
+        var now = Instant.now();
+        var fixed = new CoinHoppingService.Candidate("pearl", 100, 90, 100, 1, now, now, "SWEEP", 1, 1, "srbminer-multi", null, .5);
+        var miner = new CoinHoppingService.Candidate("pearl", 100, 90, 200, 2, now, now, "SWEEP", 1, 2, "peakminer", null, 1d);
+        var coin = new CoinHoppingService.Candidate("quantus", 100, 90, 300, 3, now, now, "SWEEP", 1, 3, "srbminer-multi", null, 3d);
+        var both = new CoinHoppingService.Candidate("quantus", 100, 90, 400, 4, now, now, "SWEEP", 1, 4, "wildrig-ng", null, 2d);
+        var choices = List.of(fixed, miner, coin, both);
+        when(hopping.candidates("gpu", 0)).thenReturn(choices);
+        var pairs = choices.stream().map(c -> new de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService.Pair(c.coin(), c.minerSoftwareId())).toList();
+        for (boolean allowCoin : List.of(false, true)) for (boolean allowMiner : List.of(false, true)) {
+            policies.save("gpu", new de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService.Policy(pairs, allowCoin, allowMiner, 75));
+            assertEquals(allowCoin ? allowMiner ? both : coin : allowMiner ? miner : fixed,
+                    service.selectBestStartPoint("gpu", "pearl", "COIN_REVENUE_PER_KWH").candidate());
+            assertEquals(allowCoin ? coin : allowMiner ? miner : fixed,
+                    service.selectBestStartPoint("gpu", "pearl", "COIN_PROFIT_PER_DAY").candidate());
+        }
+    }
+
     @Test
     void dailyProfitAndHashesPerWattCanSelectDifferentSweepTargets() {
         String id = "GPU-test";
@@ -52,6 +84,7 @@ class WorkerCoinRevenueModeServiceTest {
     @Test
     void fixedCoinRevenueStartSelectsMeasuredAlternativeMiner() {
         AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(false, false));
         CoinHoppingService hopping = mock(CoinHoppingService.class);
         WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
         LocalGpuPowerService gpus = mock(LocalGpuPowerService.class);
@@ -76,8 +109,9 @@ class WorkerCoinRevenueModeServiceTest {
     }
 
     @Test
-    void modeChangeCanStartWhileControllerHoldsLockAndRecoversAfterUnexpectedStop() {
+    void modeChangeCanStartWithHeldLockButLeavesCrashRecoveryToMinerEngine() {
         AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(false, false));
         CoinHoppingService hopping = mock(CoinHoppingService.class);
         WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
         LocalGpuPowerService gpus = mock(LocalGpuPowerService.class);
@@ -108,17 +142,18 @@ class WorkerCoinRevenueModeServiceTest {
         lock.end();
 
         service.evaluate();
-        verify(assignments, times(2)).startAtCurrentPowerTarget(id);
+        verify(assignments, times(1)).startAtCurrentPowerTarget(id);
         assertFalse(lock.busy());
 
-        service.cancelLocalStart(id);
+        service.resetCooldown(id);
         service.evaluate();
-        verify(assignments, times(2)).startAtCurrentPowerTarget(id);
+        verify(assignments, times(1)).startAtCurrentPowerTarget(id);
     }
 
     @Test
     void fixedDailyProfitRetunesWhenCurrentMeasurementHasExpired() {
         AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(false, false));
         CoinHoppingService hopping = mock(CoinHoppingService.class);
         WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
         LocalGpuPowerService gpus = mock(LocalGpuPowerService.class);
@@ -142,6 +177,7 @@ class WorkerCoinRevenueModeServiceTest {
     @Test
     void coinDailyProfitSwitchesToOnlyRemainingCandidateWhenCurrentMeasurementHasExpired() {
         AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(false, false));
         CoinHoppingService hopping = mock(CoinHoppingService.class);
         WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
         LocalGpuPowerService gpus = mock(LocalGpuPowerService.class);
@@ -168,6 +204,7 @@ class WorkerCoinRevenueModeServiceTest {
     @Test
     void expiredCurrentPointRestoresOriginalLimitAndMinerWhenSwitchFails() {
         AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(false, false));
         CoinHoppingService hopping = mock(CoinHoppingService.class);
         WorkerAssignmentService assignments = mock(WorkerAssignmentService.class);
         LocalGpuPowerService gpus = mock(LocalGpuPowerService.class);

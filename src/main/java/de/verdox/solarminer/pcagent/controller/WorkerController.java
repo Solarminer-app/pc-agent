@@ -1,5 +1,6 @@
 package de.verdox.solarminer.pcagent.controller;
 
+import de.verdox.solarminer.pcagent.miner.MinerStartContext;
 import de.verdox.solarminer.pcagent.coin.Coin;
 import de.verdox.solarminer.pcagent.coin.WorkerIds;
 import de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService;
@@ -179,7 +180,6 @@ public class WorkerController {
         if (coinRevenueMode != null && !"COIN_REVENUE_PER_KWH".equals(request.mode())
                 && !"COIN_PROFIT_PER_DAY".equals(request.mode())) {
             coinRevenueMode.resetCooldown(deviceId);
-            coinRevenueMode.cancelLocalStart(deviceId);
         }
         reportChanged("workers", "power-control", "overview", "settings");
         return workers.workers().stream().filter(value -> deviceId.equals(value.deviceId())).findFirst().orElseThrow();
@@ -192,7 +192,7 @@ public class WorkerController {
                                                           @RequestBody WorkerAssignmentService.Assignment request) {
         try {
             WorkerAssignmentService.WorkerView view = workers.assign(deviceId, request);
-            if (coinRevenueMode != null) coinRevenueMode.cancelLocalStart(deviceId);
+            if (coinRevenueMode != null) coinRevenueMode.resetCooldown(deviceId);
             reportChanged("workers", "overview", "settings", "power-control");
             return view;
         }
@@ -210,6 +210,8 @@ public class WorkerController {
             WorkerAssignmentService.WorkerView worker = workers.workers().stream()
                     .filter(value -> deviceId.equals(value.deviceId())).findFirst()
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "gpu_not_found"));
+            if (controls.get().manuallyStopped(deviceId) && !controls.setWorkerManuallyStopped(deviceId, false))
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "worker_boot_setting_save_failed");
             String mode = controls.get().powerModeFor(deviceId);
             boolean revenueMode = "GPU".equals(worker.hardwareType())
                     && ("REVENUE_PER_KWH".equals(mode) || "COIN_REVENUE_PER_KWH".equals(mode)
@@ -218,13 +220,11 @@ public class WorkerController {
             if (revenueMode) {
                 if (coinRevenueMode == null)
                     throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "power_mode_unavailable");
-                var result = coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), mode, true);
+                var result = MinerStartContext.operator(() -> coinRevenueMode.applyBestStartPoint(deviceId, worker.coin(), mode, true));
                 if (!result.success()) throw new ResponseStatusException(HttpStatus.CONFLICT, result.error());
                 started = true;
-            } else started = workers.start(deviceId);
+            } else started = MinerStartContext.operator(() -> workers.start(deviceId));
             if (started) {
-                if (controls.get().manuallyStopped(deviceId) && !controls.setWorkerManuallyStopped(deviceId, false))
-                    throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "worker_boot_setting_save_failed");
                 reportChanged("workers", "overview", "power-control");
             }
             return started;
@@ -238,21 +238,18 @@ public class WorkerController {
     }
 
     @PostMapping("/{deviceId}/pause")
-    public boolean pause(@PathVariable String deviceId) {
+    public synchronized boolean pause(@PathVariable String deviceId) {
+        boolean saved = controls.setWorkerManuallyStopped(deviceId, true);
+        if (coinRevenueMode != null) {
+            coinRevenueMode.resetCooldown(deviceId);
+        }
         boolean paused;
         try { paused = workers.pause(deviceId); }
         catch (IllegalStateException failure) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, failure.getMessage());
         }
-        if (paused) {
-            if (controls.get().startsOnBoot(deviceId) && !controls.setWorkerManuallyStopped(deviceId, true))
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "worker_boot_setting_save_failed");
-            if (coinRevenueMode != null) {
-                coinRevenueMode.resetCooldown(deviceId);
-                coinRevenueMode.cancelLocalStart(deviceId);
-            }
-            reportChanged("workers", "overview", "power-control");
-        }
+        reportChanged("workers", "overview", "power-control");
+        if (!saved) throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "worker_stop_save_failed");
         return paused;
     }
 
