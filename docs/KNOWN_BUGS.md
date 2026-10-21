@@ -40,6 +40,7 @@ remains. The assigned task always takes precedence.
 | [~] | P1 | BUG-012 | Saving one worker's assignment can stop other GPUs sharing its coin/miner configuration. |
 | [~] | P1 | BUG-013 | Auto Tuning drops calibration requests for GPUs while another GPU is being calibrated. |
 | [~] | P1 | BUG-014 | External power status reports paused/zero target while automatic-mode GPUs are mining; reported remote mass-stop trigger remains unconfirmed. |
+| [x] | P1 | BUG-015 | Every power-sweep step rejects an already paused worker as manually stopped. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -836,3 +837,33 @@ alte Belege. Nur Quellcode und laufende Leseschnittstellen/Logs geprüft;
 keine Mining-Befehle, Implementierung oder Bereitstellung. Für die eindeutige
 Zuordnung fehlen die genaue Meldung/Zeit und der zugehörige eingehende
 POST-Aufruf samt Steuerentscheidung des Absenders.
+
+
+## BUG-015 — Explicit sweeps cannot start paused workers / Sweep startet pausierte Worker nicht
+
+**Status:** Fixed in source, target-hardware verification pending (2026-10-21).
+
+**English:** Every step called `resumeGpu`, which removed the adapter-local pause
+but still hit the persisted `WorkerStartPolicy` stop. Explicit sweep admission now
+captures per-device permits. `MinerStartContext.measurement` scopes that authority
+to the actual task thread and selected device, including synchronous refinement;
+ordinary automatic starts and final state restoration keep the normal stop gate.
+A repeated operator pause invalidates the captured permit, including failed
+persistence. The stored pause and start-on-boot preferences are unchanged. Failed
+steps can start a fresh measurement attempt without resetting operator retry budgets.
+
+**Deutsch:** `resumeGpu` entfernte nur die Pause im Adapter; die gespeicherte
+Stoppsperre blockierte weiterhin jeden Messschritt. Der ausdrücklich gestartete
+Sweep erhält jetzt eine temporäre Freigabe je Gerät und Task-Thread, auch für die
+synchrone Verfeinerung. Automatische Starts und die abschließende Wiederherstellung
+beachten weiter die Stoppsperre. Ein erneutes Pausieren widerruft die Freigabe auch
+bei Speicherfehlern. Gespeicherte Pause und Autostart bleiben unverändert.
+
+**Evidence / Nachweise:** `EfficiencySweepServiceTest` verifies asynchronous
+admission of an already paused worker and absence of measurement authority during
+restoration. `MeasurementStartAuthorityTest` exercises the real shared engine gate,
+device/thread isolation, exception cleanup, persisted pause after reload and
+revocation after a repeated pause with failed storage. `WorkerStopAuthorityTest`
+continues to verify the normal stop policy. No live GPU/pool run was performed;
+external miner and operating-system text remains verbatim. No new UI messages.
+Keine neue UI-Meldung; externe Miner-/Betriebssystemtexte bleiben unverändert.

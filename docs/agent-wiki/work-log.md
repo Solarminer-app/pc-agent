@@ -3955,3 +3955,75 @@ Zuordnungen. Alle Bedien-/Status-/Hilfstexte sind DE/EN. 471 Java-Tests,
 Standalone-Build, Sprachprüfungen und Browsertests einschließlich zwölf GPUs und
 Mobilansichten erfolgreich. Reale Hardware-/Poolabnahme und Bereitstellung bleiben
 offen; synthetische Prognosen belegen keinen tatsächlichen Ertrag.
+
+
+## 2026-10-21 — PeakMiner native Auto Tuning / Natives PeakMiner-Autotuning
+
+- Research: official versioned PeakMiner 2.19.1 README documents core/memory
+  locks, memory offset and power-limit CLI flags. No miner update is needed.
+  IntelliJ MCP was unavailable in this session; focused source/shell tools used.
+- `PeakMinerService` implements `MinerNativeTuning`; startup uses the saved
+  device-scoped candidate with `--gpu-lcore0`, `--gpu-lmem0` or `--gpu-mem0`,
+  and `--gpu-power0`. Existing UUID isolation, proxy/fee admission, optimizer
+  bounds, sensor validation and profile identity/version remain in force.
+- Only the target's live process restarts. Clearing a stopped worker never
+  starts it; stop failure preserves settings and launch failure discards the
+  candidate. Native-path errors now name the miner generically in both DE/EN
+  UI catalogues, with refreshed catalogue asset URLs.
+- Verification: `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test
+  standaloneJar --offline` passed. Six new `PeakNativeTuningTest` cases cover
+  absolute/offset/watts semantics, per-worker lifecycle and failure paths.
+  `check-i18n.cjs`, `simulate-i18n-render.cjs`, `scan-i18n-literals.cjs`,
+  `check-operations-i18n.cjs` and `git diff --check` passed. Existing tests also
+  cover shared calibration, sweep refinement, modes and adapter isolation.
+- Limits: no live GPU OC write, no Windows/Linux physical OC/UUID index
+  verification, no pool-share/accounting certification. BUG-011 remains open
+  and has a follow-up note. External miner/driver output remains untranslated;
+  surrounding Agent failures are localized. See `auto-tuning.md` for rollback.
+- Scope: no new miner install, coin/algorithm or ASIC; new-coin/ASIC catalogue,
+  Currency Service, Node, proxy, fee-backend and portal contract changes are
+  non-applicable. Existing release/accounting gates stay open; Beta continues
+  to expose its minimally testable path without another runtime flag.
+
+Deutsch: PeakMiner 2.19.1 bietet native Takt-/Speicher-/Power-Parameter und
+verwendet sie jetzt im gemeinsamen Autotuning, bei der Sweep-Nachoptimierung
+und für Betriebsprofile. Prozesswechsel betreffen nur den jeweiligen Worker;
+pausierte Worker bleiben beim Löschen pausiert. Neue Fehlermeldungen sind in
+beiden Oberflächen auf Deutsch und Englisch vorhanden. Tests, Standalone-Build
+und Sprachprüfungen bestanden. Physische Taktwirkung, Mehrkarten-Zuordnung,
+Wiederherstellung und Pool-/Fee-Nachweise bleiben offen; BUG-011 bleibt offen.
+Andere Repositories und gemeinsame Verträge sind nicht betroffen.
+
+
+## 2026-10-21 — Paused-worker power-sweep starts / Sweep-Start pausierter Worker
+
+**English:** Fixed BUG-015: every sweep step could fail with
+`worker_manually_stopped` because adapter resume left the durable operator stop
+in force. Sweep admission now captures per-device, revocable measurement permits;
+the task scopes them through `MinerStartContext` and `AbstractMinerEngine`.
+Synchronous refinement shares the scope. Final restoration and automatic starts
+retain the original stop policy. Repeated pauses revoke old permits even on
+storage failure; settings and boot preferences stay unchanged. Measurement starts
+can retry failed attempts without resetting the operator restart budget.
+
+**Verification:** JDK 21 `sh gradlew test standaloneJar`: 479 tests,
+0 failures, 0 errors, 0 skipped, 104 suites.
+`MeasurementStartAuthorityTest` verifies the real shared engine gate, persisted
+pause, device/thread isolation, exception cleanup and revocation on failed saves.
+`EfficiencySweepServiceTest` verifies asynchronous sweep admission of a paused
+worker and no permit during restoration; `WorkerStopAuthorityTest` stays green.
+`check-i18n.cjs`, `check-operations-i18n.cjs`, `simulate-i18n-render.cjs` and
+`scan-i18n-literals.cjs` pass for DE/EN. No new UI copy; external miner/OS text
+remains verbatim. No live hardware/pool test or deployment was performed.
+Concurrent workspace activity committed tracked implementation files during this
+task; this task issued no Git commit/push command and preserved existing edits.
+
+**Deutsch:** Der Sweep erhält eine temporäre Startfreigabe für ausgewählte,
+bereits pausierte Worker einschließlich synchroner Verfeinerung. Die gespeicherte
+Pause bleibt erhalten; automatische Starts und die Wiederherstellung beachten
+weiter die Stoppsperre. Ein erneuter manueller Stopp widerruft die Freigabe auch
+bei Speicherfehlern. 479 Java-Tests und Standalone-Build erfolgreich;
+DE/EN-Kataloge, Sprachwechsel-/Renderprüfung und Literalprüfung bestanden.
+Keine neuen UI-Texte. Reale Hardware-/Poolprüfung und Bereitstellung stehen aus.
+Parallel laufende Workspace-Aktivität hat bereits geänderte Dateien eingecheckt;
+dieser Task hat keinen Commit-/Push-Befehl ausgeführt.

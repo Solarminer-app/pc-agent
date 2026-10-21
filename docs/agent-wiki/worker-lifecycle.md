@@ -120,3 +120,24 @@ und kein GPU-Treiber-Schreibzugriff wurden ausgeführt. Die genannten
 Ausfallfälle müssen zusätzlich auf Zielhardware geprüft werden. Externe
 Miner-Ausgaben und beliebige Betriebssystemdiagnosen bleiben unverändert;
 neue erklärende Status- und Fehlertexte sind deutsch und englisch vorhanden.
+
+
+## Sweep authority / Sweep-Freigabe (2026-10-21)
+
+An explicitly admitted power sweep may temporarily start its selected paused
+workers without clearing their persisted manual stop. Admission captures
+`AgentControlSettingsService.measurementStartPermit(deviceId)`; the parallel task
+uses `MinerStartContext.measurement` through the shared engine start gate. This
+also covers synchronous sweep refinement. The scope is thread-local, device-bound
+and removed on every exit. Watchdogs, other devices and final worker restoration
+receive no such authority. A new manual pause invalidates the original permit,
+even if the worker was already paused or the settings write fails. Measurement
+attempts may retry failed starts without becoming new operator restart cycles.
+
+Ein ausdrücklich gestarteter Power-Sweep darf ausgewählte pausierte Worker für
+den Messlauf starten. Die gespeicherte Stoppsperre bleibt bestehen. Die Freigabe
+gilt nur im Task-Thread für das jeweilige Gerät einschließlich synchroner
+Verfeinerung. Watchdogs, andere Geräte und Wiederherstellung erhalten sie nicht.
+Ein erneuter manueller Stopp widerruft sie auch bei bereits pausiertem Worker
+und bei Speicherfehlern. Nachweise: `MeasurementStartAuthorityTest`,
+`EfficiencySweepServiceTest`, `WorkerStopAuthorityTest`; reale GPU-Abnahme offen.
