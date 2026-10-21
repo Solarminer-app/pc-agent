@@ -4094,3 +4094,22 @@ dieser Task hat keinen Commit-/Push-Befehl ausgeführt.
 - Browser verification: `check-benchmark-workflow-browser.cjs` passed with an
   explicit assertion that a running combined session renders its numeric ETA
   (`3725` seconds → `1 h 2 min`), plus existing DE/EN and mobile workflow checks.
+
+## 2026-10-21 — Unified overclocking center / Gemeinsame Overclocking-Zentrale
+
+Implemented the fleet-first `/benchmarks.html` center, with stored best points,
+confirmed profile counts, comparable efficiency gains, live readings and bounded
+worker pagination. Configuration, curves and individual GPU calibration use
+progressive disclosure; the expert controller loads on demand. The former
+Autotuning URL redirects to the same center. Kept the existing command controllers,
+policy saves and safety contracts; preserved pre-existing backend/ETA changes.
+Shared navigation/catalog asset versions are bumped together across local pages.
+Architecture and verification: [overclocking-center.md](overclocking-center.md).
+
+Deutsch: Gemeinsame Zentrale mit Fortschritt, Bestwerten, Live-Werten, Suche,
+Filtern und zwölf Workern pro Seite. Details und GPU-Einstellungen werden gezielt
+geöffnet. Die vorhandenen Mess- und Sicherheitsabläufe bleiben zuständig. Vorher
+vorhandene Backend-/ETA-Änderungen wurden erhalten. Browserprüfungen mit simulierten
+APIs bestehen für DE/EN einschließlich Sprachwechsel, 28 Workern, mobiler Ansicht,
+Start-/Abbruchabläufen und alter Autotuning-Adresse. Sprachkatalog, Renderprüfung,
+Literalprüfung und JS-Syntax geprüft; keine Hardware- oder Release-Abnahme.
