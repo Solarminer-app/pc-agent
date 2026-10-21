@@ -56,6 +56,10 @@
     const key = normalize(text);
     const entry = catalog.frontend[key];
     if (entry) return entry[locale] ?? entry.de;
+    const thermalStop = key.match(/^Temperaturstopp \/ Temperature stop: (\d+(?:\.\d+)?) °C >= (\d+(?:\.\d+)?) °C$/);
+    if (thermalStop) return t('worker_temperature_stop', {temperature: thermalStop[1], limit: thermalStop[2]});
+    if (key === 'Temperaturstopp: GPU-Temperatur nicht lesbar / Temperature stop: GPU temperature unavailable')
+      return t('worker_temperature_unavailable');
     if (locale === 'de') {
       const hit = catalog.agentEnglishToGerman[key];
       if (hit) return hit;

@@ -16,6 +16,33 @@ import static org.mockito.Mockito.*;
 class GpuTuningServiceTest {
     @TempDir Path directory;
 
+    @Test void baselineResetClearsAnUntrackedTitanOffsetAndVerifiesTheWrite() {
+        var power = nvidia();
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 2, "GPU-test", "NVIDIA TITAN RTX", 100, 280,
+                100, 280, 280, 200d, "measured", true, null);
+        when(power.refresh()).thenReturn(List.of(gpu));
+        var offset = new AtomicInteger(100);
+        var driver = new GpuTuningService.MemoryOffsetDriver() {
+            public GpuTuningService.MemoryOffsetRange probe(int index, int pstate) {
+                return new GpuTuningService.MemoryOffsetRange(-1, -2000, 6000, offset.get());
+            }
+            public void set(int index, int pstate, int value) { assertEquals(2, index); offset.set(value); }
+            public void setCoreTarget(int index, int core) { }
+        };
+        var tuning = new GpuTuningService(power, new ObjectMapper(), directory.resolve("titan-defaults.json").toString(), driver);
+        assertTrue(tuning.restoreDriverDefaults("GPU-test").applied());
+        assertEquals(0, offset.get(), "A baseline must not inherit an unrecorded +100 MHz offset");
+        var refusing = new GpuTuningService.MemoryOffsetDriver() {
+            public GpuTuningService.MemoryOffsetRange probe(int index, int pstate) {
+                return new GpuTuningService.MemoryOffsetRange(-1, -2000, 6000, 100);
+            }
+            public void set(int index, int pstate, int value) { }
+            public void setCoreTarget(int index, int core) { }
+        };
+        var failed = new GpuTuningService(power, new ObjectMapper(), directory.resolve("titan-refused.json").toString(), refusing);
+        assertEquals("gpu_clock_restore_failed", failed.restoreDriverDefaults("GPU-test").reason());
+    }
+
     @Test void nativeOffsetsAreRecordedBeforeExternalWritesAndRecoverTheirOriginalValue() throws Exception {
         var power = nvidia(); var value = new AtomicInteger(35);
         var driver = new GpuTuningService.MemoryOffsetDriver() {
@@ -280,7 +307,8 @@ class GpuTuningServiceTest {
             List<String> command = invocation.getArgument(0);
             return command.contains("--lock-memory-clocks-info") ? "runtime modifiable" : "405, 300\n810, 900\n";
         });
-        GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(), directory.resolve("operator-recovery.json").toString());
+        GpuTuningService tuning = new GpuTuningService(power, new ObjectMapper(), directory.resolve("operator-recovery.json").toString(),
+                mock(GpuTuningService.MemoryOffsetDriver.class));
 
         assertTrue(tuning.restoreDriverDefaults("GPU-test").applied());
 

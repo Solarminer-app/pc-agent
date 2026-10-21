@@ -9,6 +9,13 @@ import org.springframework.stereotype.Service;
 /** Regular-mining thermal stop; measurement owners enforce their own thermal checks. */
 @Service
 public class WorkerTemperatureSafetyService {
+    private de.verdox.solarminer.pcagent.mining.economics.OperatingPointSafetyStore pointSafety;
+    private de.verdox.solarminer.pcagent.mining.economics.MeasuredOperatingPointService points;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setPointSafety(de.verdox.solarminer.pcagent.mining.economics.OperatingPointSafetyStore safety,
+                               de.verdox.solarminer.pcagent.mining.economics.MeasuredOperatingPointService points) {
+        this.pointSafety = safety; this.points = points;
+    }
     private final WorkerBenchmarkPolicyService policies;
     private final WorkerAssignmentService workers;
     private final LocalGpuPowerService power;
@@ -31,7 +38,25 @@ public class WorkerTemperatureSafetyService {
                 try { temperature = gpu == null ? null : power.readTemperatureC(gpu); }
                 catch (RuntimeException unavailable) { temperature = null; }
                 if (!policies.temperatureSafe(worker.deviceId(), temperature, 90)) {
-                    try { workers.pause(worker.deviceId()); }
+                    boolean readable = temperature != null && Double.isFinite(temperature) && temperature > 0;
+                    double ceiling = policies.ceiling(worker.deviceId(), 90);
+                    String reason = readable
+                            ? String.format(java.util.Locale.ROOT,
+                                    "Temperaturstopp / Temperature stop: %.1f °C >= %.1f °C", temperature, ceiling)
+                            : "Temperaturstopp: GPU-Temperatur nicht lesbar / Temperature stop: GPU temperature unavailable";
+                    if (readable && pointSafety != null) {
+                        var current = points.current(worker.deviceId());
+                        String key = current != null && java.util.Objects.equals(current.coin(), worker.coin())
+                                && java.util.Objects.equals(current.minerSoftwareId(), worker.minerSoftwareId())
+                                && java.util.Objects.equals(current.limitWatts(), gpu.currentPowerLimitWatts())
+                                ? current.pointKey() : worker.coin() + "|" + worker.minerSoftwareId() + "|"
+                                    + gpu.currentPowerLimitWatts() + "|BASELINE";
+                        try { pointSafety.reject(worker.deviceId(), key); }
+                        catch (RuntimeException failure) {
+                            org.slf4j.LoggerFactory.getLogger(getClass()).warn("power_mode_point_safety_unavailable: {}", worker.deviceId(), failure);
+                        }
+                    }
+                    try { workers.pause(worker.deviceId(), reason); }
                     catch (RuntimeException failure) {
                         org.slf4j.LoggerFactory.getLogger(getClass()).warn("benchmark_temperature_limit: {}", worker.deviceId(), failure);
                     }

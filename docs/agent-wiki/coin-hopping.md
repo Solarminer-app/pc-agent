@@ -18,12 +18,18 @@ remains `https://currency.solarminer.app/api/v1/public/mining-networks` in
   (`targetWatts = 0`). The local API is `GET/POST
   /api/agent/local/coin-hopping`; GET accepts an optional `deviceId` for a
   preview without changing settings.
-- Candidates may come from a stable sweep step, a completed manual benchmark,
-  or twelve consistent five-second samples during ordinary mining. All three
-  use the same eligibility rules: the same GPU, a measured power target,
-  positive measured hashrate and watts, and a point no older than 30 days.
-  The newest valid point per coin, miner software and target wins regardless of source. Ordinary mining
-  samples are stored locally only and never trigger benchmark sharing.
+- Revenue/profit candidates come from temperature-validated stable sweep steps
+  or confirmed Auto Tuning points, with the same GPU, measured positive power
+  and hashrate, and evidence no older than 30 days. Ordinary LIVE and manual
+  benchmark observations remain in history but cannot be restored as automatic
+  operating points from their cap alone. A thermal failure withdraws that exact
+  point for that GPU until fresh validation, persisted across restarts; see
+  [worker operating modes](worker-power-modes.md#thermal-failure-of-a-measured-point-2026-10-21).
+  The newest valid evidence for an exact coin/miner/cap/clock point wins.
+  Deutsch: Nur temperaturgeprüfte Sweep-Punkte oder bestätigte Tuning-Profile
+  sind für Ertrags-/Profit-Auswahl zulässig. LIVE-/Benchmark-Historie bleibt
+  erhalten; ein Temperaturfehler sperrt den konkreten Punkt bis zur erneuten
+  Prüfung, auch nach einem Neustart.
   The coin/algorithm must match the closed `Coin` catalogue. The measured miner
   must still be installed, selectable and GPU-vendor compatible; the coin's
   fee/proxy route must be ready in C10 capabilities. Legacy points without

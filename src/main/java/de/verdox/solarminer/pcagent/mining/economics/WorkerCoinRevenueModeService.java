@@ -116,6 +116,7 @@ public class WorkerCoinRevenueModeService {
     }
 
     public StartSelection selectBestStartPoint(String workerId, String assignedCoin, String mode) {
+        if (hopping.selectionError() != null) return new StartSelection(null, hopping.selectionError());
         var assignedWorker = workerPolicies == null ? null : assignments.workers().stream().filter(w -> workerId.equals(w.deviceId())).findFirst().orElse(null);
         List<CoinHoppingService.Candidate> choices = hopping.candidates(workerId, 0).stream()
                 .filter(value -> workerPolicies == null || assignedWorker != null && workerPolicies.permits(workerId,
@@ -130,11 +131,12 @@ public class WorkerCoinRevenueModeService {
             if (worker != null) choices = choices.stream()
                     .filter(candidate -> java.util.Objects.equals(worker.minerSoftwareId(), candidate.minerSoftwareId())).toList();
         }
+        if (choices.isEmpty()) return new StartSelection(null, "power_mode_no_validated_point");
         if ("PROFIT_PER_DAY".equals(mode) || "COIN_PROFIT_PER_DAY".equals(mode))
             choices = choices.stream().filter(candidate -> candidate.profitUsdPerDay() != null).toList();
         CoinHoppingService.Candidate best = bestCandidate(choices, mode);
         return best == null
-                ? new StartSelection(null, dailyProfitMode(mode) ? "power_mode_profit_unavailable" : "power_mode_no_measured_point")
+                ? new StartSelection(null, dailyProfitMode(mode) ? "power_mode_profit_unavailable" : "power_mode_no_validated_point")
                 : new StartSelection(best, null);
     }
 

@@ -30,6 +30,12 @@ import java.util.Objects;
  */
 @Service
 public class CoinHoppingService {
+    private OperatingPointSafetyStore pointSafety;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setPointSafety(OperatingPointSafetyStore safety) { this.pointSafety = safety; }
+    public String selectionError() {
+        return pointSafety != null && !pointSafety.available() ? "power_mode_point_safety_unavailable" : null;
+    }
     private de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService workerPolicies;
     @org.springframework.beans.factory.annotation.Autowired
     public void setWorkerPolicies(de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService policies) {
@@ -187,9 +193,8 @@ public class CoinHoppingService {
             Coin coin = Coin.byIdOrNull(profile.coin());
             if (coin == null || !coin.isGpu() || !coin.matchesAlgorithm(profile.algorithm())) continue;
             for (GpuEfficiencyStore.StepResult step : profile.steps()) {
-                if (workerPolicies != null && workerPolicies.get(deviceId) != null
-                        && (step.maxTemperatureC() == null || !Double.isFinite(step.maxTemperatureC())
-                        || step.maxTemperatureC() >= workerPolicies.ceiling(deviceId, 85))) continue;
+                double ceiling = workerPolicies == null ? 85 : workerPolicies.ceiling(deviceId, 85);
+                if (!positive(step.maxTemperatureC()) || step.maxTemperatureC() >= ceiling) continue;
                 if (!step.stable() || step.limitWatts() < gpu.minWatts() || step.limitWatts() > gpu.maxWatts()
                         || (targetWatts > 0 && step.limitWatts() != targetWatts)
                         || !positive(step.medianHashrateHs()) || !positive(step.avgPowerWatts())) continue;
@@ -197,16 +202,9 @@ public class CoinHoppingService {
                         profile.testedAt(), "SWEEP", profile.minerSoftwareId(), gpu.vendor(), gpu.model(), deviceId, now);
             }
         }
-        for (MiningPerformanceProfileStore.Profile profile : performanceProfiles.all()) {
-            if (!deviceId.equals(profile.workerId()) || profile.powerTargetWatts() == null
-                    || profile.powerTargetWatts() < gpu.minWatts() || profile.powerTargetWatts() > gpu.maxWatts()
-                    || (targetWatts > 0 && profile.powerTargetWatts() != targetWatts) || profile.observations() < 12
-                    || profile.measuredAt() == null || profile.measuredAt().isBefore(now.minus(MAX_PROFILE_AGE))) continue;
-            Coin coin = Coin.byIdOrNull(profile.coin());
-            if (coin == null || !coin.isGpu() || !coin.matchesAlgorithm(profile.algorithm())) continue;
-            addCandidate(result, capabilities, coin, profile.powerTargetWatts(), (double) profile.powerWatts(), profile.hashrateHps(),
-                    profile.measuredAt(), profile.source(), profile.minerSoftwareId(), gpu.vendor(), gpu.model(), deviceId, now);
-        }
+        // LIVE/ordinary benchmark observations retain neither a restorable clock
+        // configuration nor thermal validation. Keep them in the history store,
+        // but never promote them to automatic operating points from their cap alone.
         if (tunedProfiles != null) {
             var identities = new java.util.HashSet<String>();
             for (var saved : tunedProfiles.all()) {
@@ -228,7 +226,8 @@ public class CoinHoppingService {
             }
         }
         // Preserve every measured target; only replace an older observation of the same point.
-        return result.stream().collect(java.util.stream.Collectors.toMap(
+        return result.stream().filter(value -> pointSafety == null || pointSafety.permits(deviceId, value))
+                .collect(java.util.stream.Collectors.toMap(
                         Candidate::pointKey, value -> value,
                         (left, right) -> left.measuredAt().isAfter(right.measuredAt()) ? left : right))
                 .values().stream().sorted(Comparator.comparingDouble(Candidate::usdPerKwh).reversed()).toList();

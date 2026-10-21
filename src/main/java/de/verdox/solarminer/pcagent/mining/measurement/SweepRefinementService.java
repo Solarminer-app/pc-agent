@@ -89,9 +89,10 @@ public class SweepRefinementService {
         boolean restored = true;
         for (Coin coin : Coin.gpuCoins()) for (var adapter : miners.gpuMinerAdapters(coin))
             if (adapter.miner() instanceof MinerNativeTuning nativeTuning) restored = nativeTuning.clearNativeTuning(gpu) && restored;
+        if (!restored) throw new IllegalStateException("gpu_clock_restore_failed");
         var caps = clocks.refreshCapabilities(gpu.deviceId());
         if (caps.coreClockControl() || caps.memoryClockControl() || clocks.memoryOffsetRange(gpu.deviceId()) != null)
-            restored = clocks.restoreDefaults(gpu.deviceId()).applied() && restored;
+            restored = clocks.restoreDriverDefaults(gpu.deviceId()).applied() && restored;
         if (!restored) throw new IllegalStateException("gpu_clock_restore_failed");
     }
     void failed(EfficiencySweepService.Target target, String detail) { if (enabled) put(target, "FAILED", detail); }

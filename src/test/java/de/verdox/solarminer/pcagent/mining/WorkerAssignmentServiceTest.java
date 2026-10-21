@@ -31,6 +31,17 @@ import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
 class WorkerAssignmentServiceTest {
     @TempDir Path directory;
 
+    @Test void safetyPausePreservesTheSpecificReasonAtTheMinerBoundary() {
+        var mining = mock(MiningService.class);
+        var reason = "Temperaturstopp / Temperature stop: 84.0 °C >= 84.0 °C";
+        when(mining.stopExternalWorker("GPU-a", reason)).thenReturn(true);
+        var service = new WorkerAssignmentService(mock(AgentControlSettingsService.class), mining,
+                mock(LocalGpuPowerService.class), mock(MinerCatalogService.class),
+                mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class), mock(PayoutDefaultsService.class), mock(ProxyConfigurationService.class));
+        org.junit.jupiter.api.Assertions.assertTrue(service.pause("GPU-a", reason));
+        verify(mining).stopExternalWorker("GPU-a", reason);
+    }
+
     @Test
     void benchmarkRestartStopsWorkerWithoutResettingItsPowerModeTarget() {
         var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test GPU", 100, 250,

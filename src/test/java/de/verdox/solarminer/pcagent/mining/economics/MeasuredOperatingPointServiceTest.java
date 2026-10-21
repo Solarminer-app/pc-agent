@@ -24,7 +24,7 @@ class MeasuredOperatingPointServiceTest {
                 "srbminer-multi", MinerFactory.minerVersionForSoftware("srbminer-multi"), core, 800, 150, 1000, 120, 32, 1000d/120, now));
     }
     MeasuredOperatingPointServiceTest() {
-        when(clocks.restoreDefaults("gpu")).thenReturn(new GpuTuningService.ApplyResult(true, null));
+        when(clocks.restoreDriverDefaults("gpu")).thenReturn(new GpuTuningService.ApplyResult(true, null));
         when(clocks.apply(anyString(), any(), any(), any(), any())).thenReturn(new GpuTuningService.ApplyResult(true, null));
         when(power.setTotalPowerTarget(eq(150L), anyList())).thenReturn(true);
     }
@@ -43,11 +43,11 @@ class MeasuredOperatingPointServiceTest {
         assertFalse(points.apply(tuned(1200), gpu));
         assertEquals(raw(), points.current("gpu"));
         assertTrue(points.restore(raw(), gpu, 150));
-        verify(clocks, times(2)).restoreDefaults("gpu");
+        verify(clocks, times(3)).restoreDriverDefaults("gpu");
         assertTrue(points.matches("gpu", raw()));
     }
     @Test void unknownPreviousPointIsNotRecordedAfterFailedRestoration() {
-        when(clocks.restoreDefaults("gpu")).thenReturn(new GpuTuningService.ApplyResult(false, "gpu_clock_restore_failed"));
+        when(clocks.restoreDriverDefaults("gpu")).thenReturn(new GpuTuningService.ApplyResult(false, "gpu_clock_restore_failed"));
         assertFalse(points.restore(null, gpu, 150));
         assertNull(points.current("gpu"));
     }
@@ -55,6 +55,30 @@ class MeasuredOperatingPointServiceTest {
         var old = new AutoTuningProfileStore.Profile("gpu", "Test", "AMD", "pearl", Coin.PEARL.assignmentAlgorithm(),
                 "srbminer-multi", "old", 1200, 800, 150, 1000, 120, 32, 1000d/120, now);
         assertFalse(points.apply(raw().withTuning(old), gpu));
+        verifyNoInteractions(clocks, power);
+    }
+
+    @Test void unknownClockStateRequiresAStopAndVerifiedDefaultsBeforeUsingABaseline() {
+        assertFalse(points.matches("gpu", raw()));
+        assertTrue(points.needsRestart("gpu", raw()));
+        assertTrue(points.apply(raw(), gpu));
+        var order = inOrder(clocks, power);
+        order.verify(clocks).restoreDriverDefaults("gpu");
+        order.verify(power).setTotalPowerTarget(150L, List.of(gpu));
+        assertFalse(points.needsRestart("gpu", raw()));
+    }
+
+    @Test void failedDefaultResetCannotApplyOrCacheABaseline() {
+        when(clocks.restoreDriverDefaults("gpu")).thenReturn(new GpuTuningService.ApplyResult(false, "gpu_clock_restore_failed"));
+        assertFalse(points.apply(raw(), gpu));
+        verifyNoInteractions(power);
+        assertNull(points.current("gpu"));
+    }
+    @Test void failedNativeCleanupCannotWriteDriverClocksOrPower() {
+        var miner = mock(GpuCoinMiner.class, withSettings().extraInterfaces(MinerNativeTuning.class));
+        when(miners.gpuMinerAdapters(Coin.PEARL)).thenReturn(List.of(new MinerFactory.GpuMinerAdapter("peakminer", miner)));
+        when(((MinerNativeTuning) miner).clearNativeTuning(gpu)).thenReturn(false);
+        assertFalse(points.apply(raw(), gpu));
         verifyNoInteractions(clocks, power);
     }
 }

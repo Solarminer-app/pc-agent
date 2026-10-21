@@ -42,6 +42,7 @@ remains. The assigned task always takes precedence.
 | [~] | P1 | BUG-014 | External power status reports paused/zero target while automatic-mode GPUs are mining; reported remote mass-stop trigger remains unconfirmed. |
 | [x] | P1 | BUG-015 | Every power-sweep step rejects an already paused worker as manually stopped. |
 | [x] | P2 | BUG-016 | Combined sweep/tuning ETA remains on “calculating” for the entire run. |
+| [x] | P1 | BUG-017 | Profit selection reuses incomplete LIVE operating points and can repeatedly hit the worker temperature ceiling. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -948,3 +949,68 @@ Deutsch: Der eigene PeakMiner-Kindprozess auf GPU 0 wird bisher als fremd
 erkannt und blockiert GPU 2. Die Erkennung wurde lokal mit Regressionstest
 korrigiert; unabhängige Prozesse bleiben gesperrt. Kein Live-Eingriff oder
 Deployment. Bestätigung nach Update und weitere BUG-011-Abnahmen bleiben offen.
+
+## BUG-017 — LIVE operating point selected before a thermal stop / LIVE-Betriebspunkt vor Temperaturstopp
+
+**Status:** Fixed and regression verified locally (`[x]`, 2026-10-21); deployment/hardware acceptance pending
+**Priority:** P1
+
+Read-only observation of worker `192.168.178.126`, GPU 2
+(`GPU-32b2d5ad-eeec-f785-fd2c-44a8841601ca`) captured `MINING / peakminer`
+at 82 °C and 278 W at 20:35:38 UTC, 84 °C and 272 W at 20:35:43 UTC,
+then `PAUSED` at 20:35:45 UTC. The configured policy ceiling was 84 °C;
+the miner console reports an Agent pause and graceful shutdown at 20:35:44 UTC.
+The Agent thermal guard pauses at the ceiling (and also on unreadable temperature).
+The worker cooled to about 59 °C / 29 W without intervention. No miner start,
+stop, driver write or policy change was issued during this investigation.
+
+The comparison API's highest-profit permitted Pearl candidate was a LIVE
+observation from 2026-10-19T16:12:44Z: PeakMiner, 280 W cap, 197 W measured,
+87.307 TH/s, `tunedProfile:null`. The current process consumed roughly 270–285 W.
+GPU 2 has no stored PeakMiner Auto Tuning profile; its stored SRB profiles
+have only 14 samples each. The current `CoinHoppingService.candidates` path
+accepts performance observations after 12 observations without the temperature
+filter used for sweep points. Such observations do not retain a full restorable
+clock configuration. This means the selected LIVE row does not establish a
+reproducible, thermally validated operating point. The exact historical reason
+for the 197 W reading at a 280 W cap remains unknown.
+
+The shutdown is consistent with the guard doing its job, not a new PeakMiner
+ownership rejection. Successful guard stops currently retain only the generic
+worker-pause console reason; they do not retain the triggering sensor value or
+distinguish a missing reading. A paused worker is excluded from subsequent
+revenue evaluations, so this guard does not automatically resume after cooling.
+
+Correction: Revenue/profit selection excludes all ordinary LIVE/benchmark
+observations; stored history is preserved. Sweep points require a positive peak
+temperature below the worker ceiling even without an explicit policy. Confirmed
+tuning results retain their exact settings/32-sample evidence. Unknown baseline
+clock state requires a stopped worker and verified driver defaults; new curves
+reset even without refinement. TITAN offsets without recovery markers are
+explicitly cleared/read back when selecting driver defaults. Thermal stops now
+retain measured temperature/limit, separately diagnose an unreadable sensor and
+persist the exact failed GPU point in `operating-point-safety.json`. Reuse needs
+fresh validated evidence after the failure. Missing sensor data does not reject
+a profile. Rejection-history failures block automatic selection with a specific
+DE/EN error and never bypass the emergency stop. Cooling does not auto-resume.
+See [the operating-mode contract](agent-wiki/worker-power-modes.md#thermal-failure-of-a-measured-point-2026-10-21).
+
+Verification: full JDK 21 `test standaloneJar --offline --no-daemon`, DE/EN
+catalog/literal/render/runtime checks and fixture-browser results/wizard checks
+pass. No deployment or live miner restart was performed; a sustained hardware
+run after update remains an acceptance step.
+
+Deutsch: GPU 2 erreichte am 21.10. um 22:35:43 Uhr deutscher Zeit die
+konfigurierten 84 °C und wurde unmittelbar danach vom Agent pausiert. Der
+Profit-Modus bevorzugt einen alten LIVE-Messpunkt mit 280 W Limit, damals
+197 W gemessen, ohne gespeicherte Taktkonfiguration. Heute zieht der Prozess
+rund 280 W. Für diese GPU existiert kein PeakMiner-Auto-Tuning-Profil. Die
+Auswahl gewöhnlicher Leistungsmessungen prüft keine gespeicherte Temperatur
+und garantiert keine reproduzierbaren Einstellungen. Die Temperaturabschaltung
+ist plausibel und live zeitlich belegt; die Profilauswahl und die fehlende
+konkrete Stoppdiagnose sind die offenen Softwareprobleme. Keine Live-Änderung;
+Die Korrektur ist lokal umgesetzt und mit Regressionstests geprüft: LIVE-Daten
+werden nicht als automatische Betriebspunkte verwendet, Basistakte werden
+hergestellt und konkrete Temperaturfehler je GPU-Punkt dauerhaft gesperrt.
+Neue geprüfte Messungen können den Punkt wieder freigeben. Die Grenze bleibt
+erhalten. Deployment und Dauerlauf auf der Hardware stehen noch aus.

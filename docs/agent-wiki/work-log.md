@@ -4211,3 +4211,29 @@ bleiben erhalten; kein Deployment, kein Live-Taktbefehl und keine Hardwareabnahm
 - Registry ownership now includes descendants of a live registered GPU-miner launcher. A real-process regression verifies the child is managed, an unrelated process remains external, and unregistering withdraws ownership. No UI/API copy changed; DE/EN catalog, literal scan and render checks passed. No live miner/clock command or deployment was performed; an additional PeakMiner start after deployment remains to be verified.
 - Verification / Prüfung: JDK 21 `test standaloneJar --offline --no-daemon` passed, 505 tests, zero failures/errors/skips; `git diff --check` passed.
 - Deutsch: Der eigene PeakMiner-Kindprozess auf GPU 0 blockiert fälschlich den Start auf der freien GPU 2. Die Registry erkennt jetzt Kinder registrierter GPU-Miner. Der Regressionstest prüft auch die weiterhin wirksame Sperre fremder Prozesse. DE/EN-Prüfungen bestanden; kein Live-Eingriff oder Deployment. Bestätigung nach Update bleibt offen.
+
+## 2026-10-21 — Worker 126 thermal-stop diagnosis / Temperaturstopp-Diagnose
+
+Read-only observation captured GPU 2 reaching its configured 84 °C ceiling at
+20:35:43 UTC (22:35:43 Europe/Berlin), followed by an Agent pause and graceful
+PeakMiner shutdown. The profit candidate comparison prefers an old 280 W LIVE
+observation with 197 W recorded consumption and no restorable tuning profile;
+current consumption was around 280 W. Performance observations lack the sweep
+thermal filter and full clock identity. Added BUG-017 with evidence and required
+correction. No runtime change or production-code edit; Java tests were not run
+for this documentation-only diagnosis. Documentation is DE/EN; external miner
+output is retained verbatim.
+
+Deutsch: GPU 2 erreicht nach dem Start 84 °C und wird vom Agent pausiert. Ein
+alter LIVE-Messpunkt wird als Profit-Kandidat bevorzugt, obwohl Verbrauch und
+Taktdaten keinen reproduzierbaren Betriebspunkt belegen. BUG-017 dokumentiert
+Ursache, offene Korrektur und die unzureichende generische Stoppmeldung. Nur
+lesende Untersuchung und zweisprachige Dokumentation; kein Live-Eingriff.
+
+## 2026-10-21 — Fix BUG-017: reproducible profit points and thermal rejection
+
+- Revenue/daily-profit ranking no longer promotes ordinary LIVE or benchmark observations to automatic operating points. Stored measurements remain intact. Eligible sweep points require a positive maximum temperature below the policy/fallback ceiling; confirmed tuning points retain exact settings and 32-sample evidence. No candidate now has a distinct DE/EN validation error, separate from missing tariff/market data.
+- Unknown baseline state requires stop/reset before cap application; native cleanup failure prevents clock/power writes. New power curves reset before measurement even without refinement. The explicit-defaults path resets and verifies untracked NVIDIA memory offsets on TITAN as well as RTX models; ordinary recovery still restores the recorded original offset. Added fake-driver regression for +100 MHz residue and rejected resets. The reset regression's driver is injected explicitly rather than probing physical NVML hardware.
+- The thermal guard retains sensor value/ceiling in the pause reason and distinguishes unreadable sensors. A real over-temperature failure quarantines only the exact physical GPU/coin/miner/cap/clock point in `operating-point-safety.json`. It survives Agent restarts until new validated evidence after the failure; sibling GPUs and other points are independent. Missing temperature stops without rejecting a profile. Failed/corrupt rejection persistence blocks automatic economic selection with a localized cause and cannot bypass the emergency pause. There is no automatic restart after cooling.
+- Verification: JDK 21 `test standaloneJar --offline --no-daemon` passed, **519 tests, zero failures/errors/skips**. DE/EN catalog (2,145 keys), literal scan, static render, dynamic thermal diagnostics and independent operations i18n checks passed. Chromium fixture tests passed for GPU results/comparison and wizard/presets/GPU tabs/live state/mobile layouts/language switch in both locales. Browser dependencies were reused from `/tmp/solarminer-benchmark-browser` and its extracted library directory; the tests contact only isolated fixtures. `git diff --check` passed. No Agent deployment or live miner restart was performed; sustained post-update hardware acceptance remains open. External miner output remains verbatim; Agent stop-log text is deliberately bilingual and its diagnostic renderer selects DE/EN.
+- Deutsch: BUG-017 ist lokal korrigiert. LIVE-/Benchmark-Historie bleibt erhalten, wird aber nicht mehr zur automatischen Ertrags-/Profit-Auswahl verwendet. Basisläufe setzen Takte zurück; Temperaturfehler sperren den konkreten GPU-Betriebspunkt dauerhaft bis zur neuen geprüften Messung. Sensorfehler haben eine eigene Diagnose und sperren kein Profil. 519 Tests, Build, Sprach- und Browserprüfungen bestanden. Kein Deployment oder Live-Miner-Neustart; der Dauerlauf nach Update bleibt offen.

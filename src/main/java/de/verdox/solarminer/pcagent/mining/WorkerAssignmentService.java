@@ -291,8 +291,13 @@ public class WorkerAssignmentService {
     }
 
     public synchronized boolean pause(String deviceId) {
+        return pause(deviceId, "Worker pausiert / Worker paused");
+    }
+
+    /** Preserve the actual safety/control cause at the miner console boundary. */
+    public synchronized boolean pause(String deviceId, String reason) {
         if (deviceId == null || deviceId.isBlank()) throw new IllegalArgumentException("Gerät wurde nicht erkannt");
-        boolean stopped = mining.stopExternalWorker(deviceId, "Worker pausiert / Worker paused");
+        boolean stopped = mining.stopExternalWorker(deviceId, reason);
         if (!stopped) return false;
         if (!WorkerIds.isCpu(deviceId) && workerPowerModes != null
                 && !"MANUAL".equals(controls.get().powerModeFor(deviceId))

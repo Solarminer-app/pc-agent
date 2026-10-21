@@ -115,7 +115,7 @@ class CoinHoppingServiceTest {
                         List.of(ready("pearl"), ready("quantus"), ready("ravencoin"), ready("decred")))), null));
         when(market.forecastForProfile(anyString(), anyDouble())).thenAnswer(invocation -> {
             String coin = invocation.getArgument(0);
-            return forecast(coin, coin.equals("quantus") ? 10d : 5d, now);
+            return forecast(coin, coin.equals("quantus") ? 10d : 50d, now);
         });
         EnergyJournalService energy = mock(EnergyJournalService.class);
         EnergyJournalService.Overview overview = mock(EnergyJournalService.Overview.class);
@@ -129,11 +129,17 @@ class CoinHoppingServiceTest {
                 energy);
 
         CoinHoppingService.View view = service.view("gpu-1", 180);
-        assertEquals(List.of("quantus", "pearl"), view.candidates().stream().map(CoinHoppingService.Candidate::coin).toList());
+        assertEquals(List.of("quantus"), view.candidates().stream().map(CoinHoppingService.Candidate::coin).toList());
         assertEquals("quantus", view.recommendedCoin());
-        assertEquals("LIVE", view.candidates().get(1).source());
-        assertTrue(view.candidates().getFirst().usdPerKwh() > view.candidates().get(1).usdPerKwh());
-        assertEquals(3, service.view("gpu-1", 0).candidates().size());
+        assertEquals(2, service.view("gpu-1", 0).candidates().size());
+        assertEquals(1, performance.all().size(), "LIVE history is preserved without becoming an operating point");
+
+        var safety = new OperatingPointSafetyStore(new ObjectMapper().findAndRegisterModules(), directory.resolve("safety.json").toString());
+        service.setPointSafety(safety);
+        safety.reject("gpu-1", view.candidates().getFirst().pointKey());
+        assertTrue(service.candidates("gpu-1", 180).isEmpty(), "A thermal rejection must withdraw the measured point");
+        when(profiles.all()).thenReturn(List.of(profile("quantus", "QPoW (Poseidon2)", Instant.now().plusSeconds(1), 180, 100d, 200d, true)));
+        assertEquals(1, service.candidates("gpu-1", 180).size(), "New sweep evidence can revalidate the point");
 
         double withoutKnownFees = service.candidates("gpu-1", 180).getFirst().profitUsdPerDay();
         assertEquals(10 - 200 * 24.0 / 1000.0 * 0.30, withoutKnownFees, 0.000001);
@@ -263,6 +269,7 @@ class CoinHoppingServiceTest {
         when(policies.ceiling("gpu-1", 85)).thenReturn(59d);
         service.setWorkerPolicies(policies);
         assertTrue(service.candidates("gpu-1", 0).stream().noneMatch(row -> row.tunedProfile() != null));
+        assertTrue(service.candidates("gpu-1", 0).isEmpty(), "The policy ceiling also excludes hot baseline sweeps");
     }
 
 

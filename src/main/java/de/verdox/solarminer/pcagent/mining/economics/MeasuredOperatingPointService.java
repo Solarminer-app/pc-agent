@@ -22,17 +22,17 @@ public class MeasuredOperatingPointService {
     public CoinHoppingService.Candidate current(String device) { return applied.get(device); }
     public boolean matches(String device, CoinHoppingService.Candidate candidate) {
         var current = applied.get(device);
-        return current == null ? candidate.tunedProfile() == null : current.pointKey().equals(candidate.pointKey());
+        return current != null && current.pointKey().equals(candidate.pointKey());
     }
     public boolean needsRestart(String device, CoinHoppingService.Candidate candidate) {
         var previous = applied.get(device);
-        return !matches(device, candidate) && (candidate.tunedProfile() != null || previous != null && previous.tunedProfile() != null);
+        return !matches(device, candidate) && (previous == null || candidate.tunedProfile() != null || previous.tunedProfile() != null);
     }
     public boolean apply(CoinHoppingService.Candidate candidate, LocalGpuPowerService.Gpu gpu) {
         var profile = candidate.tunedProfile();
         var previous = current(gpu.deviceId());
         if (profile == null) {
-            if (previous != null && previous.tunedProfile() != null && !resetClocks(gpu)) return false;
+            if ((previous == null || previous.tunedProfile() != null) && !resetClocks(gpu)) return false;
         } else {
             if (!gpu.deviceId().equals(profile.deviceId()) || !candidate.coin().equals(profile.coinId())
                     || !Objects.equals(candidate.minerSoftwareId(), profile.softwareId())
@@ -76,6 +76,6 @@ public class MeasuredOperatingPointService {
         for (Coin coin : Coin.gpuCoins()) for (var adapter : miners.gpuMinerAdapters(coin))
             if (adapter.miner() instanceof MinerNativeTuning nativeTuning)
                 restored = nativeTuning.clearNativeTuning(gpu) && restored;
-        return clocks.restoreDefaults(gpu.deviceId()).applied() && restored;
+        return restored && clocks.restoreDriverDefaults(gpu.deviceId()).applied();
     }
 }

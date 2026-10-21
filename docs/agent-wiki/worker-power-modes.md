@@ -12,7 +12,43 @@ The Worker dialog stores `workerPowerModes` in `control-settings.json`, keyed by
 | `PROFIT_PER_DAY` | GPU only. Keep the assigned coin and miner; select its measured power point with the highest estimated gross USD/day minus measured 24-hour electricity cost. Fees are excluded. |
 | `COIN_PROFIT_PER_DAY` | GPU only. Select the measured route-ready coin/miner/power point with the highest estimated gross USD/day minus measured 24-hour electricity cost. Fees are excluded. Re-evaluate every minute; switch only for a higher estimate, using the shared 5% positive-profit improvement gate and 30-minute in-process cooldown. |
 
-Automatic modes require a writable GPU cap (for GPUs), a known target and positive measured hashrate/power. A complete performance sweep is recommended because it provides multiple stable points; one ordinary benchmark or mining measurement may be sufficient when it includes a target. Unsupported or unmeasured modes reject activation and retain the old setting. CPU automatic modes need benchmark/ordinary measurements at positive thread targets; CPU coin switching is unavailable because the agent has only one CPU coin. The daily-profit modes are GPU-only because their selection currently consumes measured GPU power candidates.
+Automatic modes require a writable GPU cap (for GPUs), a known target and positive measured hashrate/power. Revenue and daily-profit GPU modes require a temperature-validated power-sweep point or a confirmed Auto Tuning result; ordinary LIVE and benchmark observations remain in history but cannot supply these operating points. Other modes retain their own evidence rules below. Unsupported or unmeasured modes reject activation and retain the old setting. CPU automatic modes need benchmark/ordinary measurements at positive thread targets; CPU coin switching is unavailable because the agent has only one CPU coin. The daily-profit modes are GPU-only because their selection currently consumes measured GPU power candidates.
+
+### Thermal failure of a measured point (2026-10-21)
+
+The revenue/profit candidate comparison excludes observational LIVE and ordinary
+benchmark rows: they do not store a full clock configuration or thermal evidence.
+Sweep candidates must include a positive measured peak temperature below the
+worker ceiling (85 °C fallback); confirmed tuning points retain their 32-sample
+and exact device/software/settings evidence. A first baseline start after unknown
+clock state stops the managed worker and resets native settings and driver clocks
+before applying its cap. New power-only curves also reset before measurement,
+even when no tuning phase follows. Explicit defaults include a queried NVIDIA
+memory offset, including TITAN RTX, with write/readback verification; interrupted
+tuning recovery still restores the saved original offset through its separate path.
+
+If a running worker reaches its configured thermal ceiling, the guard pauses it
+and records the measured temperature and limit in the miner console. Missing
+temperature has a separate stop reason and does not indict the profile. A known
+hot point is recorded per physical GPU and exact coin/miner/cap/clock identity in
+`operating-point-safety.json`. Old evidence for that point stays excluded after
+an Agent restart; a new validated measurement taken after the failure can make
+it eligible again. Other GPUs and other points remain independent. Unreadable
+or unwritable rejection history blocks revenue/profit selection with
+`power_mode_point_safety_unavailable`; a persistence failure cannot prevent the
+emergency pause. There is no automatic restart after cooling. No valid candidate
+reports `power_mode_no_validated_point`, distinct from an unavailable tariff.
+Console stop reasons are deliberately bilingual; `s()` resolves these messages
+to DE/EN when rendered as agent diagnostics.
+
+Deutsch: GPU-Ertrags- und Tagesprofit-Modi verwenden nur temperaturgeprüfte
+Sweep-Punkte oder bestätigte Tuning-Ergebnisse. LIVE-/Benchmark-Beobachtungen
+bleiben Historie. Vor dem ersten Basisstart und vor neuen Kurven werden alte
+native Einstellungen und Treibertakte zurückgesetzt. Ein Temperaturfehler sperrt
+den konkreten Betriebspunkt dauerhaft nur für diese GPU, bis eine neue geprüfte
+Messung nach dem Fehler vorliegt. Ein fehlender Sensorwert stoppt ebenfalls,
+sperrt aber kein Profil. Messwert und Grenze stehen im Konsolenprotokoll;
+Diagnosen sind DE/EN übersetzt. Abkühlen startet den Miner nicht automatisch.
 
 Ordinary CPU and GPU mining now adds a local profile after twelve valid five-second readings at the same device/coin/target. Changing the target starts a new sample window; the profile store keeps one latest measured point per target and persists it under `./solarminer-agent/`. A running GPU in `EFFICIENCY` or fixed-coin `REVENUE_PER_KWH` mode checks those updated points every minute. It changes the cap only when the selected target has measured at least 5% better hashes per watt than the current measured target, with a 30-minute cooldown and no active benchmark/sweep. The current coin and live GPU occupancy are checked again before writing. `COIN_REVENUE_PER_KWH` retains its separate coin-switch policy. `MAX_HASHRATE` still requires temperature-validated sweep steps, because ordinary mining profiles do not prove the peak temperature of a new target. CPU automatic modes use newly collected points on the next start; live CPU thread retuning is not claimed.
 

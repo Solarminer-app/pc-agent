@@ -131,6 +131,12 @@ else {
 }
 if (en.s('Zuweisung fehlt') !== 'Assignment is missing') failures.push('German agent error did not switch to English');
 if (de.s('Assign a coin to this worker first') !== 'Weise diesem Worker zuerst einen Coin zu') failures.push('English agent error did not switch to German');
+const thermalStop = 'Temperaturstopp / Temperature stop: 84.0 °C >= 84.0 °C';
+if (en.s(thermalStop) !== 'Temperature stop: 84.0 °C reaches the 84.0 °C limit.') failures.push('Thermal stop did not switch to English');
+if (de.s(thermalStop) !== 'Temperaturstopp: 84.0 °C erreicht die Grenze von 84.0 °C.') failures.push('Thermal stop did not switch to German');
+const missingTemperature = 'Temperaturstopp: GPU-Temperatur nicht lesbar / Temperature stop: GPU temperature unavailable';
+if (en.s(missingTemperature) !== 'Safety stop: GPU temperature is unavailable.') failures.push('Missing temperature did not switch to English');
+if (de.s(missingTemperature) !== 'Sicherheitsstopp: GPU-Temperatur nicht lesbar.') failures.push('Missing temperature did not switch to German');
 // Keys thrown inside Error(t('key')) messages must resolve through s().
 if (updatedKey && en.s(updatedKey, {time: '12:00'}) !== 'Updated 12:00' && en.s(updatedKey) === updatedKey)
   failures.push('s() did not resolve a frontend key');

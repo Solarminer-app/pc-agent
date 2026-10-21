@@ -214,7 +214,8 @@ Fees are not deducted in this approximation and are not a selection prerequisite
 
 ### Candidate selection and runtime
 
-- Candidates come from stable sweep, benchmark or ordinary mining measurements with valid hashrate and measured power.
+- Candidates come from temperature-validated stable sweep steps or confirmed Auto Tuning results with valid hashrate and measured power. Ordinary LIVE/benchmark observations remain history and are excluded from automatic selection. A thermal failure withdraws that GPU's exact point across restarts until new validation; see [thermal point safety](worker-power-modes.md#thermal-failure-of-a-measured-point-2026-10-21).
+  Deutsch: LIVE-/Benchmark-Beobachtungen bleiben Historie. Profit-Modi wählen nur temperaturgeprüfte Sweep-Punkte oder bestätigte Tuning-Ergebnisse; ein Temperaturfehler sperrt den konkreten GPU-Punkt bis zur erneuten Prüfung.
 - Each candidate must match the device, coin, miner version and power limit. Exclude stale network/market data and miner routes that cannot start.
 - `PROFIT_PER_DAY` must not change the assigned coin or miner assignment. It may apply the best measured power point for the fixed coin and miner.
 - Both modes are GPU-only because their candidates require measured GPU power points and verified device power control.

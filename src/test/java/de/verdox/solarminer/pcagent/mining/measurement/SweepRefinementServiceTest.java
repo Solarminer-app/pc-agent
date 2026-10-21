@@ -28,6 +28,7 @@ class SweepRefinementServiceTest {
     SweepRefinementServiceTest() {
         when(miners.gpuMiner(Coin.PEARL, "srbminer-multi")).thenReturn(miner);
         when(clocks.refreshCapabilities("gpu")).thenReturn(new GpuTuningService.Capabilities("gpu", true, false, false, 900, 1400, null, null, null));
+        when(clocks.restoreDriverDefaults("gpu")).thenReturn(new GpuTuningService.ApplyResult(true, null));
         when(clocks.restoreDefaults("gpu")).thenReturn(new GpuTuningService.ApplyResult(true, null));
         when(miner.resumeGpu("AMD", 0)).thenReturn(true);
         when(miner.stopGpu("AMD", 0)).thenReturn(true);
@@ -91,6 +92,14 @@ class SweepRefinementServiceTest {
         verifyNoInteractions(tuner);
         verify(miner, never()).resumeGpu(anyString(), anyInt());
         assertTrue(service.incomplete());
+    }
+    @Test void everyBaselineCurveUsesDriverDefaultsRatherThanAnOldRecoveryOffset() {
+        when(miners.gpuMinerAdapters(Coin.PEARL)).thenReturn(List.of(new MinerFactory.GpuMinerAdapter("srbminer-multi", miner)));
+        service.resetBeforeCurve(target);
+        var order = inOrder(miner, clocks);
+        order.verify((MinerNativeTuning) miner).clearNativeTuning(gpu);
+        order.verify(clocks).restoreDriverDefaults("gpu");
+        verify(clocks, never()).restoreDefaults("gpu");
     }
     @Test void missingCurveAndCancellationNeverStartTuning() {
         assertFalse(service.refine(target, null, () -> false));

@@ -57,8 +57,8 @@ class EfficiencySweepServiceTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
-    void combinedSweepAttributesAlternateMinerAndBlocksUnsafeRestoration(boolean restorationFails) throws Exception {
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void combinedSweepAttributesAlternateMinerAndBlocksUnsafeRestoration(boolean restorationFails, boolean refine) throws Exception {
         var gpu = gpu("rtx-2080", "NVIDIA", 0);
         MinerFactory miners = mock(MinerFactory.class);
         GpuCoinMiner pearl = mock(GpuCoinMiner.class);
@@ -115,7 +115,7 @@ class EfficiencySweepServiceTest {
             return false; // Exercise all start attempts without waiting for hardware samples.
         });
         service.setRefinement(refinement);
-        assertEquals(1, service.start(List.of("quantus"), List.of("rtx-2080"), 1, true).runs().size());
+        assertEquals(1, service.start(List.of("quantus"), List.of("rtx-2080"), 1, refine).runs().size());
         org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
             while (service.status().running()) Thread.sleep(10);
         });
@@ -124,9 +124,9 @@ class EfficiencySweepServiceTest {
         verify(quanPool, org.mockito.Mockito.never()).resumeGpu("NVIDIA", 0);
         verify(quanPool, org.mockito.Mockito.atLeastOnce()).stopGpu("NVIDIA", 0);
         verify(srb).clearSweepOverride();
-        verify(refinement).begin(eq(true), anyList(), eq(false));
+        verify(refinement).begin(eq(refine), anyList(), eq(false));
         verify(refinement).resetBeforeCurve(any());
-        verify(refinement).refine(any(), any(), any(), eq(BenchmarkPreset.SLOW));
+        verify(refinement, times(refine ? 1 : 0)).refine(any(), any(), any(), eq(BenchmarkPreset.SLOW));
         verify(refinement).finishPending();
         // Whole-adapter restoration could stop/restart a GPU already released earlier.
         verify(pearl, org.mockito.Mockito.never()).restoreState(any());

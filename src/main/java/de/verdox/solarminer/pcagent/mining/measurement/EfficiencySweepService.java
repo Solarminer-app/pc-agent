@@ -747,7 +747,9 @@ public class EfficiencySweepService {
         String label = target.gpu().model() + " · " + target.algorithm();
         // Only one miner per physical GPU: stop every other coin on this card first.
         if (!stopAllOn(target.gpu())) throw new IllegalStateException("Andere Miner auf " + target.gpu().model() + " konnten nicht angehalten werden");
-        if (refineAfterSweep) refinement.resetBeforeCurve(target);
+        // Every power-only curve must begin with driver defaults, including runs
+        // without a tuning phase. Otherwise an old native OC can contaminate it.
+        if (refinement != null) refinement.resetBeforeCurve(target);
         LocalGpuPowerService.Gpu fresh = power.refresh().stream()
                 .filter(gpu -> gpu.deviceId().equals(target.gpu().deviceId())).findFirst()
                 .orElseThrow(() -> new IllegalStateException("GPU wurde während des Tests getrennt"));

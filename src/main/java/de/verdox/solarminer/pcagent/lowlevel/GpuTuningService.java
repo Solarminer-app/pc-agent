@@ -353,7 +353,7 @@ public class GpuTuningService {
                     if (!Objects.equals(readMemoryOffset(deviceId, previous.pstate()),
                             operatorRequested ? 0 : previous.originalMhz()))
                         throw new IOException("NVML memory offset restore mismatch");
-                } else if (operatorRequested && rtx20) {
+                } else if (operatorRequested) {
                     MemoryOffsetRange current = memoryOffsetRange(deviceId);
                     if (current != null && current.currentMhz() != 0) {
                         offsetDriver.set(gpu.index(), current.pstate(), 0);

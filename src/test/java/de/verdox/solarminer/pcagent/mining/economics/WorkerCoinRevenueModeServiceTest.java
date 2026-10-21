@@ -16,6 +16,14 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class WorkerCoinRevenueModeServiceTest {
+    @Test void missingValidatedEvidenceAndUnreadableSafetyRecordsReportTheirActualCause() {
+        var hopping = mock(CoinHoppingService.class);
+        var service = new WorkerCoinRevenueModeService(mock(AgentControlSettingsService.class), hopping,
+                mock(WorkerAssignmentService.class), mock(LocalGpuPowerService.class), new LocalRunLock(), mock(EconomicPlanningService.class));
+        assertEquals("power_mode_no_validated_point", service.selectBestStartPoint("gpu", "pearl", "COIN_PROFIT_PER_DAY").error());
+        when(hopping.selectionError()).thenReturn("power_mode_point_safety_unavailable");
+        assertEquals("power_mode_point_safety_unavailable", service.selectBestStartPoint("gpu", "pearl", "COIN_PROFIT_PER_DAY").error());
+    }
     @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory;
     @Test
     void independentSelectionPermissionsConstrainBothGoals() {
