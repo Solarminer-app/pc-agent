@@ -105,6 +105,7 @@ public class EfficiencySweepService {
     private final Duration startupGrace;
     private final MeasurementRunGuard guard;
     private volatile Session session = Session.idle();
+    private Map<String, java.util.function.BooleanSupplier> measurementPermits = Map.of();
 
     public EfficiencySweepService(MinerFactory miners, LocalGpuPowerService power,
                                   MinerConsoleService consoles, PayoutDefaultsService payoutDefaults,
@@ -238,6 +239,10 @@ public class EfficiencySweepService {
                 estimateRemainingSeconds(runs, startedAt));
         try {
             Map<String, GpuEfficiencyStore.Profile> resumeCheckpoint = checkpoint;
+            Map<String, java.util.function.BooleanSupplier> permits = new LinkedHashMap<>();
+            for (Target target : targets) permits.computeIfAbsent(target.gpu().deviceId(), id ->
+                    controls == null ? () -> false : controls.measurementStartPermit(id));
+            measurementPermits = Map.copyOf(permits);
             guard.submit(() -> run(targets, referenceBatches, cohorts, resumeCheckpoint, gpuLimit));
         } catch (RuntimeException e) {
             session = Session.idle();
@@ -427,6 +432,7 @@ public class EfficiencySweepService {
             session = new Session(false, "benchmark_sweep_stop_selected_failed".equals(detail) ? detail : "Fehler: " + detail,
                     old.startedAt(), old.phaseIndex(), old.phaseCount(), old.results(), old.runs(), 0L);
         } finally {
+            measurementPermits = Map.of();
             guard.end();
         }
     }
@@ -569,7 +575,10 @@ public class EfficiencySweepService {
                         busyDevices.add(selected.target().gpu().deviceId());
                         LOGGER.info(() -> "Efficiency sweep task starting: " + selected.target().coin()
                                 + " on GPU " + selected.target().gpu().deviceId());
-                        completed.submit(() -> executeSweepTask(selected, checkpoint));
+                        completed.submit(() -> de.verdox.solarminer.pcagent.miner.MinerStartContext.measurement(
+                                selected.target().gpu().deviceId(),
+                                measurementPermits.get(selected.target().gpu().deviceId()),
+                                () -> executeSweepTask(selected, checkpoint)));
                         active++;
                     }
                 }

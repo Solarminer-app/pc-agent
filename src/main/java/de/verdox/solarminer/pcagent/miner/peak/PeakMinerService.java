@@ -11,6 +11,7 @@ import de.verdox.solarminer.pcagent.miner.diagnostics.MinerLogDiagnostics;
 import de.verdox.solarminer.pcagent.miner.engine.AbstractMinerEngine;
 import de.verdox.solarminer.pcagent.miner.engine.WorkerRunState;
 import de.verdox.solarminer.pcagent.mining.measurement.LocalRunLock;
+import de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore;
 import de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService;
 import de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService;
 import de.verdox.solarminer.pcagent.miner.pearl.PearlMinerService;
@@ -39,7 +40,7 @@ import java.util.logging.Logger;
 
 /** Pearl adapter for PeakMiner, one UUID-isolated process per selected NVIDIA GPU. */
 @Service
-public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMiner {
+public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMiner, MinerNativeTuning {
     private static final Logger LOGGER = Logger.getLogger(PeakMinerService.class.getName());
     private final ObjectMapper mapper;
     private final ProxyConfigurationService proxy;
@@ -55,6 +56,7 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
     private volatile MinerConfig sweepOverride;
     private volatile MinerConfig benchmarkOverride;
     private final Map<String, WorkerRunState> runs = new ConcurrentHashMap<>();
+    private final Map<String, AutoTuningProfileStore.Profile> nativeTuning = new ConcurrentHashMap<>();
     private final Map<String, Double> temperatures = new ConcurrentHashMap<>();
     private final Set<String> manuallyPaused = ConcurrentHashMap.newKeySet();
     private volatile String lastError;
@@ -230,7 +232,7 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
             String worker = config.worker().substring(0, Math.min(config.worker().length(), 32 - suffix.length())) + suffix;
             int metricsPort = freeMetricsPort();
             List<String> command = buildCommand(download.executablePath(), config.proxyUrl(),
-                    config.poolUrl(), config.wallet(), worker, metricsPort);
+                    config.poolUrl(), config.wallet(), worker, metricsPort, nativeTuning.get(gpu.deviceId()));
             Process process;
             try {
                 ProcessBuilder builder = new ProcessBuilder(command).directory(download.installDirectory().toFile())
@@ -272,13 +274,59 @@ public class PeakMinerService extends AbstractMinerEngine implements GpuCoinMine
 
     static List<String> buildCommand(java.nio.file.Path executable, String proxyUrl, String poolUrl,
                                      String wallet, String worker, int metricsPort) {
+        return buildCommand(executable, proxyUrl, poolUrl, wallet, worker, metricsPort, null);
+    }
+
+    static List<String> buildCommand(Path executable, String proxyUrl, String poolUrl,
+                                     String wallet, String worker, int metricsPort,
+                                     AutoTuningProfileStore.Profile tuning) {
         // PeakMiner repeats --worker in the wallet field. The existing Pearl proxy
         // already accepts this semicolon route as a single verbatim login, avoiding
         // a dependency on a newer proxy release for the Beta path.
         String login = poolUrl + ";" + wallet + "/" + worker + ";x";
-        return List.of(executable.toString(), "--coin", "pearl", "--url", proxyUrl,
+        List<String> command = new ArrayList<>(List.of(executable.toString(), "--coin", "pearl", "--url", proxyUrl,
                 "--user", login, "--devices", "0",
-                "--api-port", Integer.toString(metricsPort), "--no-color", "--job-timeout", "120");
+                "--api-port", Integer.toString(metricsPort), "--no-color", "--job-timeout", "120"));
+        if (tuning != null) {
+            // Device 0 is the worker's sole CUDA-visible UUID, not the host's NVIDIA index.
+            // Use indexed parameters rather than a global OC setting on a multi-GPU host.
+            addTuningArgument(command, "--gpu-lcore0", tuning.coreMhz());
+            addTuningArgument(command, "--gpu-lmem0", tuning.memoryMhz());
+            addTuningArgument(command, "--gpu-mem0", tuning.memoryOffsetMhz());
+            addTuningArgument(command, "--gpu-power0", tuning.powerLimitWatts());
+        }
+        return List.copyOf(command);
+    }
+
+    private static void addTuningArgument(List<String> command, String option, Integer value) {
+        if (value != null) { command.add(option); command.add(Integer.toString(value)); }
+    }
+
+    @Override
+    public synchronized boolean applyNativeTuning(LocalGpuPowerService.Gpu gpu, AutoTuningProfileStore.Profile profile) {
+        if (!"NVIDIA".equalsIgnoreCase(gpu.vendor()) || profile == null
+                || !gpu.deviceId().equals(profile.deviceId()) || !"pearl".equals(profile.coinId())
+                || !"peakminer".equals(profile.softwareId())
+                || profile.memoryMhz() != null && profile.memoryOffsetMhz() != null) return false;
+        WorkerRunState state = runs.get(gpuKey(gpu));
+        boolean wasRunning = state != null && state.running();
+        if (wasRunning && !stopGpu(gpu.vendor(), gpu.index())) return false;
+        nativeTuning.put(gpu.deviceId(), profile);
+        if (!wasRunning || startGpu(gpu.vendor(), gpu.index())) return true;
+        // A failed candidate must not be reused by a later watchdog/operator start.
+        nativeTuning.remove(gpu.deviceId());
+        return false;
+    }
+
+    @Override
+    public synchronized boolean clearNativeTuning(LocalGpuPowerService.Gpu gpu) {
+        if (!nativeTuning.containsKey(gpu.deviceId())) return true;
+        WorkerRunState state = runs.get(gpuKey(gpu));
+        boolean wasRunning = state != null && state.running();
+        if (wasRunning && !stopGpu(gpu.vendor(), gpu.index())) return false;
+        nativeTuning.remove(gpu.deviceId());
+        // Recovery may already have paused the worker. Clearing must preserve that intent.
+        return !wasRunning || startGpu(gpu.vendor(), gpu.index());
     }
 
     private void drainOutput(WorkerRunState state, Process process, MinerConfig config) {

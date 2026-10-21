@@ -31,6 +31,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 class EfficiencySweepServiceTest {
+    @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory;
     @Test
     void retriesPeakStartOnceAfterStoppingThePreviousManagedMiner() {
         var gpu = gpu("rtx-2080", "NVIDIA", 0);
@@ -102,6 +103,17 @@ class EfficiencySweepServiceTest {
                 mock(GpuEfficiencyStore.class), mock(BenchmarkSharingService.class), lock,
                 15, 85, 0.1, 240);
 
+        var controls = new de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService(
+                new com.fasterxml.jackson.databind.ObjectMapper(), directory.resolve("controls.json").toString());
+        assertTrue(controls.setWorkerManuallyStopped(gpu.deviceId(), true));
+        service.setControls(controls);
+        var starts = new java.util.concurrent.atomic.AtomicInteger();
+        when(srb.resumeGpu("NVIDIA", 0)).thenAnswer(call -> {
+            assertFalse(controls.mayStart(gpu.deviceId()));
+            assertEquals(starts.getAndIncrement() == 0,
+                    de.verdox.solarminer.pcagent.miner.MinerStartContext.measurementAuthorized(gpu.deviceId()));
+            return false; // Exercise all start attempts without waiting for hardware samples.
+        });
         service.setRefinement(refinement);
         assertEquals(1, service.start(List.of("quantus"), List.of("rtx-2080"), 1, true).runs().size());
         org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {

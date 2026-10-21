@@ -327,6 +327,7 @@ window.SolarMinerI18nCatalog = {
         "auto_tuning_worker_stopped": {de: "Der Miner wurde während der Messung beendet.", en: "The miner stopped during measurement."},
         "auto_tuning_gpu_unresponsive": {de: "Die GPU antwortet nicht mehr. Der Miner wurde angehalten und die Wiederherstellung gestartet.", en: "The GPU stopped responding. The miner was paused and recovery was started."},
         "auto_tuning_gpu_reset_failed": {de: "Der GPU-Reset ist fehlgeschlagen. Die GPU bleibt für weitere Kalibrierungen gesperrt.", en: "The GPU reset failed. Further calibration is blocked for this GPU."},
+        "miner_native_tuning_failed": {de: "Die Miner-Software konnte das Tuning-Profil nicht anwenden oder den GPU-Prozess nicht neu starten.", en: "The miner software could not apply the tuning profile or restart the GPU process."},
         "srbminer_native_tuning_failed": {de: "SRBMiner konnte das Tuning-Profil nicht anwenden oder den GPU-Prozess nicht neu starten.", en: "SRBMiner could not apply the tuning profile or restart the GPU process."},
         "auto_tuning_gpu_requires_attention": {de: "Nach einem GPU-Ausfall ist die Kalibrierung bis zum Neustart des Agenten gesperrt. Prüfe zuerst die GPU und den Treiber.", en: "Calibration is blocked after a GPU failure until the Agent restarts. Check the GPU and driver first."},
         "auto_tuning_temperature_limit": {de: "Temperaturgrenze überschritten.", en: "Temperature limit exceeded."},

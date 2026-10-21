@@ -85,3 +85,15 @@ configuration remains saved. No coin, payout currency, fee-backend schema,
 Currency Service collector, Node coin enum or portal contract changed; the
 workspace new-coin guide's unrelated steps are not applicable to these added
 miners. Its existing Pearl/Quantus accounting gates remain open.
+
+## Native PeakMiner Auto Tuning / Natives PeakMiner-Autotuning (2026-10-21)
+
+PeakMiner's pinned 2.19.1 startup OC interface is now connected to the shared
+calibration/refinement/profile path. See [Auto Tuning](auto-tuning.md#peakminer-native-tuning--natives-peakminer-tuning-2026-10-21)
+for parameters, lifecycle tests and outstanding physical device-mapping gates.
+The existing BUG-011 Windows handoff/hashrate-unit verification remains open.
+
+Deutsch: Die eingebundene Version 2.19.1 nutzt nun ihre nativen OC-Parameter für
+die gemeinsame Kalibrierung, Nachoptimierung und Profilanwendung. Parameter,
+Tests und offene Hardware-Nachweise stehen im verlinkten Tuning-Vertrag.
+Der Windows-Nachweis für Übergabe und Hashrate-Einheit (BUG-011) bleibt offen.

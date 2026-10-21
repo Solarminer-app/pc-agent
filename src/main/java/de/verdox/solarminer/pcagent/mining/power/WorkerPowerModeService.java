@@ -205,7 +205,7 @@ public class WorkerPowerModeService {
                 if (nativeTuning.isPresent()) {
                     return nativeTuning.get().applyNativeTuning(gpu, profile)
                             ? new Selection(choice.mode(), profile.powerLimitWatts(), null)
-                            : new Selection(choice.mode(), null, "srbminer_native_tuning_failed");
+                            : new Selection(choice.mode(), null, "miner_native_tuning_failed");
                 }
             }
             var clocks = profile.memoryOffsetMhz() == null

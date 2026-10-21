@@ -441,7 +441,7 @@ public class AutoTuningSessionService {
                     throw new IllegalStateException("power_mode_apply_failed");
                 GpuTuningService.ApplyResult clockWrite = useMinerCommands
                         ? new GpuTuningService.ApplyResult(nativeTuning.applyNativeTuning(gpu, commandProfile),
-                        "srbminer_native_tuning_failed")
+                        "miner_native_tuning_failed")
                         : !selection.core() && !selection.memory()
                         ? new GpuTuningService.ApplyResult(true, null)
                         : candidate.memoryOffsetMhz() == null

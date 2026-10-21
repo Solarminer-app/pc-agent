@@ -459,7 +459,7 @@ Primary references: [Smile Gaussian Process API](https://github.com/haifengl/smi
 
 For SRBMiner-MULTI on NVIDIA, independent of the configured coin, the Auto Tuning candidate and selected profile are applied through SRBMiner's documented startup parameters: `--gpu-cclock0`, `--gpu-mclock0`, `--gpu-moffset0` and `--gpu-plimit0`. The Auto Tuning service addresses the active miner-software adapter through `MinerNativeTuning`; it has no Pearl-specific branch. A candidate change restarts only that GPU's SRBMiner process, which makes the miner itself the clock-control owner. SRBMiner has no documented runtime OC API, so a restart is required for each change.
 
-The native path is intentionally restricted to NVIDIA SRBMiner workers. AMD and other miner adapters remain on their respective existing driver paths until their miner provides an equivalent documented control interface. SRBMiner command acceptance and physical clock/power behaviour still require validation on each supported driver and GPU.
+The native path is intentionally restricted to NVIDIA SRBMiner workers. PeakMiner now has the native adapter described below. AMD and remaining miner adapters retain their existing driver paths. SRBMiner command acceptance and physical clock/power behaviour still require validation on each supported driver and GPU.
 
 When the driver provides both a safe fixed-memory range and a memory-offset range, candidate generation now includes both independent control forms. Per power tier it first samples the low/high offset anchors, then the low/high fixed-memory anchors; remaining slots use Bayesian expected improvement. A candidate supplies either `--gpu-moffset0` or `--gpu-mclock0`, never both.
 
@@ -523,3 +523,45 @@ bestätigte Einstellungen im gemeinsamen GPU-/Coin-Diagramm. Gemessene Kern-/
 Speichertakte und absolute Sollwerte sind ausdrücklich getrennt auswählbar.
 Fehlende Rücklesewerte und Speicher-Offsets werden nicht als gemessene absolute
 Takte dargestellt. Endpunkt und Profilvergleich sind im Benchmark-Vertrag beschrieben.
+
+### PeakMiner native tuning / Natives PeakMiner-Tuning (2026-10-21)
+
+English: PeakMiner 2.19.1 documents native core/memory locks, memory offsets and
+power limits in its [versioned CLI reference](https://github.com/peakminer/peakminer/blob/v2.19.1/README.md#overclocking--temperature-limits).
+`PeakMinerService` now implements `MinerNativeTuning`, so standalone calibration,
+automatic sweep refinement and selected operating profiles use the same native
+path as other capable adapters. Startup maps absolute core MHz to `--gpu-lcore0`,
+absolute memory MHz to `--gpu-lmem0`, memory offsets to `--gpu-mem0`, and watts
+to `--gpu-power0`. Fixed memory and offset are mutually exclusive. Each worker
+retains its CUDA UUID isolation and local device 0; global OC flags are omitted.
+A change stops/restarts only the affected live process. Stopped workers cache
+settings for their next start; clearing them cannot restart a paused worker.
+Stop failures retain the previous settings; failed launches discard the candidate.
+The shared optimizer still requires driver bounds, effective-clock readback,
+temperature/power/hash telemetry and confirmed measurements. PeakMiner does not
+opt into SRBMiner's provisional fixed-memory probe without driver lock support.
+No new coin, ASIC, proxy, fee or LAN contract is introduced. Experimental Beta
+availability follows branch promotion; installer/version and existing accounting
+gates remain as documented in `peak-wildrig-beta.md`.
+
+Deutsch: PeakMiner verwendet jetzt für Einzel-Tuning, automatische Benchmark-
+Nachoptimierung und Betriebsprofile seine eigenen Startparameter. Absolute Kern-
+und Speichertakte, Speicher-Offset und Watt-Limit bleiben getrennt; ein fester
+Speichertakt und ein Offset werden nicht gleichzeitig übergeben. Nur der laufende
+Prozess der betroffenen GPU startet neu. Ein pausierter Worker bleibt beim Löschen
+seiner Einstellungen pausiert. Scheitert der Stopp, bleiben die bisherigen Werte;
+scheitert der Start, wird der Kandidat verworfen. Treibergrenzen, Temperaturprüfung,
+Takt-Rücklesung und Messbestätigung gelten weiterhin. Die versuchsweise feste
+Speichersteuerung ohne Treiber-Lock bleibt SRBMiner vorbehalten.
+
+Verification / Verifikation: `PeakNativeTuningTest` covers parameter semantics,
+negative offsets, target-only restart, pause preservation and stop/start failures.
+Full Java tests and the standalone build passed, plus both-language catalogue,
+render and literal checks. New generic native-tuning failures are translated in
+both UI catalogues; external miner/driver output remains verbatim. No live clock
+writes were performed. Physical clock effects, OC index/UUID mapping on a
+nonzero GPU with unaffected siblings, reset/restoration and Windows/Linux driver
+behaviour still require hardware verification. Diese Hardware-Nachweise sowie
+Pool-/Fee-Gutschriften sind weiterhin offen; automatisierte Tests ersetzen sie
+nicht. Rollback: stop calibration, restore driver defaults, select manual mode
+or another installed miner; saved pool and wallet data are retained.

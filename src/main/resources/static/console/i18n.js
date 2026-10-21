@@ -42,6 +42,7 @@
     power_mode_no_safe_hashrate_point: ['Kein sicherer Messpunkt für die gewünschte Hashrate vorhanden.', 'No safe measured point exists for the requested hashrate.'],
     auto_tuning_budget_above_safe_limit: ['Das Leistungsbudget überschreitet die sichere Grenze.', 'The power budget exceeds the safe limit.'],
     auto_tuning_budget_below_profile: ['Das Leistungsbudget liegt unter dem verfügbaren Messprofil.', 'The power budget is below the available measured profile.'],
+    miner_native_tuning_failed: ['Die Miner-Software konnte das Tuning-Profil nicht anwenden oder den GPU-Prozess nicht neu starten.', 'The miner software could not apply the tuning profile or restart the GPU process.'],
     srbminer_native_tuning_failed: ['SRBMiner konnte die Taktraten nicht anwenden.', 'SRBMiner could not apply the clock settings.'],
     power_mode_requires_gpu: ['Dieser Modus benötigt eine GPU.', 'This mode requires a GPU.'],
     power_mode_requires_gpu_coin: ['Dieser Modus benötigt einen zugewiesenen GPU-Coin.', 'This mode requires an assigned GPU coin.'],

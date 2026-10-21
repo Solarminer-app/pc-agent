@@ -22,6 +22,7 @@ public class AgentControlSettingsService implements de.verdox.solarminer.pcagent
     private final ObjectMapper json;
     private final Path file;
     private volatile Settings settings;
+    private final Map<String, Object> stopRevisions = new java.util.concurrent.ConcurrentHashMap<>();
     /**
      * -- SETTER --
      * Lets the fee-tier machinery react to consent-hook flips without a polling loop.
@@ -154,6 +155,12 @@ public class AgentControlSettingsService implements de.verdox.solarminer.pcagent
         return !settings.manuallyStopped(deviceId);
     }
 
+    /** Capture once at measurement admission, including for workers already paused. */
+    public synchronized java.util.function.BooleanSupplier measurementStartPermit(String deviceId) {
+        Object revision = stopRevisions.computeIfAbsent(deviceId, ignored -> new Object());
+        return () -> stopRevisions.get(deviceId) == revision;
+    }
+
     public Settings get() {
         return settings;
     }
@@ -275,6 +282,9 @@ public class AgentControlSettingsService implements de.verdox.solarminer.pcagent
             if (stopped) next.put(workerId, true);
             else next.remove(workerId);
         }
+        // Repeated pauses revoke existing measurement authority even if already stopped,
+        // including when persistence fails. Other devices keep their permits.
+        if (stopped) workerIds.forEach(id -> stopRevisions.put(id, new Object()));
         return saveStartupState(settings.workerStartOnBoot(), next, stopped);
     }
 

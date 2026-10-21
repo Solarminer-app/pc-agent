@@ -678,6 +678,18 @@ the affected Windows build are required to settle this upstream contract and
 certify the corrected unit. Sweep console rate formatting had independent
 1,000-fold label errors (MH vs GH, kH vs MH), which were corrected.
 
+### 2026-10-21 — Native OC follow-up / Native OC-Anbindung
+
+PeakMiner now uses the shared native-tuning interface and its versioned startup
+OC flags. New mocked lifecycle/command tests cover per-worker restart and
+stop/start failure, but cannot settle the Windows competing-process identity or
+hashrate unit. BUG-011 remains under investigation; no physical OC write or
+Windows pool session was performed. See `docs/agent-wiki/auto-tuning.md`.
+
+Deutsch: Die native Tuning-Anbindung und neue Prozess-/Parametertests klären die
+offene Windows-Übergabe und Hashrate-Einheit nicht. BUG-011 bleibt offen;
+Hardware-Taktänderungen und eine Windows-Pool-Sitzung wurden nicht ausgeführt.
+
 ## BUG-012 — Preserve sibling workers when saving a worker assignment
 
 **Status:** Automated regression verified; hardware acceptance pending (`[~]`, 2026-10-21)

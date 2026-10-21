@@ -31,7 +31,8 @@ public abstract class AbstractMinerEngine {
     }
 
     protected final boolean workerStartAllowed(String deviceId) {
-        return workerStartPolicy.mayStart(deviceId);
+        return workerStartPolicy.mayStart(deviceId)
+                || de.verdox.solarminer.pcagent.miner.MinerStartContext.measurementAuthorized(deviceId);
     }
 
     protected abstract MinerConsoleService console();
