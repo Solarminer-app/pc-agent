@@ -20,6 +20,9 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -78,6 +81,7 @@ public class EfficiencySweepService {
     public void setClockTelemetry(de.verdox.solarminer.pcagent.lowlevel.GpuTuningService clocks) { this.clockTelemetry = clocks; }
     private SweepRefinementService refinement;
     private boolean refineAfterSweep;
+    private int etaGpuLimit = Integer.MAX_VALUE;
     @org.springframework.beans.factory.annotation.Autowired
     public void setRefinement(@org.springframework.context.annotation.Lazy SweepRefinementService refinement) { this.refinement = refinement; }
     private final MinerFactory miners;
@@ -208,6 +212,7 @@ public class EfficiencySweepService {
         if (!guard.begin("efficiency-sweep"))
             throw new IllegalStateException("Ein anderer Messlauf (Benchmark) läuft gerade; der Sweep wartet, bis er beendet ist");
         refineAfterSweep = refine;
+        etaGpuLimit = gpuLimit;
         if (refine && refinement == null) { guard.end(); throw new IllegalStateException("auto_tuning_miner_unavailable"); }
         try { if (refinement != null) refinement.begin(refine, targets, resume); }
         catch (RuntimeException failure) { guard.end(); throw failure; }
@@ -261,7 +266,9 @@ public class EfficiencySweepService {
             else if (!value.running() && optimization.runs().stream().anyMatch(run -> !"COMPLETE".equals(run.state()))) phase = "benchmark_optimization_partial";
         }
         return new Session(value.running(), phase, value.startedAt(), value.phaseIndex(), value.phaseCount(),
-                value.results(), value.runs(), refineAfterSweep && value.running() ? null : value.secondsRemaining(),
+                value.results(), value.runs(), refineAfterSweep && value.running()
+                        ? estimateCombinedRemainingSeconds(value.runs(), refinement.remainingSeconds(optimization), etaGpuLimit)
+                        : value.secondsRemaining(),
                 optimization);
     }
 
@@ -1120,6 +1127,21 @@ public class EfficiencySweepService {
     private static String runId(String deviceId, String coin, String algorithm, String softwareId) {
         return deviceId + "|" + coin + "|" + algorithm
                 + (softwareId == null ? "" : "|" + softwareId);
+    }
+
+    static long estimateCombinedRemainingSeconds(List<RunStatus> runs, Map<String, Long> tuning, int gpuLimit) {
+        Map<String, Long> perDevice = new HashMap<>(tuning);
+        for (var run : runs) perDevice.merge(run.deviceId(),
+                estimateRemainingSeconds(List.of(run), null), Long::sum);
+        if (perDevice.isEmpty()) return 0;
+        // Each physical GPU is serial; distribute its remaining work across the allowed slots.
+        long[] slots = new long[Math.max(1, Math.min(gpuLimit, perDevice.size()))];
+        for (long seconds : perDevice.values().stream().sorted(Comparator.reverseOrder()).toList()) {
+            int next = 0;
+            for (int i = 1; i < slots.length; i++) if (slots[i] < slots[next]) next = i;
+            slots[next] += seconds;
+        }
+        return Arrays.stream(slots).max().orElse(0);
     }
 
     static long estimateRemainingSeconds(List<RunStatus> runs, Instant startedAt) {

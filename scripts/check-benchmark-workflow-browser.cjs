@@ -50,7 +50,7 @@ const server = http.createServer((req, res) => {
       }
       if (method === 'POST') {
         const body = route.request().postData() ? route.request().postDataJSON() : null; writes.push({endpoint,body});
-        if (endpoint === 'efficiency') {sweep = {...idleSweep(),optimization:{enabled:body.autoTuneAfterSweep,runs:[{id:'gpuA|pearl|srb',deviceId:'gpuA',coin:'pearl',softwareId:'srbminer-multi',state:'RUNNING',detail:'auto_tuning_phase_power_refining',candidateIndex:19,candidateCount:24,sampleIndex:5,sampleCount:32}]},running:true,phase:'Preparing',phaseCount:2,runs:[{id:'gpuA|pearl|srb',deviceId:'gpuA',model:'NVIDIA RTX 3080',coin:'pearl',algorithm:'PearlHash',softwareId:'srbminer-multi',status:'RUNNING',mode:'FULL',plannedLimits:[200,180],steps:[{limitWatts:200,avgPowerWatts:190,medianHashrateHs:1000,maxTemperatureC:60,stable:true}],samplesRequired:12,samples:4,limitWatts:180}]}; return json(sweep);}
+        if (endpoint === 'efficiency') {sweep = {...idleSweep(),secondsRemaining:3725,optimization:{enabled:body.autoTuneAfterSweep,runs:[{id:'gpuA|pearl|srb',deviceId:'gpuA',coin:'pearl',softwareId:'srbminer-multi',state:'RUNNING',detail:'auto_tuning_phase_power_refining',candidateIndex:19,candidateCount:24,sampleIndex:5,sampleCount:32}]},running:true,phase:'Preparing',phaseCount:2,runs:[{id:'gpuA|pearl|srb',deviceId:'gpuA',model:'NVIDIA RTX 3080',coin:'pearl',algorithm:'PearlHash',softwareId:'srbminer-multi',status:'RUNNING',mode:'FULL',plannedLimits:[200,180],steps:[{limitWatts:200,avgPowerWatts:190,medianHashrateHs:1000,maxTemperatureC:60,stable:true}],samplesRequired:12,samples:4,limitWatts:180}]}; return json(sweep);}
         if (endpoint === 'efficiency/cancel') {sweep = idleSweep(); return json(sweep);}
         if (endpoint === 'benchmarks') {benchmark = {...idleBenchmark(),running:true,phase:'Preparing',selectedWorkers:body.workers}; return json(benchmark);}
         if (endpoint === 'benchmarks/cancel') {benchmark = idleBenchmark(); return json(benchmark);}
@@ -77,6 +77,8 @@ const server = http.createServer((req, res) => {
     });
     const origin = `http://127.0.0.1:${server.address().port}`;
     await page.goto(origin + '/benchmarks.html');
+    await page.locator('#oc-configuration > summary').click();
+    await page.locator('#oc-curves > summary').click();
     const gpuCard = page.locator('.benchmark-worker-card[data-worker="gpuA"]');
     await gpuCard.locator('fieldset').first().waitFor();
     await page.waitForFunction(() => !document.getElementById('run-sweep').disabled);
@@ -90,6 +92,7 @@ const server = http.createServer((req, res) => {
     // Operating permissions changed in Workers while this measurement editor was open.
     policies.gpuA.allowCoinSwitch = true; policies.gpuA.allowMinerSwitch = false;
     await page.locator('#run-sweep').click();
+    await page.waitForFunction(()=>document.getElementById('sweep-remaining').textContent.includes('1 h 2 min'));
     await page.waitForFunction(() => document.getElementById('sweep-cancel').hidden === false);
     assert.deepEqual(writes.slice(0,2).map(row => row.endpoint), ['benchmark-policies/gpuA','efficiency']);
     assert.deepEqual(writes[1].body, {coins:['pearl','quantus'],workers:['gpuA'],maxConcurrentGpus:1,autoTuneAfterSweep:true});
@@ -130,6 +133,7 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => !document.getElementById('run-live').disabled);
     await page.evaluate(() => localStorage.setItem('solarminer.pc-agent.language','de'));
     await page.reload();
+    await page.locator('#oc-configuration > summary').click();
     await page.getByRole('heading',{name:'Worker & Testauswahl',exact:true}).waitFor();
     assert.equal(await page.evaluate(() => window.SolarMinerI18n.s('auto_tuning_phase_power_refining')), 'Power-Limits um getunte Einstellungen nachprüfen');
     await page.setViewportSize({width:390,height:844});

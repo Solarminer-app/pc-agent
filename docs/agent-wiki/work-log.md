@@ -4074,3 +4074,23 @@ dieser Task hat keinen Commit-/Push-Befehl ausgeführt.
   hashrate, live updates, keyboard detail selection, exact profile highlighting
   and DE/EN result/fleet mobile layout. No miner or GPU writes performed.
   All new copy is localized; no new external text was introduced.
+
+
+### 2026-10-21 — Fix combined benchmark ETA / Restzeit korrigiert (BUG-016)
+
+- Removed the unconditional null ETA for running sweep-plus-tuning sessions.
+  Added a combined estimate from sweep work and tuner search/confirmation
+  windows, including sample progress, estimated startups, per-GPU serialization
+  and selected GPU concurrency. Terminal tuning rows contribute no work.
+- Deutsch: Die Restzeit bleibt beim kombinierten Lauf nicht mehr dauerhaft auf
+  „wird berechnet“. Sweep und Tuning fließen mit Messfortschritt und Parallelität
+  ein. Der neue Hinweis erklärt die ungefähre Schätzung auf Deutsch und Englisch.
+- Verification: focused EfficiencySweepService, SweepRefinementService,
+  AutoTuningSessionService and EfficiencySweepController tests and standalone JAR
+  passed; regression tests cover numeric combined status, active tuning after
+  sweep completion, search/confirmation progress and GPU concurrency. DE/EN i18n
+  catalogue, literal and render checks passed. No new external untranslated text
+  or hardware writes. See `docs/KNOWN_BUGS.md` BUG-016.
+- Browser verification: `check-benchmark-workflow-browser.cjs` passed with an
+  explicit assertion that a running combined session renders its numeric ETA
+  (`3725` seconds → `1 h 2 min`), plus existing DE/EN and mobile workflow checks.

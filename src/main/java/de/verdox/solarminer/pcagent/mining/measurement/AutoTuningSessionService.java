@@ -40,6 +40,22 @@ public class AutoTuningSessionService {
     private final AutoTuningSelectionStore selections;
     private final LocalRunLock runLock;
     private final MinerFactory miners;
+    // Planning estimate: full search/confirmation budget plus driver/miner startup per window.
+    long estimateRemainingSeconds(int candidateIndex, int sampleIndex, int sampleCount) {
+        return estimateRemainingSeconds(candidateIndex, sampleIndex, sampleCount, sampleIntervalMillis);
+    }
+
+    static long estimateRemainingSeconds(int candidateIndex, int sampleIndex, int sampleCount, long intervalMillis) {
+        int completed = Math.max(0, candidateIndex - 1);
+        boolean confirming = sampleCount == CONFIRMATION_SAMPLES;
+        int search = confirming ? 0 : Math.max(0, MAX_SEARCH_CANDIDATES - completed);
+        int confirmations = confirming ? Math.min(MAX_CANDIDATES - MAX_SEARCH_CANDIDATES, Math.max(1, MAX_CANDIDATES - completed))
+                : MAX_CANDIDATES - MAX_SEARCH_CANDIDATES;
+        long samples = (long) search * SAMPLES_PER_CANDIDATE + (long) confirmations * CONFIRMATION_SAMPLES;
+        samples -= Math.min(Math.max(0, sampleIndex), Math.max(0, sampleCount));
+        return Math.max(0, samples) * intervalMillis / 1_000 + (search + confirmations) * 45L;
+    }
+
     private double temperatureCeiling(String deviceId) {
         return workerPolicies == null ? maxTemperatureC : workerPolicies.ceiling(deviceId, maxTemperatureC);
     }

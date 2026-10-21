@@ -56,6 +56,15 @@ public class SweepRefinementService {
         }).sorted(Comparator.comparing(Progress::id)).toList();
         return new Status(enabled, rows);
     }
+    Map<String, Long> remainingSeconds(Status status) {
+        Map<String, Long> perDevice = new HashMap<>();
+        if (status != null && status.enabled()) for (var row : status.runs()) {
+            if (!Set.of("WAITING", "RUNNING").contains(row.state())) continue;
+            perDevice.merge(row.deviceId(), tuner.estimateRemainingSeconds(
+                    row.candidateIndex(), row.sampleIndex(), row.sampleCount()), Long::sum);
+        }
+        return perDevice;
+    }
     boolean incomplete() { return enabled && progress.values().stream().anyMatch(p -> !"COMPLETE".equals(p.state())); }
     void finishPending() {
         progress.replaceAll((id, row) -> Set.of("WAITING", "RUNNING").contains(row.state())

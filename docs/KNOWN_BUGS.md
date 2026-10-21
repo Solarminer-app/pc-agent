@@ -41,6 +41,7 @@ remains. The assigned task always takes precedence.
 | [~] | P1 | BUG-013 | Auto Tuning drops calibration requests for GPUs while another GPU is being calibrated. |
 | [~] | P1 | BUG-014 | External power status reports paused/zero target while automatic-mode GPUs are mining; reported remote mass-stop trigger remains unconfirmed. |
 | [x] | P1 | BUG-015 | Every power-sweep step rejects an already paused worker as manually stopped. |
+| [x] | P2 | BUG-016 | Combined sweep/tuning ETA remains on “calculating” for the entire run. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -867,3 +868,23 @@ revocation after a repeated pause with failed storage. `WorkerStopAuthorityTest`
 continues to verify the normal stop policy. No live GPU/pool run was performed;
 external miner and operating-system text remains verbatim. No new UI messages.
 Keine neue UI-Meldung; externe Miner-/Betriebssystemtexte bleiben unverändert.
+
+
+## BUG-016 — Combined benchmark ETA / Restzeit bei Sweep und Tuning
+
+**Status:** Fixed and verified (`[x]`, 2026-10-21). `EfficiencySweepService.status()`
+explicitly replaced `secondsRemaining` with null for every running combined run.
+The frontend therefore always selected its localized “calculating” fallback.
+Status now combines remaining sweep samples and startup estimates with the tuner
+search/confirmation budget. Per-device work is serial; allowed GPU slots run in
+parallel. Completed/failed/skipped tuning work is excluded. The estimate updates
+with candidate/sample progress; it is a planning estimate, not a deadline.
+
+Deutsch: Der Status setzte die Restzeit bei kombinierter Messung ausdrücklich
+auf null. Jetzt werden verbleibender Sweep und Tuning einschließlich Anlaufzeiten
+und GPU-Parallelität geschätzt. Ein DE/EN-Hinweis erklärt die Grenzen der Schätzung.
+
+Verification: focused sweep, refinement, tuner and controller tests plus standalone
+JAR passed. Regression coverage checks numeric combined status (including tuning
+after all sweep steps), progress and concurrency. DE/EN catalogue, literal and
+render checks passed. No miners or hardware-control commands were started.

@@ -513,3 +513,20 @@ Messfenster, keine rohe Sensorzeitreihe. Fehlende Sensorwerte unterbrechen Linie
 Sollwerte und Offsets ersetzen keine Messwerte. Mess- und Ergebnisseite zeigen
 Hashrate über gemessenen Watt; Effizienz und getrennte Ist-/Sollwerte bleiben per
 Klick oder Tastatur abrufbar. GPU-/Coin-Auswahl und Profilmarkierungen bleiben erhalten.
+
+### Combined ETA / Gemeinsame Restzeitschätzung (2026-10-21)
+
+Combined-run status now publishes numeric `secondsRemaining` instead of null.
+It includes remaining sweep samples/startups and the tuning search/confirmation
+budget using the configured sampling interval plus estimated startup per window.
+It excludes terminal tuning rows, sums work per physical GPU and distributes it
+across the requested concurrent GPU slots. It updates with candidate/sample
+progress, including when sweep rows are complete but tuning continues. Adaptive
+search and miner/driver waits make this approximate; the tooltip explains this
+in both locales. No LAN or endpoint schema change.
+
+Der kombinierte Lauf liefert jetzt eine numerische Restzeit für Sweep und Tuning.
+Messfortschritt, Anlaufzeiten, abgeschlossene Tuning-Läufe sowie serielle Arbeit
+pro GPU und die gewählte Parallelität fließen ein. Die adaptive Suche und
+Miner-/Treiberwartezeiten machen dies zu einer Schätzung; beide Sprachen erklären
+das im Tooltip. API-Schema und LAN-Vertrag bleiben gleich.

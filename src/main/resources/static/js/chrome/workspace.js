@@ -9,7 +9,7 @@
   };
   const groups = [
     ['operation', [['/', 'dashboard', 'home'], ['/mining.html', 'miner_software', 'mining'], ['/wallets.html', 'wallets', 'wallet'], ['/workers.html', 'worker', 'worker'], ['/automation.html', 'node_automation', 'automation']]],
-    ['optimization', [['/fleet.html', 'fleet_nav', 'fleet'], ['/power.html', 'power_consumption', 'power'], ['/hardware.html', 'power_limits', 'hardware'], ['/autotuning.html', 'auto_tuning', 'autotuning'], ['/benchmarks.html', 'benchmark_page_title', 'benchmarks'], ['/benchmark-results.html', 'benchmark_results_title', 'benchmarks']]],
+    ['optimization', [['/fleet.html', 'fleet_nav', 'fleet'], ['/power.html', 'power_consumption', 'power'], ['/hardware.html', 'power_limits', 'hardware'], ['/benchmarks.html', 'oc_title', 'autotuning'], ['/benchmark-results.html', 'benchmark_results_title', 'benchmarks']]],
     ['system', [['/telemetry.html', 'sensors_7d5114', 'telemetry'], ['/proxy.html', 'connection_5fbdf2', 'proxy']]]
   ];
   const paths = {

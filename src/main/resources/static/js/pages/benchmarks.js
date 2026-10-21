@@ -584,7 +584,7 @@ function renderSelectionSummary() {
 
 function updateMeasurementControls() {
     if (resultsPage) return;
-    const running = Boolean(latestBenchmarkState?.running || latestSweepState?.running);
+    const running = Boolean(latestBenchmarkState?.running || latestSweepState?.running || window.SolarMinerOCRunning);
     const known = Boolean(latestBenchmarkState && latestSweepState);
     const locked = running || actionBusy || !known;
     const selected = selectedWorkers();
@@ -994,6 +994,12 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 
 function renderLiveSweepChart(runs, running, saved = false) {
     const root=$('sweep-live-chart'), device=curveDevice(); if(!root)return;
+    if (!resultsPage) {
+        const identity = row => JSON.stringify([row.deviceId, row.coin, row.minerSoftwareId || row.softwareId]);
+        const current = new Set((runs || []).map(identity));
+        runs = [...(runs || []), ...(measurementSnapshot?.sweeps || []).filter(row => !current.has(identity(row)))
+            .map(row => ({...row, id: `saved|${identity(row)}`}))];
+    }
     const cache=tuningCurveCache.get(device), tuning=cache?.points || [];
     const selectedRuns=(runs || []).filter(run=>run.deviceId===device);
     const coins=[...new Set([...selectedRuns.map(run=>run.coin),...tuning.map(point=>point.coin)])].filter(Boolean).sort();

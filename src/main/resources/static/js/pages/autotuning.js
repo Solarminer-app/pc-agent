@@ -13,6 +13,7 @@
     }
     return `${new Intl.NumberFormat(window.SolarMinerI18n.locale || 'de-DE', {maximumFractionDigits: 3}).format(scaled)} ${unit}`;
   };
+  const unified = Boolean($('oc-expert'));
   const devices = $('devices'), chartHost = $('session-charts');
   let activeSession = null, activeSessions = [], pollTimer = null, savedProfiles = [], measurementHistory = [], earnings = [];
   let tuningRows = [], chartDeviceId = null, lastSessionKey = null;
@@ -60,8 +61,8 @@
       }},
     ];
     for (const metric of values) {
-      const points = samples.map((row, index) => ({row, index, value: metric.format ? metric.format(row) : Number(row[metric.key])}))
-        .filter(point => Number.isFinite(point.value) && point.value >= 0);
+      const points = samples.map((row, index) => ({row, index, value: metric.format ? metric.format(row) : row[metric.key] == null ? null : Number(row[metric.key])}))
+        .filter(point => point.value != null && Number.isFinite(point.value) && point.value >= 0);
       const card = node('article', 'tuning-graph-card');
       card.append(node('h4', '', t(metric.label)));
       const svg = svgNode('svg', {viewBox: '0 0 520 184', role: 'img', 'aria-label': t('auto_tuning_graph_aria', {metric: t(metric.label), count: points.length})});
@@ -111,7 +112,7 @@
     return null;
   };
   const status = (message, error = false, advice = null) => {
-    const el = $('notice'); el.replaceChildren(); el.className = `notice${error ? ' error' : ''}`; el.hidden = !message;
+    const el = $(unified ? 'tuning-notice' : 'notice'); el.replaceChildren(); el.className = `notice${error ? ' error' : ''}`; el.hidden = !message;
     if (message) el.append(node('span', '', message));
     if (advice) el.append(node('p', 'tuning-advice', t(advice)));
   };
@@ -121,7 +122,10 @@
     devices.replaceChildren();
     if (!rows.length) { devices.append(node('p', 'muted', t('auto_tuning_no_devices'))); return; }
     for (const gpu of rows) {
-      const card = node('article', 'panel tuning-card');
+      const card = node('details', 'panel tuning-card');
+      card.dataset.deviceId = gpu.deviceId;
+      card.open = gpu.deviceId === window.SolarMinerOCDevice;
+      card.append(node('summary', '', `${gpu.model || gpu.deviceId} · ${gpu.deviceId}`));
       const head = node('div', 'tuning-card-head'); const title = node('div', 'tuning-card-title');
       title.append(node('span', 'tuning-vendor', gpu.vendor || t('auto_tuning_gpu_label')), node('h3', '', gpu.model || gpu.deviceId), node('small', 'tuning-device-id', gpu.deviceId));
       head.append(title); card.append(head);
@@ -411,11 +415,11 @@
       const runKey = activeSessions.map(session => `${session.deviceId || ''}:${session.startedAt || ''}`).join('|');
       if (runKey !== lastSessionKey) {
         lastSessionKey = runKey;
-        if (activeSession.deviceId) deviceSamples.delete(activeSession.deviceId);
-        if (!chartDeviceId) chartDeviceId = activeSession.deviceId;
+        if (activeSession?.deviceId) deviceSamples.delete(activeSession.deviceId);
+        if (!chartDeviceId) chartDeviceId = activeSession?.deviceId;
       }
       drawSession();
-      if (activeSession.deviceId && chartDeviceId === activeSession.deviceId) deviceSamples.delete(activeSession.deviceId);
+      if (activeSession?.deviceId && chartDeviceId === activeSession.deviceId) deviceSamples.delete(activeSession.deviceId);
       await drawTuningCharts();
       const anyRunning = activeSessions.some(session => session.running);
       if (wasRunning && !anyRunning) { await load(); return; }
@@ -424,7 +428,7 @@
   }
   function drawSession() {
     const host = $('session-state'); host.replaceChildren();
-    if (!activeSession?.running) return;
+    if (!activeSession) return;
     const phase = t(activeSession.phase);
     const header = node('div', 'panel-head');
     header.append(node('h2', '', phase));
@@ -485,6 +489,6 @@
       await load();
     }
   });
-  if (window.SolarMinerWorkspace) window.SolarMinerWorkspace.init();
+  if (!unified && window.SolarMinerWorkspace) window.SolarMinerWorkspace.init();
   load();
 })();

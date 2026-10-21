@@ -384,6 +384,50 @@ class EfficiencySweepServiceTest {
     }
 
     @Test
+    void runningCombinedStatusPublishesNumericEtaInsteadOfNull() {
+        var refinement = mock(SweepRefinementService.class);
+        var optimization = new SweepRefinementService.Status(true, List.of());
+        when(refinement.status()).thenReturn(optimization);
+        when(refinement.remainingSeconds(optimization)).thenReturn(java.util.Map.of("one", 1000L));
+        var service = new EfficiencySweepService(mock(MinerFactory.class), mock(LocalGpuPowerService.class),
+                mock(de.verdox.solarminer.pcagent.miner.MinerConsoleService.class),
+                mock(de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService.class),
+                mock(de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService.class),
+                mock(GpuEfficiencyStore.class), mock(BenchmarkSharingService.class), new LocalRunLock(),
+                15, 85, 0.1, 240);
+        service.setRefinement(refinement);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "refineAfterSweep", true);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "session",
+                new EfficiencySweepService.Session(true, "benchmark_optimization_tuning", Instant.now(), 1, 1,
+                        List.of(), List.of(), 0L));
+        assertEquals(1000L, service.status().secondsRemaining());
+    }
+
+    @Test
+    void combinedEtaIncludesTuningAfterSweepAndHonorsConcurrencyAndDeviceSerialization() {
+        var first = run("one", SweepMode.FULL, List.of(200, 185));
+        var second = run("two", SweepMode.FULL, List.of(200, 185));
+        var tuning = java.util.Map.of(first.deviceId(), 1000L, second.deviceId(), 500L);
+        assertEquals(1920, EfficiencySweepService.estimateCombinedRemainingSeconds(List.of(first, second), tuning, 1));
+        assertEquals(1210, EfficiencySweepService.estimateCombinedRemainingSeconds(List.of(first, second), tuning, 2));
+        assertEquals(1000, EfficiencySweepService.estimateCombinedRemainingSeconds(List.of(), tuning, 2));
+        assertEquals(0, EfficiencySweepService.estimateCombinedRemainingSeconds(List.of(), java.util.Map.of(), 2));
+    }
+
+    @Test
+    void tuningEtaExistsBeforeFirstSampleAndDecreasesWithSearchAndConfirmationProgress() {
+        long initial = AutoTuningSessionService.estimateRemainingSeconds(0, 0, 0, 5000);
+        assertTrue(initial > 0);
+        long first = AutoTuningSessionService.estimateRemainingSeconds(1, 0, 16, 5000);
+        assertEquals(initial, first);
+        assertEquals(first - 40, AutoTuningSessionService.estimateRemainingSeconds(1, 8, 16, 5000));
+        long confirming = AutoTuningSessionService.estimateRemainingSeconds(25, 0, 32, 5000);
+        assertTrue(confirming < first);
+        assertEquals(confirming, AutoTuningSessionService.estimateRemainingSeconds(19, 0, 32, 5000));
+        assertEquals(confirming - 80, AutoTuningSessionService.estimateRemainingSeconds(25, 16, 32, 5000));
+    }
+
+    @Test
     void etaCountsSiblingValidationRunsInParallel() {
         var first = run("one", SweepMode.VALIDATION, List.of(155, 170));
         var second = run("two", SweepMode.VALIDATION, List.of(155, 170));
