@@ -204,6 +204,31 @@ class WorkerAssignmentServiceTest {
     }
 
     @Test
+    void gpuWorkersFillInDriverTemperatureWhenSrbMinerDoesNotReportOne() {
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test GPU", 100, 250,
+                100, 250, 200, 150.0, "measured", true, null);
+        LocalGpuPowerService power = mock(LocalGpuPowerService.class);
+        when(power.snapshot()).thenReturn(List.of(gpu));
+        when(power.readTemperatureC(gpu)).thenReturn(63.5);
+        AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(true, false,
+                Map.of(), Map.of(gpu.deviceId(), "quantus")));
+        MiningService mining = mock(MiningService.class);
+        var srbTelemetryWithoutTemperature = new MinerStats.Worker(MinerStats.MinerStatus.MINING,
+                "SRBMiner Test GPU", "quantus", 0, 0, 0, 0, 0, 0, 0, List.of(), "GPU", gpu.model(),
+                gpu.deviceId(), null, null, MinerStats.PoolTelemetry.unavailable());
+        when(mining.getStats(anyList())).thenReturn(new MinerStats(MinerStats.DEFAULT.minerIdentity(), "Test",
+                MinerStats.MinerStatus.MINING, 0, 0, 0, 0, 0, 0, 0, List.of(), List.of(srbTelemetryWithoutTemperature)));
+
+        WorkerAssignmentService service = new WorkerAssignmentService(controls, mining, power,
+                mock(MinerCatalogService.class), newFactory(power), mock(PayoutDefaultsService.class),
+                mock(ProxyConfigurationService.class));
+
+        var worker = service.workers().stream().filter(row -> gpu.deviceId().equals(row.deviceId())).findFirst().orElseThrow();
+        assertEquals(63.5, worker.telemetry().temperatureCelsius());
+    }
+
+    @Test
     void cpuAssignmentSelectsInstalledSoftwareWithoutStartingIt() throws Exception {
         AgentControlSettingsService controls = mock(AgentControlSettingsService.class);
         MiningService mining = mock(MiningService.class);

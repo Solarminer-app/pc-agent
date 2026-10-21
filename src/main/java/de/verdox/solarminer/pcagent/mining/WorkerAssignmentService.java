@@ -369,7 +369,12 @@ public class WorkerAssignmentService {
         String pool = pool(coin, selectedId);
         boolean configured = coin != null && (coin == Coin.NONE || coin.isCpu()
                 || miners.gpuMiner(coin, selectedId).configured());
-        if (live != null && "GPU".equals(type) && !Double.isFinite(live.temperatureCelsius())) {
+        // Some miner APIs, including SRBMiner-MULTI, use 0 °C to mean that they
+        // did not provide a device temperature. Treat that exactly like a missing
+        // value and obtain the live reading from the driver instead. A real GPU
+        // temperature cannot be zero or below, so this never replaces valid
+        // miner-native telemetry (for example PeakMiner's API value).
+        if (live != null && "GPU".equals(type) && !validTemperature(live.temperatureCelsius())) {
             LocalGpuPowerService.Gpu gpu = gpuPower.snapshot().stream()
                     .filter(card -> deviceId.equals(card.deviceId())).findFirst().orElse(null);
             Double temperature = gpu == null ? null : gpuPower.readTemperatureC(gpu);
@@ -386,6 +391,10 @@ public class WorkerAssignmentService {
                 controls.get().workerEnabled(deviceId), live == null ? MinerStats.MinerStatus.STOPPED : live.miningStatus(), live,
                 controls.get().powerModeFor(deviceId), controls.get().startsOnBoot(deviceId),
                 controls.get().manuallyStopped(deviceId), measurement);
+    }
+
+    private static boolean validTemperature(double temperature) {
+        return Double.isFinite(temperature) && temperature > 0;
     }
 
     private void synchronizeConfiguredDevices(Object... changedAssignments) throws IOException {
