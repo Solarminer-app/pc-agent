@@ -58,14 +58,14 @@ class WorkerPowerModeServiceTest {
         when(gpus.setAutoTuningPowerTarget(150, card)).thenReturn(true);
         when(gpus.setAutoTuningPowerTarget(100, card)).thenReturn(true);
         AutoTuningProfileStore profiles = new AutoTuningProfileStore(json, directory.resolve("auto-profiles.json").toString());
-        var profile = new AutoTuningProfileStore.Profile("GPU-a", "Test", "NVIDIA", "pearl", "PearlHash",
-                "srbminer-multi", 1200, 800, 150, 100.0, 125, 8, .8, Instant.now());
+        var profile = de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.profile(new AutoTuningProfileStore.Profile("GPU-a", "Test", "NVIDIA", "pearl", "PearlHash",
+                "srbminer-multi", 1200, 800, 150, 100.0, 125, 32, .8, Instant.now()));
         assertTrue(profiles.saveMatrix(List.of(
-                new AutoTuningProfileStore.Profile("GPU-a", "Test", "NVIDIA", "pearl", "PearlHash",
-                        "srbminer-multi", 1100, 700, 100, 80.0, 90, 8, .89, Instant.now()),
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.profile(new AutoTuningProfileStore.Profile("GPU-a", "Test", "NVIDIA", "pearl", "PearlHash",
+                        "srbminer-multi", 1100, 700, 100, 80.0, 90, 32, .89, Instant.now())),
                 profile,
-                new AutoTuningProfileStore.Profile("GPU-a", "Test", "NVIDIA", "pearl", "PearlHash",
-                        "srbminer-multi", 1300, 900, 200, 120.0, 180, 8, .67, Instant.now()))));
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.profile(new AutoTuningProfileStore.Profile("GPU-a", "Test", "NVIDIA", "pearl", "PearlHash",
+                        "srbminer-multi", 1300, 900, 200, 120.0, 180, 32, .67, Instant.now())))));
         AgentControlSettingsService controls = new AgentControlSettingsService(json, directory.resolve("auto-control.json").toString());
         assertTrue(controls.setWorkerPowerMode("GPU-a", "AUTO_TUNING"));
         WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus,
@@ -86,6 +86,17 @@ class WorkerPowerModeServiceTest {
         verify(gpus).setAutoTuningPowerTarget(100, card);
         verify(tuning).apply("GPU-a", 1200, 1200, 800, 800);
         verify(gpus).setAutoTuningPowerTarget(150, card);
+        assertEquals(150, modes.appliedProfile("GPU-a").powerLimitWatts());
+        var safety = new de.verdox.solarminer.pcagent.mining.economics.OperatingPointSafetyStore(json, directory.resolve("auto-safety.json").toString());
+        modes.setPointSafety(safety);
+        var policies = new de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService(json, directory.resolve("auto-policy.json").toString());
+        policies.save("GPU-a", new de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService.Policy(List.of(), false, false, 84));
+        modes.setWorkerPolicies(policies);
+        var winner = profiles.matrix("GPU-a", "pearl", "srbminer-multi", null, "Test", "NVIDIA", "PearlHash").stream()
+                .filter(row -> row.powerLimitWatts() == 100).findFirst().orElseThrow();
+        safety.reject("GPU-a", de.verdox.solarminer.pcagent.mining.economics.OperatingPointSafetyStore.profileKey(winner), 84d, 84d);
+        assertEquals(150, modes.selectForMode("GPU-a", "pearl", "AUTO_TUNING").watts(), "A rejected tuned point must yield to another calibrated tier");
+        assertFalse(modes.needsAutoTuningCalibration("GPU-a", "pearl"), "A valid fallback tier does not require another calibration");
     }
 
     @Test
@@ -98,12 +109,12 @@ class WorkerPowerModeServiceTest {
         when(gpus.configuredPowerLimitWatts(card)).thenReturn(200);
         AutoTuningProfileStore profiles = new AutoTuningProfileStore(json, directory.resolve("profit-profiles.json").toString());
         assertTrue(profiles.saveMatrix(List.of(
-                new AutoTuningProfileStore.Profile("GPU-profit", "Test", "NVIDIA", "pearl", "PearlHash",
-                        "srbminer-multi", 1100, 700, 100, 80.0, 90, 8, .89, Instant.now()),
-                new AutoTuningProfileStore.Profile("GPU-profit", "Test", "NVIDIA", "pearl", "PearlHash",
-                        "srbminer-multi", 1200, 800, 150, 100.0, 125, 8, .8, Instant.now()),
-                new AutoTuningProfileStore.Profile("GPU-profit", "Test", "NVIDIA", "pearl", "PearlHash",
-                        "srbminer-multi", 1300, 900, 200, 120.0, 180, 8, .67, Instant.now()))));
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.profile(new AutoTuningProfileStore.Profile("GPU-profit", "Test", "NVIDIA", "pearl", "PearlHash",
+                        "srbminer-multi", 1100, 700, 100, 80.0, 90, 32, .89, Instant.now())),
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.profile(new AutoTuningProfileStore.Profile("GPU-profit", "Test", "NVIDIA", "pearl", "PearlHash",
+                        "srbminer-multi", 1200, 800, 150, 100.0, 125, 32, .8, Instant.now())),
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.profile(new AutoTuningProfileStore.Profile("GPU-profit", "Test", "NVIDIA", "pearl", "PearlHash",
+                        "srbminer-multi", 1300, 900, 200, 120.0, 180, 32, .67, Instant.now())))));
         AgentControlSettingsService controls = new AgentControlSettingsService(json, directory.resolve("profit-control.json").toString());
         assertTrue(controls.setWorkerPowerMode("GPU-profit", "AUTO_TUNING"));
         WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus,
@@ -138,20 +149,34 @@ class WorkerPowerModeServiceTest {
         GpuEfficiencyStore sweeps = new GpuEfficiencyStore(json, directory.resolve("sweeps.json").toString());
         sweeps.save(new GpuEfficiencyStore.Profile("GPU-a", "Test", "pearl", "PearlHash", 150, 120.0,
                 150.0, 0.8, Instant.now(), List.of(
-                new GpuEfficiencyStore.StepResult(90, 120.0, 90.0, 60.0, true, null),
-                new GpuEfficiencyStore.StepResult(150, 120.0, 150.0, 60.0, true, null),
-                new GpuEfficiencyStore.StepResult(180, 180.0, 180.0, 90.0, false, null))));
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(90, 120.0, 90.0, 60.0, true, null),
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(150, 120.0, 150.0, 60.0, true, null),
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(130, 80.0, 130.0, 60.0, true, null),
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(180, 180.0, 180.0, 90.0, false, null))));
         MiningPerformanceProfileStore benchmarks = new MiningPerformanceProfileStore(json, directory.resolve("bench.json").toString());
         benchmarks.save(new MiningPerformanceProfileStore.Profile("GPU-a", "GPU", "Test", "pearl", "PearlHash",
                 160.0, 160, 12, Instant.now(), "BENCHMARK", 160));
         WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus, sweeps, benchmarks, 80);
 
-        assertEquals(160, modes.select("GPU-a", "pearl").watts());
-        when(gpus.setTotalPowerTarget(160, List.of(card))).thenReturn(true);
+        assertEquals(150, modes.select("GPU-a", "pearl").watts());
+        when(gpus.setTotalPowerTarget(150, List.of(card))).thenReturn(true);
         assertNull(modes.apply("GPU-a", "pearl").error());
-        verify(gpus).setTotalPowerTarget(160, List.of(card));
+        verify(gpus).setTotalPowerTarget(150, List.of(card));
         assertEquals("EFFICIENCY", new AgentControlSettingsService(json, directory.resolve("control.json").toString())
                 .get().powerModeFor("GPU-a"));
+        var policies = new de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService(json, directory.resolve("select-policy.json").toString());
+        policies.save("GPU-a", new de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService.Policy(List.of(), false, false, 84));
+        modes.setWorkerPolicies(policies);
+        var safety = new de.verdox.solarminer.pcagent.mining.economics.OperatingPointSafetyStore(json, directory.resolve("select-safety.json").toString());
+        modes.setPointSafety(safety);
+        safety.reject("GPU-a", "pearl|null|150|BASELINE", 84d, 84d);
+        assertEquals(130, modes.select("GPU-a", "pearl").watts());
+        when(gpus.configuredPowerLimitWatts(card)).thenReturn(150);
+        controls.setWorkerPowerMode("GPU-a", "MANUAL");
+        assertEquals("power_mode_no_validated_point", modes.apply("GPU-a", "pearl").error());
+        controls.setWorkerPowerMode("GPU-a", "EFFICIENCY");
+        policies.save("GPU-a", new de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService.Policy(List.of(), false, false, 86));
+        assertEquals(150, modes.select("GPU-a", "pearl").watts());
     }
 
     @Test
@@ -164,7 +189,7 @@ class WorkerPowerModeServiceTest {
         WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus,
                 new GpuEfficiencyStore(json, directory.resolve("empty-sweeps.json").toString()),
                 new MiningPerformanceProfileStore(json, directory.resolve("empty-bench.json").toString()), 80);
-        assertEquals("power_mode_no_measured_point", modes.selectForMode("GPU-a", "pearl", "EFFICIENCY").error());
+        assertEquals("power_mode_no_validated_point", modes.selectForMode("GPU-a", "pearl", "EFFICIENCY").error());
         verify(gpus, never()).setTotalPowerTarget(anyLong(), anyList());
     }
 
@@ -196,10 +221,10 @@ class WorkerPowerModeServiceTest {
         GpuEfficiencyStore sweeps = new GpuEfficiencyStore(json, directory.resolve("max-sweeps.json").toString());
         sweeps.save(new GpuEfficiencyStore.Profile("GPU-a", "Test", "pearl", "PearlHash", 150, 120.0,
                 150.0, 0.8, Instant.now(), List.of(
-                new GpuEfficiencyStore.StepResult(120, 100.0, 120.0, 60.0, true, null),
-                new GpuEfficiencyStore.StepResult(170, 145.0, 170.0, 76.0, true, null),
-                new GpuEfficiencyStore.StepResult(200, 180.0, 200.0, 82.0, true, null),
-                new GpuEfficiencyStore.StepResult(210, 190.0, 210.0, 70.0, false, null))));
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(120, 100.0, 120.0, 60.0, true, null),
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(170, 145.0, 170.0, 76.0, true, null),
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(200, 180.0, 200.0, 82.0, true, null),
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(210, 190.0, 210.0, 70.0, false, null))));
         WorkerPowerModeService modes = new WorkerPowerModeService(controls, gpus, sweeps,
                 new MiningPerformanceProfileStore(json, directory.resolve("max-bench.json").toString()), 80);
 

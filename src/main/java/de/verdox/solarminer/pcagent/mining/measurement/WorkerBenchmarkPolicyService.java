@@ -28,6 +28,11 @@ public class WorkerBenchmarkPolicyService {
             return combinations.contains(new Pair(coin, software));
         }
     }
+    private de.verdox.solarminer.pcagent.mining.economics.OperatingPointSafetyStore pointSafety;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setPointSafety(de.verdox.solarminer.pcagent.mining.economics.OperatingPointSafetyStore safety) {
+        this.pointSafety = safety;
+    }
     private final ObjectMapper json;
     private final Path file;
     private volatile Map<String, Policy> policies;
@@ -67,6 +72,9 @@ public class WorkerBenchmarkPolicyService {
         Map<String, Policy> next = new LinkedHashMap<>(policies); next.put(worker, policy);
         if (!AtomicFileStore.writeJson(file, next, json, "benchmark-policy-"))
             throw new IllegalStateException("benchmark_policy_save_failed");
+        Policy previous = policies.get(worker);
         policies = Map.copyOf(next);
+        if (previous != null && pointSafety != null)
+            pointSafety.releaseLegacyOnLimitIncrease(worker, previous.maxTemperatureC(), policy.maxTemperatureC());
     }
 }

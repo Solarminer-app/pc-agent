@@ -194,7 +194,8 @@ public class CoinHoppingService {
             if (coin == null || !coin.isGpu() || !coin.matchesAlgorithm(profile.algorithm())) continue;
             for (GpuEfficiencyStore.StepResult step : profile.steps()) {
                 double ceiling = workerPolicies == null ? 85 : workerPolicies.ceiling(deviceId, 85);
-                if (!positive(step.maxTemperatureC()) || step.maxTemperatureC() >= ceiling) continue;
+                if (!positive(step.maxTemperatureC()) || step.maxTemperatureC() >= ceiling
+                        || step.thermalValidation() == null || !step.thermalValidation().safeFor(ceiling)) continue;
                 if (!step.stable() || step.limitWatts() < gpu.minWatts() || step.limitWatts() > gpu.maxWatts()
                         || (targetWatts > 0 && step.limitWatts() != targetWatts)
                         || !positive(step.medianHashrateHs()) || !positive(step.avgPowerWatts())) continue;
@@ -226,7 +227,7 @@ public class CoinHoppingService {
             }
         }
         // Preserve every measured target; only replace an older observation of the same point.
-        return result.stream().filter(value -> pointSafety == null || pointSafety.permits(deviceId, value))
+        return result.stream().filter(value -> pointSafety == null || pointSafety.permits(deviceId, value, workerPolicies == null ? 85 : workerPolicies.ceiling(deviceId, 90)))
                 .collect(java.util.stream.Collectors.toMap(
                         Candidate::pointKey, value -> value,
                         (left, right) -> left.measuredAt().isAfter(right.measuredAt()) ? left : right))

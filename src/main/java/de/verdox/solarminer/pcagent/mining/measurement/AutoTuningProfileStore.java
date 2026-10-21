@@ -186,7 +186,9 @@ public class AutoTuningProfileStore {
 
     public synchronized List<Profile> matrix(String deviceId, String coinId, String softwareId,
                                              String softwareVersion, String model, String vendor, String algorithm) {
-        List<Profile> rows = aggregatedCandidates(deviceId, coinId, softwareId, softwareVersion, model, vendor, algorithm);
+        List<Profile> rows = aggregatedCandidates(deviceId, coinId, softwareId, softwareVersion, model, vendor, algorithm).stream()
+                .filter(row -> row.thermalValidation() != null && row.thermalValidation().safeFor(85)
+                        && row.stableSamples() >= 32).toList();
         if (rows.stream().map(Profile::powerLimitWatts).distinct().count() < 3) return List.of();
         Map<Integer, Profile> bestAtPower = new LinkedHashMap<>();
         for (Profile row : rows) bestAtPower.merge(row.powerLimitWatts(), row,
@@ -203,7 +205,8 @@ public class AutoTuningProfileStore {
         Map<String, List<Profile>> repeatedSettings = new LinkedHashMap<>();
         for (Profile row : rows) repeatedSettings.computeIfAbsent(row.powerLimitWatts() + "|"
                 + row.coreMhz() + "|" + row.memoryMhz() + "|" + row.memoryOffsetMhz()
-                + "|" + row.memoryOffsetPstate(), ignored -> new ArrayList<>()).add(row);
+                + "|" + row.memoryOffsetPstate() + "|" + (row.thermalValidation() != null && row.thermalValidation().safeFor(85)),
+                ignored -> new ArrayList<>()).add(row);
         return repeatedSettings.values().stream().map(AutoTuningProfileStore::aggregate)
                 .sorted(Comparator.comparingInt(Profile::powerLimitWatts)
                         .thenComparing(Profile::calibratedAt)).toList();
@@ -217,7 +220,7 @@ public class AutoTuningProfileStore {
         return new Profile(latest.deviceId(), latest.model(), latest.vendor(), latest.coinId(), latest.algorithm(),
                 latest.softwareId(), latest.softwareVersion(), latest.coreMhz(), latest.memoryMhz(),
                 latest.powerLimitWatts(), hashrate, watts, samples, hashrate / watts, latest.calibratedAt(),
-                latest.memoryOffsetMhz(), latest.memoryOffsetPstate());
+                latest.memoryOffsetMhz(), latest.memoryOffsetPstate(), latest.thermalValidation());
     }
 
     /** Only confirmed, fresh points with exact hardware/version and thermal evidence may drive mining. */
@@ -227,6 +230,7 @@ public class AutoTuningProfileStore {
         Instant earliest = Instant.now().minus(java.time.Duration.ofDays(30));
         return aggregatedCandidates(deviceId, coinId, softwareId, version, model, vendor, algorithm).stream()
                 .filter(profile -> profile.stableSamples() >= 32 && profile.powerLimitWatts() <= maximumWatts
+                        && profile.thermalValidation() != null && profile.thermalValidation().safeFor(maximumTemperature)
                         && profile.calibratedAt() != null && !profile.calibratedAt().isBefore(earliest))
                 .filter(profile -> measurements.stream().anyMatch(row -> "RESULT".equals(row.type())
                         && Boolean.TRUE.equals(row.stable()) && Objects.equals(row.at(), profile.calibratedAt())
@@ -238,6 +242,7 @@ public class AutoTuningProfileStore {
                         && Objects.equals(row.memoryOffsetMhz(), profile.memoryOffsetMhz())
                         && Objects.equals(row.memoryOffsetPstate(), profile.memoryOffsetPstate())
                         && row.validSamples() != null && row.validSamples() >= 32 && row.temperatureC() != null
+                        && row.thermalValidation() != null && row.thermalValidation().safeFor(maximumTemperature)
                         && Double.isFinite(row.temperatureC()) && row.temperatureC() > 0 && row.temperatureC() < maximumTemperature))
                 .toList();
     }
@@ -302,7 +307,20 @@ public class AutoTuningProfileStore {
                               Double hashrateHs, Double measuredWatts, Double temperatureC,
                               Integer observedCoreMhz, Integer observedMemoryMhz,
                               Integer validSamples, Long acceptedShares, Long rejectedShares,
-                              Boolean stable, String reason, Integer memoryOffsetMhz, Integer memoryOffsetPstate) {
+                              Boolean stable, String reason, Integer memoryOffsetMhz, Integer memoryOffsetPstate,
+                              ThermalStabilityTracker.Evidence thermalValidation) {
+        public Measurement(String runId, Instant at, String deviceId, String model, String vendor,
+                           String coinId, String algorithm, String softwareId, String softwareVersion,
+                           Integer coreMhz, Integer memoryMhz, int powerLimitWatts, String type,
+                           Double hashrateHs, Double measuredWatts, Double temperatureC,
+                           Integer observedCoreMhz, Integer observedMemoryMhz,
+                           Integer validSamples, Long acceptedShares, Long rejectedShares,
+                           Boolean stable, String reason, Integer memoryOffsetMhz, Integer memoryOffsetPstate) {
+            this(runId, at, deviceId, model, vendor, coinId, algorithm, softwareId, softwareVersion,
+                    coreMhz, memoryMhz, powerLimitWatts, type, hashrateHs, measuredWatts, temperatureC,
+                    observedCoreMhz, observedMemoryMhz, validSamples, acceptedShares, rejectedShares,
+                    stable, reason, memoryOffsetMhz, memoryOffsetPstate, null);
+        }
         public Measurement(String runId, Instant at, String deviceId, String model, String vendor,
                            String coinId, String algorithm, String softwareId, String softwareVersion,
                            Integer coreMhz, Integer memoryMhz, int powerLimitWatts, String type,
@@ -321,7 +339,7 @@ public class AutoTuningProfileStore {
                     || hashrateHs <= 0 || measuredWatts <= 0 || validSamples == null || validSamples <= 0) return null;
             return new Profile(deviceId, model, vendor, coinId, algorithm, softwareId, softwareVersion,
                     coreMhz, memoryMhz, powerLimitWatts, hashrateHs, measuredWatts, validSamples == null ? 0 : validSamples,
-                    hashrateHs / measuredWatts, at, memoryOffsetMhz, memoryOffsetPstate);
+                    hashrateHs / measuredWatts, at, memoryOffsetMhz, memoryOffsetPstate, thermalValidation);
         }
     }
 
@@ -333,7 +351,16 @@ public class AutoTuningProfileStore {
                           String softwareId, String softwareVersion, Integer coreMhz, Integer memoryMhz, Integer powerLimitWatts,
                           double hashrateHs, double measuredWatts, int stableSamples,
                           double efficiencyHashesPerWatt, Instant calibratedAt,
-                          Integer memoryOffsetMhz, Integer memoryOffsetPstate) {
+                          Integer memoryOffsetMhz, Integer memoryOffsetPstate,
+                          ThermalStabilityTracker.Evidence thermalValidation) {
+        public Profile(String deviceId, String model, String vendor, String coinId, String algorithm,
+                       String softwareId, String softwareVersion, Integer coreMhz, Integer memoryMhz, Integer powerLimitWatts,
+                       double hashrateHs, double measuredWatts, int stableSamples,
+                       double efficiencyHashesPerWatt, Instant calibratedAt, Integer memoryOffsetMhz, Integer memoryOffsetPstate) {
+            this(deviceId, model, vendor, coinId, algorithm, softwareId, softwareVersion, coreMhz, memoryMhz,
+                    powerLimitWatts, hashrateHs, measuredWatts, stableSamples, efficiencyHashesPerWatt,
+                    calibratedAt, memoryOffsetMhz, memoryOffsetPstate, null);
+        }
         public Profile(String deviceId, String model, String vendor, String coinId, String algorithm,
                        String softwareId, String softwareVersion, Integer coreMhz, Integer memoryMhz,
                        Integer powerLimitWatts, double hashrateHs, double measuredWatts, int stableSamples,

@@ -4237,3 +4237,45 @@ lesende Untersuchung und zweisprachige Dokumentation; kein Live-Eingriff.
 - The thermal guard retains sensor value/ceiling in the pause reason and distinguishes unreadable sensors. A real over-temperature failure quarantines only the exact physical GPU/coin/miner/cap/clock point in `operating-point-safety.json`. It survives Agent restarts until new validated evidence after the failure; sibling GPUs and other points are independent. Missing temperature stops without rejecting a profile. Failed/corrupt rejection persistence blocks automatic economic selection with a localized cause and cannot bypass the emergency pause. There is no automatic restart after cooling.
 - Verification: JDK 21 `test standaloneJar --offline --no-daemon` passed, **519 tests, zero failures/errors/skips**. DE/EN catalog (2,145 keys), literal scan, static render, dynamic thermal diagnostics and independent operations i18n checks passed. Chromium fixture tests passed for GPU results/comparison and wizard/presets/GPU tabs/live state/mobile layouts/language switch in both locales. Browser dependencies were reused from `/tmp/solarminer-benchmark-browser` and its extracted library directory; the tests contact only isolated fixtures. `git diff --check` passed. No Agent deployment or live miner restart was performed; sustained post-update hardware acceptance remains open. External miner output remains verbatim; Agent stop-log text is deliberately bilingual and its diagnostic renderer selects DE/EN.
 - Deutsch: BUG-017 ist lokal korrigiert. LIVE-/Benchmark-Historie bleibt erhalten, wird aber nicht mehr zur automatischen Ertrags-/Profit-Auswahl verwendet. Basisläufe setzen Takte zurück; Temperaturfehler sperren den konkreten GPU-Betriebspunkt dauerhaft bis zur neuen geprüften Messung. Sensorfehler haben eine eigene Diagnose und sperren kein Profil. 519 Tests, Build, Sprach- und Browserprüfungen bestanden. Kein Deployment oder Live-Miner-Neustart; der Dauerlauf nach Update bleibt offen.
+
+## 2026-10-22 — Sustained GPU thermal validation and worker 108 diagnosis
+
+- Added a per-setting loaded-temperature tracker: minimum 180 seconds, last 90 seconds within 2 °C and ±0.2 °C/min, at least 3 °C reserve, entire loaded peak below the policy ceiling, reset on gaps above 15 seconds or unavailable load/readback. After 300 seconds without acceptance, record `benchmark_temperature_not_settled`. Sweep steps and final tuning confirmations persist versioned evidence; search remains provisional. Statistics use recent 12/32 valid readings, not cold-start averages.
+- Monetary candidate selection, GPU efficiency/maximum-hashrate selection, tuning matrices and resume checkpoints require evidence. Historical profiles remain visible and usable for search training, with separate aggregation from new validated results. Current policy limits are checked again when selecting stored points. QUICK/MEDIUM retain their 18/55-minute GPU work budgets; they reduce coverage rather than shorten thermal acceptance. GPU pages show the warmup phase and a historical-result revalidation notice in DE/EN; both independent UI catalogs and asset versions were updated.
+- Read-only worker `192.168.178.108` audit found RTX 2060 `GPU-089f7029-3d97-8345-ec85-c2314b86fd10` paused in `COIN_PROFIT_PER_DAY`, not manually stopped; SRBMiner was installed/configured. Its latest console proves a successful pool connection and about 41 TH/s, then 76 -> 81 -> 84 °C at roughly 121–122 W and an explicit thermal stop. The API reports a 125 W driver minimum. Old selectable sweep points still exist, so lack of any candidate does not explain that recorded stop. The RTX 3060 Ti remained mining. No miner, cap, clock or policy change was issued on that host.
+- Verification: JDK 21 full `test standaloneJar --offline --no-daemon` passed, **529 tests, zero failures/errors/skips**. The actual sweep collector regression rejects a cold minute followed by late overheating, accepts a steady loaded point with persisted proof, and rejects inadequate headroom after timeout using injected monotonic time. Tracker, old/new persistence/ranking, tuning confirmation, checkpoint and ETA tests passed. DE/EN catalog (2,151 keys), literal/static-render checks, independent operations catalog and syntax checks passed. Chromium fixture wizard/GPU checks passed in both locales, including the new warmup phase and legacy-profile notice, language switching and mobile layout. Browser dependencies reused the existing temporary Playwright/library directories. Standalone artifact was refreshed after the console catalog update. `git diff --check` passed. No deployment or successful physical sustained-load acceptance is claimed; external miner output remains verbatim.
+- Deutsch: Die Temperatur-Dauerprüfung ist lokal umgesetzt: mindestens drei Minuten Last, stabiler 90-Sekunden-Verlauf und 3 °C Reserve; nach fünf Minuten ohne Stabilisierung keine Freigabe. Alte Ergebnisse bleiben Historie und benötigen erneute Prüfung. Budgets bleiben erhalten. Die RTX 2060 auf Worker 108 ist laut Log gestartet und danach bei 84 °C gestoppt worden; es gab keinen Live-Eingriff. 529 Tests, Build, Sprach- und Browserprüfungen bestanden; Deployment und realer Dauerlauf stehen aus.
+
+## 2026-10-22 — Thermal cooldown recovery and threshold-aware quarantine
+
+User request: restart a GPU after a temperature stop and cooling, and reconsider
+blocked targets when its allowed temperature rises (84 → 86 °C).
+
+Implemented `WorkerTemperatureSafetyService` cooling intents with a 60-second
+cooling interval and 5 °C hysteresis, current-mode reselection under the held
+local run lock, minute-paced retries without eligible targets, sensor recovery,
+and per-GPU scope. `WorkerAssignmentService` captures stop/configuration permits;
+`MiningService` stop generations cover direct remote/global pauses too. Active
+Node economic plans supersede pending local intents. `MaxHashrateThermalGuard`
+hands stops to the same recovery owner while keeping its stricter prerequisites.
+`OperatingPointSafetyStore` persists failure time + temperature + previous ceiling,
+loads legacy timestamp JSON, and rechecks eligibility against the current ceiling.
+An explicit increase of an existing policy migrates legacy quarantines using the
+previous boundary. Lowering restores exclusion; overshoot above the new limit
+stays excluded. Worker power-mode selection now honors quarantine for baseline,
+manual and tuned targets and can choose another calibrated tier without needlessly
+starting a calibration. Error/stop/retry/restart diagnostics are bilingual DE/EN.
+The restart intent remains in process memory and does not survive Agent shutdown.
+
+DE: Wiederanlauf nach 60 Sekunden Abkühlphase und mindestens 5 °C Abstand zur
+Grenze, erneute sichere Auswahl und Vorrang neuer Nutzer-/Node-Stopps umgesetzt.
+Temperatursperren berücksichtigen erhöhte und abgesenkte Grenzen einschließlich
+alter Dateien. Fehlen zulässige Punkte, bleibt die GPU pausiert. Keine Änderung
+an laufenden Minern, Hardwareeinstellungen oder gespeicherten Live-Grenzwerten;
+kein Commit, Push oder Deployment. Hardwareakzeptanz steht aus.
+
+Verification / Prüfung: JDK 21 `sh gradlew test standaloneJar --offline --no-daemon`
+passed: **542 tests, zero failures/errors/skips**, standalone JAR built. DE/EN
+catalog check (2,151 keys / 15 pages), browser-literal scan, render simulation,
+independent console i18n and `git diff --check` passed. Build evidence:
+`/tmp/thermal-recovery-complete.log`; tests under `build/test-results/test/`.

@@ -54,7 +54,8 @@ public class AutoTuningSessionService {
                 : preset.confirmationCandidates();
         long samples = (long) search * preset.searchSamples() + (long) confirmations * CONFIRMATION_SAMPLES;
         samples -= Math.min(Math.max(0, sampleIndex), Math.max(0, sampleCount));
-        return Math.max(0, samples) * sampleIntervalMillis / 1_000 + (search + confirmations) * 45L;
+        return Math.max(0, samples) * sampleIntervalMillis / 1_000 + (search + confirmations) * 45L
+                + confirmations * Math.max(0, ThermalStabilityTracker.MIN_LOAD_SECONDS - CONFIRMATION_SAMPLES * sampleIntervalMillis / 1_000);
     }
 
     static long estimateRemainingSeconds(int candidateIndex, int sampleIndex, int sampleCount, long intervalMillis) {
@@ -65,7 +66,8 @@ public class AutoTuningSessionService {
                 : MAX_CANDIDATES - MAX_SEARCH_CANDIDATES;
         long samples = (long) search * SAMPLES_PER_CANDIDATE + (long) confirmations * CONFIRMATION_SAMPLES;
         samples -= Math.min(Math.max(0, sampleIndex), Math.max(0, sampleCount));
-        return Math.max(0, samples) * intervalMillis / 1_000 + (search + confirmations) * 45L;
+        return Math.max(0, samples) * intervalMillis / 1_000 + (search + confirmations) * 45L
+                + confirmations * Math.max(0, ThermalStabilityTracker.MIN_LOAD_SECONDS - CONFIRMATION_SAMPLES * intervalMillis / 1_000);
     }
 
     private double temperatureCeiling(String deviceId) {
@@ -73,6 +75,8 @@ public class AutoTuningSessionService {
     }
     private final double maxTemperatureC;
     private final long sampleIntervalMillis;
+    private java.util.function.LongSupplier thermalClock = System::nanoTime;
+    void setThermalClock(java.util.function.LongSupplier clock) { thermalClock = Objects.requireNonNull(clock); }
     private de.verdox.solarminer.pcagent.mining.agent.AgentControlSettingsService controls;
     private de.verdox.solarminer.pcagent.mining.power.WorkerPowerModeService modes;
 
@@ -414,7 +418,8 @@ public class AutoTuningSessionService {
                         ? promisingEfficientRegions(observations) : List.of();
                 // Reserve the final windows plus driver/restart overhead before extending search.
                 long confirmationReserve = java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
-                        tiers.size() * 3L * CONFIRMATION_SAMPLES * sampleIntervalMillis)
+                        tiers.size() * 3L * Math.max(CONFIRMATION_SAMPLES * sampleIntervalMillis,
+                                ThermalStabilityTracker.MIN_LOAD_SECONDS * 1_000))
                         + java.util.concurrent.TimeUnit.MINUTES.toNanos(3);
                 if (state.powerPlan != null && localRefinement && powerNeighbors == null) {
                     powerNeighbors = new ArrayDeque<>(state.powerPlan.neighbors(observations, activeCandidates, gpu.minWatts(), gpu.safeTuningMaxWatts()));
@@ -532,7 +537,7 @@ public class AutoTuningSessionService {
                 saveMeasurement(context, candidate, resultType, sample.samples() > 0 ? sample.hashrateHs() : null,
                         sample.samples() > 0 ? sample.watts() : null, sample.maxTemperatureC(),
                         sample.observedCoreMhz(), sample.observedMemoryMhz(), sample.samples(),
-                        null, null, sample.stable(), sample.detail());
+                        null, null, sample.stable(), sample.detail(), sample.thermalValidation());
                 observations.add(new BayesianGpuOptimizer.Observation(candidate,
                         sample.stable() ? sample.hashrateHs() / sample.watts() : 0,
                         sample.stable(), sample.detail(), sample));
@@ -669,11 +674,19 @@ public class AutoTuningSessionService {
         List<Integer> observedCore = new ArrayList<>(), observedMemory = new ArrayList<>();
         int consecutiveMemoryMismatches = 0;
         int consecutiveMissingClocks = 0;
-        for (int i = 0; i < sampleCount; i++) {
+        var thermal = sampleCount == CONFIRMATION_SAMPLES ? new ThermalStabilityTracker() : null;
+        ThermalStabilityTracker.Evidence thermalValidation = null;
+        long thermalDeadline = thermalClock.getAsLong() + java.util.concurrent.TimeUnit.SECONDS.toNanos(ThermalStabilityTracker.MAX_LOAD_SECONDS);
+        for (int i = 0; i < sampleCount || thermal != null && thermalValidation == null; i++) {
             if (state.cancelled()) return SampleSummary.unstable("auto_tuning_cancelled", false);
             if (System.nanoTime() >= deadline) throw new IllegalStateException("auto_tuning_time_limit");
+            long thermalNow = thermalClock.getAsLong();
+            if (thermal != null && thermalNow >= thermalDeadline)
+                return SampleSummary.unstable("benchmark_temperature_not_settled", false);
             Thread.sleep(sampleIntervalMillis);
-            update(state, state.session.withSampleIndex(i + 1));
+            update(state, state.session.withSampleIndex(Math.min(i + 1, sampleCount)));
+            if (thermal != null && thermalValidation == null)
+                update(state, state.session.withPhase("auto_tuning_phase_thermal_validation"));
             MinerStats.Worker worker = worker(state.session.deviceId());
             if (worker == null || worker.miningStatus() != MinerStats.MinerStatus.MINING) {
                 boolean gpuUnresponsive = "NVIDIA".equalsIgnoreCase(context.gpu().vendor())
@@ -724,12 +737,25 @@ public class AutoTuningSessionService {
                 return SampleSummary.unstable("auto_tuning_temperature_unavailable", true);
             if (temp >= temperatureCeiling(state.session.deviceId()))
                 return SampleSummary.unstable("auto_tuning_temperature_limit", true);
-            if (!validRate || !validPower) continue;
+            if (!validRate || !validPower) {
+                if (thermal != null) { thermal.reset(); thermalValidation = null; }
+                continue;
+            }
             if (nvidia) {
-                if (clocks == null) continue;
+                if (clocks == null) {
+                    if (thermal != null) { thermal.reset(); thermalValidation = null; }
+                    continue;
+                }
                 observedCore.add(clocks.coreMhz()); observedMemory.add(clocks.memoryMhz());
             }
             rates.add(rate); watts.add(powerWatts); temps.add(temp);
+            if (rates.size() > sampleCount) { rates.removeFirst(); watts.removeFirst(); temps.removeFirst(); }
+            if (observedCore.size() > sampleCount) observedCore.removeFirst();
+            if (observedMemory.size() > sampleCount) observedMemory.removeFirst();
+            if (thermal != null) {
+                thermal.add(thermalNow, temp);
+                thermalValidation = thermal.evidence(temperatureCeiling(state.session.deviceId()));
+            }
             consecutiveMemoryMismatches = memoryMismatch ? consecutiveMemoryMismatches + 1 : 0;
             if (consecutiveMemoryMismatches >= 3)
                 return summarize(rates, watts, temps, observedCore, observedMemory)
@@ -754,7 +780,7 @@ public class AutoTuningSessionService {
                 .filter(value -> Math.abs(value - candidate.memoryMhz()) > memoryTolerance(candidate.memoryMhz()))
                 .count() > 2)
             return summary.withFailure("auto_tuning_clock_not_reached");
-        return summary;
+        return summary.withThermalValidation(thermalValidation);
     }
 
     private static double memoryTolerance(int targetMhz) { return Math.max(50, targetMhz * .01); }
@@ -773,6 +799,14 @@ public class AutoTuningSessionService {
                                  Double hashrate, Double watts, Double temperature, Integer observedCore,
                                  Integer observedMemory, Integer validSamples, Long accepted, Long rejected,
                                  Boolean stable, String reason) {
+        saveMeasurement(context, candidate, type, hashrate, watts, temperature, observedCore, observedMemory,
+                validSamples, accepted, rejected, stable, reason, null);
+    }
+
+    private void saveMeasurement(RunContext context, BayesianGpuOptimizer.Candidate candidate, String type,
+                                 Double hashrate, Double watts, Double temperature, Integer observedCore,
+                                 Integer observedMemory, Integer validSamples, Long accepted, Long rejected,
+                                 Boolean stable, String reason, ThermalStabilityTracker.Evidence thermalValidation) {
         LocalGpuPowerService.Gpu gpu = context.gpu();
         Coin coin = context.coin();
         if (!profiles.appendMeasurement(new AutoTuningProfileStore.Measurement(context.runId(), Instant.now(),
@@ -780,7 +814,7 @@ public class AutoTuningSessionService {
                 context.software(), context.softwareVersion(), candidate.coreMhz(), candidate.memoryMhz(),
                 candidate.powerWatts(), type, hashrate, watts, temperature, observedCore, observedMemory,
                 validSamples, accepted, rejected, stable, reason,
-                candidate.memoryOffsetMhz(), candidate.memoryOffsetPstate())))
+                candidate.memoryOffsetMhz(), candidate.memoryOffsetPstate(), thermalValidation)))
             throw new IllegalStateException("auto_tuning_observation_save_failed");
     }
 
@@ -1057,7 +1091,16 @@ public class AutoTuningSessionService {
 
     public record SampleSummary(boolean stable, double hashrateHs, double watts, int samples,
                                 Double maxTemperatureC, Integer observedCoreMhz, Integer observedMemoryMhz,
-                                String detail, boolean driverFailure) {
+                                String detail, boolean driverFailure, ThermalStabilityTracker.Evidence thermalValidation) {
+        public SampleSummary(boolean stable, double hashrateHs, double watts, int samples,
+                             Double maxTemperatureC, Integer observedCoreMhz, Integer observedMemoryMhz,
+                             String detail, boolean driverFailure) {
+            this(stable, hashrateHs, watts, samples, maxTemperatureC, observedCoreMhz, observedMemoryMhz, detail, driverFailure, null);
+        }
+        SampleSummary withThermalValidation(ThermalStabilityTracker.Evidence evidence) {
+            return new SampleSummary(stable, hashrateHs, watts, samples, maxTemperatureC,
+                    observedCoreMhz, observedMemoryMhz, detail, driverFailure, evidence);
+        }
         static SampleSummary unstable(String detail, boolean driverFailure) {
             return new SampleSummary(false, 0, 0, 0, null, null, null, detail, driverFailure);
         }

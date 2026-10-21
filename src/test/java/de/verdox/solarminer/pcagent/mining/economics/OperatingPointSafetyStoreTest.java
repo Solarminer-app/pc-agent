@@ -46,4 +46,36 @@ class OperatingPointSafetyStoreTest {
         assertFalse(store.available());
         assertFalse(store.permits("gpu", point));
     }
+
+    @Test void raisedLimitReleasesOnlyHeatBelowTheNewLimitAndLoweringRestoresQuarantine() {
+        var file = directory.resolve("limits.json");
+        var store = new OperatingPointSafetyStore(json, file.toString());
+        var point = point(200, Instant.now().minusSeconds(60));
+        store.reject("gpu", point.pointKey(), 84d, 84d);
+        var loaded = new OperatingPointSafetyStore(json, file.toString());
+        assertFalse(loaded.permits("gpu", point, 84));
+        assertTrue(loaded.permits("gpu", point, 86));
+        assertFalse(loaded.permits("gpu", point, 82));
+        loaded.reject("gpu", point.pointKey(), 87d, 84d);
+        assertFalse(loaded.permits("gpu", point, 86), "An overshoot above the new ceiling is still unsafe");
+        assertTrue(loaded.permits("gpu", point, 88));
+    }
+
+    @Test void legacyTimestampQuarantineMigratesOnlyOnExplicitPolicyIncrease() throws Exception {
+        var file = directory.resolve("legacy.json");
+        var point = point(160, Instant.now().minusSeconds(60));
+        Files.writeString(file, json.writeValueAsString(java.util.Map.of("gpu|" + point.pointKey(), Instant.now())));
+        var store = new OperatingPointSafetyStore(json, file.toString());
+        assertTrue(store.available());
+        assertFalse(store.permits("gpu", point, 86));
+        var policies = new de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService(json,
+                directory.resolve("policy.json").toString());
+        policies.setPointSafety(store);
+        policies.save("gpu", new de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService.Policy(java.util.List.of(), false, false, 84));
+        assertFalse(store.permits("gpu", point, 86));
+        policies.save("gpu", new de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService.Policy(java.util.List.of(), false, false, 86));
+        store = new OperatingPointSafetyStore(json, file.toString());
+        assertTrue(store.permits("gpu", point, 86));
+        assertFalse(store.permits("gpu", point, 84));
+    }
 }

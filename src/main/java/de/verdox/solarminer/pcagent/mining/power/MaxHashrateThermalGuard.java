@@ -13,6 +13,9 @@ import org.springframework.stereotype.Service;
 /** Stops maximum-hashrate mining when the GPU temperature cannot be trusted. */
 @Service
 public class MaxHashrateThermalGuard {
+    private de.verdox.solarminer.pcagent.mining.measurement.WorkerTemperatureSafetyService thermalSafety;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setThermalSafety(de.verdox.solarminer.pcagent.mining.measurement.WorkerTemperatureSafetyService safety) { thermalSafety = safety; }
     private final AgentControlSettingsService controls;
     private final LocalGpuPowerService gpus;
     private final MiningService mining;
@@ -43,7 +46,7 @@ public class MaxHashrateThermalGuard {
                         .toList();
             } catch (RuntimeException failure) {
                 controls.get().workerPowerModes().forEach((id, mode) -> {
-                    if ("MAX_HASHRATE".equals(mode)) pause(id);
+                    if ("MAX_HASHRATE".equals(mode)) pause(id, null);
                 });
                 return;
             }
@@ -55,15 +58,18 @@ public class MaxHashrateThermalGuard {
                 try { temperature = gpu == null ? null : gpus.readTemperatureC(gpu); }
                 catch (RuntimeException failure) { temperature = null; }
                 if (temperature == null || !Double.isFinite(temperature) || temperature >= ceiling)
-                    pause(worker.deviceId());
+                    pause(worker.deviceId(), temperature);
             }
         } finally {
             lock.end();
         }
     }
 
-    private void pause(String deviceId) {
-        try { workers.pause(deviceId); }
+    private void pause(String deviceId, Double temperature) {
+        try {
+            if (thermalSafety != null) thermalSafety.stopForTemperature(deviceId, temperature, ceiling);
+            else workers.pause(deviceId);
+        }
         catch (RuntimeException ignored) { /* Retry on the next check; never skip another GPU. */ }
     }
 }

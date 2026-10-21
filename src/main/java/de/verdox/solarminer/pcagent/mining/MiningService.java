@@ -36,6 +36,9 @@ import de.verdox.solarminer.pcagent.miner.MinerStopContext;
  */
 @Service
 public class MiningService {
+    private final java.util.Map<String, Long> thermalControlRevisions = new java.util.concurrent.ConcurrentHashMap<>();
+    public long thermalControlRevision(String device) { return thermalControlRevisions.getOrDefault(device, 0L); }
+    private void revokeThermalRestart(String device) { thermalControlRevisions.merge(device, 1L, Long::sum); }
     private final String minerUID;
     private final String macAddress;
     private final String minerModel;
@@ -224,6 +227,8 @@ public class MiningService {
     }
 
     private boolean pauseExternallyInternal() {
+        selectedGpus(true).stream().filter(gpu -> controls.workerEnabled(gpu.deviceId()))
+                .forEach(gpu -> revokeThermalRestart(gpu.deviceId()));
         desiredGlobalPowerTarget = 0;
         desiredCpuPowerTarget = 0;
         desiredGpuPowerTarget = 0;
@@ -324,6 +329,7 @@ public class MiningService {
     }
 
     public synchronized boolean stopExternalWorker(String deviceId, String reason) {
+        revokeThermalRestart(deviceId);
         return MinerStopContext.with(reason, () -> {
             if (WorkerIds.CPU.equals(deviceId)) {
                 if (!cpu.stopAll() || cpu.running()) return false;
@@ -465,6 +471,7 @@ public class MiningService {
     }
 
     private boolean pauseAllInternal() {
+        gpuPowerService.snapshot().forEach(gpu -> revokeThermalRestart(gpu.deviceId()));
         boolean gpuStopped = true;
         for (Coin coin : Coin.gpuCoins()) for (MinerFactory.GpuMinerAdapter adapter : adapters(coin))
             gpuStopped = adapter.miner().stopAll() && gpuStopped;

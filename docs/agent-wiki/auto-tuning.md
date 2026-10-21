@@ -598,3 +598,89 @@ vorherigen Stopp. Fehlgeschlagene native Neustarts behalten die konkrete Ursache
 Temperaturgrenzen und lange Bestätigungen bleiben unverändert; ein einzelner
 stabiler Power-Punkt wird mit genauer Ursache übersprungen. 504 Tests ersetzen
 keinen erneuten Hardwarelauf.
+
+## 2026-10-21 21:42 UTC — GPU 2 combined run: curve complete, tuning thermally blocked
+
+Read-only inspection of worker 192.168.178.126 after the operator's log report
+identified separate SRBMiner and PeakMiner Pearl tasks on GPU
+`GPU-32b2d5ad-eeec-f785-fd2c-44a8841601ca`. SRB's power curve finished at
+21:19:23 UTC with a best efficiency cap of 160 W (155.92 W measured, about
+60.38 TH/s, maximum 78 °C). Its later tuning session started at 21:19:41 UTC
+and ended with `auto_tuning_temperature_limit`: candidate 14 of 33 targeted
+2100 MHz core, +100 MHz memory offset and a 280 W cap. The previous candidate
+at the same cap but 930 MHz core / -1500 MHz offset had 16 valid samples at
+80 °C. The failing candidate has sample index zero, so the stored history does
+not establish its exact triggering temperature. No confirmed tuning result exists.
+
+The outer SRB task log at 21:42:45 reports the curve's `COMPLETE` state and
+omits the failed refinement. The session-level phase is correctly
+`benchmark_optimization_partial`. `executeSweepTask` marks this physical GPU
+blocked after the unsafe refinement, so the queued PeakMiner task is skipped
+before measuring. Its generic `auto_tuning_gpu_requires_attention` is the
+consequence of SRB's thermal failure, not a new PeakMiner ownership failure.
+The GPU is not released (`BLOCKED / lab_restore_failed`) and is paused; the
+coarse restoration label does not itself prove a failed driver reset.
+
+Open gaps: task completion logs omit miner identity and refinement outcome;
+a cold 280 W curve sample (maximum 80 °C) remains nominally stable although
+subsequent 265–190 W steps reached the configured 84 °C limit. This is separate
+from the corrected promotion of incomplete LIVE observations to profit points.
+Thermal steady-state validation and preserving safe lower-tier confirmations
+need follow-up; do not claim these are fixed by the LIVE selection change.
+No miner/driver control was issued for this inspection.
+
+Deutsch: Die Power-Kurve von SRBMiner ist abgeschlossen (160 W bester
+Effizienzpunkt), die folgende Taktoptimierung scheitert am Temperatur-Limit.
+Der letzte Kandidat fordert 280 W, 2100 MHz Kern und +100 MHz Speicher-Offset;
+der konkrete auslösende Temperaturwert wurde vor dem ersten Sample nicht
+persistiert. Deshalb wird PeakMiner für dieselbe GPU vorsorglich übersprungen.
+Die COMPLETE-Logzeile beschreibt nur die Kurve; die Gesamtsitzung meldet korrekt
+einen Teilerfolg. Miner-ID und Tuning-Fehler fehlen in der Aufgaben-Logzeile.
+Die frühe kalte 280-W-Messung und die spätere Überhitzung zeigen eine offene
+Lücke bei der thermischen Dauerprüfung. Kein Live-Eingriff bei der Analyse.
+
+## Sustained thermal validation / Temperatur-Dauerprüfung (2026-10-22)
+
+`ThermalStabilityTracker` now gates every power-sweep step and each final tuning
+confirmation at unchanged settings. It requires at least 180 seconds of valid
+continuous load, with the last 90 seconds within a 2 °C range and an absolute
+linear temperature trend at most 0.2 °C/min. The final window needs at least
+3 °C headroom below the worker ceiling, and the peak of the entire continuous
+validation must remain below that ceiling. Invalid load/clock data and reading
+gaps above 15 seconds reset the accumulated evidence. Each setting gets a new
+tracker; a previous point's warmup cannot qualify its successor. Missing sensors
+and actual over-temperature retain their immediate stop behavior.
+
+A point that does not settle within 300 seconds is recorded with
+`benchmark_temperature_not_settled`, never as a stable operating point. Normal
+search samples remain provisional; only final confirmations undergo this longer
+acceptance and retain 32 valid recent measurements. Sweep statistics similarly
+use the last 12 valid readings. The explicit version-1 `thermalValidation` object
+records loaded/window durations, final minimum/maximum/trend and overall peak
+on sweep steps, tuning measurements and generated tuning profiles.
+
+Revenue/profit selection, GPU efficiency/maximum-hashrate sweep selection and
+cached Auto Tuning matrices reject missing or invalid evidence. Existing records
+remain visible as history and model-training inputs; they must be measured again
+before automatic selection or checkpoint reuse. Legacy and validated tuning
+repeats are aggregated separately so old cold measurements cannot contaminate
+new approved statistics. The GPU results page labels historical profiles needing
+revalidation and shows a distinct warmup/temperature-validation phase in DE/EN.
+
+QUICK/MEDIUM retain their 18/55-minute GPU work budgets, including warmup. The
+safety threshold is identical for all presets. Budget/cancellation can yield
+partial coverage with fewer approved points; they do not shorten validation or
+promote a provisional point. Driver/startup/cleanup calls keep their existing
+bounded-operation caveat. Successful short fixture tests do not certify ambient
+conditions, fan behavior or sustained operation on physical hardware.
+
+Deutsch: Jeder Sweep-Punkt und jede abschließende Tuning-Bestätigung wird unter
+unveränderten Einstellungen mindestens drei Minuten belastet. Die letzten
+90 Sekunden müssen innerhalb von 2 °C und maximal ±0,2 °C/min stabil sein;
+3 °C Reserve zur Grenze und ein während der Prüfung zulässiger Spitzenwert
+sind erforderlich. Datenlücken über 15 Sekunden setzen den Nachweis zurück.
+Nach fünf Minuten ohne Stabilisierung wird der Punkt nicht freigegeben. Alte
+Daten bleiben sichtbar, benötigen aber eine erneute Prüfung. Schnell/Mittel
+halten ihre Budgets ein und prüfen nötigenfalls weniger Punkte. DE/EN erklären
+Aufwärmen, fehlende Stabilisierung und historische Ergebnisse. Eine bestandene
+Softwareprüfung ersetzt keinen Dauerlauf unter den realen Kühlbedingungen.

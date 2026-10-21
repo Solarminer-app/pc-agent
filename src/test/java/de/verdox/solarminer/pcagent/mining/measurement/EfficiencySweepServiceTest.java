@@ -408,8 +408,8 @@ class EfficiencySweepServiceTest {
         var first = run("one", SweepMode.FULL, List.of(200, 185));
         var second = run("two", SweepMode.FULL, List.of(200, 185));
         var tuning = java.util.Map.of(first.deviceId(), 1000L, second.deviceId(), 500L);
-        assertEquals(1920, EfficiencySweepService.estimateCombinedRemainingSeconds(List.of(first, second), tuning, 1));
-        assertEquals(1210, EfficiencySweepService.estimateCombinedRemainingSeconds(List.of(first, second), tuning, 2));
+        assertEquals(2400, EfficiencySweepService.estimateCombinedRemainingSeconds(List.of(first, second), tuning, 1));
+        assertEquals(1450, EfficiencySweepService.estimateCombinedRemainingSeconds(List.of(first, second), tuning, 2));
         assertEquals(1000, EfficiencySweepService.estimateCombinedRemainingSeconds(List.of(), tuning, 2));
         assertEquals(0, EfficiencySweepService.estimateCombinedRemainingSeconds(List.of(), java.util.Map.of(), 2));
     }
@@ -432,7 +432,7 @@ class EfficiencySweepServiceTest {
         var first = run("one", SweepMode.VALIDATION, List.of(155, 170));
         var second = run("two", SweepMode.VALIDATION, List.of(155, 170));
 
-        assertEquals(210, EfficiencySweepService.estimateRemainingSeconds(
+        assertEquals(450, EfficiencySweepService.estimateRemainingSeconds(
                 List.of(first, second), Instant.now()));
     }
 
@@ -475,7 +475,7 @@ class EfficiencySweepServiceTest {
         var second = run("two", SweepMode.FULL, List.of(200, 185), 0);
         var nextBatch = run("one-again", SweepMode.FULL, List.of(200, 185), 1);
 
-        assertEquals(420, EfficiencySweepService.estimateRemainingSeconds(
+        assertEquals(900, EfficiencySweepService.estimateRemainingSeconds(
                 List.of(first, second, nextBatch), Instant.now()));
     }
 
@@ -663,7 +663,7 @@ class EfficiencySweepServiceTest {
     }
 
     private static GpuEfficiencyStore.Profile profile(String device, String coin, String algorithm, int watts) {
-        var step = new GpuEfficiencyStore.StepResult(watts, 1_000d, (double) watts, 60d, true, null);
+        var step = de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(watts, 1_000d, (double) watts, 60d, true, null);
         return new GpuEfficiencyStore.Profile(device, "TITAN RTX", coin, algorithm, watts, 1_000d,
                 (double) watts, 1_000d / watts, Instant.now(), List.of(step));
     }

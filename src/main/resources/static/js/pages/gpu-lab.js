@@ -30,7 +30,8 @@
         for (const run of [...(saved.sweeps || []), ...(state.sweep.results || []), ...(state.sweep.runs || [])]) if (run.deviceId === device)
             for (const point of run.steps || []) add({coin: run.coin, softwareId: run.softwareId || run.minerSoftwareId, algorithm: run.algorithm,
                 kind: 'lab_power_point', limitWatts: point.limitWatts, hash: point.medianHashrateHs, watts: point.avgPowerWatts, temp: point.maxTemperatureC,
-                stable: point.stable, core: point.observedCoreMhz, memory: point.observedMemoryMhz, detail: point.note});
+                stable: point.stable, core: point.observedCoreMhz, memory: point.observedMemoryMhz,
+                detail: point.note || (point.thermalValidation ? 'lab_thermal_evidence' : 'lab_thermal_recheck')});
         for (const row of saved.benchmarks || []) if ((row.deviceId || row.workerId) === device) add({
             coin: row.coin, softwareId: row.minerSoftwareId, algorithm: row.algorithm, kind: 'oc_benchmark_point',
             hash: row.hashrateHs, watts: row.powerWatts, stable: true
@@ -92,7 +93,8 @@
             const card = node('article', 'lab-confirmed-card');
             card.append(node('small', 'lab-eyebrow', t('lab_confirmed_point')), node('h3', '', `${row.coinId} · ${row.softwareId}`),
                 node('strong', 'lab-profile-value', rate(row.hashrateHs)), node('p', '', `${metric(row.measuredWatts, 'W')} · ${rate(row.hashrateHs / row.measuredWatts)}/W`),
-                node('p', 'lab-fine', `${t('lab_limit')}: ${metric(row.powerLimitWatts, 'W')} · ${t('lab_core_target')}: ${metric(row.coreMhz, 'MHz')} · ${t('lab_memory_target')}: ${metric(row.memoryMhz, 'MHz')}`));
+                node('p', 'lab-fine', `${t('lab_limit')}: ${metric(row.powerLimitWatts, 'W')} · ${t('lab_core_target')}: ${metric(row.coreMhz, 'MHz')} · ${t('lab_memory_target')}: ${metric(row.memoryMhz, 'MHz')}`),
+                node('p', 'lab-fine', t(row.thermalValidation ? 'lab_thermal_evidence' : 'lab_thermal_recheck')));
             root.append(card);
         }
     }

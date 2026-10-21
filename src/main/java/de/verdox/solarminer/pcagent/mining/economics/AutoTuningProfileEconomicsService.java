@@ -32,7 +32,8 @@ public class AutoTuningProfileEconomicsService {
         // stable clock/memory point in those tiers rather than only their efficiency winner.
         List<AutoTuningProfileStore.Profile> candidates = efficientCandidates.isEmpty() ? List.of()
                 : profiles.aggregatedCandidates(deviceId, coinId, softwareId, softwareVersion, model, vendor, algorithm).stream()
-                .filter(profile -> profile.powerLimitWatts() <= budgetWatts).toList();
+                .filter(profile -> profile.powerLimitWatts() <= budgetWatts && profile.thermalValidation() != null
+                        && profile.thermalValidation().safeFor(85)).toList();
         Projection efficient = efficientCandidates.stream().filter(profile -> profile.powerLimitWatts() <= budgetWatts)
                 .max(Comparator.comparingDouble(AutoTuningProfileStore.Profile::efficiencyHashesPerWatt)
                         .thenComparingInt(profile -> -profile.powerLimitWatts()))

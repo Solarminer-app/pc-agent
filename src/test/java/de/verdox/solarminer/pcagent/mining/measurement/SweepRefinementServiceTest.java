@@ -21,9 +21,9 @@ class SweepRefinementServiceTest {
     final LocalGpuPowerService.Gpu gpu = new LocalGpuPowerService.Gpu("AMD", 0, "gpu", "Test", 80, 200, 80, 180, 150, 120d, "measured", true, null, 200);
     final EfficiencySweepService.Target target = new EfficiencySweepService.Target("pearl", "PearlHash", gpu, null, "srbminer-multi");
     final GpuEfficiencyStore.Profile baseline = new GpuEfficiencyStore.Profile("gpu", "Test", "pearl", "PearlHash", 150, 1000d, 120d, 1000d/120, Instant.now(), List.of(
-            new GpuEfficiencyStore.StepResult(100, 600d, 90d, 60d, true, null),
-            new GpuEfficiencyStore.StepResult(150, 1000d, 120d, 60d, true, null),
-            new GpuEfficiencyStore.StepResult(180, 1100d, 170d, 60d, true, null)), "srbminer-multi");
+            de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(100, 600d, 90d, 60d, true, null),
+            de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(150, 1000d, 120d, 60d, true, null),
+            de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(180, 1100d, 170d, 60d, true, null)), "srbminer-multi");
     final SweepRefinementService service = new SweepRefinementService(tuner, miners, power, clocks, policies, mock(AutoTuningProfileStore.class));
     SweepRefinementServiceTest() {
         when(miners.gpuMiner(Coin.PEARL, "srbminer-multi")).thenReturn(miner);

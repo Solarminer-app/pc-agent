@@ -15,6 +15,21 @@ import static org.junit.jupiter.api.Assertions.*;
 class AutoTuningProfileStoreTest {
     @TempDir Path directory;
 
+    @Test void legacyProfilesRemainVisibleButCannotSupplyAutomaticOperatingPoints() {
+        var json = new ObjectMapper().findAndRegisterModules();
+        var file = directory.resolve("legacy-thermal.json");
+        var store = new AutoTuningProfileStore(json, file.toString());
+        var rows = java.util.stream.Stream.of(100,150,200).map(watts -> new AutoTuningProfileStore.Profile(
+                "GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash", "srbminer-multi", "3.7.3",
+                1200,800,watts,1000,watts-10,32,1000d/(watts-10),Instant.now())).toList();
+        assertTrue(store.saveMatrix(rows));
+        var reloaded = new AutoTuningProfileStore(json, file.toString());
+        assertEquals(3, reloaded.all().size());
+        assertEquals(3, reloaded.candidates("GPU-a","pearl","srbminer-multi","3.7.3","RTX","NVIDIA","PearlHash").size());
+        assertTrue(reloaded.matrix("GPU-a","pearl","srbminer-multi","3.7.3","RTX","NVIDIA","PearlHash").isEmpty());
+        assertNull(reloaded.forBudget("GPU-a","pearl","srbminer-multi","3.7.3","RTX","NVIDIA",200));
+    }
+
     @Test
     void persistsThreeTiersAndRejectsStaleMinerOrHardware() {
         Path file = directory.resolve("matrix.json");
@@ -79,7 +94,7 @@ class AutoTuningProfileStoreTest {
         var bestAt100 = reloaded.matrix("GPU-a", "pearl", "srbminer-multi", "3.7.3",
                 "RTX", "NVIDIA", "PearlHash").getFirst();
         assertEquals(1100d, bestAt100.hashrateHs());
-        assertEquals(24, bestAt100.stableSamples());
+        assertEquals(96, bestAt100.stableSamples());
         assertEquals(5, reloaded.candidates("GPU-a", "pearl", "srbminer-multi", "3.7.3",
                 "RTX", "NVIDIA", "PearlHash").size());
     }
@@ -108,10 +123,10 @@ class AutoTuningProfileStoreTest {
         ObjectMapper json = new ObjectMapper().findAndRegisterModules();
         AutoTuningProfileStore store = new AutoTuningProfileStore(json, file.toString());
         for (int offset : List.of(-100, 0)) {
-            var row = new AutoTuningProfileStore.Measurement("run-offset", Instant.parse("2026-10-19T12:00:00Z"),
+            var row = de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.measurement(new AutoTuningProfileStore.Measurement("run-offset", Instant.parse("2026-10-19T12:00:00Z"),
                     "GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash", "srbminer-multi", "3.7.3",
                     1200, null, 150, "RESULT", offset == -100 ? 1200d : 1000d, 140d, 60d,
-                    1200, 6800 + offset, 16, null, null, true, null, offset, 2);
+                    1200, 6800 + offset, 16, null, null, true, null, offset, 2));
             assertTrue(store.appendMeasurement(row));
         }
 
@@ -142,12 +157,12 @@ class AutoTuningProfileStoreTest {
         var store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), directory.resolve("operating.json").toString());
         Instant now = Instant.now();
         for (int watts : List.of(100, 150, 200)) assertTrue(store.appendMeasurement(
-                new AutoTuningProfileStore.Measurement("confirmed", now, "GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash",
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.measurement(new AutoTuningProfileStore.Measurement("confirmed", now, "GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash",
                         "srbminer-multi", "3.7.3", 1200, 800, watts, "RESULT", 1000d, watts - 10d,
-                        watts == 200 ? 74d : 62d, 1200, 800, 32, 5L, 0L, true, null)));
-        assertTrue(store.appendMeasurement(new AutoTuningProfileStore.Measurement("search", now,
+                        watts == 200 ? 74d : 62d, 1200, 800, 32, 5L, 0L, true, null))));
+        assertTrue(store.appendMeasurement(de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.measurement(new AutoTuningProfileStore.Measurement("search", now,
                 "GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash", "srbminer-multi", "3.7.3",
-                1400, 800, 100, "SEARCH_RESULT", 9000d, 90d, 60d, 1400, 800, 32, 5L, 0L, true, null)));
+                1400, 800, 100, "SEARCH_RESULT", 9000d, 90d, 60d, 1400, 800, 32, 5L, 0L, true, null))));
         var reloaded = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), directory.resolve("operating.json").toString());
         assertEquals(2, reloaded.operatingCandidates("GPU-a", "pearl", "srbminer-multi", "3.7.3", "RTX", "NVIDIA", "PearlHash", 200, 70).size());
         assertEquals(1, reloaded.operatingCandidates("GPU-a", "pearl", "srbminer-multi", "3.7.3", "RTX", "NVIDIA", "PearlHash", 120, 70).size());
@@ -164,16 +179,16 @@ class AutoTuningProfileStoreTest {
     private static AutoTuningProfileStore.Measurement measurement(String run, String type, int power,
                                                                   int core, Boolean stable, String reason,
                                                                   double hashrate) {
-        return new AutoTuningProfileStore.Measurement(run, Instant.parse("2026-10-19T12:00:00Z"),
+        return de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.measurement(new AutoTuningProfileStore.Measurement(run, Instant.parse("2026-10-19T12:00:00Z"),
                 "GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash", "srbminer-multi", "3.7.3",
                 core, 800, power, type, stable == null || stable ? hashrate : null,
                 stable == null || stable ? power - 10d : null, 60d, core, 800,
-                8, 5L, 0L, stable, reason);
+                32, 5L, 0L, stable, reason));
     }
 
     private static AutoTuningProfileStore.Profile profile(int watts) {
-        return new AutoTuningProfileStore.Profile("GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash",
-                "srbminer-multi", "3.7.3", 1200, 800, watts, 1000, watts - 10, 8,
-                1000d / (watts - 10), Instant.parse("2026-10-18T00:00:00Z"));
+        return de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.profile(new AutoTuningProfileStore.Profile("GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash",
+                "srbminer-multi", "3.7.3", 1200, 800, watts, 1000, watts - 10, 32,
+                1000d / (watts - 10), Instant.parse("2026-10-18T00:00:00Z")));
     }
 }

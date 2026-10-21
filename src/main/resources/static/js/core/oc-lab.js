@@ -27,7 +27,9 @@
         const rows = (sweep.runs || []).filter(row => row.deviceId === device);
         const pending = sweep.running && rows.some(row => !terminal(row));
         const active = !completion && (run || optimization || tuning);
-        const key = completion ? 'lab_device_released' : tuning || optimization ? tuning?.sampleCount === 32 ? 'lab_confirming' : 'lab_tuning'
+        const validatingTemperature = tuning?.phase === 'auto_tuning_phase_thermal_validation'
+            || run?.detail === 'benchmark_phase_thermal_validation';
+        const key = completion ? 'lab_device_released' : validatingTemperature ? 'lab_thermal_validation' : tuning || optimization ? tuning?.sampleCount === 32 ? 'lab_confirming' : 'lab_tuning'
             : run ? 'lab_sweeping' : pending ? 'lab_waiting' : rows.length ? 'lab_finished' : 'lab_ready';
         return {key: completion && !completion.released ? 'lab_restore_failed' : key, active: Boolean(active), pending, run, tuning, optimization, completion, rows};
     }

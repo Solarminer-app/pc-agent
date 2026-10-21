@@ -43,6 +43,8 @@ remains. The assigned task always takes precedence.
 | [x] | P1 | BUG-015 | Every power-sweep step rejects an already paused worker as manually stopped. |
 | [x] | P2 | BUG-016 | Combined sweep/tuning ETA remains on “calculating” for the entire run. |
 | [x] | P1 | BUG-017 | Profit selection reuses incomplete LIVE operating points and can repeatedly hit the worker temperature ceiling. |
+| [x] | P1 | BUG-018 | Cold sweep samples were treated as sustained thermal stability and reused for automatic mining. |
+| [x] | P1 | BUG-019 | Thermal stops never resume after cooling and temperature-policy increases do not release targets. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -1014,3 +1016,64 @@ werden nicht als automatische Betriebspunkte verwendet, Basistakte werden
 hergestellt und konkrete Temperaturfehler je GPU-Punkt dauerhaft gesperrt.
 Neue geprüfte Messungen können den Punkt wieder freigeben. Die Grenze bleibt
 erhalten. Deployment und Dauerlauf auf der Hardware stehen noch aus.
+
+
+## BUG-018 — Cold samples accepted before heat soak / Kalte Messpunkte vor thermischer Stabilisierung
+
+**Status:** Fixed locally and regression verified (`[x]`, 2026-10-22); post-update hardware acceptance pending.
+**Priority:** P1
+
+Worker 126 GPU 2's old 205 W PeakMiner sweep point recorded 68 °C but later
+rose from 69 to 84 °C in about three minutes at roughly 200 W. The new runtime
+rejection correctly removed 205 W, but other old sweep points remained eligible.
+The missing contract was sustained loaded-temperature validation rather than a
+single short peak. The RTX 2060 on worker 192.168.178.108 also started successfully,
+connected to Pearl and produced about 41 TH/s before reaching 84 °C at roughly
+121–122 W after about one minute. Its driver reports a 125 W minimum cap; no
+live limit, clock, miner or policy change was issued during that inspection.
+
+The new per-setting tracker, persisted thermal evidence, legacy-result exclusion,
+checkpoint gate, provisional-search/final-confirmation separation and DE/EN UI
+are documented in [the sustained validation contract](agent-wiki/auto-tuning.md).
+Regression covers a cold minute followed by late overheating in the actual sweep
+collector, steady loaded acceptance, insufficient headroom/timeout, slow rise,
+oscillation/cooling, missing data/gaps, changed limits, persisted evidence and
+retention of legacy history without automatic eligibility. Preset work budgets
+remain unchanged; shorter presets reduce coverage rather than acceptance.
+No deployment or successful sustained hardware acceptance is claimed.
+
+Deutsch: Kurze kalte Sweep-Messungen wurden zu Unrecht als dauerstabil verwendet.
+Die neue Prüfung verlangt mindestens drei Minuten Last und einen stabilisierten
+Temperaturverlauf mit Reserve. Alte Ergebnisse bleiben Historie; automatische
+Verwendung und Wiederaufnahme erfordern den neuen Nachweis. Die RTX 2060 hat
+laut Log gerechnet und wurde danach wegen 84 °C gestoppt. Kein Live-Eingriff;
+Update und anschließende Hardware-Dauerprüfung stehen aus.
+
+## BUG-019 — Thermal stop never resumes; raising the temperature policy leaves targets blocked
+
+**Status:** Fixed locally; hardware/release acceptance pending (`[x]`, 2026-10-22)
+**Priority:** P1
+**Area:** Per-GPU runtime thermal safety and operating-point eligibility
+
+Confirmed in source: `WorkerTemperatureSafetyService` previously inspected only
+MINING workers, and `OperatingPointSafetyStore` persisted timestamps only. A
+thermal pause had no cooldown/restart owner and a higher policy could not make
+old points eligible. The guard now owns a per-GPU cooling intent, uses the normal
+mode selector after 60 seconds below the ceiling minus 5 °C, and respects newer
+operator/Node stops and active economic plans. Rejections persist observed
+heat and the previous ceiling, enabling exact threshold-aware reconsideration.
+Legacy history migrates on an explicit policy increase. All GPU mode selectors
+exclude rejected points; AUTO_TUNING chooses another validated tier when possible.
+
+DE: Temperaturstopps hatten bisher keinen Wiederanlauf; höhere Grenzwerte wurden
+bei alten Sperren nicht berücksichtigt. Nach Abkühlung wird erneut ein zulässiger
+Punkt gewählt. Neue Stopps und Node-Pläne haben Vorrang. Bei erhöhter Grenze wird
+die alte Sperre neu bewertet; andere Stabilitätsprüfungen bleiben erforderlich.
+
+Verification: deterministic recovery tests cover cooldown, hot/unreadable sensors,
+newer stop authority, Node plans, absent candidates/retry pacing, failed stops,
+measurement ownership, raised ceilings, exact native-clock identity, stricter
+MAX_HASHRATE limits and unavailable telemetry. Persistence tests cover reload,
+legacy migration, overshoot and lower-again behavior; selection tests prove
+alternative efficiency/tuning points and blocked manual targets. Full build and
+test result is recorded in the work log. No live miners or policies were changed.

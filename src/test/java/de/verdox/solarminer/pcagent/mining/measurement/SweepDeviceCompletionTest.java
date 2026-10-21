@@ -65,7 +65,7 @@ class SweepDeviceCompletionTest {
             else { assertTrue(siblingMeasuring.await(5, TimeUnit.SECONDS)); if (repeatStop) controls.setWorkerManuallyStopped("gpu0", true); }
             service.finishRun(target, SweepRunState.COMPLETE, "lab_finished");
             return new GpuEfficiencyStore.Profile(target.gpu().deviceId(), "RTX 3080", "pearl", "PearlHash", 120, 1000d, 100d, 10d,
-                    Instant.now(), List.of(new GpuEfficiencyStore.StepResult(120, 1000d, 100d, 60d, true, null)), "srbminer-multi");
+                    Instant.now(), List.of(de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(120, 1000d, 100d, 60d, true, null)), "srbminer-multi");
         }).when(service).sweepTarget(any(), any(), any());
         try {
             service.startConfigured(false, List.of("pearl"), List.of("gpu0", "gpu1"), 2, false, "QUICK", true);

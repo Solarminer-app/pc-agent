@@ -135,3 +135,49 @@ bestehen.
 keine echten Miner-/Treiberbefehle, kein Deployment und keine Hardware-/Pool-
 Abnahme. Externe Miner-/Betriebssystemdiagnosen und Hardware-/Softwarekennungen
 bleiben nach bestehender Ausnahme unverändert; neue eigene Texte sind DE/EN.
+
+## Sustained thermal validation / Temperatur-Dauerprüfung (2026-10-22)
+
+`ThermalStabilityTracker` now gates every power-sweep step and each final tuning
+confirmation at unchanged settings. It requires at least 180 seconds of valid
+continuous load, with the last 90 seconds within a 2 °C range and an absolute
+linear temperature trend at most 0.2 °C/min. The final window needs at least
+3 °C headroom below the worker ceiling, and the peak of the entire continuous
+validation must remain below that ceiling. Invalid load/clock data and reading
+gaps above 15 seconds reset the accumulated evidence. Each setting gets a new
+tracker; a previous point's warmup cannot qualify its successor. Missing sensors
+and actual over-temperature retain their immediate stop behavior.
+
+A point that does not settle within 300 seconds is recorded with
+`benchmark_temperature_not_settled`, never as a stable operating point. Normal
+search samples remain provisional; only final confirmations undergo this longer
+acceptance and retain 32 valid recent measurements. Sweep statistics similarly
+use the last 12 valid readings. The explicit version-1 `thermalValidation` object
+records loaded/window durations, final minimum/maximum/trend and overall peak
+on sweep steps, tuning measurements and generated tuning profiles.
+
+Revenue/profit selection, GPU efficiency/maximum-hashrate sweep selection and
+cached Auto Tuning matrices reject missing or invalid evidence. Existing records
+remain visible as history and model-training inputs; they must be measured again
+before automatic selection or checkpoint reuse. Legacy and validated tuning
+repeats are aggregated separately so old cold measurements cannot contaminate
+new approved statistics. The GPU results page labels historical profiles needing
+revalidation and shows a distinct warmup/temperature-validation phase in DE/EN.
+
+QUICK/MEDIUM retain their 18/55-minute GPU work budgets, including warmup. The
+safety threshold is identical for all presets. Budget/cancellation can yield
+partial coverage with fewer approved points; they do not shorten validation or
+promote a provisional point. Driver/startup/cleanup calls keep their existing
+bounded-operation caveat. Successful short fixture tests do not certify ambient
+conditions, fan behavior or sustained operation on physical hardware.
+
+Deutsch: Jeder Sweep-Punkt und jede abschließende Tuning-Bestätigung wird unter
+unveränderten Einstellungen mindestens drei Minuten belastet. Die letzten
+90 Sekunden müssen innerhalb von 2 °C und maximal ±0,2 °C/min stabil sein;
+3 °C Reserve zur Grenze und ein während der Prüfung zulässiger Spitzenwert
+sind erforderlich. Datenlücken über 15 Sekunden setzen den Nachweis zurück.
+Nach fünf Minuten ohne Stabilisierung wird der Punkt nicht freigegeben. Alte
+Daten bleiben sichtbar, benötigen aber eine erneute Prüfung. Schnell/Mittel
+halten ihre Budgets ein und prüfen nötigenfalls weniger Punkte. DE/EN erklären
+Aufwärmen, fehlende Stabilisierung und historische Ergebnisse. Eine bestandene
+Softwareprüfung ersetzt keinen Dauerlauf unter den realen Kühlbedingungen.

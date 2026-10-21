@@ -20,6 +20,31 @@ import java.util.List;
 /** Applies a locally selected, measured operating point before a GPU miner starts. */
 @Service
 public class WorkerPowerModeService {
+    private de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService workerPolicies;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setWorkerPolicies(de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService policies) {
+        this.workerPolicies = policies;
+    }
+    private de.verdox.solarminer.pcagent.mining.economics.OperatingPointSafetyStore pointSafety;
+    private final java.util.Map<String, AutoTuningProfileStore.Profile> appliedProfiles = new java.util.concurrent.ConcurrentHashMap<>();
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setPointSafety(de.verdox.solarminer.pcagent.mining.economics.OperatingPointSafetyStore safety) { pointSafety = safety; }
+    public AutoTuningProfileStore.Profile appliedProfile(String device) { return appliedProfiles.get(device); }
+    private boolean permittedBaseline(String device, String coin, String software, int watts, java.time.Instant measuredAt) {
+        return permittedBaseline(device, coin, software, watts, measuredAt, thermalCeiling(device, 90));
+    }
+    private boolean permittedBaseline(String device, String coin, String software, int watts, java.time.Instant measuredAt, double ceiling) {
+        return pointSafety == null || pointSafety.permits(device, coin + "|" + software + "|" + watts + "|BASELINE", measuredAt, ceiling);
+    }
+    private double thermalCeiling(String device, double fallback) {
+        return workerPolicies == null ? fallback : workerPolicies.ceiling(device, fallback);
+    }
+    private boolean thermallyValidated(String device, AutoTuningProfileStore.Profile profile) {
+        return profile != null && profile.thermalValidation() != null && profile.thermalValidation().safeFor(thermalCeiling(device, 85))
+                && (pointSafety == null || pointSafety.permits(device,
+                de.verdox.solarminer.pcagent.mining.economics.OperatingPointSafetyStore.profileKey(profile),
+                profile.calibratedAt(), thermalCeiling(device, 90)));
+    }
     private final AgentControlSettingsService controls;
     private final LocalGpuPowerService gpus;
     private final GpuEfficiencyStore sweeps;
@@ -98,7 +123,8 @@ public class WorkerPowerModeService {
             // measured efficiency winner until a current profit projection is available.
             AutoTuningProfileStore.Profile profile = selectedAutoTuningProfile(deviceId, coin.id(), softwareId,
                     version, card, safeMaxWatts, coin.assignmentAlgorithm());
-            if (profile == null) return new Selection(mode, startingWatts, null);
+            if (profile == null) return new Selection(mode, startingWatts,
+                    permittedBaseline(deviceId, coinId, softwareId, startingWatts, null) ? null : "power_mode_no_validated_point");
             return new Selection(mode, profile.powerLimitWatts(), null);
         }
         LocalGpuPowerService.Gpu gpu = gpus.discover().stream().filter(card -> deviceId.equals(card.deviceId())).findFirst().orElse(null);
@@ -113,9 +139,11 @@ public class WorkerPowerModeService {
                 return new Selection(mode, null, "power_mode_no_safe_hashrate_point");
             return profile.steps().stream()
                     .filter(step -> step.stable() && positive(step.medianHashrateHs())
+                            && step.thermalValidation() != null && step.thermalValidation().safeFor(thermalCeiling(deviceId, maxHashrateTemperatureC))
                             && step.maxTemperatureC() != null && Double.isFinite(step.maxTemperatureC())
                             && step.maxTemperatureC() < maxHashrateTemperatureC
-                            && step.limitWatts() >= gpu.minWatts() && step.limitWatts() <= gpu.maxWatts())
+                            && step.limitWatts() >= gpu.minWatts() && step.limitWatts() <= gpu.maxWatts()
+                            && permittedBaseline(deviceId, coinId, softwareId, step.limitWatts(), profile.testedAt(), thermalCeiling(deviceId, maxHashrateTemperatureC)))
                     .max(Comparator.comparingDouble((GpuEfficiencyStore.StepResult step) -> step.medianHashrateHs())
                             .thenComparingInt(step -> -step.limitWatts()))
                     .map(step -> new Selection(mode, step.limitWatts(), null))
@@ -125,23 +153,17 @@ public class WorkerPowerModeService {
         GpuEfficiencyStore.Profile sweep = sweeps.find(deviceId, coin.assignmentAlgorithm(), softwareId);
         if (sweep != null && coin.id().equals(sweep.coin()) && sweep.steps() != null) {
             for (GpuEfficiencyStore.StepResult step : sweep.steps()) {
-                if (step.stable() && positive(step.medianHashrateHs()) && positive(step.avgPowerWatts()))
+                if (step.stable() && positive(step.medianHashrateHs()) && positive(step.avgPowerWatts())
+                        && step.thermalValidation() != null && step.thermalValidation().safeFor(thermalCeiling(deviceId, 85))
+                        && permittedBaseline(deviceId, coinId, softwareId, step.limitWatts(), sweep.testedAt()))
                     points.add(new Point(step.limitWatts(), step.medianHashrateHs() / step.avgPowerWatts()));
             }
         }
-        for (MiningPerformanceProfileStore.Profile benchmark : benchmarks.all()) {
-            if (!deviceId.equals(benchmark.workerId()) || !coin.id().equals(benchmark.coin())
-                    || !coin.matchesAlgorithm(benchmark.algorithm()) || benchmark.powerTargetWatts() == null
-                    || (softwareId != null && benchmark.minerSoftwareId() != null
-                    && !softwareId.equals(benchmark.minerSoftwareId()))
-                    || benchmark.observations() < 12 || !positive(benchmark.hashrateHps())
-                    || benchmark.powerWatts() <= 0) continue;
-            points.add(new Point(benchmark.powerTargetWatts(), benchmark.hashrateHps() / benchmark.powerWatts()));
-        }
+        // Ordinary GPU observations are history, not sustained thermal validation.
         return points.stream().filter(point -> point.watts() >= gpu.minWatts() && point.watts() <= gpu.maxWatts())
                 .max(Comparator.comparingDouble(Point::hashesPerWatt).thenComparingInt(point -> -point.watts()))
                 .map(point -> new Selection(mode, point.watts(), null))
-                .orElseGet(() -> new Selection(mode, null, "power_mode_no_measured_point"));
+                .orElseGet(() -> new Selection(mode, null, "power_mode_no_validated_point"));
     }
 
     public Selection apply(String deviceId, String coinId) {
@@ -156,8 +178,8 @@ public class WorkerPowerModeService {
         if (gpu == null || gpu.safeTuningMaxWatts() == null) return true;
         String software = miners == null ? null : miners.minerSoftwareForWorker(coin, deviceId);
         String version = miners == null ? null : miners.minerVersionForWorker(coin, deviceId);
-        return autoTuningProfiles.mostEfficientWithinBudget(deviceId, coin.id(), software, version,
-                gpu.model(), gpu.vendor(), gpu.safeTuningMaxWatts(), coin.assignmentAlgorithm()) == null;
+        return selectedAutoTuningProfile(deviceId, coin.id(), software, version,
+                gpu, gpu.safeTuningMaxWatts(), coin.assignmentAlgorithm()) == null;
     }
 
     public boolean restoreAutoTuningClocks(String deviceId) {
@@ -172,8 +194,13 @@ public class WorkerPowerModeService {
         LocalGpuPowerService.Gpu gpu = gpus.discover().stream().filter(card -> deviceId.equals(card.deviceId())).findFirst().orElse(null);
         if (gpu == null) return new Selection(choice.mode(), null, "gpu_power_control_unavailable");
         if ("MANUAL".equals(choice.mode())) {
+            Coin assigned = Coin.byIdOrNull(coinId);
+            String software = assigned == null || miners == null ? null : miners.minerSoftwareForWorker(assigned, deviceId);
+            if (!permittedBaseline(deviceId, coinId, software, gpus.configuredPowerLimitWatts(gpu), null))
+                return new Selection(choice.mode(), null, "power_mode_no_validated_point");
             if (gpu == null || !gpus.enforceConfiguredPowerLimit(gpu))
                 return new Selection(choice.mode(), null, "power_mode_apply_failed");
+            appliedProfiles.remove(deviceId);
             return choice;
         }
         if ("AUTO_TUNING".equals(choice.mode())) {
@@ -190,10 +217,12 @@ public class WorkerPowerModeService {
                     coin.assignmentAlgorithm())
                     : autoTuningProfiles.forBudget(deviceId, coin.id(), softwareId, version,
                     gpu.model(), gpu.vendor(), budgetWatts, coin.assignmentAlgorithm());
+            if (!thermallyValidated(deviceId, profile)) profile = null;
             if (profile == null && budgetWatts == null) {
                 if (gpuTuning == null || !gpuTuning.restoreDefaults(deviceId).applied()
                         || !gpus.setTotalPowerTarget(choice.watts(), List.of(gpu)))
                     return new Selection(choice.mode(), null, "power_mode_apply_failed");
+                appliedProfiles.remove(deviceId);
                 return choice;
             }
             if (profile == null || profile.powerLimitWatts() < gpu.minWatts() || gpuTuning == null)
@@ -205,9 +234,10 @@ public class WorkerPowerModeService {
                 if (nativeTuning.isPresent()) {
                     var prepared = gpuTuning.prepareNativeTuning(deviceId, profile.memoryMhz(), profile.memoryOffsetMhz(), profile.memoryOffsetPstate());
                     if (!prepared.applied()) return new Selection(choice.mode(), null, prepared.reason());
-                    return nativeTuning.get().applyNativeTuning(gpu, profile)
-                            ? new Selection(choice.mode(), profile.powerLimitWatts(), null)
-                            : new Selection(choice.mode(), null, "miner_native_tuning_failed");
+                    if (!nativeTuning.get().applyNativeTuning(gpu, profile))
+                        return new Selection(choice.mode(), null, "miner_native_tuning_failed");
+                    appliedProfiles.put(deviceId, profile);
+                    return new Selection(choice.mode(), profile.powerLimitWatts(), null);
                 }
             }
             var clocks = profile.memoryOffsetMhz() == null
@@ -219,10 +249,12 @@ public class WorkerPowerModeService {
                 gpuTuning.restoreDefaults(deviceId);
                 return new Selection(choice.mode(), null, "power_mode_apply_failed");
             }
+            appliedProfiles.put(deviceId, profile);
             return new Selection(choice.mode(), profile.powerLimitWatts(), null);
         }
         if (gpu == null || !gpus.setTotalPowerTarget(choice.watts(), List.of(gpu)))
             return new Selection(choice.mode(), null, "power_mode_apply_failed");
+        appliedProfiles.remove(deviceId);
         return choice;
     }
 
@@ -236,10 +268,12 @@ public class WorkerPowerModeService {
         if (goal == AutoTuningSelectionStore.Goal.PROFIT_PER_DAY && autoTuningEconomics != null) {
             var profit = autoTuningEconomics.compare(deviceId, coinId, softwareId, version, gpu.model(), gpu.vendor(),
                     budgetWatts, algorithm).profit();
-            if (profit != null) return profit.profile();
+            if (profit != null && thermallyValidated(deviceId, profit.profile())) return profit.profile();
         }
-        return autoTuningProfiles.mostEfficientWithinBudget(deviceId, coinId, softwareId, version,
-                gpu.model(), gpu.vendor(), budgetWatts, algorithm);
+        return autoTuningProfiles.matrix(deviceId, coinId, softwareId, version, gpu.model(), gpu.vendor(), algorithm).stream()
+                .filter(profile -> profile.powerLimitWatts() <= budgetWatts && thermallyValidated(deviceId, profile))
+                .max(Comparator.comparingDouble(AutoTuningProfileStore.Profile::efficiencyHashesPerWatt)
+                        .thenComparingInt(profile -> -profile.powerLimitWatts())).orElse(null);
     }
     private record Point(int watts, double hashesPerWatt) { }
     public record Selection(String mode, Integer watts, String error) { }

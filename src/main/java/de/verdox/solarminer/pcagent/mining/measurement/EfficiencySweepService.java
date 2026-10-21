@@ -71,6 +71,11 @@ public class EfficiencySweepService {
     /** Five-second samples; twelve points cover at least one minute of steady-state mining per step. */
     static final int SAMPLES_PER_STEP = 12;
     static final long SAMPLE_INTERVAL_MILLIS = 5_000;
+    private long sampleDelayMillis = SAMPLE_INTERVAL_MILLIS;
+    private java.util.function.LongSupplier thermalClock = System::nanoTime;
+    void setThermalSampling(long delayMillis, java.util.function.LongSupplier clock) {
+        sampleDelayMillis = Math.max(0, delayMillis); thermalClock = Objects.requireNonNull(clock);
+    }
     private static final long UNSTABLE_RETRY_PAUSE_MILLIS = 5_000;
     private static final long TEMPERATURE_COOLDOWN_TIMEOUT_MILLIS = 120_000;
     private static final long TEMPERATURE_COOLDOWN_POLL_MILLIS = 2_000;
@@ -250,10 +255,11 @@ public class EfficiencySweepService {
         List<RunStatus> runs = initialRuns(referenceBatches);
         Map<String, GpuEfficiencyStore.Profile> checkpoint = resume && previousPreset == selectedPreset ? reusableProfiles(previous) : Map.of();
         if (resume) {
-            if (workerPolicies != null) checkpoint = checkpoint.entrySet().stream()
+            checkpoint = checkpoint.entrySet().stream()
                     .filter(entry -> entry.getValue().steps() != null && entry.getValue().steps().stream()
-                            .filter(GpuEfficiencyStore.StepResult::stable).allMatch(step -> workerPolicies.temperatureSafe(
-                                    entry.getValue().deviceId(), step.maxTemperatureC(), maxTemperatureC)))
+                            .filter(GpuEfficiencyStore.StepResult::stable).allMatch(step -> step.thermalValidation() != null
+                                    && step.thermalValidation().safeFor(workerPolicies == null ? maxTemperatureC
+                                        : workerPolicies.ceiling(entry.getValue().deviceId(), maxTemperatureC))))
                     .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
             runs = applyCheckpoint(runs, previous.runs(), checkpoint);
             Set<String> compatible = runs.stream().filter(RunStatus::terminalComplete)
@@ -931,7 +937,7 @@ public class EfficiencySweepService {
         return workerPolicies == null ? maxTemperatureC : workerPolicies.ceiling(target.gpu().deviceId(), maxTemperatureC);
     }
 
-    private GpuEfficiencyStore.StepResult measureStep(Target target, int limit,
+    GpuEfficiencyStore.StepResult measureStep(Target target, int limit,
                                                        List<GpuEfficiencyStore.StepResult> completedSteps) {
         if (!startMiner(target)) {
             String reason = targetMiner(target).lastError();
@@ -942,17 +948,24 @@ public class EfficiencySweepService {
         List<Double> rates = new ArrayList<>();
         List<Double> watts = new ArrayList<>();
         double maxTemp = Double.NEGATIVE_INFINITY;
+        var thermal = new ThermalStabilityTracker();
+        ThermalStabilityTracker.Evidence thermalValidation = null;
+        long thermalDeadline = Long.MAX_VALUE;
         Instant startupDeadline = Instant.now().plus(startupGrace);
         MinerStats.Worker worker = null;
-        while (rates.size() < SAMPLES_PER_STEP) {
+        while (rates.size() < SAMPLES_PER_STEP || thermalValidation == null) {
             if (guard.cancelRequested() || budgetExpired()) return new GpuEfficiencyStore.StepResult(limit, null, null, null, false,
                     budgetExpired() ? "lab_budget_reached" : "Abgebrochen");
             try {
-                Thread.sleep(SAMPLE_INTERVAL_MILLIS);
+                Thread.sleep(sampleDelayMillis);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return new GpuEfficiencyStore.StepResult(limit, null, null, null, false, "Unterbrochen");
             }
+            long thermalNow = thermalClock.getAsLong();
+            if (thermalNow >= thermalDeadline)
+                return new GpuEfficiencyStore.StepResult(limit, null, null,
+                        maxTemp == Double.NEGATIVE_INFINITY ? null : maxTemp, false, "benchmark_temperature_not_settled");
             worker = findWorker(target);
             if (worker != null && worker.miningStatus() == MinerStats.MinerStatus.ERROR) {
                 String diagnosis = diagnosisFor(target);
@@ -975,14 +988,20 @@ public class EfficiencySweepService {
                     && Double.isFinite(worker.approximatedPowerUsageWatts()) && worker.approximatedPowerUsageWatts() > 0) {
                 rates.add(worker.terahashPerSecond() * 1_000_000_000_000d);
                 watts.add((double) worker.approximatedPowerUsageWatts());
+                if (thermalDeadline == Long.MAX_VALUE) thermalDeadline = thermalNow
+                        + java.util.concurrent.TimeUnit.SECONDS.toNanos(ThermalStabilityTracker.MAX_LOAD_SECONDS);
+                if (rates.size() > SAMPLES_PER_STEP) { rates.removeFirst(); watts.removeFirst(); }
+                thermal.add(thermalNow, temperature);
+                thermalValidation = thermal.evidence(temperatureCeiling(target));
             } else if (!Instant.now().isBefore(startupDeadline)) {
                 return new GpuEfficiencyStore.StepResult(limit, null, null, maxTemp == Double.NEGATIVE_INFINITY ? null : maxTemp,
                         false, worker == null
                                 ? "Miner-Worker wird noch nicht gemeldet; keine Hashrate innerhalb der Startwartezeit"
                                 : "Miner liefert trotz Pool-Jobs keine Hashrate");
-            }
+            } else { thermal.reset(); thermalValidation = null; }
             updateRun(target, SweepRunState.RUNNING, limit, completedSteps, rates.size(),
-                    target.gpu().model() + " · " + target.algorithm() + " · " + limit + " W");
+                    thermalValidation == null ? "benchmark_phase_thermal_validation"
+                            : target.gpu().model() + " · " + target.algorithm() + " · " + limit + " W");
         }
         double median = SampleCollector.median(rates);
         double avgWatts = watts.stream().mapToDouble(Double::doubleValue).average().orElse(0);
@@ -997,7 +1016,7 @@ public class EfficiencySweepService {
         try { if (clockTelemetry != null) observed = clockTelemetry.readEffectiveClocks(target.gpu().deviceId()); }
         catch (RuntimeException unavailable) { /* A missing optional clock reading does not invalidate a power measurement. */ }
         return new GpuEfficiencyStore.StepResult(limit, median, avgWatts, maxTemp, true, null,
-                observed == null ? null : observed.coreMhz(), observed == null ? null : observed.memoryMhz());
+                observed == null ? null : observed.coreMhz(), observed == null ? null : observed.memoryMhz(), thermalValidation);
     }
 
     private MinerStats.Worker findWorker(Target target) {
@@ -1218,7 +1237,8 @@ public class EfficiencySweepService {
             int liveSamples = currentStepFinished ? 0 : run.samples();
             int remainingSamples = Math.max(0, (plannedSteps - finishedSteps) * SAMPLES_PER_STEP - liveSamples);
             long runSeconds = remainingSamples * SAMPLE_INTERVAL_MILLIS / 1_000
-                    + Math.max(0, plannedSteps - finishedSteps) * ESTIMATED_STARTUP_SECONDS;
+                    + Math.max(0, plannedSteps - finishedSteps) * (ESTIMATED_STARTUP_SECONDS
+                        + Math.max(0, ThermalStabilityTracker.MIN_LOAD_SECONDS - SAMPLES_PER_STEP * SAMPLE_INTERVAL_MILLIS / 1_000));
             if (run.mode() == SweepMode.VALIDATION) {
                 String group = String.join("|", run.coin(), run.algorithm(), run.model());
                 parallelGroups.merge("validation|" + group, runSeconds, Math::max);

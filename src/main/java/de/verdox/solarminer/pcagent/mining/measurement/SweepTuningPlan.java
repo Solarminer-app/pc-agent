@@ -8,7 +8,8 @@ record SweepTuningPlan(List<Integer> anchors, int minimumWatts, int maximumWatts
         List<GpuEfficiencyStore.StepResult> safe = curve == null || curve.steps() == null ? List.of() : curve.steps().stream()
                 .filter(Objects::nonNull).filter(row -> row.stable() && row.limitWatts() >= minimum && row.limitWatts() <= maximum
                         && positive(row.medianHashrateHs()) && positive(row.avgPowerWatts())
-                        && positive(row.maxTemperatureC()) && row.maxTemperatureC() < ceiling)
+                        && positive(row.maxTemperatureC()) && row.maxTemperatureC() < ceiling
+                        && row.thermalValidation() != null && row.thermalValidation().safeFor(ceiling))
                 .sorted(Comparator.comparingInt(GpuEfficiencyStore.StepResult::limitWatts)).toList();
         if (safe.isEmpty()) throw new IllegalStateException("benchmark_optimization_no_safe_curve_points");
         int low = safe.getFirst().limitWatts(), high = safe.getLast().limitWatts();

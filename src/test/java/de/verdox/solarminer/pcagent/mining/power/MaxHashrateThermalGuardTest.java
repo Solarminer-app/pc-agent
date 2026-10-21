@@ -47,5 +47,10 @@ class MaxHashrateThermalGuardTest {
         when(mining.getWorkerStats()).thenThrow(new IllegalStateException("telemetry unavailable"));
         guard.check();
         verify(workers, times(3)).pause("GPU-a");
+        var thermal = mock(de.verdox.solarminer.pcagent.mining.measurement.WorkerTemperatureSafetyService.class);
+        guard.setThermalSafety(thermal);
+        guard.check();
+        verify(thermal).stopForTemperature("GPU-a", null, 80);
+        verify(workers, times(3)).pause("GPU-a");
     }
 }

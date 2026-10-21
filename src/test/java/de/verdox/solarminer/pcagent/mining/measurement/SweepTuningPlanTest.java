@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SweepTuningPlanTest {
     private GpuEfficiencyStore.StepResult step(int cap, double rate, double watts) {
-        return new GpuEfficiencyStore.StepResult(cap, rate, watts, 60d, true, null);
+        return de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(cap, rate, watts, 60d, true, null);
     }
     private GpuEfficiencyStore.Profile curve(List<GpuEfficiencyStore.StepResult> steps) {
         return new GpuEfficiencyStore.Profile("gpu", "Test", "pearl", "PearlHash", 100,
@@ -30,9 +30,9 @@ class SweepTuningPlanTest {
     }
     @Test void excludesUnstableOverheatedMissingAndOutOfRangeEvidence() {
         var plan = SweepTuningPlan.from(curve(List.of(step(100, 1000, 90), step(140, 1200, 130), step(180, 1300, 170),
-                step(250, 9000, 240), new GpuEfficiencyStore.StepResult(160, 5000d, 150d, 76d, true, null),
-                new GpuEfficiencyStore.StepResult(170, 7000d, 160d, null, true, null),
-                new GpuEfficiencyStore.StepResult(150, 6000d, 140d, 60d, false, "unstable"))), 100, 180, 75);
+                step(250, 9000, 240), de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(160, 5000d, 150d, 76d, true, null),
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(170, 7000d, 160d, null, true, null),
+                de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(150, 6000d, 140d, 60d, false, "unstable"))), 100, 180, 75);
         assertEquals(Set.of(100, 140, 180), new HashSet<>(plan.anchors()));
         assertEquals(180, plan.maximumWatts());
     }

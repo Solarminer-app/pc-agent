@@ -52,6 +52,7 @@ class AutoTuningSessionServiceTest {
         var store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), directory.resolve("thermal-profiles.json").toString());
         var lock = new LocalRunLock();
         var service = new AutoTuningSessionService(mining, power, tuning, store, lock, miners, 85, 0);
+        service.setThermalClock(ThermalTestEvidence.clock());
         service.setWorkerPolicies(policy);
         try {
             service.start(gpu.deviceId(), "pearl");
@@ -214,6 +215,7 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
                 null, null, 16, null, null, true, null)));
         AutoTuningSessionService service = new AutoTuningSessionService(mining, power, tuning, store, lock,
                 miners, 85, 0);
+        service.setThermalClock(ThermalTestEvidence.clock());
         try {
             assertTrue(service.start("GPU-a", "pearl").running());
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
@@ -223,7 +225,8 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
             assertEquals(6, store.measurements().stream().filter(row -> "RESULT".equals(row.type())
                     && !"earlier-run".equals(row.runId())).count());
             assertEquals(18, store.measurements().stream().filter(row -> "SEARCH_RESULT".equals(row.type())).count());
-            assertEquals(480, store.measurements().stream().filter(row -> "SAMPLE".equals(row.type())).count());
+            assertTrue(store.measurements().stream().filter(row -> "SAMPLE".equals(row.type())).count() > 480);
+            assertTrue(store.measurements().stream().filter(row -> "RESULT".equals(row.type()) && !"earlier-run".equals(row.runId()) && Boolean.TRUE.equals(row.stable())).allMatch(row -> row.thermalValidation() != null && row.thermalValidation().safeFor(85)));
             assertTrue(store.measurements().stream().filter(row -> "RESULT".equals(row.type())
                     && !"earlier-run".equals(row.runId())).allMatch(row -> row.validSamples() == 32));
             ArgumentCaptor<Integer> firstCore = ArgumentCaptor.forClass(Integer.class);
@@ -269,6 +272,7 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
                 directory.resolve("nvidia-profiles.json").toString());
         AutoTuningSessionService service = new AutoTuningSessionService(mining, power, tuning, store, lock,
                 miners, 85, 0);
+        service.setThermalClock(ThermalTestEvidence.clock());
         try {
             assertTrue(service.start("GPU-n", "pearl").running());
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
@@ -330,6 +334,7 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
                 directory.resolve("memory-fallback-profiles.json").toString());
         AutoTuningSessionService service = new AutoTuningSessionService(mining, power, tuning, store, lock,
                 miners, 85, 0);
+        service.setThermalClock(ThermalTestEvidence.clock());
         try {
             assertTrue(service.start("GPU-2080", "pearl").running());
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
@@ -408,6 +413,7 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
                 directory.resolve("offset-ineffective-profiles.json").toString());
         AutoTuningSessionService service = new AutoTuningSessionService(mining, power, tuning, store, lock,
                 miners, 85, 0);
+        service.setThermalClock(ThermalTestEvidence.clock());
         try {
             assertTrue(service.start("GPU-offset", "pearl").running());
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
@@ -470,6 +476,7 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
                 directory.resolve("hung-gpu-profiles.json").toString());
         AutoTuningSessionService service = new AutoTuningSessionService(mining, power, tuning, store, lock,
                 miners, 85, 0);
+        service.setThermalClock(ThermalTestEvidence.clock());
         try {
             service.start("GPU-titan", "pearl");
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
@@ -526,9 +533,10 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
         Path file = directory.resolve("confirmation-" + failAll + ".json");
         var store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), file.toString());
         var service = new AutoTuningSessionService(mining, power, tuning, store, lock, miners, 85, 0);
+        service.setThermalClock(ThermalTestEvidence.clock());
         when(mining.getWorkerStats()).thenAnswer(invocation -> {
             var session = service.status();
-            boolean confirming = "auto_tuning_phase_confirming".equals(session.phase());
+            boolean confirming = session.sampleCount() == 32;
             boolean lucky = Integer.valueOf(1150).equals(session.currentCoreMhz())
                     && Integer.valueOf(400).equals(session.currentMemoryMhz());
             int cap = session.currentPowerWatts() == null ? 150 : session.currentPowerWatts();
@@ -542,9 +550,9 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
             if (curveGuided) {
                 var curve = new GpuEfficiencyStore.Profile(gpu.deviceId(), gpu.model(), "pearl", "PearlHash", 150,
                         1000d, 120d, 1000d / 120, java.time.Instant.now(), List.of(
-                        new GpuEfficiencyStore.StepResult(100, 900d, 90d, 60d, true, null),
-                        new GpuEfficiencyStore.StepResult(150, 1100d, 140d, 60d, true, null),
-                        new GpuEfficiencyStore.StepResult(200, 1300d, 190d, 60d, true, null)), "srbminer-multi");
+                        de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(100, 900d, 90d, 60d, true, null),
+                        de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(150, 1100d, 140d, 60d, true, null),
+                        de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(200, 1300d, 190d, 60d, true, null)), "srbminer-multi");
                 var result = service.refineWithinSweep(gpu.deviceId(), "pearl", curve, () -> false);
                 assertFalse(result.running());
                 assertEquals("efficiency-sweep", lock.holder());
@@ -626,6 +634,7 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
                 null, null, MinerStats.PoolTelemetry.unavailable())));
         var store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), directory.resolve("owned.json").toString());
         var service = new AutoTuningSessionService(mining, power, tuning, store, lock, miners, 85, 0);
+        service.setThermalClock(ThermalTestEvidence.clock());
         try {
             assertThrows(IllegalStateException.class, () -> service.refineWithinSweep(gpu.deviceId(), "pearl", 150, () -> true));
             assertTrue(lock.tryBegin("efficiency-sweep"));
@@ -661,6 +670,7 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
         when(mining.getWorkerStats()).thenReturn(List.of(starting), List.of(starting), List.of(ready));
         when(power.readTemperatureC(gpu)).thenReturn(60d);
         var service = new AutoTuningSessionService(mining, power, mock(GpuTuningService.class), mock(AutoTuningProfileStore.class), new LocalRunLock(), mock(MinerFactory.class), 85, 0);
+        service.setThermalClock(ThermalTestEvidence.clock());
         try {
             service.awaitNativeCandidate(gpu, de.verdox.solarminer.pcagent.coin.Coin.PEARL, () -> false, System.nanoTime() + 1_000_000_000L);
             verify(mining, times(3)).getWorkerStats();

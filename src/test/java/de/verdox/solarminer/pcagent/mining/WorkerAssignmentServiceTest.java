@@ -327,4 +327,32 @@ class WorkerAssignmentServiceTest {
         assertEquals(MinerStats.MinerStatus.MINING, worker.status());
     }
 
+
+    @Test void thermalRestartPermitIsRevokedByLaterStopsAndConfigurationChanges() {
+        var controls = new AgentControlSettingsService(new ObjectMapper(), directory.resolve("thermal-control.json").toString());
+        controls.setWorkerAssignment("gpu", "pearl", "peakminer");
+        var mining = mock(MiningService.class);
+        when(mining.stopExternalWorker(anyString(), anyString())).thenReturn(true);
+        var service = new WorkerAssignmentService(controls, mining, mock(LocalGpuPowerService.class),
+                mock(MinerCatalogService.class), mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class),
+                mock(PayoutDefaultsService.class), mock(ProxyConfigurationService.class));
+        service.pause("gpu", "Thermal");
+        var permit = service.thermalRestartPermit("gpu");
+        org.junit.jupiter.api.Assertions.assertTrue(permit.getAsBoolean());
+        when(mining.thermalControlRevision("gpu")).thenReturn(1L);
+        org.junit.jupiter.api.Assertions.assertFalse(permit.getAsBoolean(), "A direct remote pause supersedes the cooldown");
+        permit = service.thermalRestartPermit("gpu");
+        service.pause("gpu"); // A later Node pause also supersedes the thermal owner.
+        org.junit.jupiter.api.Assertions.assertFalse(permit.getAsBoolean());
+        permit = service.thermalRestartPermit("gpu");
+        controls.setWorkerManuallyStopped("gpu", true);
+        controls.setWorkerManuallyStopped("gpu", false);
+        org.junit.jupiter.api.Assertions.assertFalse(permit.getAsBoolean());
+        permit = service.thermalRestartPermit("gpu");
+        controls.setWorkerPowerMode("gpu", "EFFICIENCY");
+        org.junit.jupiter.api.Assertions.assertFalse(permit.getAsBoolean());
+        permit = service.thermalRestartPermit("gpu");
+        controls.setWorkerAssignment("gpu", "pearl", "srbminer-multi");
+        org.junit.jupiter.api.Assertions.assertFalse(permit.getAsBoolean());
+    }
 }

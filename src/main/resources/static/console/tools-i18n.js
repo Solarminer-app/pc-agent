@@ -652,6 +652,11 @@ Object.assign(window.OperationsI18n.catalog, {
     "Unabhängige Bestätigung",
     "Independent confirmation",
   ],
+  auto_tuning_phase_thermal_validation: ['Tuning-Einstellung aufwärmen und Temperaturverlauf bestätigen', 'Warming up tuning settings and confirming temperature stability'],
+  benchmark_phase_thermal_validation: ['GPU aufwärmen und Temperaturverlauf unter Last prüfen', 'Warming up GPU and validating temperature stability under load'],
+  benchmark_temperature_not_settled: ['Temperatur unter Last nicht innerhalb von fünf Minuten stabilisiert oder weniger als 3 °C Abstand zur Grenze. Betriebspunkt nicht freigegeben.', 'Loaded temperature did not settle within five minutes or has less than 3 °C headroom. Operating point not approved.'],
+  power_mode_no_validated_point: ['Kein Betriebspunkt mit bestätigter Temperatur-Dauerprüfung verfügbar. Führe einen neuen Power-Sweep oder Auto Tuning aus.', 'No operating point with confirmed sustained temperature validation is available. Run a new power sweep or Auto Tuning.'],
+  power_mode_point_safety_unavailable: ['Gespeicherte Betriebspunkt-Sperren konnten nicht gelesen oder gesichert werden. Prüfe Agent-Dateirechte und Sicherungsdaten.', 'Failed operating point records could not be read or saved. Check Agent file permissions and recovery data.'],
   auto_tuning_phase_complete: [
     "Kalibrierung abgeschlossen",
     "Calibration complete",

@@ -153,6 +153,10 @@ class CoinHoppingServiceTest {
 
         when(overview.settings()).thenReturn(null);
         assertNull(service.candidates("gpu-1", 180).getFirst().profitUsdPerDay());
+        when(profiles.all()).thenReturn(List.of(new GpuEfficiencyStore.Profile("gpu-1", "Test", "quantus", "QPoW (Poseidon2)",
+                180, 100d, 200d, .5, Instant.now(), List.of(new GpuEfficiencyStore.StepResult(180,100d,200d,68d,true,null)))));
+        assertTrue(service.candidates("gpu-1", 180).isEmpty(), "A cold legacy sweep cannot supply automatic settings without duration evidence");
+        assertEquals(1, performance.all().size(), "Historical observations are retained");
     }
 
     @Test
@@ -236,9 +240,9 @@ class CoinHoppingServiceTest {
         var store = new de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore(json, directory.resolve("tuned.json").toString());
         String version = de.verdox.solarminer.pcagent.miner.MinerFactory.minerVersionForSoftware("srbminer-multi");
         for (int watts : List.of(100, 150, 200)) for (int core : List.of(1000, 1300)) {
-            assertTrue(store.appendMeasurement(new de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore.Measurement(
+            assertTrue(store.appendMeasurement(de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.measurement(new de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore.Measurement(
                     "confirmed", now, "gpu-1", "Test", "NVIDIA", "quantus", de.verdox.solarminer.pcagent.coin.Coin.QUANTUS.assignmentAlgorithm(),
-                    "srbminer-multi", version, core, 800, watts, "RESULT", core == 1300 ? 140d : 100d, watts - 10d, 60d, core, 800, 32, 5L, 0L, true, null)));
+                    "srbminer-multi", version, core, 800, watts, "RESULT", core == 1300 ? 140d : 100d, watts - 10d, 60d, core, 800, 32, 5L, 0L, true, null))));
         }
         var sweeps = mock(GpuEfficiencyStore.class);
         when(sweeps.all()).thenReturn(List.of(profile("quantus", "QPoW (Poseidon2)", now, 100, 80, 90, true)));
@@ -279,7 +283,7 @@ class CoinHoppingServiceTest {
         var json = new ObjectMapper().findAndRegisterModules();
         var sweeps = mock(GpuEfficiencyStore.class);
         when(sweeps.all()).thenReturn(List.of(new GpuEfficiencyStore.Profile("gpu", "GTX 1080", "pearl", "PearlHash", 100,
-                1000d, 90d, 1000d/90, now, List.of(new GpuEfficiencyStore.StepResult(100, 1000d, 90d, 60d, true, null)), "peakminer")));
+                1000d, 90d, 1000d/90, now, List.of(de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(100, 1000d, 90d, 60d, true, null)), "peakminer")));
         var gpu = mock(LocalGpuPowerService.Gpu.class);
         when(gpu.deviceId()).thenReturn("gpu"); when(gpu.model()).thenReturn("GTX 1080"); when(gpu.vendor()).thenReturn("NVIDIA");
         when(gpu.supportsDynamicPowerScaling()).thenReturn(true); when(gpu.minWatts()).thenReturn(80); when(gpu.maxWatts()).thenReturn(200);
@@ -315,7 +319,7 @@ class CoinHoppingServiceTest {
                                                        double rate, double watts, boolean stable) {
         return new GpuEfficiencyStore.Profile("gpu-1", "Test", coin, algorithm, stable ? limit : null,
                 stable ? rate : null, stable ? watts : null, stable ? rate / watts : null, testedAt,
-                List.of(new GpuEfficiencyStore.StepResult(limit, rate, watts, 65d, stable, null)));
+                List.of(de.verdox.solarminer.pcagent.mining.measurement.ThermalTestEvidence.step(limit, rate, watts, 65d, stable, null)));
     }
 
     private static MarketDataService.Forecast forecast(String coin, double usdPerDay, Instant updatedAt) {

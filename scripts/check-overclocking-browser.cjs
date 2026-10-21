@@ -80,6 +80,10 @@ const server = http.createServer((req, res) => {
             assert.equal(await gpuPage.locator('header, nav, .app-sidebar').count(), 0);
             await gpuPage.locator('#gpu-chart circle').first().waitFor();
             assert.equal(await gpuPage.locator('#gpu-profiles article').count(), 1);
+            assert.ok(await gpuPage.evaluate(() => document.getElementById('gpu-profiles').textContent.includes(window.SolarMinerI18n.t('lab_thermal_recheck'))), 'Legacy profiles explain the missing sustained validation');
+            sweep = {...sweep, runs: sweep.runs.map(row => row.deviceId === 'gpu0' ? {...row, detail: 'benchmark_phase_thermal_validation'} : row)};
+            await gpuPage.evaluate(() => window.SolarMinerLive.refresh('efficiency'));
+            await gpuPage.waitForFunction(() => document.getElementById('gpu-phase').textContent === window.SolarMinerI18n.t('lab_thermal_validation'));
             await gpuPage.waitForFunction(() => document.body.classList.contains('is-measuring'));
             await gpuPage.locator('#lab-motion').check(); assert.equal(await gpuPage.locator('body.lab-still').count(), 1);
             console.log(language + ': GPU page rendered'); await gpuPage.screenshot({path: `/tmp/oc-gpu-live-${language}.png`, fullPage: true, animations: 'disabled'});

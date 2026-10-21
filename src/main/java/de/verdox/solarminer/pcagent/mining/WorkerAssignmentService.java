@@ -32,6 +32,24 @@ public class WorkerAssignmentService {
     public void setBenchmarkPolicies(de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService policies) {
         this.benchmarkPolicies = policies;
     }
+    private final Map<String, Object> stopGenerations = new java.util.concurrent.ConcurrentHashMap<>();
+    public synchronized java.util.function.BooleanSupplier thermalRestartPermit(String device) {
+        Object generation = stopGenerations.computeIfAbsent(device, ignored -> new Object());
+        var operatorPermit = controls.measurementStartPermit(device);
+        long thermalControlRevision = mining.thermalControlRevision(device);
+        String coin = controls.get().coinFor(device);
+        String miner = controls.get().minerFor(device, null);
+        String mode = controls.get().powerModeFor(device);
+        return () -> stopGenerations.get(device) == generation && operatorPermit.getAsBoolean()
+                && thermalControlRevision == mining.thermalControlRevision(device)
+                && !controls.get().manuallyStopped(device)
+                && java.util.Objects.equals(coin, controls.get().coinFor(device))
+                && java.util.Objects.equals(miner, controls.get().minerFor(device, null))
+                && java.util.Objects.equals(mode, controls.get().powerModeFor(device));
+    }
+    public synchronized boolean restartAfterTemperatureStop(String device, java.util.function.BooleanSupplier permit) {
+        return permit != null && permit.getAsBoolean() && startWithMode(device, true);
+    }
     private final AgentControlSettingsService controls;
     private final MiningService mining;
     private final LocalGpuPowerService gpuPower;
@@ -297,6 +315,7 @@ public class WorkerAssignmentService {
     /** Preserve the actual safety/control cause at the miner console boundary. */
     public synchronized boolean pause(String deviceId, String reason) {
         if (deviceId == null || deviceId.isBlank()) throw new IllegalArgumentException("Gerät wurde nicht erkannt");
+        stopGenerations.put(deviceId, new Object());
         boolean stopped = mining.stopExternalWorker(deviceId, reason);
         if (!stopped) return false;
         if (!WorkerIds.isCpu(deviceId) && workerPowerModes != null
@@ -309,6 +328,7 @@ public class WorkerAssignmentService {
     /** Benchmark cleanup only needs to stop a restored process; start reapplies the saved mode. */
     public synchronized boolean stopForBenchmarkRestart(String deviceId) {
         if (deviceId == null || deviceId.isBlank()) throw new IllegalArgumentException("Gerät wurde nicht erkannt");
+        stopGenerations.put(deviceId, new Object());
         return mining.stopExternalWorker(deviceId, "Benchmark: worker restart / Worker-Neustart");
     }
 

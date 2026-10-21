@@ -130,7 +130,14 @@ public class GpuEfficiencyStore {
 
     public record StepResult(int limitWatts, Double medianHashrateHs, Double avgPowerWatts,
                              Double maxTemperatureC, boolean stable, String note,
-                             Integer observedCoreMhz, Integer observedMemoryMhz) {
+                             Integer observedCoreMhz, Integer observedMemoryMhz,
+                             ThermalStabilityTracker.Evidence thermalValidation) {
+        public StepResult(int limitWatts, Double medianHashrateHs, Double avgPowerWatts,
+                          Double maxTemperatureC, boolean stable, String note,
+                          Integer observedCoreMhz, Integer observedMemoryMhz) {
+            this(limitWatts, medianHashrateHs, avgPowerWatts, maxTemperatureC, stable, note,
+                    observedCoreMhz, observedMemoryMhz, null);
+        }
         public StepResult(int limitWatts, Double medianHashrateHs, Double avgPowerWatts,
                           Double maxTemperatureC, boolean stable, String note) {
             this(limitWatts, medianHashrateHs, avgPowerWatts, maxTemperatureC, stable, note, null, null);
