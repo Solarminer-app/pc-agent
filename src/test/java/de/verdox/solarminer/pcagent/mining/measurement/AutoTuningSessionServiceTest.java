@@ -493,7 +493,14 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
         verifyConfirmation(true);
     }
 
-    private void verifyConfirmation(boolean failAll) throws Exception {
+    @Test
+    void curveGuidedRunProbesNeighborCapsAndConfirmsAllAnchorTiersWithinTheSameLock() throws Exception {
+        verifyConfirmation(false, true);
+    }
+
+    private void verifyConfirmation(boolean failAll) throws Exception { verifyConfirmation(failAll, false); }
+
+    private void verifyConfirmation(boolean failAll, boolean curveGuided) throws Exception {
         MiningService mining = mock(MiningService.class);
         LocalGpuPowerService power = mock(LocalGpuPowerService.class);
         GpuTuningService tuning = mock(GpuTuningService.class);
@@ -512,6 +519,8 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
                 .thenReturn(new GpuTuningService.ApplyResult(true, null));
         when(tuning.restoreDefaults(gpu.deviceId())).thenReturn(new GpuTuningService.ApplyResult(true, null));
         when(lock.tryBeginAutoTuning()).thenReturn(true);
+        when(lock.holder()).thenReturn("efficiency-sweep");
+        when(power.setSweepPowerTarget(anyLong(), any())).thenReturn(true);
         when(miners.minerSoftwareForWorker(any(), eq(gpu.deviceId()))).thenReturn("srbminer-multi");
         when(miners.minerVersionForWorker(any(), eq(gpu.deviceId()))).thenReturn("3.7.3");
         Path file = directory.resolve("confirmation-" + failAll + ".json");
@@ -528,7 +537,17 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
                     null, null, MinerStats.PoolTelemetry.unavailable()));
         });
         try {
-            service.start(gpu.deviceId(), "pearl");
+            if (curveGuided) {
+                var curve = new GpuEfficiencyStore.Profile(gpu.deviceId(), gpu.model(), "pearl", "PearlHash", 150,
+                        1000d, 120d, 1000d / 120, java.time.Instant.now(), List.of(
+                        new GpuEfficiencyStore.StepResult(100, 900d, 90d, 60d, true, null),
+                        new GpuEfficiencyStore.StepResult(150, 1100d, 140d, 60d, true, null),
+                        new GpuEfficiencyStore.StepResult(200, 1300d, 190d, 60d, true, null)), "srbminer-multi");
+                var result = service.refineWithinSweep(gpu.deviceId(), "pearl", curve, () -> false);
+                assertFalse(result.running());
+                assertEquals("efficiency-sweep", lock.holder());
+                verify(lock, never()).endAutoTuning();
+            } else service.start(gpu.deviceId(), "pearl");
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
             while (service.status().running() && System.nanoTime() < deadline) Thread.sleep(10);
             assertFalse(service.status().running());
@@ -542,7 +561,13 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
                 assertEquals("auto_tuning_complete", service.status().phase());
                 assertEquals(100d, service.status().result().hashrateHs());
                 assertTrue(reloaded.all().stream().allMatch(row -> row.stableSamples() == 32 && row.hashrateHs() <= 100));
-                assertEquals(3, reloaded.matrix(gpu.deviceId(), "pearl", "srbminer-multi", "3.7.3", "Test", "AMD").size());
+                assertTrue(reloaded.matrix(gpu.deviceId(), "pearl", "srbminer-multi", "3.7.3", "Test", "AMD").size() >= 3);
+                if (curveGuided) {
+                    var searched = reloaded.measurements().stream().filter(row -> "SEARCH_RESULT".equals(row.type())).toList();
+                    assertTrue(searched.stream().anyMatch(row -> !List.of(100, 150, 200).contains(row.powerLimitWatts())));
+                    assertTrue(searched.stream().allMatch(row -> row.powerLimitWatts() >= 100 && row.powerLimitWatts() <= 200));
+                    assertTrue(reloaded.measurements().stream().filter(row -> "RESULT".equals(row.type())).count() <= 9);
+                }
             }
         } finally { service.shutdown(); }
     }

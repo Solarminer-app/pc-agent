@@ -1,5 +1,8 @@
 /* Independent specialist catalog, extending only the new console's closed catalog. */
 Object.assign(window.OperationsI18n.catalog, {
+  auto_tuning_phase_power_refining: ["Power-Limits um getunte Einstellungen nachprüfen", "Rechecking power limits around tuned settings"],
+  benchmark_optimization_no_safe_curve_points: ["Keine gültigen Sweep-Punkte innerhalb der aktuellen Power- und Temperaturgrenzen.", "No valid sweep points within the current power and temperature limits."],
+
   auto_tuning_phase_starting: ["Miner läuft nach Taktänderung an", "Miner warming up after clock change"],
   tool_pool_balance: ["Pool-Guthaben", "Pool balance"],
   tool_paid: ["Ausgezahlt", "Paid total"],

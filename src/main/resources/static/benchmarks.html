@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/css/agent.css">
     <link rel="stylesheet" href="/css/workspace.css">
     <link rel="stylesheet" href="/css/benchmarks.css?v=20261021-benchmark-workflow">
-    <script src="/js/core/i18n-catalog.js?v=20261021-auto-benchmark" defer></script>
+    <script src="/js/core/i18n-catalog.js?v=20261021-curve-guided-tuning" defer></script>
     <script src="/js/core/i18n.js?v=20261017-node-page-title" defer></script>
     <script src="/js/core/live-data.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/core/components.js?v=20261021-auto-benchmark" defer></script>
@@ -59,7 +59,7 @@
                     <h2 data-i18n="bm_flow_measure">Messen & optimieren</h2></div>
                 <span id="sweep-state" class="tag" data-i18n="ready">Bereit</span></div>
             <p class="muted" data-i18n="bm_sweep_help">Grundlage für die GPU-Profile: Jede ausgewählte GPU misst für ihre Testkombinationen Hashrate und Leistungsaufnahme bei mehreren Power-Limits. CPU-Worker werden hier nicht gemessen.</p><p class="muted" data-i18n="bm_run_summary">Der Lauf verwendet die Testauswahl oben. Die Anzahl gleichzeitig messender GPUs gilt auch für kurze Vergleichsbenchmarks.</p><details class="benchmark-help"><summary data-i18n="benchmark_sweep_how_it_works">So funktioniert der Test</summary><p class="muted" data-i18n="bm_sweep_details">Jede GPU misst eine eigene Power-Kurve je installierter Testkombination. Mit automatischer Optimierung werden zuvor Standardtakte hergestellt und anschließend sichere Takt-/Speichereinstellungen gesucht und länger bestätigt. Gespeicherte stabile Kurven bleiben auch bei fehlgeschlagenem Tuning erhalten. Andere Messläufe und Node-Steuerung bleiben während beider Phasen gesperrt. Danach werden vorherige Power-Limits und Miner-Zustände wiederhergestellt; Takte werden auf Standard zurückgesetzt. Unsichere GPUs bleiben angehalten. Effizienz und Tagesgewinn verwenden die bestätigten Punkte beim nächsten Start bzw. bei der nächsten automatischen Auswertung.</p></details>
-            <label class="benchmark-auto-start"><input id="auto-tune-after-sweep" type="checkbox" checked><span><strong data-i18n="bm_chain_label">Nach dem Power Sweep automatisch optimieren</strong><small data-i18n="bm_chain_help">Testet anschließend Takt und Speicher je Coin-/Miner-Kombination innerhalb deiner Power- und Temperaturgrenzen. Bestätigte Einstellungen stehen danach für Effizienz und Tagesgewinn bereit. Der vollständige Lauf kann mehrere Stunden dauern.</small></span></label>
+            <label class="benchmark-auto-start"><input id="auto-tune-after-sweep" type="checkbox" checked><span><strong data-i18n="bm_chain_label">Nach dem Power Sweep automatisch optimieren</strong><small data-i18n="bm_chain_help">Nutzt effiziente, schnelle und mittlere Sweep-Punkte für das Takt-/Speicher-Tuning und prüft danach benachbarte Power-Limits. Deine Power- und Temperaturgrenzen gelten durchgehend. Bestätigte Einstellungen stehen für Effizienz und Tagesgewinn bereit. Ein vollständiger Lauf kann mehrere Stunden dauern.</small></span></label>
             <button id="run-sweep" class="button primary" type="button" data-i18n="bm_sweep_primary">Power Sweep starten</button>
             <button id="resume-sweep" class="button primary" type="button" hidden data-i18n="resume_interrupted_sweep">Unterbrochenen Sweep fortsetzen</button>
             <button id="sweep-cancel" class="button subtle" type="button" hidden data-i18n="cancel_sweep">Sweep abbrechen</button>

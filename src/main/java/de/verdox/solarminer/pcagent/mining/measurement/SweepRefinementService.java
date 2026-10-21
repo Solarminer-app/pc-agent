@@ -98,7 +98,10 @@ public class SweepRefinementService {
                 throw new IllegalStateException("auto_tuning_selected_control_unavailable");
             }
             miners.setMeasurementContext(gpu.deviceId(), target.coin(), target.softwareId(), "AUTO_TUNING");
-            if (!power.setSweepPowerTarget(baseline.bestStableWatts(), gpu)) throw new IllegalStateException("power_mode_apply_failed");
+            if (gpu.driverDefaultWatts() == null) throw new IllegalStateException("auto_tuning_driver_default_power_unavailable");
+            var plan = SweepTuningPlan.from(baseline, gpu.minWatts(), Math.min(gpu.maxWatts(), gpu.driverDefaultWatts()),
+                    policies.ceiling(gpu.deviceId(), 85));
+            if (!power.setSweepPowerTarget(plan.anchors().getFirst(), gpu)) throw new IllegalStateException("power_mode_apply_failed");
             if (!miner.resumeGpu(gpu.vendor(), gpu.index()))
                 throw new IllegalStateException(Objects.toString(miner.lastError(), "auto_tuning_requires_active_worker"));
             Instant deadline = Instant.now().plusSeconds(240);
@@ -122,7 +125,7 @@ public class SweepRefinementService {
                 if (cancelled.getAsBoolean()) throw new IllegalStateException("auto_tuning_cancelled");
                 try {
                     tuningStarted = true;
-                    result = tuner.refineWithinSweep(gpu.deviceId(), target.coin(), baseline.bestStableWatts(), cancelled);
+                    result = tuner.refineWithinSweep(gpu.deviceId(), target.coin(), baseline, cancelled);
                     break;
                 } catch (IllegalStateException capacity) {
                     if (!"auto_tuning_capacity_reached".equals(capacity.getMessage())) throw capacity;

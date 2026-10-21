@@ -115,8 +115,18 @@ public class AutoTuningSessionService {
     /** Synchronous refinement inside an already exclusive sweep, with no unlock/start gap. */
     Session refineWithinSweep(String deviceId, String coinId, int seedWatts,
                               java.util.function.BooleanSupplier cancelled) {
+        return refineWithinSweep(deviceId, coinId, seedWatts, null, cancelled);
+    }
+
+    Session refineWithinSweep(String deviceId, String coinId, GpuEfficiencyStore.Profile curve,
+                              java.util.function.BooleanSupplier cancelled) {
+        return refineWithinSweep(deviceId, coinId, null, curve, cancelled);
+    }
+
+    private Session refineWithinSweep(String deviceId, String coinId, Integer seedWatts, GpuEfficiencyStore.Profile curve,
+                                      java.util.function.BooleanSupplier cancelled) {
         if (!"efficiency-sweep".equals(runLock.holder())) throw new IllegalStateException("power_mode_busy");
-        RunState state = prepare(deviceId, coinId, seedWatts, true);
+        RunState state = prepare(deviceId, coinId, seedWatts, true, curve);
         state.externalCancel = cancelled;
         try { state.task.run(); }
         catch (RuntimeException recoveryFailure) {
@@ -129,7 +139,12 @@ public class AutoTuningSessionService {
 
     Session sessionForDevice(String deviceId) { return latest.get(deviceId); }
 
-    private synchronized RunState prepare(String deviceId, String coinId, Integer seedWatts, boolean ownedBySweep) {
+    private RunState prepare(String deviceId, String coinId, Integer seedWatts, boolean ownedBySweep) {
+        return prepare(deviceId, coinId, seedWatts, ownedBySweep, null);
+    }
+
+    private synchronized RunState prepare(String deviceId, String coinId, Integer seedWatts, boolean ownedBySweep,
+                                           GpuEfficiencyStore.Profile curve) {
         if (active.containsKey(deviceId)) throw new IllegalStateException("auto_tuning_busy");
         if (active.size() >= concurrency.get()) throw new IllegalStateException("auto_tuning_capacity_reached");
         Coin coin = Coin.byIdOrNull(coinId);
@@ -146,7 +161,10 @@ public class AutoTuningSessionService {
             throw new IllegalStateException("gpu_power_control_unavailable");
         if (gpu.safeTuningMaxWatts() == null)
             throw new IllegalStateException("auto_tuning_driver_default_power_unavailable");
-        int startingWatts = seedWatts == null ? power.configuredPowerLimitWatts(gpu) : seedWatts;
+        SweepTuningPlan powerPlan = curve == null ? null : SweepTuningPlan.from(curve, gpu.minWatts(),
+                gpu.safeTuningMaxWatts(), temperatureCeiling(deviceId));
+        int startingWatts = powerPlan != null ? powerPlan.anchors().getFirst()
+                : seedWatts == null ? power.configuredPowerLimitWatts(gpu) : seedWatts;
         if (startingWatts < gpu.minWatts() || startingWatts > gpu.safeTuningMaxWatts())
             throw new IllegalStateException("auto_tuning_start_target_unsafe");
         if (gpu.currentPowerLimitWatts() > gpu.safeTuningMaxWatts())
@@ -171,6 +189,10 @@ public class AutoTuningSessionService {
             throw new IllegalStateException("auto_tuning_miner_unavailable");
         if (workerPolicies != null && !workerPolicies.measures(deviceId, coin.id(), software))
             throw new IllegalArgumentException("benchmark_combination_invalid");
+        if (curve != null && (!deviceId.equals(curve.deviceId()) || !coin.id().equals(curve.coin())
+                || !coin.matchesAlgorithm(curve.algorithm())
+                || curve.minerSoftwareId() != null && !curve.minerSoftwareId().equals(software)))
+            throw new IllegalArgumentException("benchmark_combination_invalid");
         String softwareVersion = miners.minerVersionForWorker(coin, deviceId);
         MinerNativeTuning nativeTuning = miners.gpuMinerForWorker(coin.id(), deviceId)
                 .filter(MinerNativeTuning.class::isInstance).map(MinerNativeTuning.class::cast).orElse(null);
@@ -190,7 +212,8 @@ public class AutoTuningSessionService {
                 && !caps.memoryClockControl() && offsetRange == null)
             throw new IllegalStateException("auto_tuning_selected_control_unavailable");
         List<BayesianGpuOptimizer.Candidate> candidates = candidates(gpu, caps, observedClocks,
-                startingWatts, offsetRange, selection, probeFixedMemoryWithoutDriverLock);
+                startingWatts, offsetRange, selection, probeFixedMemoryWithoutDriverLock,
+                powerPlan == null ? null : powerPlan.anchors());
         if (candidates.isEmpty()) throw new IllegalStateException("auto_tuning_no_safe_clock_candidates");
         if (selection.power() && candidates.stream().map(BayesianGpuOptimizer.Candidate::powerWatts).distinct().count() < 3)
             throw new IllegalStateException("auto_tuning_power_range_too_narrow");
@@ -206,6 +229,7 @@ public class AutoTuningSessionService {
         latest.put(deviceId, state.session);
         state.ownedBySweep = ownedBySweep;
         state.seedWatts = startingWatts;
+        state.powerPlan = powerPlan;
         GpuTuningService.Capabilities runCaps = caps;
         AutoTuningSelectionStore.Selection runSelection = selection;
         state.task = () -> run(state, gpu, coin, software, softwareVersion, runCaps, observedClocks,
@@ -340,6 +364,7 @@ public class AutoTuningSessionService {
             int candidatesPerTier = Math.max(1, BASE_CANDIDATES / tiers.size());
             List<BayesianGpuOptimizer.Observation> historical = historicalObservations(context, activeCandidates);
             Deque<BayesianGpuOptimizer.Candidate> finalists = null;
+            Deque<BayesianGpuOptimizer.Candidate> powerNeighbors = null;
             for (int index = 0; index < MAX_CANDIDATES; index++) {
                 if (state.cancelled()) break;
                 if (System.nanoTime() >= deadline) throw new IllegalStateException("auto_tuning_time_limit");
@@ -350,17 +375,29 @@ public class AutoTuningSessionService {
                 long confirmationReserve = java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
                         tiers.size() * 3L * CONFIRMATION_SAMPLES * sampleIntervalMillis)
                         + java.util.concurrent.TimeUnit.MINUTES.toNanos(3);
-                if (finalists == null && (index >= MAX_SEARCH_CANDIDATES
-                        || localRefinement && (efficientRegions.isEmpty()
-                        || deadline - System.nanoTime() <= confirmationReserve))) {
-                    finalists = new ArrayDeque<>(confirmationCandidates(observations, activeCandidates));
+                if (state.powerPlan != null && localRefinement && powerNeighbors == null) {
+                    powerNeighbors = new ArrayDeque<>(state.powerPlan.neighbors(observations, activeCandidates, gpu.minWatts(), gpu.safeTuningMaxWatts()));
+                    Set<BayesianGpuOptimizer.Candidate> expanded = new LinkedHashSet<>(activeCandidates);
+                    expanded.addAll(powerNeighbors);
+                    activeCandidates = List.copyOf(expanded);
+                }
+                boolean beginConfirmation = index >= MAX_SEARCH_CANDIDATES || localRefinement
+                        && (deadline - System.nanoTime() <= confirmationReserve
+                        || (state.powerPlan != null ? powerNeighbors.isEmpty() : efficientRegions.isEmpty()));
+                if (finalists == null && beginConfirmation) {
+                    finalists = new ArrayDeque<>(state.powerPlan == null ? confirmationCandidates(observations, activeCandidates)
+                            : state.powerPlan.finalists(observations, activeCandidates));
                     update(state, state.session.withCandidateCount(measuredCandidates + finalists.size()));
                 }
                 boolean confirming = finalists != null;
+                boolean checkingPower = !confirming && state.powerPlan != null && localRefinement;
                 BayesianGpuOptimizer.Candidate candidate;
                 if (confirming) {
                     candidate = finalists.pollFirst();
                     if (candidate == null) break;
+                } else if (checkingPower) {
+                    update(state, state.session.withCandidateCount(MAX_CANDIDATES));
+                    candidate = powerNeighbors.removeFirst();
                 } else {
                     if (localRefinement)
                         update(state, state.session.withCandidateCount(MAX_CANDIDATES));
@@ -392,6 +429,7 @@ public class AutoTuningSessionService {
                 int sampleCount = confirming ? CONFIRMATION_SAMPLES : SAMPLES_PER_CANDIDATE;
                 String resultType = confirming ? "RESULT" : "SEARCH_RESULT";
                 update(state, state.session.withCandidate(candidate, ++measuredCandidates, sampleCount, confirming));
+                if (checkingPower) update(state, state.session.withPhase("auto_tuning_phase_power_refining"));
                 MinerNativeTuning nativeTuning = miners.gpuMinerForWorker(coin.id(), gpu.deviceId())
                         .filter(MinerNativeTuning.class::isInstance).map(MinerNativeTuning.class::cast).orElse(null);
                 boolean useMinerCommands = nativeTuning != null && "NVIDIA".equalsIgnoreCase(gpu.vendor());
@@ -432,7 +470,9 @@ public class AutoTuningSessionService {
                                 caps.coreClockControl(), false, caps.voltageControl(), caps.coreMinMhz(), caps.coreMaxMhz(),
                                 caps.memoryMinMhz(), caps.memoryMaxMhz(), caps.reason(), caps.supportedPairs());
                         activeCandidates = candidates(gpu, coreOnly, observedClocks, startingWatts,
-                                null, selection, probeFixedMemoryWithoutDriverLock);
+                                null, selection, probeFixedMemoryWithoutDriverLock,
+                                state.powerPlan == null ? null : state.powerPlan.anchors());
+                        if (powerNeighbors != null) powerNeighbors.clear();
                         historical = historicalObservations(context, activeCandidates);
                         if (finalists != null) finalists.retainAll(activeCandidates);
                     }
@@ -461,7 +501,9 @@ public class AutoTuningSessionService {
                             caps.coreClockControl(), false, caps.voltageControl(), caps.coreMinMhz(), caps.coreMaxMhz(),
                             caps.memoryMinMhz(), caps.memoryMaxMhz(), caps.reason(), caps.supportedPairs());
                     activeCandidates = candidates(gpu, coreOnly, observedClocks, startingWatts,
-                            null, selection, probeFixedMemoryWithoutDriverLock);
+                            null, selection, probeFixedMemoryWithoutDriverLock,
+                            state.powerPlan == null ? null : state.powerPlan.anchors());
+                    if (powerNeighbors != null) powerNeighbors.clear();
                     if (activeCandidates.isEmpty()) throw new IllegalStateException("auto_tuning_no_safe_clock_candidates");
                     historical = historicalObservations(context, activeCandidates);
                     if (finalists != null) finalists.retainAll(activeCandidates);
@@ -726,6 +768,7 @@ public class AutoTuningSessionService {
         private volatile Session session;
         private boolean ownedBySweep;
         private int seedWatts;
+        private SweepTuningPlan powerPlan;
         private Runnable task;
         private java.util.function.BooleanSupplier externalCancel = () -> false;
         private boolean cancelled() { return cancel.get() || externalCancel.getAsBoolean(); }
@@ -771,13 +814,20 @@ public class AutoTuningSessionService {
                                                             GpuTuningService.MemoryOffsetRange offsetRange,
                                                             AutoTuningSelectionStore.Selection selection,
                                                             boolean probeFixedMemoryWithoutDriverLock) {
+        return candidates(gpu, caps, observedClocks, startWatts, offsetRange, selection, probeFixedMemoryWithoutDriverLock, null);
+    }
+
+    private static List<BayesianGpuOptimizer.Candidate> candidates(LocalGpuPowerService.Gpu gpu,
+            GpuTuningService.Capabilities caps, GpuTuningService.ClockTelemetry observedClocks, int startWatts,
+            GpuTuningService.MemoryOffsetRange offsetRange, AutoTuningSelectionStore.Selection selection,
+            boolean probeFixedMemoryWithoutDriverLock, List<Integer> measuredPowerTiers) {
         Integer safeMaxWatts = gpu.safeTuningMaxWatts();
         if (safeMaxWatts == null || safeMaxWatts < gpu.minWatts()) return List.of();
         List<Integer> cores = values(selection.core() && caps.coreClockControl(), caps.coreMinMhz(), caps.coreMaxMhz());
         List<Integer> memories = values(selection.memory() && caps.memoryClockControl(), caps.memoryMinMhz(), caps.memoryMaxMhz());
         if (startWatts < gpu.minWatts() || startWatts > safeMaxWatts) return List.of();
-        List<Integer> power = selection.power() ? powerTiers(gpu.minWatts(), startWatts, safeMaxWatts)
-                : List.of(startWatts);
+        List<Integer> power = selection.power() ? measuredPowerTiers == null
+                ? powerTiers(gpu.minWatts(), startWatts, safeMaxWatts) : measuredPowerTiers : List.of(startWatts);
         if (power.isEmpty()) return List.of();
         Set<BayesianGpuOptimizer.Candidate> unique = new LinkedHashSet<>();
         if (!selection.core() && !selection.memory()) {
@@ -863,7 +913,7 @@ public class AutoTuningSessionService {
             unique.add(new BayesianGpuOptimizer.Candidate(core, memory, power.get(k),
                     core == null ? 0 : position(core, caps.coreMinMhz(), caps.coreMaxMhz()),
                     memory == null ? 0 : position(memory, caps.memoryMinMhz(), caps.memoryMaxMhz()),
-                    selection.power() ? k / 2d : 0));
+                    selection.power() ? position(power.get(k), gpu.minWatts(), safeMaxWatts) : 0));
         }
         return List.copyOf(unique);
     }

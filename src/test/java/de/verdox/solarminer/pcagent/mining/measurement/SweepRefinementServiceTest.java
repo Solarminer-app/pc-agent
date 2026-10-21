@@ -20,7 +20,10 @@ class SweepRefinementServiceTest {
     final GpuCoinMiner miner = mock(GpuCoinMiner.class, withSettings().extraInterfaces(MinerNativeTuning.class));
     final LocalGpuPowerService.Gpu gpu = new LocalGpuPowerService.Gpu("AMD", 0, "gpu", "Test", 80, 200, 80, 180, 150, 120d, "measured", true, null, 200);
     final EfficiencySweepService.Target target = new EfficiencySweepService.Target("pearl", "PearlHash", gpu, null, "srbminer-multi");
-    final GpuEfficiencyStore.Profile baseline = new GpuEfficiencyStore.Profile("gpu", "Test", "pearl", "PearlHash", 150, 1000d, 120d, 1000d/120, Instant.now(), List.of(), "srbminer-multi");
+    final GpuEfficiencyStore.Profile baseline = new GpuEfficiencyStore.Profile("gpu", "Test", "pearl", "PearlHash", 150, 1000d, 120d, 1000d/120, Instant.now(), List.of(
+            new GpuEfficiencyStore.StepResult(100, 600d, 90d, 60d, true, null),
+            new GpuEfficiencyStore.StepResult(150, 1000d, 120d, 60d, true, null),
+            new GpuEfficiencyStore.StepResult(180, 1100d, 170d, 60d, true, null)), "srbminer-multi");
     final SweepRefinementService service = new SweepRefinementService(tuner, miners, power, clocks, policies, mock(AutoTuningProfileStore.class));
     SweepRefinementServiceTest() {
         when(miners.gpuMiner(Coin.PEARL, "srbminer-multi")).thenReturn(miner);
@@ -32,6 +35,7 @@ class SweepRefinementServiceTest {
         when(power.setSweepPowerTarget(150, gpu)).thenReturn(true);
         when(power.readTemperatureC(gpu)).thenReturn(60d);
         when(policies.temperatureSafe("gpu", 60d, 85)).thenReturn(true);
+        when(policies.ceiling("gpu", 85)).thenReturn(85d);
         when(miner.workerStats(anyList())).thenReturn(List.of(new MinerStats.Worker(MinerStats.MinerStatus.MINING,
                 "Test", "PearlHash", 1000d/1e12, 60, 150, 80, 150, 180, 120, List.of(), "GPU", "Test", "gpu", null, null, MinerStats.PoolTelemetry.unavailable())));
         service.begin(true, List.of(target), false);
@@ -40,13 +44,13 @@ class SweepRefinementServiceTest {
         var result = mock(AutoTuningSessionService.Session.class);
         when(result.phase()).thenReturn("auto_tuning_complete");
         when(result.result()).thenReturn(mock(AutoTuningProfileStore.Profile.class));
-        when(tuner.refineWithinSweep(eq("gpu"), eq("pearl"), eq(150), any())).thenReturn(result);
+        when(tuner.refineWithinSweep(eq("gpu"), eq("pearl"), eq(baseline), any())).thenReturn(result);
         assertFalse(service.refine(target, baseline, () -> false));
         assertEquals("COMPLETE", service.status().runs().getFirst().state());
         var order = inOrder(power, miner, tuner, clocks);
         order.verify(power).setSweepPowerTarget(150, gpu);
         order.verify(miner).resumeGpu("AMD", 0);
-        order.verify(tuner).refineWithinSweep(eq("gpu"), eq("pearl"), eq(150), any());
+        order.verify(tuner).refineWithinSweep(eq("gpu"), eq("pearl"), eq(baseline), any());
         order.verify(miner).stopGpu("AMD", 0);
         order.verify((MinerNativeTuning)miner).clearNativeTuning(gpu);
         order.verify(clocks).restoreDefaults("gpu");
@@ -78,7 +82,7 @@ class SweepRefinementServiceTest {
     @Test void failedStopIsUnsafeAndNeverClearsNativeSettings() {
         var result = mock(AutoTuningSessionService.Session.class);
         when(result.phase()).thenReturn("auto_tuning_cancelled");
-        when(tuner.refineWithinSweep(eq("gpu"), eq("pearl"), eq(150), any())).thenReturn(result);
+        when(tuner.refineWithinSweep(eq("gpu"), eq("pearl"), eq(baseline), any())).thenReturn(result);
         when(miner.stopGpu("AMD", 0)).thenReturn(false);
         assertTrue(service.refine(target, baseline, () -> false));
         assertEquals("benchmark_stop_failed", service.status().runs().getFirst().detail());

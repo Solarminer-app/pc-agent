@@ -17,6 +17,9 @@
 // data-i18n-aria-label; the German text inside the markup is only the no-JS fallback.
 window.SolarMinerI18nCatalog = {
     frontend: {
+        "auto_tuning_phase_power_refining": {"de": "Power-Limits um getunte Einstellungen nachprüfen", "en": "Rechecking power limits around tuned settings"},
+        "benchmark_optimization_no_safe_curve_points": {"de": "Keine gültigen Sweep-Punkte innerhalb der aktuellen Power- und Temperaturgrenzen.", "en": "No valid sweep points within the current power and temperature limits."},
+
         "auto_tuning_phase_starting": {de:"Miner läuft nach Taktänderung an", en:"Miner warming up after clock change"},
         "benchmark_optimization_nothing_to_resume": {de:"Es gibt keinen unterbrochenen Mess- oder Optimierungslauf zum Fortsetzen.", en:"There is no interrupted measurement or optimization run to resume."},
         "worker_agent_label": {de:"Agent", en:"Agent"},
@@ -27,7 +30,7 @@ window.SolarMinerI18nCatalog = {
         "worker_measurement_saved_assignment": {de:"Gespeichert: {coin} · {miner}", en:"Saved: {coin} · {miner}"},
         "worker_measurement_waiting_telemetry": {de:"Wartet auf Miner-Telemetrie", en:"Waiting for miner telemetry"},
         "bm_chain_label": {"de": "Nach dem Power Sweep automatisch optimieren", "en": "Automatically optimize after the power sweep"},
-        "bm_chain_help": {"de": "Testet anschließend Takt und Speicher je Coin-/Miner-Kombination innerhalb deiner Power- und Temperaturgrenzen. Bestätigte Einstellungen stehen danach für Effizienz und Tagesgewinn bereit. Der vollständige Lauf kann mehrere Stunden dauern.", "en": "Then tests clocks and memory for each coin/miner combination within your power and temperature limits. Confirmed settings become available for efficiency and daily profit. A full run can take several hours."},
+        "bm_chain_help": {"de": "Nutzt effiziente, schnelle und mittlere Sweep-Punkte für das Takt-/Speicher-Tuning und prüft danach benachbarte Power-Limits. Deine Power- und Temperaturgrenzen gelten durchgehend. Bestätigte Einstellungen stehen für Effizienz und Tagesgewinn bereit. Ein vollständiger Lauf kann mehrere Stunden dauern.", "en": "Uses efficient, fast and intermediate sweep points for clock/memory tuning, then rechecks neighboring power limits. Your power and temperature limits apply throughout. Confirmed settings become available for efficiency and daily profit. A full run can take several hours."},
         "bm_optimization_start": {"de": "Messen & automatisch optimieren", "en": "Measure & optimize automatically"},
         "bm_optimization_progress": {"de": "Automatische Nachoptimierung", "en": "Automatic refinement"},
         "bm_optimization_candidate": {"de": "Einstellung {current}/{total} · Messwerte {samples}/{required}", "en": "Setting {current}/{total} · Samples {samples}/{required}"},
