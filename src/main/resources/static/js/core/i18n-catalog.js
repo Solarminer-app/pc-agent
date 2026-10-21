@@ -17,6 +17,9 @@
 // data-i18n-aria-label; the German text inside the markup is only the no-JS fallback.
 window.SolarMinerI18nCatalog = {
     frontend: {
+        "curve_results_title": {de:"Ergebnisse: Hashrate und Watt", en:"Results: hashrate and watts"},
+        "curve_measured_watts": {de:"Gemessene Leistungsaufnahme (W)", en:"Measured power draw (W)"},
+        "curve_telemetry_hint": {de:"Messfenster je Software in Messreihenfolge: Sweep und Tuning werden getrennt dargestellt. Werte sind je Fenster zusammengefasst, die Temperatur ist der Höchstwert. Fehlende Sensorwerte bleiben frei; Solltakte und Speicher-Offsets stehen in den Ergebnisdetails.", en:"Measurement windows in collection order per software: sweep and tuning are shown separately. Values summarize each window; temperature is the maximum. Missing sensor values stay empty; target clocks and memory offsets appear in the result details."},
         "curve_stage_operating": {de:"Gewählter Betriebspunkt", en:"Selected operating point"},
         "curve_selected_profile": {de:"Gewähltes Betriebsprofil", en:"Selected operating profile"},
         "curve_clock_view": {"de": "Taktanzeige", "en": "Clock display"},
@@ -45,7 +48,7 @@ window.SolarMinerI18nCatalog = {
         "curve_waiting": {"de": "Noch keine gültigen Kurvenpunkte für diese GPU und diesen Coin. Neue Sweep- und Tuner-Messungen erscheinen automatisch.", "en": "No valid curve points for this GPU and coin yet. New sweep and tuner measurements appear automatically."},
         "curve_core": {"de": "Gemessener Kerntakt", "en": "Measured core clock"},
         "curve_memory": {"de": "Gemessener Speichertakt", "en": "Measured memory clock"},
-        "curve_accessible": {"de": "Power-Limit, Effizienz sowie Kern- und Speichertakt. Messpunkte per Tastatur oder Klick auswählen.", "en": "Power limit, efficiency, core and memory clocks. Select measurement points with the keyboard or by clicking."},
+        "curve_accessible": {"de": "Hashrate über gemessener Leistungsaufnahme. Messpunkte per Tastatur oder Klick auswählen.", "en": "Hashrate versus measured power draw. Select measurement points with the keyboard or by clicking."},
         "curve_clock_axis": {"de": "Kern / Speicher · MHz", "en": "Core / memory · MHz"},
         "curve_clocks_missing": {"de": "Keine Taktmesswerte", "en": "No clock readings"},
         "curve_tuning": {"de": "Tuning", "en": "Tuning"},
@@ -58,7 +61,7 @@ window.SolarMinerI18nCatalog = {
         "curve_point_evidence": {"de": "{samples} gültige Messwerte · {state}", "en": "{samples} valid samples · {state}"},
         "curve_confirmed": {"de": "Bestätigter Tuning-Punkt", "en": "Confirmed tuning point"},
         "curve_unconfirmed": {"de": "Kein bestätigtes Taktprofil", "en": "Not a confirmed clock profile"},
-        "curve_explanation": {"de": "Links: Hashrate pro Watt. Rechts: gemessene Takte in MHz. Große umrandete Punkte sind Tuning-Bestätigungen, kleine Punkte Suchwerte; laufende Messungen sind vorläufig. Taktlinien folgen je Power-Limit dem besten bestätigten, sonst einem Such- oder Basispunkt. Klick oder Tastatur zeigt die genauen Werte. Fehlende Takte und reine Speicher-Offsets werden nicht als absolute MHz eingezeichnet.", "en": "Left: hashrate per watt. Right: observed clocks in MHz. Large outlined points are tuning confirmations; small points are search measurements, and in-progress measurements are provisional. Clock lines follow the best confirmed point at each power limit, otherwise a search or baseline point. Click or use the keyboard for exact values. Missing clocks and memory offsets alone are not plotted as absolute MHz."},
+        "curve_explanation": {"de": "Horizontal: gemessene Watt. Vertikal: Hashrate. Große umrandete Punkte sind Tuning-Bestätigungen, kleine Punkte Suchwerte; laufende Messungen sind vorläufig. Klick oder Tastatur zeigt Effizienz, Power-Limit sowie gemessene und angeforderte Takte getrennt.", "en": "Horizontal: measured watts. Vertical: hashrate. Large outlined points are tuning confirmations; small points are search measurements, and ongoing measurements are provisional. Click or use the keyboard for efficiency, power limit and separate observed and requested clocks."},
         "curve_load_failed": {"de": "Tuner-Messwerte konnten nicht aktualisiert werden. Bereits geladene Werte bleiben sichtbar.", "en": "Could not refresh tuner measurements. Previously loaded values remain visible."},
 
         "auto_tuning_phase_power_refining": {"de": "Power-Limits um getunte Einstellungen nachprüfen", "en": "Rechecking power limits around tuned settings"},

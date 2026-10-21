@@ -491,3 +491,25 @@ vergleichbare GPU-Teilmenge und nennen fehlende Worker/Agenten. Der Vergleich
 ändert weder Worker-Zuordnungen noch erlaubte Coin-/Miner-Wechsel. Rohdaten
 bleiben aufklappbar. UI, Fehler und Bedienhilfen sind DE/EN; externe Miner-Namen,
 Versionskennungen und Hardware-Bezeichnungen bleiben unverändert.
+
+### Separate telemetry and results / Getrennte Telemetrie und Ergebnisse (2026-10-21)
+
+English: This supersedes the combined efficiency/clock graph description.
+`benchmarks.html` now shows five independent telemetry plots (observed core,
+observed memory, maximum temperature, measured watts, hashrate), with separate
+scales and collection order per software/sweep or tuning series. The compact
+curve endpoint supplies measurement-window summaries, not a raw sensor timeline.
+Missing sensor values stay absent and break lines; targets/offsets are never
+substituted for observed clocks. Both measurement and results pages plot raw
+hashrate against measured watts. Click/keyboard details retain efficiency,
+requested cap, observed clocks and separate requested settings. GPU/coin scope,
+confirmation stages and exact profile highlighting remain intact.
+
+Deutsch: Dies ersetzt die Beschreibung des gemeinsamen Effizienz-/Taktdiagramms.
+Die Messseite zeigt fünf einzelne Telemetriegraphen für gemessenen Kern-/
+Speichertakt, maximale Temperatur, Watt und Hashrate mit eigenen Skalen in
+Messreihenfolge je Software und Sweep-/Tuning-Reihe. Die Daten sind zusammengefasste
+Messfenster, keine rohe Sensorzeitreihe. Fehlende Sensorwerte unterbrechen Linien;
+Sollwerte und Offsets ersetzen keine Messwerte. Mess- und Ergebnisseite zeigen
+Hashrate über gemessenen Watt; Effizienz und getrennte Ist-/Sollwerte bleiben per
+Klick oder Tastatur abrufbar. GPU-/Coin-Auswahl und Profilmarkierungen bleiben erhalten.

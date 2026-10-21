@@ -1008,14 +1008,14 @@ function renderLiveSweepChart(runs, running, saved = false) {
         id:run.id,source:'SWEEP',software:run.minerSoftwareId || run.softwareId,
         label:`${run.minerSoftwareId || run.softwareId || '—'} · ${t('coin_hopping_source_sweep')}`,
         points:(run.steps || []).map(step=>({power:step.limitWatts,hashrate:step.medianHashrateHs,watts:step.avgPowerWatts,
-            core:step.observedCoreMhz,memory:step.observedMemoryMhz,stable:step.stable,stage:'SWEEP'}))
+            core:step.observedCoreMhz,memory:step.observedMemoryMhz,temperature:step.maxTemperatureC,stable:step.stable,stage:'SWEEP'}))
     }));
     for(const software of new Set(tuning.filter(point=>point.coin===coin).map(point=>point.softwareId))) series.push({
         id:`tuning|${device}|${coin}|${software}`,source:'TUNING',software,label:`${software} · ${t('curve_tuning')}`,
         points:tuning.filter(point=>point.coin===coin&&point.softwareId===software).map(point=>({
             power:point.limitWatts,hashrate:point.hashrateHs,watts:point.measuredWatts,core:point.coreMhz,memory:point.memoryMhz,
             targetCore:point.targetCoreMhz,targetMemory:point.targetMemoryMhz,offset:point.memoryOffsetMhz,pstate:point.memoryOffsetPstate,
-            stage:point.stage,stable:point.stable,samples:point.samples}))
+            temperature:point.temperatureC,stage:point.stage,stable:point.stable,samples:point.samples}))
     });
     // Economic winners may come from an earlier confirmed run; keep their exact stored point visible.
     if(resultsPage) {
@@ -1038,7 +1038,7 @@ function renderLiveSweepChart(runs, running, saved = false) {
     const signature=JSON.stringify({device,coin,series,focusedCurvePoint,error:cache?.error});
     if(signature===lastLiveSweepSignature)return;lastLiveSweepSignature=signature;
     root.hidden=false;
-    window.SolarMinerBenchmarkCurve.render(root,{series,highlight:focusedCurvePoint});
+    window.SolarMinerBenchmarkCurve.render(root,{series,highlight:focusedCurvePoint,telemetry:!resultsPage});
     if(cache?.error)root.append(make('p','muted',t('curve_load_failed')));
 }
 

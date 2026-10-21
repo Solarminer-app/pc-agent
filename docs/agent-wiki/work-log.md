@@ -3994,6 +3994,34 @@ und Sprachprüfungen bestanden. Physische Taktwirkung, Mehrkarten-Zuordnung,
 Wiederherstellung und Pool-/Fee-Nachweise bleiben offen; BUG-011 bleibt offen.
 Andere Repositories und gemeinsame Verträge sind nicht betroffen.
 
+## 2026-10-21 — SRBMiner-MULTI worker temperature fallback / Temperatur-Fallback für SRBMiner-MULTI-Worker
+
+- Diagnosis: SRBMiner-MULTI worker statistics publish `0 °C` when its API has
+  no per-GPU temperature. `WorkerAssignmentService` previously considered only
+  non-finite values missing, so it did not query the already available local
+  GPU driver telemetry. PeakMiner was unaffected because it reports its own
+  API temperature.
+- Remedy: a non-positive GPU miner temperature now means unavailable and is
+  filled from `LocalGpuPowerService.readTemperatureC` when that driver reading
+  exists. Valid positive miner-native values remain authoritative; an
+  unavailable driver value remains unavailable rather than being fabricated.
+  This is local worker read-model behavior only: no Node/LAN wire contract,
+  miner launch command, pool, fee, currency, ASIC or release-channel behavior
+  changed.
+- Verification: focused `WorkerAssignmentServiceTest` passed with JDK 21 and
+  `--offline`; the new regression case covers a mining SRBMiner Quantus worker
+  with `0 °C` and verifies the displayed `63.5 °C` driver fallback. `git diff
+  --check` passed. No UI text, API error, accessibility label or log shown to
+  operators was added or changed, so the DE/EN catalog and locale behavior are
+  unaffected. Live driver/SRBMiner hardware verification remains open.
+
+Deutsch: SRBMiner-MULTI liefert ohne API-Temperatur `0 °C`. Die Worker-Ansicht
+behandelt diesen Wert nun als fehlend und ergänzt nur dann den echten lokalen
+Treiberwert. Positive Minerwerte bleiben maßgeblich; fehlende Treiberwerte
+werden weiterhin nicht geschätzt. Der fokussierte Regressionstest und die
+Diff-Prüfung waren erfolgreich; ein Live-Test mit SRBMiner und GPU-Treiber
+bleibt offen.
+
 
 ## 2026-10-21 — Paused-worker power-sweep starts / Sweep-Start pausierter Worker
 
@@ -4027,3 +4055,22 @@ DE/EN-Kataloge, Sprachwechsel-/Renderprüfung und Literalprüfung bestanden.
 Keine neuen UI-Texte. Reale Hardware-/Poolprüfung und Bereitstellung stehen aus.
 Parallel laufende Workspace-Aktivität hat bereits geänderte Dateien eingecheckt;
 dieser Task hat keinen Commit-/Push-Befehl ausgeführt.
+
+### 2026-10-21 — Separate benchmark telemetry and result graph / Getrennte Benchmark-Graphen
+
+- English: Replaced the combined efficiency/clock overlay with five responsive
+  telemetry cards on the measurement page and a hash-versus-measured-watts
+  result graph on both benchmark pages. Details retain efficiency and separate
+  observed/requested settings; exact profile highlighting remains available.
+  Telemetry uses existing summarized measurement windows, preserves missing
+  readings and separates software/sweep/tuning series. No API changes.
+- Deutsch: Fünf eigene Telemetriegraphen zeigen Kern-/Speichertakt, maximale
+  Temperatur, Leistungsaufnahme und Hashrate. Der Ergebnisgraph verwendet
+  gemessene Watt und Hashrate. Effizienz sowie getrennte Ist-/Sollwerte bleiben
+  auswählbar. Fehlende Werte bleiben frei; keine API-Änderung.
+- Verification / Verifikation: DE/EN catalogue, literal and full-page render
+  checks passed. Synthetic Playwright coverage passed for twelve-GPU selection,
+  independent telemetry scales, result coordinates using measured watts/raw
+  hashrate, live updates, keyboard detail selection, exact profile highlighting
+  and DE/EN result/fleet mobile layout. No miner or GPU writes performed.
+  All new copy is localized; no new external text was introduced.

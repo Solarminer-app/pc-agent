@@ -75,18 +75,27 @@ const server=http.createServer((req,res)=>{const file=path.resolve(root,'.'+new 
       await page.locator('.benchmark-worker-card[data-worker="gpu8"] [data-worker-expand]').click();
       assert.equal(await page.locator('.benchmark-worker-card.editing').count(),1);
       await page.locator('#worker-search').fill('');
-      await page.waitForSelector('.curve-core-line');await page.waitForSelector('.curve-memory-line');
+      await page.waitForSelector('.benchmark-telemetry-card');
+      assert.equal(await page.locator('.benchmark-telemetry-card').count(),5);
+      assert.equal(await page.locator('.curve-core-line,.curve-memory-line,.curve-clock-control').count(),0);
+      assert.match(await page.locator('#sweep-live-chart > svg').textContent(),language==='de'?/Gemessene Leistungsaufnahme/:/Measured power draw/);
+      const resultPoint=page.locator('.curve-stage-SAMPLE');
+      // x uses measured watts (110), y uses raw hashrate (1250), not efficiency.
+      assert(Math.abs(Number(await resultPoint.getAttribute('cx'))-410)<1);
+      assert(Math.abs(Number(await resultPoint.getAttribute('cy'))-(330-1250/(1400*1.15)*298))<1);
       await page.waitForSelector('.curve-stage-SAMPLE');
       assert.equal(await page.locator('.curve-stage-SAMPLE').count(),1);
       await page.locator('.curve-stage-SAMPLE').focus();
       assert.match(await page.locator('.curve-point-detail').textContent(),/1280|1[.,]280/);
       assert.match(await page.locator('.curve-point-detail').textContent(),/1300|1[.,]300/,'Show target separately from observed clock');
-      await page.locator('.curve-clock-control select').selectOption('targets');
-      assert.match(await page.locator('#sweep-live-chart svg').textContent(), language==='de'?/Solltakte/:/Target clocks/);
-      await page.locator('.curve-clock-control select').selectOption('observed');
       liveRate=1600;await page.waitForFunction(()=>[...document.querySelectorAll('.curve-stage-SAMPLE')].some(p=>p.getAttribute('aria-label').includes('1.6')||p.getAttribute('aria-label').includes('1,6')),{},{timeout:12000});
       await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0);});
       await page.screenshot({path:`/tmp/benchmark-multi-gpu-${language}.png`,fullPage:true});
+      await page.setViewportSize({width:390,height:844});
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Benchmark page must fit mobile viewport');
+      assert(await page.locator('.benchmark-telemetry-card svg').first().evaluate(el=>el.getBoundingClientRect().width<390),'Telemetry plots must fit their cards');
+      await page.screenshot({path:`/tmp/benchmark-telemetry-mobile-${language}.png`,fullPage:true});
+      await page.setViewportSize({width:1440,height:1000});
       await page.goto(origin+'/benchmark-results.html');
       await page.waitForSelector('.profile-result-profit[data-miner="peakminer"]');
       assert.equal(await page.locator('.profile-result').count(),2);
@@ -116,6 +125,6 @@ const server=http.createServer((req,res)=>{const file=path.resolve(root,'.'+new 
       assert.deepEqual(errors,[]);
       await context.close();
     }
-    console.log('PASS: 12 GPU scope/filtering/loading, combined live clock curves, independent best-miner profiles, exact point highlighting, fair fleet coverage and DE/EN mobile layout.');
+    console.log('PASS: 12 GPU scope/filtering/loading, separate telemetry and measured-watts/hashrate results, independent best-miner profiles, exact point highlighting, fair fleet coverage and DE/EN mobile layout.');
   }finally{await browser.close();server.close();}
 })().catch(error=>{console.error(error);server.close();process.exitCode=1;});

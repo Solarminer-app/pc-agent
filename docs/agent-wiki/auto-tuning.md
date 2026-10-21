@@ -565,3 +565,8 @@ behaviour still require hardware verification. Diese Hardware-Nachweise sowie
 Pool-/Fee-Gutschriften sind weiterhin offen; automatisierte Tests ersetzen sie
 nicht. Rollback: stop calibration, restore driver defaults, select manual mode
 or another installed miner; saved pool and wallet data are retained.
+
+The separate telemetry/results presentation now supersedes the combined
+measurement graph above; see the final section of `benchmark-workflow.md`.
+Die getrennte Telemetrie-/Ergebnisansicht ersetzt den gemeinsamen Messgraphen;
+siehe den letzten Abschnitt in `benchmark-workflow.md`.
