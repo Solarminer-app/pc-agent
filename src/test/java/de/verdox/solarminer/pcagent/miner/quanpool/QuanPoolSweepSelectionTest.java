@@ -41,7 +41,10 @@ class QuanPoolSweepSelectionTest {
         assertEquals(List.of(first), miner.selectedGpus());
         miner.setSweepOverride(new MinerConfig(saved.poolUrl(), saved.proxyUrl(), saved.wallet(), saved.worker(),
                 "NVIDIA:0,NVIDIA:1"));
-        assertEquals(List.of(first, second), miner.selectedGpus());
+        // Normal starts (including a released sibling) use the saved route/device list.
+        assertEquals(List.of(first), miner.selectedGpus());
+        assertEquals(List.of(first, second), de.verdox.solarminer.pcagent.miner.MinerStartContext.measurement(
+                "gpu-1", () -> true, () -> miner.selectedGpus()));
         miner.clearSweepOverride();
         assertEquals(List.of(first), miner.selectedGpus());
         assertEquals(saved, mapper.readValue(file.toFile(), MinerConfig.class));

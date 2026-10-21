@@ -65,6 +65,13 @@ public class SweepRefinementService {
         }
         return perDevice;
     }
+    Map<String, Long> remainingSeconds(Status status, BenchmarkPreset preset) {
+        Map<String, Long> perDevice = new HashMap<>();
+        if (status != null && status.enabled()) for (var row : status.runs())
+            if (Set.of("WAITING", "RUNNING").contains(row.state())) perDevice.merge(row.deviceId(),
+                    tuner.estimateRemainingSeconds(row.candidateIndex(), row.sampleIndex(), row.sampleCount(), preset), Long::sum);
+        return perDevice;
+    }
     boolean incomplete() { return enabled && progress.values().stream().anyMatch(p -> !"COMPLETE".equals(p.state())); }
     void finishPending() {
         progress.replaceAll((id, row) -> Set.of("WAITING", "RUNNING").contains(row.state())
@@ -91,6 +98,9 @@ public class SweepRefinementService {
 
     /** Caller retains the physical-device slot until synchronous tuning and cleanup finish. */
     boolean refine(EfficiencySweepService.Target target, GpuEfficiencyStore.Profile baseline, BooleanSupplier cancelled) {
+        return refine(target, baseline, cancelled, BenchmarkPreset.SLOW);
+    }
+    boolean refine(EfficiencySweepService.Target target, GpuEfficiencyStore.Profile baseline, BooleanSupplier cancelled, BenchmarkPreset preset) {
         if (!enabled) return false;
         if (progress.get(id(target)) != null && "COMPLETE".equals(progress.get(id(target)).state())) return false;
         if (baseline == null || baseline.bestStableWatts() == null) {
@@ -134,7 +144,8 @@ public class SweepRefinementService {
                 if (cancelled.getAsBoolean()) throw new IllegalStateException("auto_tuning_cancelled");
                 try {
                     tuningStarted = true;
-                    result = tuner.refineWithinSweep(gpu.deviceId(), target.coin(), baseline, cancelled);
+                    result = preset == BenchmarkPreset.SLOW ? tuner.refineWithinSweep(gpu.deviceId(), target.coin(), baseline, cancelled)
+                            : tuner.refineWithinSweep(gpu.deviceId(), target.coin(), baseline, cancelled, preset);
                     break;
                 } catch (IllegalStateException capacity) {
                     if (!"auto_tuning_capacity_reached".equals(capacity.getMessage())) throw capacity;

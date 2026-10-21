@@ -1,5 +1,12 @@
 # Worker benchmark workflow / Benchmark-Ablauf pro Worker
 
+> Current GPU setup and presentation (2026-10-21): see [Overclocking center](overclocking-center.md).
+> The wizard and standalone GPU tabs supersede earlier inline-page descriptions;
+> QUICK/MEDIUM/SLOW budgets and per-device release apply to efficiency sweeps.
+> Deutsch: GPU-Einrichtung, Presets und unabhängiger Abschluss sind dort aktuell
+> beschrieben. Frühere Inline-Oberflächenbeschreibungen sind historisch.
+
+
 Source checked 2026-10-21. This describes local source and automated evidence,
 not a deployed release or hardware/pool certification.
 

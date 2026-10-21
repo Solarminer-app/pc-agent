@@ -101,10 +101,11 @@ public class GpuCoinMinerService extends AbstractSrbMinerEngine {
     public MinerConfig configuration(String coin) { return configs.get(coin); }
     /** Measurement overrides are temporary and never change the saved operator route. */
     private MinerConfig effectiveConfig(String coin) {
+        if (de.verdox.solarminer.pcagent.miner.MinerStartContext.savedConfigurationRequested()) return configs.get(coin);
         MinerConfig benchmark = benchmarkOverrides.get(coin);
         if (benchmark != null) return benchmark;
         MinerConfig sweep = sweepOverrides.get(coin);
-        return sweep != null ? sweep : configs.get(coin);
+        return sweep != null && de.verdox.solarminer.pcagent.miner.MinerStartContext.measurementRequested() ? sweep : configs.get(coin);
     }
     public void setSweepOverride(String coin, MinerConfig config) { sweepOverrides.put(coin, config); }
     public void clearSweepOverride(String coin) { sweepOverrides.remove(coin); }

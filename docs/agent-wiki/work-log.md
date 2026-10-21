@@ -4113,3 +4113,61 @@ vorhandene Backend-/ETA-Änderungen wurden erhalten. Browserprüfungen mit simul
 APIs bestehen für DE/EN einschließlich Sprachwechsel, 28 Workern, mobiler Ansicht,
 Start-/Abbruchabläufen und alter Autotuning-Adresse. Sprachkatalog, Renderprüfung,
 Literalprüfung und JS-Syntax geprüft; keine Hardware- oder Release-Abnahme.
+
+## 2026-10-21 — Guided GPU lab, presets and independent completion / GPU-Labor mit Wizard
+
+Replaced the Overclocking center's inline measurement workspace with a new
+four-step GPU setup wizard and compact new-tab links. Added a newly designed
+`gpu-lab.html` canvas for a single GPU's live activity, telemetry, per-test
+diagnostics, measured-watts/hashrate curve and results, without app chrome or
+the former benchmark/tuning UI components. Reduced-motion support, stale-data
+handling and the DE/EN language switch work on the standalone page. Requested
+clocks remain separate from measured clocks. Existing comparison archive and
+fleet views remain available; the center links to specialist tools for short
+benchmarks/CPU measurements. The old Autotuning URL redirects to the wizard.
+
+Added QUICK/MEDIUM/SLOW to the local sweep start contract, with 18/55-minute
+per-GPU measurement budgets for the faster presets and unchanged exhaustive
+coverage for SLOW. Budgets span a device's selected combinations; startup queue,
+synchronous tool calls and safe restoration can add wall time. Search windows
+are shorter in the faster presets; independent confirmations retain 32 samples.
+QUICK initially selects one available combination per GPU. Reached budgets stay
+partial results and cannot overwrite a complete curve. Different-preset resumes
+remeasure instead of reusing a smaller search checkpoint. The per-device
+release/start outcomes and preset are additive session fields.
+
+Each GPU now restores its cap and saved runtime independently after all its
+coin/miner tasks and tuning finish. Optional mining starts that saved assignment
+while siblings still measure. Late cancellation and final cleanup leave already
+released GPUs alone. Sweep routes are scoped to measurement execution across
+Pearl/shared SRB/Peak/QuanPool/WildRig; normal starts/recovery retain saved routes.
+A captured operator-stop revision permits clearing the initial pause only for
+requested post-benchmark start; a newer stop wins. Recovery/thermal failures stay
+visible and stopped. STARTED confirms a start call, not hashrate or pool credit.
+
+Verification: full JDK 21 `test standaloneJar` passed, **490 tests, zero failures,
+errors or skips**. New asynchronous device-completion tests cover starting a
+finished GPU beside a still-measuring sibling, late cancellation, repeated stop
+and exhausted budget; request/preset and adapter-route tests cover the new seams.
+`check-overclocking-browser.cjs` passes in DE/EN for wizard validation/payload,
+new tabs/results, independent completion, stale data, locale switch, motion and
+390px layout. Migrated the profile browser regression to the new GPU page;
+`check-benchmark-profiles-browser.cjs` passes for curve geometry, observed versus
+requested clocks, live updates, comparison archive and fleet mobile checks.
+The former workflow audit script delegates to the replacement wizard audit.
+Closed catalog/render checks, untranslated-literal scan, JS syntax and diff
+whitespace checks pass. Standalone JAR rebuilt with the final frontend assets.
+
+Deutsch: Neue Zentrale mit vier Setup-Schritten und eigenen GPU-Tabs ohne
+Navigation/Kopfzeile; neues Design, reale Fortschrittsanimationen, Telemetrie,
+Kurven und Ergebnisse. Schnell/Mittel begrenzen Messarbeit pro GPU auf 18/55
+Minuten; Warteschlange, Treiberwartezeiten und sichere Wiederherstellung kommen
+hinzu. Langsam behält den bisherigen gründlichen Umfang. Jede fertige GPU wird
+unabhängig freigegeben und auf Wunsch mit gespeicherter Konfiguration gestartet.
+Neue manuelle Stopps und Sicherheitsfehler verhindern einen zusätzlichen Start.
+Teil-/Startfehler bleiben sichtbar. Alle neuen eigenen Texte sind DE/EN.
+490 JVM-Tests sowie Browser-, Sprach-, Syntax- und Layoutprüfungen bestanden.
+Keine echten Miner-/Treiberbefehle, kein Deployment und keine Hardware-/Pool-
+Abnahme; externe Miner-/Betriebssystemdiagnosen und Kennungen bleiben nach der
+bestehenden Ausnahme unverändert. Aktueller Vertrag und offene Grenzen:
+[overclocking-center.md](overclocking-center.md).

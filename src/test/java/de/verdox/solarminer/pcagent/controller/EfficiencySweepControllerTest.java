@@ -108,4 +108,19 @@ class EfficiencySweepControllerTest {
         verify(sweep).resume(List.of("pearl"), List.of("gpu"), 1, true);
     }
 
+    @Test
+    void routesWizardPresetAndPerDeviceMiningChoiceWithoutChangingLegacyRequests() throws Exception {
+        var sweep = mock(EfficiencySweepService.class);
+        var session = new EfficiencySweepService.Session(false, "Idle", null, 0, 0, List.of(), List.of(), 0L);
+        when(sweep.startConfigured(false, List.of("pearl"), List.of("gpu"), 2, true, "QUICK", true)).thenReturn(session);
+        MockMvc api = standaloneSetup(new EfficiencySweepController(sweep, null)).build();
+        api.perform(post("/api/agent/local/efficiency").contentType("application/json")
+                .content("{\"coins\":[\"pearl\"],\"workers\":[\"gpu\"],\"maxConcurrentGpus\":2,\"autoTuneAfterSweep\":true,\"preset\":\"QUICK\",\"autoStartMining\":true}"))
+                .andExpect(status().isOk());
+        verify(sweep).startConfigured(false, List.of("pearl"), List.of("gpu"), 2, true, "QUICK", true);
+        api.perform(post("/api/agent/local/efficiency").queryParam("mode", "invalid")
+                .contentType("application/json").content("{\"workers\":[\"gpu\"]}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value("lab_start_mode_invalid"));
+    }
+
 }

@@ -1,5 +1,12 @@
 # GPU Auto Tuning (Beta)
 
+> Combined GPU setup (2026-10-21): [wizard and standalone GPU workspaces](overclocking-center.md).
+> Faster combined presets reduce search coverage/windows; all long confirmations
+> still use 32 samples. Standalone/automatic tuning retains its existing full search.
+> Deutsch: Schnellere kombinierte Presets verkürzen die Suche; lange Bestätigungen
+> behalten 32 Messwerte. Einzelnes/automatisches Tuning behält seinen bisherigen Umfang.
+
+
 Auto Tuning is a local per-worker operating mode and automatic calibration flow. It is
 scoped by GPU device ID, assigned GPU coin/algorithm, and selected miner
 software. The saved Power Limits target is its starting point, not its

@@ -31,7 +31,11 @@ public class EfficiencySweepController {
         List<String> coins = request == null ? null : request.coins();
         List<String> workers = request == null ? null : request.workers();
         if (workers == null || workers.isEmpty()) throw new IllegalArgumentException("benchmark_select_gpu_for_sweep");
-        EfficiencySweepService.Session session = switch (mode) {
+        if (!List.of("restart", "resume").contains(mode)) throw new IllegalArgumentException("lab_start_mode_invalid");
+        EfficiencySweepService.Session session = request.preset() != null || Boolean.TRUE.equals(request.autoStartMining())
+                ? sweep.startConfigured("resume".equals(mode), coins, workers, request.maxConcurrentGpus(),
+                    Boolean.TRUE.equals(request.autoTuneAfterSweep()), request.preset(), Boolean.TRUE.equals(request.autoStartMining()))
+                : switch (mode) {
             case "restart" -> Boolean.TRUE.equals(request.autoTuneAfterSweep())
                     ? sweep.start(coins, workers, request.maxConcurrentGpus(), true) : sweep.start(coins, workers, request.maxConcurrentGpus());
             case "resume" -> Boolean.TRUE.equals(request.autoTuneAfterSweep())
@@ -44,7 +48,9 @@ public class EfficiencySweepController {
         return session;
     }
 
-    public record StartRequest(List<String> coins, List<String> workers, Integer maxConcurrentGpus, Boolean autoTuneAfterSweep) {
+    public record StartRequest(List<String> coins, List<String> workers, Integer maxConcurrentGpus, Boolean autoTuneAfterSweep,
+                               String preset, Boolean autoStartMining) {
+        public StartRequest(List<String> coins, List<String> workers, Integer limit, Boolean refine) { this(coins, workers, limit, refine, null, false); }
         public StartRequest(List<String> coins, List<String> workers, Integer maxConcurrentGpus) { this(coins, workers, maxConcurrentGpus, false); }
     }
 

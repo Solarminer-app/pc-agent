@@ -37,7 +37,7 @@ Start with [pc-agent.md](pc-agent.md) — the ownership map for the source tree.
 | [Worker lifecycle / Worker-Lebenszyklus](worker-lifecycle.md) | Process ownership, operator stop authority, bounded recovery and device isolation / Prozessbesitz, Stopp-Absicht, Wiederanlauf und Geräteisolation |
 | [Benchmark workflow / Benchmark-Ablauf](benchmark-workflow.md) | Per-worker coin/software scope, two goals, independent switching and thermal safety / Worker-Auswahl, Profile, Wechselrechte und Temperaturgrenzen |
 | [Worker operating modes](worker-power-modes.md) | Per-worker manual, efficiency and revenue modes; local cap ownership and Node on/off contract |
-| [Overclocking center / Overclocking-Zentrale](overclocking-center.md) | Unified fleet progress, best measurements and on-demand controls / Flottenfortschritt, Bestwerte und gezielte Details |
+| [Overclocking center / Overclocking-Zentrale](overclocking-center.md) | Setup wizard, benchmark presets and standalone GPU workspaces / Setup-Wizard, Presets und eigene GPU-Arbeitsplätze |
 | [GPU Auto Tuning](auto-tuning.md) | Driver-probed core/memory clock control, Bayesian calibration sessions, profile cache and local UI |
 | [GPU Toolkit adapters](gpu-toolkit.md) | Shared GPUInterface API and NVIDIA NVML / nvidia-smi implementations |
 | [Daily-profit modes](worker-daily-profit-modes-draft.md) | Beta fixed-coin and coin-selecting GPU modes that maximize estimated net profit per day |

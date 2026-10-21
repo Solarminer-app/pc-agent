@@ -1,4 +1,4 @@
-// UI-only fixtures: no real miner or driver commands.
+// Isolated HTTP fixtures. This never contacts an agent, miner, driver or pool.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path'), http = require('node:http');
 const root = path.resolve(__dirname, '../src/main/resources/static');
@@ -10,97 +10,105 @@ const server = http.createServer((req, res) => {
 });
 (async () => {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    const browser = await chromium.launch({headless:true, executablePath:process.env.OPERATIONS_BROWSER || '/home/lukas/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome'});
+    const browser = await chromium.launch({headless: true, executablePath: process.env.OPERATIONS_BROWSER || '/home/lukas/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome'});
     try {
-        for (const language of ['en','de']) {
-            const context = await browser.newContext({viewport:{width:1440,height:1100}});
-            await context.addInitScript(language => { if (!localStorage.getItem('solarminer.pc-agent.language')) localStorage.setItem('solarminer.pc-agent.language', language); }, language);
-            const page = await context.newPage(); page.setDefaultTimeout(10000);
+        for (const language of ['en', 'de']) {
+            const context = await browser.newContext({viewport: {width: 1440, height: 1100}});
+            await context.addInitScript(language => { try { if (!localStorage.getItem('solarminer.pc-agent.language')) localStorage.setItem('solarminer.pc-agent.language', language); } catch (_) { } }, language);
             const errors = [], writes = [];
-            page.on('pageerror', error => errors.push(error.message));
-            page.on('console', msg => { if (/missing frontend translation/.test(msg.text())) errors.push(msg.text()); });
-            const workers = Array.from({length:28}, (_, i) => ({deviceId:`gpu${i}`, hardwareModel:`NVIDIA RTX 3080 · ${i}`,hardwareType:'GPU',vendor:'NVIDIA',coin:'pearl',status:i===0?'MINING':'STOPPED',telemetry:i===0?{terahashPerSecond:1e-9,approximatedPowerUsageWatts:105,temperatureCelsius:62}:null}));
-            const options = [{coin:'pearl',coinName:'Pearl',id:'srbminer-multi',name:'SRBMiner-MULTI',device:'GPU',installed:true,selectable:true,compatibleGpuVendors:['NVIDIA']}];
-            let failProfiles = false;
-            const step = {limitWatts:120,medianHashrateHs:1000,avgPowerWatts:105,stable:true,maxTemperatureC:62};
-            let sweep = {running:true,phase:'Preparing',phaseIndex:1,phaseCount:2,secondsRemaining:600,runs:[{id:'r0',deviceId:'gpu0',model:'RTX 3080',coin:'pearl',algorithm:'PearlHash',softwareId:'srbminer-multi',status:'RUNNING',mode:'FULL',plannedLimits:[120,100],steps:[step],samples:4,samplesRequired:12,limitWatts:100}],optimization:{enabled:true,runs:[]}};
-            const profiles = [{deviceId:'gpu0',coinId:'pearl',softwareId:'srbminer-multi',algorithm:'PearlHash',hashrateHs:1200,measuredWatts:100,efficiencyHashesPerWatt:12,coreMhz:1300,powerLimitWatts:120}];
-            const snapshot = {benchmarks:[],sweeps:[{deviceId:'gpu0',coin:'pearl',algorithm:'PearlHash',minerSoftwareId:'srbminer-multi',steps:[step]}]};
-            await page.route('**/api/agent/**', async route => {
+            console.log(language + ': starting');
+            context.on('page', page => { page.on('pageerror', error => errors.push(error.message)); page.on('console', msg => { if (/missing frontend translation/.test(msg.text())) errors.push(msg.text()); }); });
+            const workers = Array.from({length: 3}, (_, i) => ({deviceId: `gpu${i}`, hardwareModel: `NVIDIA RTX 3080 · ${i}`, hardwareType: 'GPU', vendor: 'NVIDIA', coin: 'pearl', status: 'MINING', telemetry: {terahashPerSecond: 1e-9, approximatedPowerUsageWatts: 105, temperatureCelsius: 62}}));
+            const choices = [{coin: 'pearl', coinName: 'Pearl', id: 'srbminer-multi', name: 'SRBMiner-MULTI', installed: true, selectable: true},
+                {coin: 'quantus', coinName: 'Quantus', id: 'wildrig', name: 'WildRig NG', installed: false, selectable: false}];
+            const point = {limitWatts: 120, medianHashrateHs: 1000, avgPowerWatts: 105, stable: true, maxTemperatureC: 62};
+            let sweep = {running: false, runs: [], devices: [], results: []}, policies = {}, failProfiles = false;
+            const confirmed = [{deviceId: 'gpu0', coinId: 'pearl', softwareId: 'srbminer-multi', algorithm: 'PearlHash', hashrateHs: 1200, measuredWatts: 100, coreMhz: 1300, powerLimitWatts: 120}];
+            const snapshot = {benchmarks: [], sweeps: [{deviceId: 'gpu0', coin: 'pearl', algorithm: 'PearlHash', minerSoftwareId: 'srbminer-multi', steps: [point]}]};
+            await context.route('**/api/agent/**', async route => {
                 const endpoint = new URL(route.request().url()).pathname.replace('/api/agent/local/', '');
-                const json = body => route.fulfill({json:body});
-                if (route.request().method() !== 'GET') { writes.push(endpoint); return json({}); }
+                const json = body => route.fulfill({json: body});
+                if (route.request().method() !== 'GET') {
+                    const body = route.request().postDataJSON(); writes.push({endpoint, body});
+                    if (endpoint.startsWith('benchmark-policies/')) { policies[endpoint.split('/').pop()] = body; return json(body); }
+                    if (endpoint === 'efficiency') {
+                        sweep = {running: true, phase: 'benchmark_optimization_tuning', startedAt: new Date().toISOString(), secondsRemaining: 500, preset: body.preset,
+                            runs: body.workers.map((device, i) => ({id: device, deviceId: device, model: workers[i].hardwareModel, coin: 'pearl', softwareId: 'srbminer-multi', status: 'RUNNING', plannedLimits: [120, 100, 80], steps: [point], samples: 4, samplesRequired: 12, limitWatts: 100})),
+                            optimization: {enabled: true, runs: []}, devices: []}; return json(sweep);
+                    }
+                    return json({});
+                }
                 if (endpoint === 'workers') return json(workers);
                 if (endpoint === 'efficiency') return json(sweep);
-                if (endpoint === 'benchmarks') return json({running:false,phase:'Idle',results:[],selectedWorkers:[],liveSeries:[]});
-                if (endpoint === 'measurements/profiles') return json(snapshot);
-                if (endpoint === 'gpu-tuning/profiles') return failProfiles ? route.fulfill({status:503,json:{}}) : json(profiles);
+                if (endpoint === 'benchmark-policies') return json(policies);
+                if (endpoint.startsWith('benchmark-policies/options/')) return json(choices);
+                if (endpoint === 'measurements/profiles') return failProfiles ? route.fulfill({status: 503, json: {}}) : json(snapshot);
+                if (endpoint === 'gpu-tuning/profiles') return json(confirmed);
+                if (endpoint === 'measurements/tuning-curve') return json([]);
                 if (endpoint === 'gpu-tuning/sessions') return json([]);
-                if (endpoint === 'gpu-tuning') return json([{deviceId:'gpu0',model:'RTX 3080',vendor:'NVIDIA',coinId:'pearl',workerStatus:'MINING',tuning:{coreClockControl:true,memoryClockControl:false},selection:{core:true,power:true},powerLimitWatts:120}]);
-                if (endpoint === 'gpu-tuning/concurrency') return json({maxConcurrent:1});
-                if (endpoint === 'miner-options' || endpoint.startsWith('benchmark-policies/options/')) return json(options);
-                if (endpoint === 'benchmark-policies') return json({});
-                if (endpoint === 'miner-catalog') return json([{id:'pearl',name:'Pearl',device:'GPU',binaryAvailable:true,miners:options}]);
-                if (endpoint === 'benchmarks/sharing') return json(false);
-                if (endpoint === 'benchmarks/sharing/upload-status') return json({manual:{status:'IDLE'},periodic:{status:'IDLE'}});
-                if (endpoint === 'power-control/identity') return json({name:'Performance Lab'});
-                if (endpoint === 'coins' || endpoint === 'status/coin-catalog') return json([{id:'pearl',name:'Pearl',ticker:'PRL',algorithm:'PearlHash'}]);
-                if (/events|stream/.test(endpoint)) return route.fulfill({contentType:'text/event-stream',body:':fixture\n\n'});
+                if (endpoint === 'power-control/identity') return json({name: 'Performance Lab'});
+                if (endpoint === 'status/events') return route.fulfill({contentType: 'text/event-stream', body: ':fixture\n\n'});
                 return json([]);
             });
-            const origin = `http://127.0.0.1:${server.address().port}`;
-            await page.goto(origin+'/benchmarks.html');
-            await page.waitForFunction(() => document.getElementById('oc-coverage').textContent==='1 / 28');
-            assert.equal(await page.locator('#oc-workers .oc-worker').count(), 12);
-            assert.equal(await page.locator('#oc-active').textContent(), '1');
-            assert.equal(await page.locator('#oc-points').textContent(), '1', 'Saved/live duplicate point counted once');
-            assert.match(await page.locator('#oc-workers .oc-worker').first().textContent(), /12 H\/s\/W/);
-            assert.equal(await page.locator('#oc-workers .oc-worker').first().locator('progress').getAttribute('value'), '0');
-            assert.equal(await page.locator('#oc-configuration').getAttribute('open'), null);
-            assert.equal(await page.locator('script[src*="pages/autotuning.js"]').count(), 0, 'No expert controller before request');
-            await page.locator('#oc-next').click();
-            assert.equal(await page.locator('#oc-workers .oc-worker').first().getAttribute('data-device-id'),'gpu12');
-            await page.locator('#oc-search').fill('gpu27');
-            assert.equal(await page.locator('#oc-workers .oc-worker').count(),1);
-            await page.locator('#oc-search').fill('');
-            await page.locator('#oc-filter').selectOption('active');
-            assert.equal(await page.locator('#oc-workers .oc-worker').count(),1);
-            await page.locator('#oc-workers button').first().click();
-            assert.equal(await page.locator('#oc-curves').getAttribute('open'),'');
-            await page.locator('#oc-curves > summary').click();
-            await page.locator('#oc-workers button').nth(1).click();
-            await page.locator('#devices .tuning-card[open]').waitFor();
-            assert.equal(await page.locator('#devices .tuning-card').count(),1);
-            assert.match(await page.locator('#devices').textContent(),/RTX 3080/);
-            await page.locator('#oc-expert > summary').click();
-            // New confirmed sweep result survives completion; active count returns to idle.
-            sweep = {...sweep,running:false,phase:'Complete',phaseIndex:2,runs:sweep.runs.map(row=>({...row,status:'COMPLETE'}))};
+            const origin = `http://127.0.0.1:${server.address().port}`, page = await context.newPage();
+            await page.goto(origin + '/benchmarks.html'); console.log(language + ': setup loaded');
+            await page.locator('#lab-worker-picker input').first().waitFor();
+            await page.screenshot({path: `/tmp/oc-setup-desktop-${language}.png`, fullPage: true, animations: 'disabled'});
+            assert.equal(await page.locator('#lab-worker-picker input').count(), 3);
+            await page.locator('#lab-next').click();
+            await page.waitForFunction(() => !document.getElementById('lab-notice').hidden);
+            await page.locator('#lab-worker-picker input').nth(0).check(); await page.locator('#lab-worker-picker input').nth(1).check();
+            await page.locator('#lab-next').click();
+            await page.locator('[name="lab-preset"][value="QUICK"]').check();
+            await page.locator('#lab-next').click();
+            assert.equal(await page.locator('#lab-scope fieldset').count(), 2);
+            assert.equal(await page.locator('#lab-scope input:disabled').count(), 2);
+            await page.locator('#lab-parallel').fill('2'); await page.locator('#lab-autostart').check();
+            await page.locator('#lab-next').click();
+            assert.equal(await page.locator('#lab-review .lab-review-row').count(), 2);
+            await page.locator('#lab-next').click();
+            await page.waitForFunction(() => document.getElementById('lab-wizard').hidden);
+            const start = writes.find(row => row.endpoint === 'efficiency'); assert.ok(start);
+            assert.deepEqual(start.body.workers, ['gpu0', 'gpu1']); assert.equal(start.body.preset, 'QUICK');
+            assert.equal(start.body.autoStartMining, true); assert.equal(start.body.autoTuneAfterSweep, true); assert.equal(start.body.maxConcurrentGpus, 2);
+            assert.equal(writes.filter(row => row.endpoint.startsWith('benchmark-policies/')).length, 2);
+            assert.equal(await page.locator('#sweep-runs, #optimization-runs, #sweep-live-chart').count(), 0);
+            const links = page.locator('#lab-worker-links a'); assert.equal(await links.count(), 6);
+            for (const link of await links.all()) { assert.equal(await link.getAttribute('target'), '_blank'); assert.equal(await link.getAttribute('rel'), 'noopener'); }
+            console.log(language + ': launched'); const popupEvent = context.waitForEvent('page'); await links.first().click(); const gpuPage = await popupEvent;
+            await gpuPage.locator('#gpu-model').filter({hasText: /RTX 3080/}).waitFor();
+            assert.equal(await gpuPage.locator('header, nav, .app-sidebar').count(), 0);
+            await gpuPage.locator('#gpu-chart circle').first().waitFor();
+            assert.equal(await gpuPage.locator('#gpu-profiles article').count(), 1);
+            await gpuPage.waitForFunction(() => document.body.classList.contains('is-measuring'));
+            await gpuPage.locator('#lab-motion').check(); assert.equal(await gpuPage.locator('body.lab-still').count(), 1);
+            console.log(language + ': GPU page rendered'); await gpuPage.screenshot({path: `/tmp/oc-gpu-live-${language}.png`, fullPage: true, animations: 'disabled'});
+            console.log(language + ': live verified'); await gpuPage.locator('#lab-view-results').click(); assert.equal(await gpuPage.locator('#lab-live-view').isVisible(), false);
+            await gpuPage.reload(); assert.equal(await gpuPage.locator('#lab-live-view').isVisible(), false);
+            sweep = {...sweep, devices: [{deviceId: 'gpu0', released: true, miningState: 'STARTED', detail: 'lab_device_released'}], runs: sweep.runs.map(row => row.deviceId === 'gpu0' ? {...row, status: 'COMPLETE'} : row)};
+            await gpuPage.evaluate(() => window.SolarMinerLive.refresh('efficiency'));
+            await gpuPage.waitForFunction(() => document.getElementById('gpu-completion').textContent.includes(window.SolarMinerI18n.t('lab_mining_started')));
             await page.evaluate(() => window.SolarMinerLive.refresh('efficiency'));
-            await page.waitForFunction(() => document.getElementById('oc-active').textContent==='0');
-            await page.locator('#oc-filter').selectOption('results');
-            assert.equal(await page.locator('#oc-workers .oc-worker').count(),1);
+            await page.waitForFunction(() => !document.querySelector('[data-device-id="gpu0"]').classList.contains('is-active'));
+            assert.equal(await page.locator('[data-device-id="gpu1"].is-active').count(), 1);
             failProfiles = true;
-            await page.evaluate(() => window.SolarMinerLive.refresh('oc-profiles'));
-            await page.waitForFunction(() => document.getElementById('oc-freshness').textContent.includes(window.SolarMinerI18n.t('oc_partial')));
-            assert.equal(await page.locator('#oc-profiles').textContent(),'1','Retain confirmed profiles on refresh failure');
-            await page.evaluate(() => scrollTo(0,0));
-            await page.screenshot({path:`/tmp/solarminer-overclocking-${language}-desktop.png`,fullPage:true});
-            await page.setViewportSize({width:390,height:844});
-            await page.waitForFunction(() => getComputedStyle(document.getElementById('app-navigation')).visibility === 'hidden');
-            await page.evaluate(() => scrollTo(0,0));
-            assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),true);
-            await page.screenshot({path:`/tmp/solarminer-overclocking-${language}-mobile.png`,fullPage:true});
-            assert.deepEqual(writes,[],'Read-only browsing must not change mining state');
-            failProfiles = false;
-            await page.locator('.language-switcher').selectOption(language === 'en' ? 'de' : 'en');
-            await page.waitForFunction(lang => window.SolarMinerI18n.language === lang, language === 'en' ? 'de' : 'en');
-            await page.goto(origin+'/autotuning.html');
-            await page.waitForURL('**/benchmarks.html#oc-expert');
-            await page.locator('#devices .tuning-card').waitFor();
-            assert.equal(await page.locator('#oc-expert').getAttribute('open'),'');
-            assert.deepEqual(errors,[]);
-            await context.close();
+            await gpuPage.evaluate(() => window.SolarMinerLive.refresh('efficiency'));
+            // A changed signature triggers the result refresh; old results stay visible.
+            sweep = {...sweep, running: false}; await gpuPage.evaluate(() => window.SolarMinerLive.refresh('efficiency'));
+            await gpuPage.waitForFunction(() => document.getElementById('lab-freshness').textContent.includes(window.SolarMinerI18n.t('lab_stale')));
+            assert.equal(await gpuPage.locator('#gpu-profiles article').count(), 1);
+            // Existing language preference controls standalone pages as well.
+            const opposite = language === 'de' ? 'en' : 'de'; await Promise.all([gpuPage.waitForNavigation({waitUntil: 'domcontentloaded'}), gpuPage.locator('.language-switcher').selectOption(opposite)]);
+            await gpuPage.waitForFunction(language => window.SolarMinerI18n.language === language, opposite);
+            assert.equal(await gpuPage.locator('html').getAttribute('lang'), opposite);
+            await gpuPage.setViewportSize({width: 390, height: 844});
+            console.log(language + ': GPU page rendered'); await gpuPage.screenshot({path: `/tmp/oc-gpu-mobile-${language}.png`, fullPage: true, animations: 'disabled'});
+            assert.ok(await gpuPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'GPU page fits mobile');
+            const fresh = await context.newPage(); await fresh.goto(origin + '/benchmarks.html'); await fresh.locator('#lab-worker-picker input').first().waitFor();
+            await fresh.setViewportSize({width: 390, height: 844}); await fresh.screenshot({path: `/tmp/oc-setup-mobile-${language}.png`, fullPage: true, animations: 'disabled'});
+            assert.ok(await fresh.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Wizard fits mobile');
+            assert.deepEqual(errors, []); await context.close();
+            console.log(`${language}: wizard, presets, start payload, independent GPU tabs/results, stale state, motion, locale switch and mobile passed`);
         }
-        console.log('PASS: DE/EN, 28-worker pagination/search/filter, live telemetry/progress, confirmed bests, deduplication, partial failure retention, lazy expert controls, legacy route and mobile layout. No mining writes.');
     } finally { await browser.close(); server.close(); }
-})().catch(error => { console.error(error); server.close(); process.exitCode=1; });
+})().catch(error => { console.error(error); server.close(); process.exitCode = 1; });

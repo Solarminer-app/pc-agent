@@ -205,10 +205,11 @@ public class PearlMinerService extends AbstractSrbMinerEngine implements GpuCoin
 
     /** Measurement overrides are temporary and never change the saved operator route. */
     private MinerConfig effectiveConfig() {
+        if (de.verdox.solarminer.pcagent.miner.MinerStartContext.savedConfigurationRequested()) return configuration();
         MinerConfig benchmark = benchmarkOverride;
         if (benchmark != null) return benchmark;
         MinerConfig sweep = sweepOverride;
-        if (sweep != null) return sweep;
+        if (sweep != null && de.verdox.solarminer.pcagent.miner.MinerStartContext.measurementRequested()) return sweep;
         MinerConfig current = config;
         return current;
     }

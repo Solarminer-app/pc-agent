@@ -39,7 +39,10 @@ class PearlSweepSelectionTest {
         assertEquals(List.of(savedGpu), pearl.selectedGpus());
         pearl.setSweepOverride(new MinerConfig(saved.poolUrl(), saved.proxyUrl(), saved.wallet(), saved.worker(),
                 "NVIDIA:0,NVIDIA:1"));
-        assertEquals(List.of(savedGpu, measuredGpu), pearl.selectedGpus());
+        // Normal starts (including a released sibling) use the saved route/device list.
+        assertEquals(List.of(savedGpu), pearl.selectedGpus());
+        assertEquals(List.of(savedGpu, measuredGpu), de.verdox.solarminer.pcagent.miner.MinerStartContext.measurement(
+                "gpu-1", () -> true, () -> pearl.selectedGpus()));
         pearl.clearSweepOverride();
         assertEquals(List.of(savedGpu), pearl.selectedGpus());
         assertEquals(saved, mapper.readValue(file.toFile(), MinerConfig.class));

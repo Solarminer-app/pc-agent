@@ -161,6 +161,12 @@ public class AgentControlSettingsService implements de.verdox.solarminer.pcagent
         return () -> stopRevisions.get(deviceId) == revision;
     }
 
+    /** Explicit post-benchmark start can clear the initial pause, but never a newer operator stop. */
+    public synchronized boolean releaseMeasurementStop(String deviceId, java.util.function.BooleanSupplier permit) {
+        return permit != null && permit.getAsBoolean()
+                && (!settings.manuallyStopped(deviceId) || setWorkerManuallyStopped(deviceId, false));
+    }
+
     public Settings get() {
         return settings;
     }

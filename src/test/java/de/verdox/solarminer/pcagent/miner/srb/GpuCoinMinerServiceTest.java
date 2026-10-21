@@ -58,7 +58,11 @@ class GpuCoinMinerServiceTest {
         assertEquals(List.of(first), service.selected("ethereumclassic"));
         service.setSweepOverride("ethereumclassic", new MinerConfig(saved.poolUrl(), saved.proxyUrl(),
                 saved.wallet(), saved.worker(), "NVIDIA:0,NVIDIA:1"));
-        assertEquals(List.of(first, second), service.selected("ethereumclassic"));
+        assertEquals(List.of(first), service.selected("ethereumclassic"));
+        assertEquals(List.of(first, second), de.verdox.solarminer.pcagent.miner.MinerStartContext.measurement(
+                "gpu-1", () -> true, () -> service.selected("ethereumclassic")));
+        assertEquals(List.of(first), de.verdox.solarminer.pcagent.miner.MinerStartContext.recovery(
+                () -> service.selected("ethereumclassic")), "Released worker recovery must retain the saved route");
         service.clearSweepOverride("ethereumclassic");
         assertEquals(List.of(first), service.selected("ethereumclassic"));
         assertEquals(saved, mapper.readValue(file.toFile(), MinerConfig.class));

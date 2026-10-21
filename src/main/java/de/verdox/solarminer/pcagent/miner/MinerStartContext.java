@@ -8,7 +8,16 @@ public final class MinerStartContext {
     private static final ThreadLocal<Reason> REASON = new ThreadLocal<>();
     private record Measurement(String deviceId, java.util.function.BooleanSupplier valid) { }
     private static final ThreadLocal<Measurement> MEASUREMENT = new ThreadLocal<>();
+    private static final ThreadLocal<Boolean> SAVED_CONFIG = new ThreadLocal<>();
+    public static boolean savedConfigurationRequested() { return Boolean.TRUE.equals(SAVED_CONFIG.get()); }
+    public static <T> T savedConfiguration(Supplier<T> action) {
+        Boolean previous = SAVED_CONFIG.get(); SAVED_CONFIG.set(true);
+        try { return action.get(); }
+        finally { if (previous == null) SAVED_CONFIG.remove(); else SAVED_CONFIG.set(previous); }
+    }
     private MinerStartContext() { }
+
+    public static boolean measurementRequested() { return REASON.get() == Reason.MEASUREMENT; }
 
     public static boolean operatorRequested() { return REASON.get() == Reason.OPERATOR; }
     public static boolean mayRetryFailure() { return REASON.get() != null; }

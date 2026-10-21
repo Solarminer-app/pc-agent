@@ -888,3 +888,21 @@ Verification: focused sweep, refinement, tuner and controller tests plus standal
 JAR passed. Regression coverage checks numeric combined status (including tuning
 after all sweep steps), progress and concurrency. DE/EN catalogue, literal and
 render checks passed. No miners or hardware-control commands were started.
+
+### 2026-10-21 — GPU workspaces and completion follow-up / GPU-Arbeitsplätze und Abschluss
+
+BUG-010 / BUG-013: The new Overclocking wizard saves the selected GPU tests,
+passes an explicit preset and mining-after-completion choice, and links to one
+standalone GPU page per device. Each page shows that GPU's stored/live sweep
+points, tuning records, diagnoses and confirmed profiles. Sweep completion now
+restores/releases one GPU at a time, including an optional saved-assignment
+start while siblings still measure. New asynchronous regressions cover release,
+late cancellation, repeated operator stops and budget exhaustion. The old
+inline history UI is replaced for this path; real multi-GPU/Windows, miner
+hashrate, pool and queued automatic-calibration acceptance remain open.
+
+Deutsch: Wizard und eigene GPU-Seiten ersetzen den bisherigen Inline-Ablauf.
+Eine fertige GPU wird unabhängig freigegeben und optional gestartet. Tests
+prüfen Abschluss, späteren Abbruch, erneuten manuellen Stopp und Budgetende.
+Reale Mehr-GPU-/Windows-, Hashrate-, Pool- und automatische Warteschlangen-
+Abnahme bleiben offen; die vorhandenen Hardware-Gates werden nicht geschlossen.

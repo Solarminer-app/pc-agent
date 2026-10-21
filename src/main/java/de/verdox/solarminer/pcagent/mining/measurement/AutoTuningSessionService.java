@@ -45,6 +45,17 @@ public class AutoTuningSessionService {
         return estimateRemainingSeconds(candidateIndex, sampleIndex, sampleCount, sampleIntervalMillis);
     }
 
+    long estimateRemainingSeconds(int candidateIndex, int sampleIndex, int sampleCount, BenchmarkPreset preset) {
+        int completed = Math.max(0, candidateIndex - 1);
+        boolean confirming = sampleCount == CONFIRMATION_SAMPLES;
+        int search = confirming ? 0 : Math.max(0, preset.searchCandidates() - completed);
+        int confirmations = confirming ? Math.max(1, preset.searchCandidates() + preset.confirmationCandidates() - completed)
+                : preset.confirmationCandidates();
+        long samples = (long) search * preset.searchSamples() + (long) confirmations * CONFIRMATION_SAMPLES;
+        samples -= Math.min(Math.max(0, sampleIndex), Math.max(0, sampleCount));
+        return Math.max(0, samples) * sampleIntervalMillis / 1_000 + (search + confirmations) * 45L;
+    }
+
     static long estimateRemainingSeconds(int candidateIndex, int sampleIndex, int sampleCount, long intervalMillis) {
         int completed = Math.max(0, candidateIndex - 1);
         boolean confirming = sampleCount == CONFIRMATION_SAMPLES;
@@ -139,11 +150,21 @@ public class AutoTuningSessionService {
         return refineWithinSweep(deviceId, coinId, null, curve, cancelled);
     }
 
+    Session refineWithinSweep(String deviceId, String coinId, GpuEfficiencyStore.Profile curve,
+            java.util.function.BooleanSupplier cancelled, BenchmarkPreset preset) {
+        return refineWithinSweep(deviceId, coinId, null, curve, cancelled, preset);
+    }
+
     private Session refineWithinSweep(String deviceId, String coinId, Integer seedWatts, GpuEfficiencyStore.Profile curve,
                                       java.util.function.BooleanSupplier cancelled) {
+        return refineWithinSweep(deviceId, coinId, seedWatts, curve, cancelled, BenchmarkPreset.SLOW);
+    }
+    private Session refineWithinSweep(String deviceId, String coinId, Integer seedWatts, GpuEfficiencyStore.Profile curve,
+            java.util.function.BooleanSupplier cancelled, BenchmarkPreset preset) {
         if (!"efficiency-sweep".equals(runLock.holder())) throw new IllegalStateException("power_mode_busy");
         RunState state = prepare(deviceId, coinId, seedWatts, true, curve);
         state.externalCancel = cancelled;
+        state.preset = preset;
         try { state.task.run(); }
         catch (RuntimeException recoveryFailure) {
             // A throwing recovery adapter must not leave a finished borrowed task marked running.
@@ -369,22 +390,25 @@ public class AutoTuningSessionService {
         List<BayesianGpuOptimizer.Observation> observations = new ArrayList<>();
         List<BayesianGpuOptimizer.Candidate> activeCandidates = candidates;
         int measuredCandidates = 0;
+        int searchBudget = state.preset.searchCandidates();
+        int baseBudget = Math.min(BASE_CANDIDATES, searchBudget);
+        int totalBudget = searchBudget + state.preset.confirmationCandidates();
         try {
-            update(state, state.session.withPhase("auto_tuning_phase_sampling"));
+            update(state, state.session.withCandidateCount(totalBudget).withPhase("auto_tuning_phase_sampling"));
             int startingWatts = state.seedWatts;
             List<Integer> tiers = candidates.stream().map(BayesianGpuOptimizer.Candidate::powerWatts).distinct()
                     .sorted(Comparator.comparingInt((Integer watts) -> Math.abs(watts - startingWatts))
                             .thenComparingInt(Integer::intValue)).toList();
             if (tiers.isEmpty() || selection.power() && tiers.size() < 3)
                 throw new IllegalStateException("auto_tuning_power_range_too_narrow");
-            int candidatesPerTier = Math.max(1, BASE_CANDIDATES / tiers.size());
+            int candidatesPerTier = Math.max(1, baseBudget / tiers.size());
             List<BayesianGpuOptimizer.Observation> historical = historicalObservations(context, activeCandidates);
             Deque<BayesianGpuOptimizer.Candidate> finalists = null;
             Deque<BayesianGpuOptimizer.Candidate> powerNeighbors = null;
-            for (int index = 0; index < MAX_CANDIDATES; index++) {
+            for (int index = 0; index < totalBudget; index++) {
                 if (state.cancelled()) break;
                 if (System.nanoTime() >= deadline) throw new IllegalStateException("auto_tuning_time_limit");
-                boolean localRefinement = index >= BASE_CANDIDATES;
+                boolean localRefinement = index >= baseBudget;
                 List<BayesianGpuOptimizer.Observation> efficientRegions = localRefinement
                         ? promisingEfficientRegions(observations) : List.of();
                 // Reserve the final windows plus driver/restart overhead before extending search.
@@ -397,12 +421,13 @@ public class AutoTuningSessionService {
                     expanded.addAll(powerNeighbors);
                     activeCandidates = List.copyOf(expanded);
                 }
-                boolean beginConfirmation = index >= MAX_SEARCH_CANDIDATES || localRefinement
+                boolean beginConfirmation = index >= searchBudget || localRefinement
                         && (deadline - System.nanoTime() <= confirmationReserve
                         || (state.powerPlan != null ? powerNeighbors.isEmpty() : efficientRegions.isEmpty()));
                 if (finalists == null && beginConfirmation) {
                     finalists = new ArrayDeque<>(state.powerPlan == null ? confirmationCandidates(observations, activeCandidates)
                             : state.powerPlan.finalists(observations, activeCandidates));
+                    while (finalists.size() > state.preset.confirmationCandidates()) finalists.removeLast();
                     update(state, state.session.withCandidateCount(measuredCandidates + finalists.size()));
                 }
                 boolean confirming = finalists != null;
@@ -418,7 +443,7 @@ public class AutoTuningSessionService {
                     if (localRefinement)
                         update(state, state.session.withCandidateCount(MAX_CANDIDATES));
                     int tierWatts = localRefinement
-                            ? efficientRegions.get((index - BASE_CANDIDATES) % efficientRegions.size()).candidate().powerWatts()
+                            ? efficientRegions.get((index - baseBudget) % efficientRegions.size()).candidate().powerWatts()
                             : tiers.get(Math.min(index / candidatesPerTier, tiers.size() - 1));
                     List<BayesianGpuOptimizer.Candidate> tierCandidates = activeCandidates.stream()
                             .filter(row -> row.powerWatts() == tierWatts).toList();
@@ -442,7 +467,7 @@ public class AutoTuningSessionService {
                         candidate = BayesianGpuOptimizer.next(tierCandidates, training, tierObservations);
                     if (candidate == null) continue;
                 }
-                int sampleCount = confirming ? CONFIRMATION_SAMPLES : SAMPLES_PER_CANDIDATE;
+                int sampleCount = confirming ? CONFIRMATION_SAMPLES : state.preset.searchSamples();
                 String resultType = confirming ? "RESULT" : "SEARCH_RESULT";
                 update(state, state.session.withCandidate(candidate, ++measuredCandidates, sampleCount, confirming));
                 if (checkingPower) update(state, state.session.withPhase("auto_tuning_phase_power_refining"));
@@ -783,6 +808,7 @@ public class AutoTuningSessionService {
         private final AtomicBoolean cancel = new AtomicBoolean();
         private volatile Session session;
         private boolean ownedBySweep;
+        private BenchmarkPreset preset = BenchmarkPreset.SLOW;
         private int seedWatts;
         private SweepTuningPlan powerPlan;
         private Runnable task;

@@ -92,7 +92,7 @@ class EfficiencySweepServiceTest {
         when(power.restorePowerLimits(any())).thenReturn(!restorationFails);
         var lock = new LocalRunLock();
         var refinement = mock(SweepRefinementService.class);
-        when(refinement.refine(any(), any(), any())).thenAnswer(call -> {
+        when(refinement.refine(any(), any(), any(), eq(BenchmarkPreset.SLOW))).thenAnswer(call -> {
             assertEquals("efficiency-sweep", lock.holder());
             return false;
         });
@@ -126,14 +126,14 @@ class EfficiencySweepServiceTest {
         verify(srb).clearSweepOverride();
         verify(refinement).begin(eq(true), anyList(), eq(false));
         verify(refinement).resetBeforeCurve(any());
-        verify(refinement).refine(any(), any(), any());
+        verify(refinement).refine(any(), any(), any(), eq(BenchmarkPreset.SLOW));
         verify(refinement).finishPending();
-        var snapshot = org.mockito.ArgumentCaptor.forClass(GpuCoinMiner.WorkerPauseSnapshot.class);
-        verify(pearl).restoreState(snapshot.capture());
-        assertEquals(!restorationFails, snapshot.getValue().runningDeviceIds().contains("rtx-2080"));
-        assertEquals(restorationFails, snapshot.getValue().manuallyPausedKeys().contains("NVIDIA:0"));
+        // Whole-adapter restoration could stop/restart a GPU already released earlier.
+        verify(pearl, org.mockito.Mockito.never()).restoreState(any());
+        assertEquals(!restorationFails, service.status().devices().getFirst().released());
+        assertEquals(restorationFails ? "BLOCKED" : "FAILED", service.status().devices().getFirst().miningState());
         verify(miners).setMeasurementContext("rtx-2080", "quantus", "srbminer-multi", "POWER_SWEEP");
-        verify(miners).clearBenchmarkSoftware("rtx-2080");
+        verify(miners, org.mockito.Mockito.atLeastOnce()).clearBenchmarkSoftware("rtx-2080");
     }
 
     @Test
@@ -278,7 +278,7 @@ class EfficiencySweepServiceTest {
 
         var runs = service.status().runs();
         assertEquals(4, runs.size());
-        assertTrue(service.status().phase().startsWith("Fertig"));
+        assertEquals("lab_run_partial", service.status().phase(), "Failed measurements must not be labelled a complete run");
         assertTrue(runs.stream().allMatch(run -> run.status() == SweepRunState.FAILED));
         assertEquals(1, runs.stream().filter(run -> run.detail().contains("driver readback failed")).count());
         assertEquals(3, runs.stream().filter(run -> run.steps().size() == 1).count());
@@ -344,7 +344,7 @@ class EfficiencySweepServiceTest {
         });
 
         var runs = service.status().runs();
-        assertTrue(service.status().phase().startsWith("Fertig"));
+        assertEquals("lab_run_partial", service.status().phase(), "Failed measurements must not be labelled a complete run");
         assertEquals(List.of("pearl", "ravencoin"), runs.stream().map(EfficiencySweepService.RunStatus::coin).toList());
         assertTrue(runs.stream().allMatch(run -> run.status() == SweepRunState.FAILED && run.steps().size() == 1));
         assertEquals("Pearl SolarMiner proxy is unreachable", runs.getFirst().steps().getFirst().note());

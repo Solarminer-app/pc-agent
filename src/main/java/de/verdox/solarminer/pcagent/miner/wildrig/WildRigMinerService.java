@@ -118,8 +118,9 @@ public class WildRigMinerService extends AbstractMinerEngine implements GpuCoinM
     }
 
     private MinerConfig effectiveConfig() {
+        if (de.verdox.solarminer.pcagent.miner.MinerStartContext.savedConfigurationRequested()) return configuration();
         return benchmarkOverride != null ? benchmarkOverride
-                : sweepOverride != null ? sweepOverride : configuration();
+                : sweepOverride != null && de.verdox.solarminer.pcagent.miner.MinerStartContext.measurementRequested() ? sweepOverride : configuration();
     }
 
     @Override public MinerConfig configuration() { return savedConfiguration; }
