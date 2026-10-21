@@ -6,7 +6,7 @@
   const s = ui.s;
   const preferences = window.SolarMinerPreferences;
   let workers = [], miners = [], energy = null, earnings = [], sensors = null;
-  let benchmarkRunning = false, sweepWorkerIds = new Set();
+  let benchmarkWorkerIds = new Set(), sweepWorkers = new Map(), tuningWorkers = new Map();
   let search = '', coin = null, hardware = 'all', selected = null;
   const pendingWorkers = new Set();
   const pendingStarts = new Set();
@@ -17,6 +17,10 @@
   const notice = (message, error = false, translated = false) => {
     const node = $('notice'); node.textContent = translated ? message : t(message); node.className = `notice${error ? ' error' : ''}`; node.hidden = !message;
   };
+  const measurement = worker => worker.measurement || tuningWorkers.get(worker.deviceId) || sweepWorkers.get(worker.deviceId)
+    || (benchmarkWorkerIds.has(worker.deviceId) ? {phase:'BENCHMARKING'} : null);
+  const measuredMiner = context => miners.find(row => row.coin === context?.coin && row.id === context?.minerSoftwareId)?.name
+    || context?.minerSoftwareId || '—';
   const hps = worker => Number(worker.telemetry?.terahashPerSecond || 0) * 1e12;
   const watts = worker => Number(worker.telemetry?.approximatedPowerUsageWatts) > 0 ? Number(worker.telemetry.approximatedPowerUsageWatts) : null;
   const temperature = worker => {
@@ -29,7 +33,7 @@
   const activeEnergy = worker => energy?.activeSessions?.find(session => session.deviceId === worker.deviceId);
   const money = value => preferences.money(value, energy?.settings?.currency || preferences.currency);
   const dailyProfit = worker => {
-    if (worker.status !== 'MINING' || !energy?.settings || !(watts(worker) > 0)) return null;
+    if (measurement(worker) || worker.status !== 'MINING' || !energy?.settings || !(watts(worker) > 0)) return null;
     const coin = runningCoin(worker) || worker.coin;
     const forecast = earnings.find(item => item.coin === coin && item.available);
     const grossUsd = ui.workerUsdPerDay(hps(worker), forecast);
@@ -49,15 +53,16 @@
   const coinTicker = id => id === 'none' ? 'unassigned' : (coinRow(id)?.ticker || id);
   const coinAlgorithm = id => coinRow(id)?.algorithm || '';
   const runningCoin = worker => {
+    if (worker.measurement?.coin) return worker.measurement.coin;
     const algorithm = String(worker.telemetry?.currentAlgorithm || '').toLowerCase();
     return (window.SolarMinerCoinCatalog || []).find(row => String(row.algorithm || '').toLowerCase() === algorithm)?.id || null;
   };
 
   function filtered() {
     return workers.filter(worker => {
-      if (coin && worker.coin !== coin) return false;
+      if (coin && worker.coin !== coin && runningCoin(worker) !== coin) return false;
       if (hardware !== 'all' && worker.hardwareType !== hardware) return false;
-      const haystack = [worker.hardwareModel, worker.deviceId, worker.coinName, worker.algorithm, worker.minerSoftwareName].join(' ').toLowerCase();
+      const haystack = [worker.hardwareModel, worker.deviceId, worker.coinName, worker.telemetry?.currentAlgorithm || worker.algorithm, worker.minerSoftwareName, measurement(worker)?.coin, measuredMiner(measurement(worker))].join(' ').toLowerCase();
       return !search || haystack.includes(search);
     });
   }
@@ -68,18 +73,18 @@
       const item = ui.element('span', 'strip-item'); item.append(ui.element('span', '', `${t(label)}: `));
       const pill = ui.statusPill(null, value); if (tone) pill.classList.add(tone); item.append(pill); strip.append(item);
     };
-    add('Agent', 'connected_e0e3b1', 'tone-ok');
-    add('Zugewiesen', `${workers.filter(worker => worker.coin !== 'none').length}/${workers.length}`,
+    add('worker_agent_label', 'connected_e0e3b1', 'tone-ok');
+    add('worker_assignment_count', `${workers.filter(worker => worker.coin !== 'none').length}/${workers.length}`,
       workers.some(worker => worker.coin === 'none') ? 'tone-warn' : 'tone-ok');
     const broken = workers.filter(worker => worker.coin !== 'none' && (!worker.minerInstalled || !worker.configured)).length;
-    if (broken) add('Handlungsbedarf', t('count_workers', {count: broken}), 'tone-bad');
+    if (broken) add('worker_attention', t('count_workers', {count: broken}), 'tone-bad');
   }
 
   function renderKpis() {
     const running = workers.filter(worker => worker.status === 'MINING');
     const totalWatts = running.reduce((sum, worker) => sum + (watts(worker) || 0), 0);
     const algorithms = new Map();
-    for (const worker of running) algorithms.set(worker.algorithm, (algorithms.get(worker.algorithm) || 0) + hps(worker));
+    for (const worker of running) { const algorithm = worker.telemetry?.currentAlgorithm || worker.algorithm; algorithms.set(algorithm, (algorithms.get(algorithm) || 0) + hps(worker)); }
     const temps = running.map(temperature).filter(value => value != null);
     const today = energy?.today;
     const tariff = energy ? preferences.convert(energy.settings.pricePerKwh, energy.settings.currency) : null;
@@ -135,7 +140,16 @@
     }},
     {label: 'assignment', key: 'coinName', width: '18%', render: worker => {
       const wrap = ui.element('div');
-      if (worker.status === 'MINING' && worker.telemetry) {
+      const activeMeasurement = measurement(worker);
+      if (activeMeasurement) {
+        wrap.append(ui.element('strong', '', t('worker_measurement_pair', {
+          coin: (activeMeasurement.coin || runningCoin(worker) || worker.coin).toUpperCase(), miner: measuredMiner(activeMeasurement)
+        })));
+        wrap.append(ui.element('span', 'cell-sub', t('worker_measurement_saved_assignment', {
+          coin: worker.coin === 'none' ? t('unassigned_4cfcb8') : worker.coinName,
+          miner: worker.minerSoftwareName || '—'
+        })));
+      } else if (worker.status === 'MINING' && worker.telemetry) {
         const actualCoin = runningCoin(worker);
         wrap.append(ui.element('strong', '', worker.telemetry.workerDisplayName || `${actualCoin ? coinTicker(actualCoin) : t('worker_active')}`));
         wrap.append(ui.element('span', 'cell-sub', t('currently_running_algorithm', {algorithm: worker.telemetry.currentAlgorithm || '—'})));
@@ -155,12 +169,17 @@
       }
       return wrap;
     }},
-    {label: 'status_bae7d5', key: 'status', width: '11%', render: worker => ui.statusPill(
-      pendingStarts.has(worker.deviceId) && worker.status !== 'MINING' ? 'STARTING'
-        : worker.status === 'MINING' ? sweepWorkerIds.has(worker.deviceId) ? 'POWER_SWEEP' : benchmarkRunning ? 'BENCHMARKING' : 'MINING' : worker.status)},
-    {label: 'Live', key: 'telemetry', width: '16%', render: worker => {
-      if (worker.status !== 'MINING') return null;
-      const wrap = ui.element('div'); wrap.append(ui.element('strong', '', ui.hashrate(hps(worker))));
+    {label: 'status_bae7d5', key: 'status', width: '11%', render: worker => {
+      const activeMeasurement = measurement(worker);
+      const wrap = ui.element('div');
+      wrap.append(ui.statusPill(activeMeasurement?.phase || (pendingStarts.has(worker.deviceId) && worker.status !== 'MINING' ? 'STARTING' : worker.status)));
+      if (activeMeasurement?.detail) wrap.append(ui.element('span', 'cell-sub', s(activeMeasurement.detail)));
+      if (activeMeasurement && worker.status !== 'MINING') wrap.append(ui.element('span', 'cell-sub', t('worker_measurement_waiting_telemetry')));
+      return wrap;
+    }},
+    {label: 'worker_live', key: 'telemetry', width: '16%', render: worker => {
+      if (worker.status !== 'MINING' && !measurement(worker)) return null;
+      const wrap = ui.element('div'); wrap.append(ui.element('strong', '', worker.status === 'MINING' ? ui.hashrate(hps(worker)) : '—'));
       wrap.append(ui.element('span', 'cell-sub', `${watts(worker) ? ui.power(watts(worker)) : t('power_ce610e')} · ${temperature(worker) != null ? ui.temperature(temperature(worker)) : t('temperature_2500e7')}`)); return wrap;
     }},
     {label: 'session_energy', key: 'energy', width: '13%', render: energyCell},
@@ -173,22 +192,22 @@
     }},
     {label: 'action', key: 'status', width: '15%', align: 'right', render: worker => {
       const wrap = ui.element('div', 'row-actions');
-      const configure = ui.element('button', 'button subtle', worker.coin === 'none' ? 'set_up' : 'change'); configure.type = 'button'; configure.disabled = !catalogReady || pendingWorkers.has(worker.deviceId);
+      const configure = ui.element('button', 'button subtle', worker.coin === 'none' ? 'set_up' : 'change'); configure.type = 'button'; configure.disabled = !catalogReady || pendingWorkers.has(worker.deviceId) || Boolean(measurement(worker));
       configure.addEventListener('click', event => { event.stopPropagation(); openEditor(worker); }); wrap.append(configure);
       const running = worker.status === 'MINING';
-      const actualCoin = running ? runningCoin(worker) : null;
+      const actualCoin = measurement(worker)?.coin || (running ? runningCoin(worker) : null);
       const controlCoin = actualCoin || worker.coin;
       if (running || worker.coin !== 'none') {
-        const actualMinerId = actualCoin ? miners.find(candidate => candidate.coin === actualCoin)?.id : worker.minerSoftwareId;
+        const actualMinerId = measurement(worker)?.minerSoftwareId || worker.minerSoftwareId;
         const miner = miners.find(candidate => candidate.coin === controlCoin && candidate.id === actualMinerId);
         if (miner?.downloadStatus === 'UPDATE_REQUIRED') {
           const update = ui.element('button', 'button primary', 'update_srbminer'); update.type = 'button';
-          update.disabled = pendingWorkers.has(worker.deviceId);
+          update.disabled = pendingWorkers.has(worker.deviceId) || Boolean(measurement(worker));
           update.addEventListener('click', event => { event.stopPropagation(); updateMiner(worker, miner); }); wrap.append(update);
         } else {
           const starting = worker.status === 'STARTING' || pendingStarts.has(worker.deviceId);
           const toggle = ui.element('button', `button ${running ? 'subtle' : 'primary'}`, starting ? 'miner_starting' : running ? 'pause' : 'start');
-          toggle.type = 'button'; toggle.disabled = pendingWorkers.has(worker.deviceId) || starting || (!running && (worker.coin === 'none' || !worker.minerInstalled));
+          toggle.type = 'button'; toggle.disabled = Boolean(measurement(worker)) || pendingWorkers.has(worker.deviceId) || starting || (!running && (worker.coin === 'none' || !worker.minerInstalled));
           toggle.addEventListener('click', event => { event.stopPropagation(); action(worker, running ? 'pause' : 'start'); }); wrap.append(toggle);
         }
       }
@@ -293,7 +312,7 @@
   }
 
   function workerConsoleId(worker) {
-    const coin = worker.status === 'MINING' ? runningCoin(worker) || worker.coin : worker.coin;
+    const coin = measurement(worker)?.coin || (worker.status === 'MINING' ? runningCoin(worker) || worker.coin : worker.coin);
     if (coin === 'none') return null;
     if (worker.hardwareType === 'CPU') return worker.coin;
     return `${coin}-${worker.vendor}-${worker.index}`;
@@ -531,13 +550,16 @@
     .subscribe(value => { if (value) { earnings = value; renderTable(); } });
   window.SolarMinerLive.channel('benchmarks', {endpoint: '/api/agent/local/benchmarks', maxAgeMs: 8000, persist: false})
     .subscribe((value, meta) => {
-      benchmarkRunning = !meta.error && !meta.stale && value?.running === true;
+      benchmarkWorkerIds = new Set(!meta.error && !meta.stale && value?.running === true ? value.selectedWorkers || [] : []);
       if (workers.length) renderTable();
     });
   window.SolarMinerLive.channel('efficiency', {endpoint: '/api/agent/local/efficiency', maxAgeMs: 8000, persist: false})
     .subscribe((value, meta) => {
-      sweepWorkerIds = !meta.error && !meta.stale && value?.running === true
-        ? new Set((value.runs || []).map(run => run.deviceId)) : new Set();
+      const active = !meta.error && !meta.stale && value?.running === true;
+      sweepWorkers = new Map(active ? (value.runs || []).filter(run => run.status === 'RUNNING').map(run =>
+        [run.deviceId, {coin:run.coin, minerSoftwareId:run.softwareId, phase:'POWER_SWEEP', detail:run.detail}]) : []);
+      tuningWorkers = new Map(active ? (value.optimization?.runs || []).filter(run => run.state === 'RUNNING').map(run =>
+        [run.deviceId, {coin:run.coin, minerSoftwareId:run.softwareId, phase:'AUTO_TUNING', detail:run.detail}]) : []);
       if (workers.length) renderTable();
     });
   window.SolarMinerLive.start();

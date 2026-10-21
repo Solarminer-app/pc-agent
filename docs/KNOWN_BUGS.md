@@ -39,6 +39,7 @@ remains. The assigned task always takes precedence.
 | [~] | P1 | BUG-011 | PeakMiner sweep can report a managed-miner ownership conflict and an implausible PH/s rate. |
 | [~] | P1 | BUG-012 | Saving one worker's assignment can stop other GPUs sharing its coin/miner configuration. |
 | [~] | P1 | BUG-013 | Auto Tuning drops calibration requests for GPUs while another GPU is being calibrated. |
+| [~] | P1 | BUG-014 | External power status reports paused/zero target while automatic-mode GPUs are mining; reported remote mass-stop trigger remains unconfirmed. |
 
 ## BUG-001 — Explain missing-wallet startup failures
 
@@ -283,6 +284,28 @@ Deutsch: Die neue Konsole trennt gespeicherte Zuweisung und tatsächlich gemelde
 Algorithmus. Ein Test deckt die abweichende Live-Meldung ab. Bestätigte Befehle
 werden nicht als Nachweis aktiven Minings dargestellt. Der alte Fehler bleibt
 für bestehende Seiten und den eigentlichen Moduswechsel weiter offen.
+
+### 2026-10-21 — Alternate miner visibility during measurements / Andere Test-Miner
+
+**English:** Confirmed a separate cause of missing GPU rows/telemetry: sweeps
+started alternate adapters without `MinerFactory`'s temporary software selection,
+so `MiningService.getWorkerStats` filtered their values against the saved miner.
+Sweeps now publish a per-GPU measurement context spanning the full curve and
+refinement; cleanup removes it before ordinary restoration. Worker views retain
+the saved coin/miner and expose the test context separately. Workers displays
+its actual test pair and phase during startup and mining, with live telemetry
+from the test adapter. Unrelated mining workers do not inherit a global benchmark
+badge. Factory, sweep and read-model regressions plus the DE/EN full-page browser
+fixture pass. Real process/driver/pool acceptance remains open for BUG-004.
+
+**Deutsch:** Eine weitere Ursache ist belegt: Sweeps starteten abweichende Miner
+ohne temporäre Software-Zuordnung. Die allgemeine Statistik filterte deren Werte
+gegen den gespeicherten Miner heraus. Eine Messzuordnung pro GPU gilt jetzt für
+Kurve und Nachoptimierung und wird vor Wiederherstellung entfernt. Die Worker-
+Ansicht zeigt Testpaar, Phase und echte Test-Telemetrie zusätzlich zur gespeicherten
+Zuordnung, auch beim Anlauf. Unbeteiligte Worker erhalten kein globales Benchmark-
+Label. Factory-, Sweep-, Lesemodell- und DE/EN-Browsertests sind erfolgreich;
+reale Prozess-/Treiber-/Poolabnahme für BUG-004 bleibt offen.
 
 ## BUG-005 — Continue the power-limit test queue across coins
 
@@ -754,3 +777,50 @@ The current sweep scheduler already gives every GPU its own full curve. The
 legacy validation helpers are not evidence of current shared-reference behavior.
 Der aktuelle Sweep-Planer misst bereits pro GPU eine eigene vollständige Kurve;
 die alten Validierungshilfen belegen keine gemeinsame aktuelle Referenzmessung.
+
+
+## BUG-014 — Remote mass-stop report and inconsistent external power status
+
+**Status:** Under investigation (`[~]`, 2026-10-21). Diagnosis only; no runtime change.
+
+**English:** Read-only inspection of the local Docker Beta
+`pc-agent-beta-8a81f9eb46d0` found all five GPUs reporting `MINING` at about
+1092 W combined, while `/external/power-control` reported
+`miningPaused:true`, `currentTargetWatts:0` and application status `IDLE`.
+The local settings select `PROFIT_PER_DAY` for these five GPUs. In source,
+`MiningService.resumeExternally` starts workers without updating desired power
+or application state, and `AgentPowerController.status` infers paused solely
+from the desired global target. This confirms a status defect, not the cause
+of the reported remote mass stop.
+
+The exact `Mining paused remotely` messages originate in
+`AgentPowerController.externalPause/externalTarget`, reached through external
+POST `/pause` or `/power-target`. `MiningService.pauseExternallyInternal`
+stops selected, externally permitted GPUs sequentially. A dynamic positive
+budget can also reach this stop path when rejected or when applying GPU limits
+fails. This dynamic allocation branch is bypassed for the currently observed
+automatic modes. `Remote control API` identifies a control path, not a caller
+IP or authenticated Node identity. No historical remote-stop line survives in
+the accessible current logs. `MinerConsoleService.started` truncates each
+console on start, so subsequent starts can erase the evidence.
+
+**Verification:** Source/caller tracing and read-only live status/settings/log
+inspection only. No stop/start command, deployment, or implementation test was
+performed. To establish the reported incident's trigger, capture its exact
+console line/time and correlate external POST requests with the sending Node's
+control decision; the current log does not record caller provenance. Do not
+attribute a feedback loop to the status defect without that evidence.
+
+**Deutsch:** Der laufende Docker-Beta-Agent meldet alle fünf GPUs als aktiv
+(ca. 1092 W), aber gleichzeitig `miningPaused:true`, Ziel `0 W` und `IDLE`.
+Der Startpfad der automatischen Betriebsmodi aktualisiert den globalen Ziel-
+und Anwendungszustand nicht; die Pausenanzeige wird allein daraus berechnet.
+Dieser Statusfehler ist belegt. Die Ursache der gemeldeten Fernabschaltung
+bleibt offen. Die konkrete Meldung kommt aus den externen Pause-/Leistungsziel-
+Endpunkten; die Pause stoppt freigegebene GPUs nacheinander. Auch abgelehnte
+dynamische Budgets können pausieren, dieser Zweig wird bei den aktuell aktiven
+automatischen Modi jedoch übersprungen. Der Konsolen-Neustart überschreibt
+alte Belege. Nur Quellcode und laufende Leseschnittstellen/Logs geprüft;
+keine Mining-Befehle, Implementierung oder Bereitstellung. Für die eindeutige
+Zuordnung fehlen die genaue Meldung/Zeit und der zugehörige eingehende
+POST-Aufruf samt Steuerentscheidung des Absenders.

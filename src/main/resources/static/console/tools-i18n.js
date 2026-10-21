@@ -1,5 +1,6 @@
 /* Independent specialist catalog, extending only the new console's closed catalog. */
 Object.assign(window.OperationsI18n.catalog, {
+  auto_tuning_phase_starting: ["Miner läuft nach Taktänderung an", "Miner warming up after clock change"],
   tool_pool_balance: ["Pool-Guthaben", "Pool balance"],
   tool_paid: ["Ausgezahlt", "Paid total"],
   tool_chain_balance: ["On-Chain-Guthaben", "On-chain balance"],

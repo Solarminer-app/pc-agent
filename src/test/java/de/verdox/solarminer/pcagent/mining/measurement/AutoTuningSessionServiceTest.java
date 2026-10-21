@@ -563,4 +563,84 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
                 observations, List.of(a, b, c, otherTier)));
     }
 
+    @Test
+    void fastestMeasuredPointIsConfirmedAlongsideEfficiencyFinalists() {
+        var a = new BayesianGpuOptimizer.Candidate(900, 5000, 100, .1, 0, 0);
+        var b = new BayesianGpuOptimizer.Candidate(1100, 5000, 100, .5, 0, 0);
+        var fast = new BayesianGpuOptimizer.Candidate(1200, 5000, 100, .7, 0, 0);
+        var sample = new AutoTuningSessionService.SampleSummary(true, 150, 99, 16, 60d, 1200, 5000, null, false);
+        assertEquals(List.of(a, b, fast), AutoTuningSessionService.confirmationCandidates(List.of(
+                new BayesianGpuOptimizer.Observation(a, 10, true, null),
+                new BayesianGpuOptimizer.Observation(b, 9, true, null),
+                new BayesianGpuOptimizer.Observation(fast, 8, true, null, sample)), List.of(a, b, fast)));
+    }
+
+    @Test
+    void sweepRefinementKeepsExclusiveLockAndHonorsParentCancellation() {
+        var mining = mock(MiningService.class);
+        var power = mock(LocalGpuPowerService.class);
+        var tuning = mock(GpuTuningService.class);
+        var miners = mock(MinerFactory.class);
+        var lock = new LocalRunLock();
+        var gpu = new LocalGpuPowerService.Gpu("AMD", 0, "GPU-owned", "Test", 80, 250,
+                80, 180, 150, 120d, "measured", true, null, 250);
+        when(power.refresh()).thenReturn(List.of(gpu));
+        when(power.snapshot()).thenReturn(List.of(gpu));
+        when(power.readTemperatureC(any())).thenReturn(60d);
+        when(power.setAutoTuningPowerTarget(anyInt(), any())).thenReturn(true);
+        when(tuning.refreshCapabilities(gpu.deviceId())).thenReturn(new GpuTuningService.Capabilities(
+                gpu.deviceId(), true, true, false, 1000, 1400, 400, 800, null));
+        when(tuning.restoreDefaults(anyString())).thenReturn(new GpuTuningService.ApplyResult(true, null));
+        when(miners.minerSoftwareForWorker(any(), anyString())).thenReturn("srbminer-multi");
+        when(mining.getWorkerStats()).thenReturn(List.of(new MinerStats.Worker(MinerStats.MinerStatus.MINING,
+                "Test", "PearlHash", 100d / 1e12, 60, 150, 80, 150, 180, 120, List.of(), "GPU", "Test", gpu.deviceId(),
+                null, null, MinerStats.PoolTelemetry.unavailable())));
+        var store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), directory.resolve("owned.json").toString());
+        var service = new AutoTuningSessionService(mining, power, tuning, store, lock, miners, 85, 0);
+        try {
+            assertThrows(IllegalStateException.class, () -> service.refineWithinSweep(gpu.deviceId(), "pearl", 150, () -> true));
+            assertTrue(lock.tryBegin("efficiency-sweep"));
+            var result = service.refineWithinSweep(gpu.deviceId(), "pearl", 150, () -> true);
+            assertFalse(result.running());
+            assertEquals("auto_tuning_cancelled", result.phase());
+            assertEquals("efficiency-sweep", lock.holder());
+            assertFalse(lock.tryBegin("benchmark"));
+            verify(tuning, never()).apply(anyString(), any(), any(), any(), any());
+            when(tuning.restoreDefaults(anyString())).thenThrow(new IllegalStateException("driver recovery failed"));
+            var failed = service.refineWithinSweep(gpu.deviceId(), "pearl", 150, () -> true);
+            assertFalse(failed.running());
+            assertEquals("gpu_clock_restore_failed", failed.phase());
+            assertEquals("efficiency-sweep", lock.holder());
+        } finally { service.shutdown(); lock.end(); }
+    }
+
+    @Test
+    void nativeCandidateWaitsThroughZeroHashrateAndChecksTemperatureAndCancellation() throws Exception {
+        var mining = mock(MiningService.class);
+        var power = mock(LocalGpuPowerService.class);
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "gpu", "Test", 80, 200, 80, 200, 150, 120d, "measured", true, null, 200);
+        var starting = mock(MinerStats.Worker.class);
+        when(starting.deviceId()).thenReturn("gpu");
+        when(starting.miningStatus()).thenReturn(MinerStats.MinerStatus.MINING);
+        when(starting.currentAlgorithm()).thenReturn("PearlHash");
+        when(starting.terahashPerSecond()).thenReturn(0d);
+        var ready = mock(MinerStats.Worker.class);
+        when(ready.deviceId()).thenReturn("gpu");
+        when(ready.miningStatus()).thenReturn(MinerStats.MinerStatus.MINING);
+        when(ready.currentAlgorithm()).thenReturn("PearlHash");
+        when(ready.terahashPerSecond()).thenReturn(1e-9);
+        when(mining.getWorkerStats()).thenReturn(List.of(starting), List.of(starting), List.of(ready));
+        when(power.readTemperatureC(gpu)).thenReturn(60d);
+        var service = new AutoTuningSessionService(mining, power, mock(GpuTuningService.class), mock(AutoTuningProfileStore.class), new LocalRunLock(), mock(MinerFactory.class), 85, 0);
+        try {
+            service.awaitNativeCandidate(gpu, de.verdox.solarminer.pcagent.coin.Coin.PEARL, () -> false, System.nanoTime() + 1_000_000_000L);
+            verify(mining, times(3)).getWorkerStats();
+            assertEquals("auto_tuning_cancelled", assertThrows(IllegalStateException.class, () -> service.awaitNativeCandidate(gpu,
+                    de.verdox.solarminer.pcagent.coin.Coin.PEARL, () -> true, Long.MAX_VALUE)).getMessage());
+            when(power.readTemperatureC(gpu)).thenReturn(86d);
+            assertEquals("auto_tuning_temperature_limit", assertThrows(IllegalStateException.class, () -> service.awaitNativeCandidate(gpu,
+                    de.verdox.solarminer.pcagent.coin.Coin.PEARL, () -> false, Long.MAX_VALUE)).getMessage());
+        } finally { service.shutdown(); }
+    }
+
 }

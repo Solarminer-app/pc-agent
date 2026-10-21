@@ -89,4 +89,23 @@ class EfficiencySweepControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("benchmark_select_gpu_for_sweep"));
     }
+    @Test
+    void optimizationOptionStartsAndResumesTheCombinedRunAndExposesProgress() throws Exception {
+        var sweep = mock(EfficiencySweepService.class);
+        var optimization = new de.verdox.solarminer.pcagent.mining.measurement.SweepRefinementService.Status(true,
+                List.of(new de.verdox.solarminer.pcagent.mining.measurement.SweepRefinementService.Progress(
+                        "gpu|pearl|srbminer-multi", "gpu", "pearl", "srbminer-multi", "RUNNING", "auto_tuning_phase_confirming", 19, 24, 5, 32)));
+        var session = new EfficiencySweepService.Session(true, "benchmark_optimization_tuning", Instant.now(), 1, 1, List.of(), List.of(), null, optimization);
+        when(sweep.start(List.of("pearl"), List.of("gpu"), 1, true)).thenReturn(session);
+        when(sweep.resume(List.of("pearl"), List.of("gpu"), 1, true)).thenReturn(session);
+        MockMvc api = standaloneSetup(new EfficiencySweepController(sweep, null)).build();
+        for (String mode : List.of("restart", "resume")) api.perform(post("/api/agent/local/efficiency")
+                        .queryParam("mode", mode).contentType("application/json")
+                        .content("{\"coins\":[\"pearl\"],\"workers\":[\"gpu\"],\"maxConcurrentGpus\":1,\"autoTuneAfterSweep\":true}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.optimization.enabled").value(true))
+                .andExpect(jsonPath("$.optimization.runs[0].sampleCount").value(32));
+        verify(sweep).start(List.of("pearl"), List.of("gpu"), 1, true);
+        verify(sweep).resume(List.of("pearl"), List.of("gpu"), 1, true);
+    }
+
 }

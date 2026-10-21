@@ -28,7 +28,7 @@
     proxy: 'M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4'
   };
   const sidebar = make('aside', 'app-sidebar'); sidebar.id = 'app-navigation';
-  const closeMenu = make('button', 'app-menu-close', '×'); closeMenu.type = 'button'; closeMenu.setAttribute('aria-label', t('close_navigation')); sidebar.append(closeMenu);
+  const closeMenu = make('button', 'app-menu-close'); closeMenu.textContent = '×'; closeMenu.type = 'button'; closeMenu.setAttribute('aria-label', t('close_navigation')); sidebar.append(closeMenu);
   sidebar.append(header.querySelector('.brand'));
   const subtitle = make('p', 'app-instance', 'your_local_mining_agent'); sidebar.append(subtitle);
   // The operator label is what the SolarMiner Node lists this machine under, so it belongs in the
@@ -61,7 +61,7 @@
   const foot = make('div', 'app-sidebar-foot'); foot.append(make('span', 'app-local-dot'), make('span', '', 'on_this_pc_local_network')); sidebar.append(foot);
   shell.before(sidebar);
   header.querySelector('.nav')?.remove();
-  const menu = make('button', 'app-menu', '☰'); menu.type = 'button'; menu.setAttribute('aria-label', t('open_navigation'));
+  const menu = make('button', 'app-menu'); menu.textContent = '☰'; menu.type = 'button'; menu.setAttribute('aria-label', t('open_navigation'));
   menu.setAttribute('aria-controls', sidebar.id); menu.setAttribute('aria-expanded', 'false');
   const crumb = make('div', 'app-breadcrumb'); crumb.append(make('span', '', currentGroup), make('strong', '', currentLabel));
   header.prepend(menu, crumb);

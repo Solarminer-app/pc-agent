@@ -349,16 +349,23 @@ public class WorkerAssignmentService {
                             List<MinerStats.Worker> stats) {
         Coin coin = Coin.byIdOrNull(controls.get().coinFor(deviceId));
         String algorithm = coin == null || coin == Coin.NONE ? null : coin.assignmentAlgorithm();
+        var measurement = miners.measurementContext(deviceId);
+        List<MinerStats.Worker> visibleStats = measurement == null ? stats : stats.stream().filter(worker -> !deviceId.equals(worker.deviceId())
+                || Coin.byIdOrNull(measurement.coin()) != null && Coin.byIdOrNull(measurement.coin()).matchesAlgorithm(worker.currentAlgorithm())).toList();
         // Runtime ownership is authoritative for occupancy and telemetry. The saved assignment
         // remains the configuration target and may legitimately differ from a running process.
-        MinerStats.Worker live = stats.stream().filter(worker -> deviceId.equals(worker.deviceId())
+        MinerStats.Worker live = visibleStats.stream().filter(worker -> deviceId.equals(worker.deviceId())
                 && (worker.miningStatus() == MinerStats.MinerStatus.MINING
                     || worker.miningStatus() == MinerStats.MinerStatus.STARTING)).findFirst()
-                .orElseGet(() -> stats.stream().filter(worker -> deviceId.equals(worker.deviceId())
+                .orElseGet(() -> visibleStats.stream().filter(worker -> deviceId.equals(worker.deviceId())
                         && (algorithm == null || algorithm.equalsIgnoreCase(worker.currentAlgorithm()))).findFirst().orElse(null));
-        String selectedId = coin == null || coin == Coin.NONE ? null : miners.minerSoftwareForWorker(coin, deviceId);
+        String selectedId = coin == null || coin == Coin.NONE ? null : miners.configuredMinerSoftwareForWorker(coin, deviceId);
+        // Compatibility with factory implementations without the saved/runtime split.
+        if (selectedId == null && measurement == null && coin != null && coin != Coin.NONE)
+            selectedId = miners.minerSoftwareForWorker(coin, deviceId);
+        String savedMinerId = selectedId;
         MinerCatalogService.MinerOption selected = coin == null || coin == Coin.NONE ? null : catalog.options(coin.id()).stream()
-                .filter(option -> option.id().equals(selectedId)).findFirst().orElse(null);
+                .filter(option -> option.id().equals(savedMinerId)).findFirst().orElse(null);
         String pool = pool(coin, selectedId);
         boolean configured = coin != null && (coin == Coin.NONE || coin.isCpu()
                 || miners.gpuMiner(coin, selectedId).configured());
@@ -378,7 +385,7 @@ public class WorkerAssignmentService {
                 selected != null && selected.installed(), configured, pool,
                 controls.get().workerEnabled(deviceId), live == null ? MinerStats.MinerStatus.STOPPED : live.miningStatus(), live,
                 controls.get().powerModeFor(deviceId), controls.get().startsOnBoot(deviceId),
-                controls.get().manuallyStopped(deviceId));
+                controls.get().manuallyStopped(deviceId), measurement);
     }
 
     private void synchronizeConfiguredDevices(Object... changedAssignments) throws IOException {
@@ -441,7 +448,16 @@ public class WorkerAssignmentService {
                              String coin, String coinName, String algorithm, String minerSoftwareId, String minerSoftwareName,
                              boolean minerInstalled, boolean configured, String poolUrl, boolean externalControlEnabled,
                              MinerStats.MinerStatus status, MinerStats.Worker telemetry, String powerMode,
-                             boolean startOnBoot, boolean manuallyStopped) {
+                             boolean startOnBoot, boolean manuallyStopped, MinerFactory.MeasurementContext measurement) {
+        public WorkerView(String deviceId, String hardwareType, String hardwareModel, String vendor, Integer index,
+                          String coin, String coinName, String algorithm, String minerSoftwareId, String minerSoftwareName,
+                          boolean minerInstalled, boolean configured, String poolUrl, boolean externalControlEnabled,
+                          MinerStats.MinerStatus status, MinerStats.Worker telemetry, String powerMode,
+                          boolean startOnBoot, boolean manuallyStopped) {
+            this(deviceId, hardwareType, hardwareModel, vendor, index, coin, coinName, algorithm, minerSoftwareId,
+                    minerSoftwareName, minerInstalled, configured, poolUrl, externalControlEnabled, status, telemetry,
+                    powerMode, startOnBoot, manuallyStopped, null);
+        }
         public WorkerView(String deviceId, String hardwareType, String hardwareModel, String vendor, Integer index,
                           String coin, String coinName, String algorithm, String minerSoftwareId, String minerSoftwareName,
                           boolean minerInstalled, boolean configured, String poolUrl, boolean externalControlEnabled,

@@ -34,10 +34,9 @@ if (resultsPage) {
     $('upload-status').previousElementSibling.hidden = true;
     for (const id of ['upload-status', 'periodic-upload-status', 'retry-upload']) $(id).hidden = true;
 } else {
-    const sharingStatus = make('section', 'panel');
-    sharingStatus.append($('upload-status').previousElementSibling, $('upload-status'),
-        $('periodic-upload-status'), $('retry-upload'));
-    document.querySelector('.sharing-details').before(sharingStatus);
+    const sharingStatus = make('div', 'benchmark-sharing-status');
+    sharingStatus.append($('upload-status'), $('periodic-upload-status'), $('retry-upload'));
+    document.querySelector('.sharing-details .panel').append(sharingStatus);
 }
 
 function algorithmGroupLabel(row) {
@@ -153,7 +152,8 @@ function notice(text, error = false, kind = 'action') {
     const e = $('notice');
     e.hidden = false; e.dataset.kind = kind;
     e.className = `notice${error ? ' error' : ''}`;
-    e.textContent = t(text);
+    e.textContent = s(text);
+    if (error && !resultsPage) { e.tabIndex = -1; e.focus(); }
 }
 
 function fmtRate(v) {
@@ -450,12 +450,14 @@ function applyBenchmarkState(state, meta = {}) {
         lastResults = signature;
     }
     if (!state.running) window.SolarMinerLive.refresh('benchmark-upload');
+    if (state.running) document.querySelector('.benchmark-alternatives')?.setAttribute('open', '');
+    updateMeasurementControls();
 }
 
 function connectionLost() {
     $('connection').className = 'badge offline';
     $('connection').textContent = t('agent_unavailable');
-    $('run-live').disabled = $('run-installed').disabled = true;
+    latestBenchmarkState = null; updateMeasurementControls();
     notice('could_not_load_benchmark_status_existing_res', true, 'connection');
 }
 
@@ -486,7 +488,7 @@ function showUploadStatus(id, status, label) {
 }
 
 async function start(mode) {
-    if (catalogCoins.length && !document.querySelector('#coin-options input:checked')) {
+    if (resultsPage && catalogCoins.length && !document.querySelector('#coin-options input:checked')) {
         notice('benchmark_select_coin', true); return;
     }
     if (!requireWorkerSelection(false)) return;
@@ -495,13 +497,16 @@ async function start(mode) {
     if (actionBusy) return; actionBusy = true;
     if ($('auto-start-mining')) $('auto-start-mining').disabled = true;
     $('run-live').disabled = $('run-installed').disabled = true;
+    updateMeasurementControls();
     try {
-        const response = await fetch('/api/agent/local/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, coins: selectedCoins(), workers: selectedWorkers(), startMiningAfterBenchmark: Boolean($('auto-start-mining')?.checked), maxConcurrentGpus: gpuLimit})});
+        const scope = await prepareMeasurementScope(false);
+        const response = await fetch('/api/agent/local/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, coins: scope.coins, workers: scope.workers, startMiningAfterBenchmark: mode === 'INSTALLED' && Boolean($('auto-start-mining')?.checked), maxConcurrentGpus: gpuLimit})});
         if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.detail || body?.message || t('could_not_start_the_benchmark')); }
+        applyBenchmarkState(await response.json());
         notice('measurement_started_you_can_cancel_it_at_any');
         $('results').replaceChildren(make('p', 'empty', t('benchmark_started')));
     } catch (error) { notice(window.SolarMinerI18n.s(error.message), true); }
-    finally { actionBusy = false; if ($('auto-start-mining')) $('auto-start-mining').disabled = Boolean(latestBenchmarkState?.running); window.SolarMinerLive.refresh('benchmarks'); }
+    finally { actionBusy = false; updateMeasurementControls(); window.SolarMinerLive.refresh('benchmarks'); }
 }
 
 const autoStartChoiceKey = 'solarminer.pc-agent.benchmark-auto-start';
@@ -556,6 +561,67 @@ function requireWorkerSelection(gpuOnly) {
     return true;
 }
 
+function renderSelectionSummary() {
+    if (resultsPage) return;
+    const selected = selectedWorkers();
+    let combinations = 0, pending = false;
+    for (const card of document.querySelectorAll('.benchmark-worker-card')) {
+        const checked = selected.includes(card.dataset.worker);
+        const editor = card.querySelector('.benchmark-worker-policy');
+        const count = editor.readyCombinations?.().length || 0;
+        card.classList.toggle('selected', checked);
+        card.querySelector('.benchmark-worker-summary').textContent = !checked ? t('bm_worker_unselected')
+            : !editor.readPolicy ? t('bm_selection_loading') : t('bm_worker_ready', {count});
+        if (checked) { combinations += count; pending ||= !editor.readPolicy; }
+    }
+    const gpus = selected.filter(id => availableWorkerById.get(id)?.hardwareType === 'GPU').length;
+    $('overview-selected').textContent = String(selected.length);
+    $('overview-combinations').textContent = String(combinations);
+    $('selection-summary').textContent = pending ? t('bm_selection_loading')
+        : t('bm_scope_summary', {workers: selected.length, gpus, combinations});
+}
+
+function updateMeasurementControls() {
+    if (resultsPage) return;
+    const running = Boolean(latestBenchmarkState?.running || latestSweepState?.running);
+    const known = Boolean(latestBenchmarkState && latestSweepState);
+    const locked = running || actionBusy || !known;
+    const selected = selectedWorkers();
+    const any = selected.length > 0;
+    const gpu = selected.some(id => availableWorkerById.get(id)?.hardwareType === 'GPU');
+    for (const id of ['run-live', 'run-installed']) $(id).disabled = locked || !workersLoaded || !any;
+    for (const id of ['run-sweep', 'resume-sweep']) $(id).disabled = locked || !workersLoaded || !gpu;
+    for (const input of document.querySelectorAll('#worker-selection input, #worker-selection button')) input.disabled = locked;
+    $('auto-start-mining').disabled = locked;
+    $('auto-tune-after-sweep').disabled = locked;
+    $('measurement-lock-note').textContent = !known ? t('bm_measurement_initializing') : running ? t('bm_measurement_busy') : '';
+}
+
+async function prepareMeasurementScope(gpuOnly) {
+    if (resultsPage) return {coins: selectedCoins(), workers: selectedWorkers()};
+    const selected = selectedWorkers().filter(id => !gpuOnly || availableWorkerById.get(id)?.hardwareType === 'GPU');
+    const editors = [];
+    for (const id of selected) {
+        const card = [...document.querySelectorAll('.benchmark-worker-card')].find(card => card.dataset.worker === id);
+        const editor = card.querySelector('.benchmark-worker-policy');
+        await editor.policyReady;
+        const worker = availableWorkerById.get(id);
+        if (!editor.savePolicy) throw new Error(t('bm_options_failed', {worker: worker.hardwareModel || id}));
+        if (!editor.readyCombinations().length) throw new Error(t('bm_no_ready_combinations', {worker: worker.hardwareModel || id}));
+        editors.push(editor);
+    }
+    notice('bm_save_before_start');
+    for (const editor of editors) await editor.savePolicy();
+    return {workers: selected, coins: [...new Set(editors.flatMap(editor => editor.readyCombinations().map(pair => pair.coin)))]};
+}
+
+document.addEventListener('benchmark-policy-change', () => { renderSelectionSummary(); updateMeasurementControls(); });
+for (const [id, checked] of [['select-all-workers', true], ['clear-workers', false]]) $(id)?.addEventListener('click', () => {
+    for (const input of document.querySelectorAll('#worker-options input[data-hardware-type]')) {
+        if (input.checked !== checked) { input.checked = checked; input.dispatchEvent(new Event('change')); }
+    }
+});
+
 function renderWorkerOptions(workers) {
     availableWorkers = workers;
     availableWorkerById = new Map(workers.map(worker => [worker.deviceId, worker]));
@@ -573,29 +639,36 @@ function renderWorkerOptions(workers) {
         if (Array.isArray(value)) stored = value;
     } catch (_) { }
     for (const worker of workers) {
-        const label = make('label', 'benchmark-coin-option');
-        const input = make('input', '');
-        input.type = 'checkbox'; input.value = worker.deviceId;
-        input.dataset.hardwareType = worker.hardwareType;
-        input.checked = stored.includes(worker.deviceId);
+        const card = make('article', 'benchmark-worker-card'); card.dataset.worker = worker.deviceId;
+        const label = make('label', 'benchmark-worker-select');
+        const input = make('input', ''); input.type = 'checkbox'; input.value = worker.deviceId;
+        input.dataset.hardwareType = worker.hardwareType; input.checked = stored.includes(worker.deviceId);
+        const text = make('span', '');
+        text.append(make('strong', '', worker.hardwareModel || worker.hardwareType), make('small', 'muted', `${worker.hardwareType} · ${worker.deviceId}`));
+        label.append(input, text); card.append(label);
+        const summary = make('p', 'benchmark-worker-summary'); card.append(summary);
+        const editor = make('div', 'benchmark-worker-policy');
+        editor.setAttribute('role', 'group'); editor.setAttribute('aria-label', t('bm_worker_scope', {worker: `${worker.hardwareModel || worker.hardwareType} · ${worker.deviceId}`}));
+        card.append(editor); root.append(card);
+        let loading;
+        const load = () => {
+            editor.hidden = false;
+            loading = window.SolarMinerBenchmarkPolicyEditor(editor, worker, {measurement: !resultsPage, retry: load});
+            editor.policyReady = loading;
+            loading.then(() => { renderSelectionSummary(); updateMeasurementControls(); });
+            return loading;
+        };
         input.addEventListener('change', () => {
             try { localStorage.setItem(workerSelectionKey, JSON.stringify(selectedWorkers())); } catch (_) { }
+            if (input.checked && !loading) load();
+            editor.hidden = !input.checked;
+            renderSelectionSummary(); updateMeasurementControls();
         });
-        const name = worker.hardwareModel || worker.hardwareType;
-        const text = make('span', '');
-        text.append(make('strong', '', name), make('small', 'muted', worker.deviceId));
-        label.append(input, text);
-        const card = make('div', ''); card.append(label);
-        const details = document.createElement('details');
-        const summary = make('summary', '', t('benchmark_worker_policy'));
-        const editor = document.createElement('div'); details.append(summary, editor);
-        let loaded = false;
-        details.addEventListener('toggle', () => {
-            if (details.open && !loaded) { loaded = true; void window.SolarMinerBenchmarkPolicyEditor(editor, worker); }
-        });
-        card.append(details); root.append(card);
+        editor.hidden = !input.checked;
+        if (input.checked) load();
     }
     workersLoaded = true;
+    renderSelectionSummary(); updateMeasurementControls();
 }
 
 fetch('/api/agent/local/workers', {cache: 'no-store'}).then(async response => {
@@ -604,6 +677,7 @@ fetch('/api/agent/local/workers', {cache: 'no-store'}).then(async response => {
 }).catch(() => {
     workersLoaded = false;
     $('worker-options').replaceChildren(make('p', 'empty', t('benchmark_worker_list_unavailable')));
+    updateMeasurementControls();
 });
 
 function storedCoinSelection() {
@@ -614,6 +688,7 @@ function storedCoinSelection() {
 }
 
 function selectedCoins() {
+    if (!resultsPage) return []; // The per-worker combinations are the measurement scope.
     const checked = [...document.querySelectorAll('#coin-options input:checked')].map(input => input.value);
     // All coins checked means "no restriction" — the agent keeps its full-run semantics.
     return checked.length === catalogCoins.length ? [] : checked;
@@ -623,6 +698,7 @@ function renderCoinOptions(catalog) {
     comparisonCatalog = catalog;
     catalogCoins = catalog.filter(entry => entry.binaryAvailable);
     const root = $('coin-options');
+    if (!root) return;
     root.replaceChildren();
     if (!catalog.length) return;
     const stored = storedCoinSelection();
@@ -649,7 +725,7 @@ fetch('/api/agent/local/miner-catalog', {cache: 'no-store'}).then(async response
     if (!response.ok) throw new Error('catalog_unavailable');
     renderCoinOptions(await response.json());
 }).catch(() => {
-    $('coin-selection').hidden = true;
+    if ($('coin-selection')) $('coin-selection').hidden = true;
 });
 
 $('run-live').addEventListener('click', () => start('LIVE'));
@@ -727,6 +803,30 @@ fetch('/api/agent/local/benchmarks/sharing').then(async response => {
     $('sharing-note').textContent = t('could_not_read_sharing_permissions_refresh_t');
 });
 
+function renderOptimization(optimization) {
+    const root = $('optimization-runs');
+    if (!root) return;
+    root.hidden = !optimization?.enabled;
+    root.replaceChildren();
+    if (root.hidden) return;
+    root.append(make('h3', '', t('bm_optimization_progress')));
+    for (const row of optimization.runs || []) {
+        const card = make('article', 'worker-card');
+        card.append(make('strong', '', `${row.deviceId} · ${row.coin.toUpperCase()} · ${row.softwareId}`),
+            make('p', '', `${s(row.state)} · ${s(row.detail)}`));
+        if (row.state === 'RUNNING' && row.candidateCount > 0) {
+            card.append(make('small', 'muted', t('bm_optimization_candidate', {
+                current: row.candidateIndex, total: row.candidateCount,
+                samples: row.sampleIndex, required: row.sampleCount
+            })));
+        }
+        root.append(card);
+    }
+}
+$('auto-tune-after-sweep')?.addEventListener('change', () => {
+    if (latestSweepState) applySweepState(latestSweepState);
+});
+
 function applySweepState(state) {
         latestSweepState = state;
         if (resultsPage) updateComparisonDevices(measurementSnapshot || {benchmarks: [], sweeps: []});
@@ -737,10 +837,11 @@ function applySweepState(state) {
         $('sweep-cancel').hidden = !state.running;
         $('sweep-progress-wrap').hidden = !state.running;
         const resumable = !state.running && (state.runs || []).length > 0
-            && (state.runs || []).some(run => run.status !== 'COMPLETE');
+            && ((state.runs || []).some(run => run.status !== 'COMPLETE')
+                || state.optimization?.enabled && state.optimization.runs?.some(run => run.state !== 'COMPLETE'));
         $('resume-sweep').hidden = !resumable;
         $('resume-sweep').disabled = state.running || actionBusy;
-        $('run-sweep').textContent = t(resumable ? 'restart_from_scratch' : 'start_power_limit_test');
+        $('run-sweep').textContent = t(resumable ? 'restart_from_scratch' : resultsPage ? 'start_power_limit_test' : $('auto-tune-after-sweep').checked ? 'bm_optimization_start' : 'bm_sweep_primary');
         $('run-sweep').disabled = state.running || actionBusy;
         if (state.running) {
             $('sweep-phase').textContent = t('done_total_devices_complete_phase',
@@ -750,8 +851,14 @@ function applySweepState(state) {
             $('sweep-remaining').textContent = state.secondsRemaining == null
                 ? t('calculating_eta') : t('approximate_time_remaining_time', {time: formatDuration(state.secondsRemaining)});
         }
+        renderOptimization(state.optimization);
         renderSweepRuns(forSelectedGpu(state.runs), state.running);
         if (resultsPage) renderSweepView();
+        else {
+            $('sweep-live-chart').hidden = !state.running && !(state.runs || []).some(run => run.steps?.length);
+            if (!$('sweep-live-chart').hidden) renderLiveSweepChart(state.runs || [], state.running);
+        }
+    updateMeasurementControls();
 }
 
 let selectedSweepRunId = null;
@@ -1145,7 +1252,7 @@ function efficiencyChart(profile) {
 }
 
 async function startSweep(mode = 'restart') {
-    if (catalogCoins.length && !document.querySelector('#coin-options input:checked')) {
+    if (resultsPage && catalogCoins.length && !document.querySelector('#coin-options input:checked')) {
         notice('benchmark_select_coin', true); return;
     }
     if (!requireWorkerSelection(true)) return;
@@ -1154,15 +1261,20 @@ async function startSweep(mode = 'restart') {
     if (actionBusy) return; actionBusy = true;
     $('run-sweep').disabled = true;
     $('resume-sweep').disabled = true;
+    updateMeasurementControls();
     try {
+        const scope = await prepareMeasurementScope(true);
         const response = await fetch(`/api/agent/local/efficiency?mode=${encodeURIComponent(mode)}`,
-            {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({coins: selectedCoins(), workers: selectedWorkers(), maxConcurrentGpus: gpuLimit})});
+            {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({coins: scope.coins, workers: scope.workers, maxConcurrentGpus: gpuLimit,
+                autoTuneAfterSweep: mode === 'resume' && latestSweepState?.optimization != null
+                    ? latestSweepState.optimization.enabled : Boolean($('auto-tune-after-sweep')?.checked)})});
         if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.message || body?.detail || 'could_not_start_the_efficiency_sweep'); }
+        applySweepState(await response.json());
         notice(mode === 'resume'
             ? 'efficiency_sweep_resumed_with_completed_resu'
             : 'efficiency_sweep_restarted_power_limits_are');
     } catch (error) { notice(s(error.message), true); }
-    finally { actionBusy = false; window.SolarMinerLive.refresh('efficiency'); }
+    finally { actionBusy = false; updateMeasurementControls(); window.SolarMinerLive.refresh('efficiency'); }
 }
 
 $('run-sweep').addEventListener('click', () => startSweep('restart'));
@@ -1187,6 +1299,14 @@ let comparisonCacheRevision = 0;
 let modeComparisonCandidates = [];
 let modeComparisonTariff = null;
 let modeComparisonPower = null;
+function tunedSettings(point) {
+    const profile = point?.tunedProfile;
+    if (!profile) return '';
+    return t('bm_tuned_settings', {version: profile.softwareVersion,
+        core: profile.coreMhz == null ? '—' : `${profile.coreMhz} MHz`,
+        memory: profile.memoryOffsetMhz != null ? `${profile.memoryOffsetMhz >= 0 ? '+' : ''}${profile.memoryOffsetMhz} MHz (P${profile.memoryOffsetPstate ?? '—'})`
+            : profile.memoryMhz == null ? '—' : `${profile.memoryMhz} MHz`});
+}
 function renderModeComparison(candidates = modeComparisonCandidates, tariff = modeComparisonTariff,
                               power = modeComparisonPower) {
     if (!resultsPage) return;
@@ -1249,7 +1369,7 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
         ? t('worker_mode_comparison_manual_target', {watts: manualTarget})
         : t('worker_mode_comparison_manual_unavailable'));
     const points = usable.filter(row => row.coin === coinSelect.value && row.minerSoftwareId === minerSelect.value);
-    const exactManual = manualTargetKnown ? points.find(row => Number(row.limitWatts) === manualTarget) : null;
+    const exactManual = manualTargetKnown ? points.find(row => !row.tunedProfile && Number(row.limitWatts) === manualTarget) : null;
     const sweepProxy = manualTargetKnown && !exactManual ? points.filter(row => row.source === 'SWEEP'
         && Number(row.limitWatts) < manualTarget)
         .reduce((best, row) => !best || Number(row.limitWatts) > Number(best.limitWatts) ? row : best, null) : null;
@@ -1321,6 +1441,7 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
             cell.append(make('span', '', t('worker_mode_comparison_source', {
                 source: t(`coin_hopping_source_${mode.point.source?.toLowerCase() || 'live'}`), time: measured
             })));
+            if (mode.point.tunedProfile) cell.append(make('span', 'worker-mode-proxy-note', tunedSettings(mode.point)));
             if (mode.note) cell.append(make('span', 'worker-mode-proxy-note', mode.note));
         }
         sourceRow.append(cell);
@@ -1328,7 +1449,8 @@ function renderModeComparison(candidates = modeComparisonCandidates, tariff = mo
     body.append(sourceRow);
     table.append(head, body);
     comparison.append(table);
-    same.hidden = !(efficiency && profit && efficiency.limitWatts === profit.limitWatts);
+    same.hidden = !(efficiency && profit && efficiency.limitWatts === profit.limitWatts
+        && JSON.stringify(efficiency.tunedProfile || null) === JSON.stringify(profit.tunedProfile || null));
 }
 function updateComparisonDevices(snapshot) {
     const devices = new Map();
@@ -1457,6 +1579,7 @@ async function loadComparison() {
             fill.style.width = `${Math.max(2, candidate.usdPerKwh / maximum * 100)}%`;
             track.append(fill);
             const measured = new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {dateStyle:'medium', timeStyle:'short'}).format(new Date(candidate.measuredAt));
+            if (candidate.tunedProfile) row.append(make('small', 'muted', tunedSettings(candidate)));
             row.append(make('strong', '', `${candidate.coin.toUpperCase()} · ${candidate.minerSoftwareId || '—'} · ${candidate.limitWatts} W`), track,
                 make('span', '', `${money(candidate.usdPerKwh)} / kWh`),
                 make('small', 'hopping-meta', t('coin_hopping_point_detail', {

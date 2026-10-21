@@ -222,6 +222,49 @@ class CoinHoppingServiceTest {
         assertEquals(service.view().lastSwitchAt(), restarted.view().lastSwitchAt());
     }
 
+
+    @Test
+    void confirmedClockPointsJoinBaselineRankingWithoutCollapsingSameWattSettings() {
+        Instant now = Instant.now();
+        var json = new ObjectMapper().findAndRegisterModules();
+        var store = new de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore(json, directory.resolve("tuned.json").toString());
+        String version = de.verdox.solarminer.pcagent.miner.MinerFactory.minerVersionForSoftware("srbminer-multi");
+        for (int watts : List.of(100, 150, 200)) for (int core : List.of(1000, 1300)) {
+            assertTrue(store.appendMeasurement(new de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore.Measurement(
+                    "confirmed", now, "gpu-1", "Test", "NVIDIA", "quantus", de.verdox.solarminer.pcagent.coin.Coin.QUANTUS.assignmentAlgorithm(),
+                    "srbminer-multi", version, core, 800, watts, "RESULT", core == 1300 ? 140d : 100d, watts - 10d, 60d, core, 800, 32, 5L, 0L, true, null)));
+        }
+        var sweeps = mock(GpuEfficiencyStore.class);
+        when(sweeps.all()).thenReturn(List.of(profile("quantus", "QPoW (Poseidon2)", now, 100, 80, 90, true)));
+        var power = mock(LocalGpuPowerService.class);
+        when(power.snapshot()).thenReturn(List.of(new LocalGpuPowerService.Gpu("NVIDIA", 0, "gpu-1", "Test", 80, 300, 80, 200, 150, 120d, "measured", true, null, 200)));
+        var planning = mock(EconomicPlanningService.class);
+        when(planning.capabilities()).thenReturn(new EconomicPlanningService.Capabilities(1, now, List.of(
+                new EconomicPlanningService.WorkerCapability("gpu-1", "GPU", "Test", "quantus", false, "FIXED", List.of(ready("quantus")))), null));
+        var market = mock(MarketDataService.class);
+        when(market.forecastForProfile(anyString(), anyDouble())).thenAnswer(call -> forecast("quantus", call.<Double>getArgument(1) / 100, now));
+        when(market.toUsd(0.1, "USD")).thenReturn(0.1);
+        var energy = mock(EnergyJournalService.class);
+        var overview = mock(EnergyJournalService.Overview.class);
+        when(energy.overview()).thenReturn(overview);
+        when(overview.settings()).thenReturn(new EnergyJournalService.Settings(new BigDecimal("0.1"), "USD"));
+        var service = new CoinHoppingService(json, directory.resolve("ranking.json").toString(), sweeps, mock(MiningPerformanceProfileStore.class),
+                market, planning, mock(WorkerAssignmentService.class), power, mock(BenchmarkSessionService.class), mock(EfficiencySweepService.class),
+                new LocalRunLock(), new CoinHoppingLedger(json, directory.resolve("ranking-ledger.json").toString()), energy);
+        service.setTunedProfiles(store);
+        var points = service.candidates("gpu-1", 0);
+        assertEquals(7, points.size());
+        assertEquals(3, points.stream().filter(row -> row.limitWatts() == 100).count());
+        assertEquals(7, points.stream().map(CoinHoppingService.Candidate::pointKey).distinct().count());
+        assertEquals("AUTO_TUNING", points.getFirst().source());
+        assertEquals(1300, points.getFirst().tunedProfile().coreMhz());
+        assertEquals(version, points.getFirst().tunedProfile().softwareVersion());
+        var policies = mock(de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService.class);
+        when(policies.ceiling("gpu-1", 85)).thenReturn(59d);
+        service.setWorkerPolicies(policies);
+        assertTrue(service.candidates("gpu-1", 0).stream().noneMatch(row -> row.tunedProfile() != null));
+    }
+
     private static EconomicPlanningService.CoinCapability ready(String coin) {
         return new EconomicPlanningService.CoinCapability(coin, coin, true, true, null, null);
     }

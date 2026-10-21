@@ -5,36 +5,32 @@ not a deployed release or hardware/pool certification.
 
 ## Operator contract / Bedienvertrag
 
-**English:** Power sweeps are the baseline: every selected physical GPU obtains
-its own descending curve for each selected compatible coin/software pair.
-Identical GPU models already use independent full curves (`targetGroups` creates
-singleton groups); the legacy reference/validation helpers do not establish
-current scheduling behavior. Ordinary benchmarks remain available as quicker
-fixed-point measurements, including CPU/XMRig and live observation. Optional
-clock/memory tuning is a second, separately initiated step in `/autotuning.html`.
-Its existing confirmation/profile application remains separate from baseline
-benchmark/sweep candidate ranking; this change does not introduce an automatic
-sweep-to-tuner pipeline or blend tuned clock points into baseline economics.
+**English:** Power sweeps establish an independent full descending curve per
+physical GPU and selected compatible coin/software pair. The measurement page
+now defaults to `autoTuneAfterSweep:true`: each curve is followed automatically
+by synchronous clock/memory refinement inside the same GPU slot and exclusive
+measurement lock. Unchecking the option runs power sweeps only. Ordinary fixed-
+point benchmarks (including CPU/XMRig and LIVE observation) remain available.
+The standalone tuning tool is an advanced manual entry point.
 
-**Deutsch:** Power Sweeps bilden die Grundlage: Jede ausgewählte physische GPU
-misst für jede ausgewählte kompatible Coin-/Software-Kombination eine eigene
-absteigende Kurve. Auch baugleiche GPUs bekommen bereits vollständige eigene
-Kurven (`targetGroups` erzeugt Einzelgruppen). Die alten Referenz-/Validierungs-
-Hilfen beschreiben nicht die aktuelle Planung. Normale Benchmarks bleiben als
-schnellere Messung einzelner Betriebspunkte einschließlich CPU/XMRig und laufender
-Miner verfügbar. Optionales Takt-/Speicher-Tuning ist der gesondert gestartete
-zweite Schritt unter `/autotuning.html`. Dessen Bestätigung und Profilanwendung
-bleiben von der wirtschaftlichen Auswahl normaler Benchmark-/Sweep-Punkte
-getrennt. Eine automatische Sweep-zu-Tuner-Pipeline oder Vermischung beider
-Messarten wird nicht behauptet.
+**Deutsch:** Power Sweeps erstellen pro physischer GPU und ausgewählter
+kompatibler Coin-/Software-Kombination eine eigene vollständige absteigende
+Kurve. Die Messseite verwendet standardmäßig `autoTuneAfterSweep:true`: Nach
+jeder Kurve folgt automatisch synchrones Takt-/Speicher-Tuning im selben GPU-
+Platz und unter derselben Messsperre. Ohne diese Option laufen nur Power Sweeps.
+Normale Vergleichsbenchmarks einschließlich CPU/XMRig und LIVE-Beobachtung
+bleiben verfügbar. Das separate Tuning-Werkzeug dient weiterhin einzelnen
+manuellen Untersuchungen.
 
 **English:** `/benchmarks.html` exposes per-worker coin/software checkboxes.
 Workers exposes the same preferences and saves them before its assignment
 submission. An empty saved combination list explicitly excludes that worker;
-a missing policy preserves legacy behavior. The global coin/worker selection
-still limits the run: effective targets are the intersection of that selection,
-the saved per-worker combinations, installed software, hardware compatibility,
-and usable routing. Software may be selected before installation; measuring
+a missing policy preserves legacy behavior. The measurement page selects workers
+and edits their test combinations directly. It saves selected policies before
+starting, then derives the request's coin scope from the selected installed
+combinations. The former browser-global coin filter is absent from this page;
+old localStorage coin selections cannot silently restrict a new run. Effective
+targets still require installed software, hardware compatibility and usable routing. Software may be selected before installation; measuring
 still requires an installed binary. No binary is downloaded by saving a policy.
 Model compatibility is decided by the backend, not duplicated in the editor.
 
@@ -42,9 +38,11 @@ Model compatibility is decided by the backend, not duplicated in the editor.
 Miner-Software. Die Worker-Seite zeigt dieselben Regeln und speichert sie vor
 der Zuweisung. Eine gespeicherte leere Liste schließt den Worker ausdrücklich
 aus; ohne gespeicherte Regel bleibt das bisherige Verhalten erhalten. Die
-globale Coin-/Worker-Auswahl begrenzt den Lauf zusätzlich. Gemessen wird die
-Schnittmenge aus Auswahl, Regeln, installierter Software, Hardwarekompatibilität
-und nutzbarer Route. Software darf vor der Installation vorgemerkt werden; zum
+Messseite wählt Worker und deren Testkombinationen direkt. Vor dem Start werden
+die ausgewählten Regeln gespeichert; die Coin-Liste der Anfrage entsteht aus
+den ausgewählten installierten Kombinationen. Den bisherigen globalen Coin-
+Filter gibt es hier nicht mehr. Alte localStorage-Coin-Auswahlen begrenzen keinen
+neuen Lauf. Installation, Hardwarekompatibilität und nutzbare Route bleiben nötig. Software darf vor der Installation vorgemerkt werden; zum
 Messen muss sie installiert sein. Das Speichern lädt keine Binary herunter.
 Die Modellkompatibilität bestimmt das Backend statt einer zweiten Browserlogik.
 
@@ -53,7 +51,7 @@ Die Modellkompatibilität bestimmt das Backend statt einer zweiten Browserlogik.
 **English:** The GPU editor presents efficiency and approximate daily profit as
 the two automatic goals, alongside manual operation. Existing persisted modes
 remain API-compatible; the old Auto Tuning mode can continue for saved workers,
-while new tuning is reachable through the second-step tool. CPU efficiency
+while new tuning runs in the combined workflow or the standalone tool. CPU efficiency
 retains its existing measured hashes/W behavior; daily-profit selection remains
 GPU-only. CPU has only the existing Monero/XMRig combination.
 
@@ -189,3 +187,178 @@ Pool- und zentrale Telemetrieverträge sowie Coin-/ASIC-Freigaben ändern sich n
   ist übersetzt.
 - Live multi-GPU, Windows driver/thermal tests and real pool acceptance remain
   unverified / Reale Mehr-GPU-, Windows-/Temperatur- und Pooltests stehen aus.
+
+
+## Measurement page layout / Aufbau der Messseite (2026-10-21)
+
+**English:** The page orders configuration, power measurement, and use of results.
+Selected worker cards show coin-grouped software choices and the temperature
+ceiling. Operating coin/miner switching permissions are edited in Workers;
+measurement saves preserve the latest permissions, including changes from
+another tab. An unchanged temperature field also preserves a newer saved limit.
+The page summarizes selected workers and installed combinations instead of
+unloaded profile counters. Unsupported CPU-only sweeps are disabled; short
+comparison benchmarks and LIVE observation remain under additional measurements.
+The installed-benchmark post-start checkbox never applies to LIVE observation.
+
+Both benchmark and sweep status must be known before enabling measurement.
+Either active run locks all test inputs and all competing start actions. Start
+responses update local state immediately, avoiding the window before an SSE
+notification. Saves are sequential; load/validation/save failures prevent the
+measurement request. Inline load retries are available. Active sweep curves and
+progress are shown next to their start controls; durable comparisons remain on
+the results page. Sharing status lives inside the optional-sharing panel.
+Desktop and mobile keep the same order, without clipped worker editors.
+
+**Deutsch:** Die Seite ordnet Einrichtung, Power-Messung und Nutzung der
+Ergebnisse. Ausgewählte Worker-Karten zeigen nach Coin gruppierte Software und
+die Temperaturgrenze. Wechselrechte für laufendes Mining werden bei Workers
+bearbeitet; das Speichern eines Messlaufs erhält die aktuellen Rechte auch bei
+Änderungen in einem anderen Tab. Ein unverändertes Temperaturfeld erhält eine
+inzwischen neu gespeicherte Grenze. Die Übersicht zählt ausgewählte Worker und
+installierte Kombinationen statt ungeladener Profile. Reine CPU-Auswahlen
+können keinen GPU-Sweep starten. Kurze Vergleichsbenchmarks und LIVE-Beobachtung
+stehen unter weiteren Messarten. Die Start-Checkbox des installierten Benchmarks
+wirkt niemals auf eine LIVE-Beobachtung.
+
+Messaktionen werden erst bei bekanntem Benchmark- und Sweep-Status freigegeben.
+Jeder aktive Lauf sperrt Testeingaben und konkurrierende Starts. Die Startantwort
+aktualisiert den lokalen Zustand unmittelbar, ohne auf SSE zu warten. Speichern
+erfolgt nacheinander; Lade-, Validierungs- und Speicherfehler verhindern die
+Messanfrage. Laden kann direkt an der Worker-Karte wiederholt werden. Laufende
+Sweep-Kurven und Fortschritt stehen bei den Startaktionen, dauerhafte Vergleiche
+auf der Ergebnisseite. Freigabestatus steht im optionalen Teilen-Bereich.
+Desktop und Mobilansicht erhalten dieselbe Reihenfolge ohne abgeschnittene Editoren.
+
+Verification / Nachweis: `scripts/check-benchmark-workflow-browser.cjs` exercises
+real static pages and the live-data controller with mocked APIs: DE/EN,
+worker-specific saves before starts, preservation of newer operating permissions,
+legacy global-filter exclusion, save failure, LIVE without post-start, CPU-only
+sweep rejection, mutual locking, actual live curve rendering, mobile navigation,
+no horizontal overflow, and the shared results page. No hardware or external
+writes / Keine Hardware oder externen Schreibzugriffe.
+
+## Automatic refinement and operating points / Automatische Nachoptimierung (2026-10-21)
+
+**English:** `POST /api/agent/local/efficiency?mode=restart|resume` accepts
+`{coins,workers,maxConcurrentGpus,autoTuneAfterSweep}`. Omitted/false retains the
+power-only API behavior. Status appends `optimization:{enabled,runs}` with
+per-pair state, actual error/phase and candidate/sample progress. A failed or
+unsupported tuner preserves a saved stable sweep; the UI reports partial
+completion and the actual prerequisite. Resume can reuse complete curves even
+when only refinement remains unfinished. Resume checkpoints are local to the
+current process; persisted measurements survive restart, but the task queue does
+not automatically resume after agent restart.
+
+The tuner borrows the parent lock synchronously; it cannot release it or free
+the GPU slot before cleanup. Parent cancellation reaches samples and startup.
+The configured GPU concurrency applies across both phases (the tuner may impose
+an additional lower capacity). Power settings are pinned across native-miner
+restarts and bounded by user maximum and driver default. Missing/unsafe thermal
+telemetry blocks tuning; unsafe GPU/restoration errors persist a manual stop.
+The full workflow resets clocks to defaults before baseline curves and after
+refinement. It restores earlier power limits/process states, not arbitrary
+external overclocks. Existing automatic goals reevaluate after cleanup without
+an old cooldown; stopped workers are not automatically opted into mining.
+
+Search confirms the two best efficiency candidates and the fastest measured
+candidate at each power tier (deduplicated). Only stable longer `RESULT`
+windows qualify as operating points: at least 32 valid samples, exact hardware,
+algorithm and pinned miner version, no older than 30 days, positive thermal
+evidence below the current user ceiling, and within the current power range.
+Search-only, legacy profiles without thermal evidence and stale versions are
+excluded. Every distinct confirmed core/memory/offset/P-state setting remains
+available alongside baseline points, including points sharing a watt cap.
+`MeasuredOperatingPointService` applies these exact settings; switching clocks
+stops the GPU first, verifies writes and restores the preceding point on failure.
+A failed stop prevents clock writes and a failed restoration prevents restart.
+The two worker goals select their best allowed measured point with fresh market,
+route and tariff prerequisites. This is the best confirmed tested setting,
+not proof of a global optimum or of long-term pool stability.
+
+**Deutsch:** Der gemeinsame Start-/Fortsetzen-Endpunkt nimmt zusätzlich
+`autoTuneAfterSweep` an. Ohne Option bleibt die API beim reinen Sweep. Der Status
+enthält unter `optimization` je Kombination Zustand, tatsächlichen Fehler bzw.
+Phase sowie Kandidaten-/Messfortschritt. Fehlendes oder gescheitertes Tuning
+löscht keine stabile Power-Kurve. Fortsetzen kann fertige Kurven übernehmen,
+wenn nur das Tuning fehlt. Messdaten bleiben nach Neustart erhalten; die
+Fortsetzungswarteschlange gilt nur für den aktuellen Agent-Prozess.
+
+Beide Phasen halten dieselbe Messsperre und denselben GPU-Platz bis zum Ende der
+Bereinigung. Abbruch erreicht auch Miner-Anlauf und Tuning-Messwerte. Die GPU-
+Parallelitätsgrenze umfasst beide Phasen; die Tuner-Kapazität darf zusätzlich
+begrenzen. Native Miner-Neustarts behalten den gemessenen Power-Punkt. Nutzer-
+Maximum und Treiber-Standard begrenzen das Tuning. Fehlende oder zu hohe
+Temperaturen verhindern Tuning; unsichere GPUs bleiben dauerhaft gestoppt.
+Der vollständige Lauf setzt Takte vor der Basiskurve und nach dem Tuning auf
+Standard zurück. Vorherige Power-Limits und Prozesszustände werden restauriert,
+beliebige externe Übertaktungen dagegen nicht. Automatische Ziele prüfen nach
+der Bereinigung ohne alten Cooldown erneut. Zuvor gestoppte Worker starten
+nicht allein durch den Messlauf.
+
+Pro Leistungsstufe werden die zwei effizientesten und der schnellste gemessene
+Kandidat länger bestätigt; doppelte Kandidaten entfallen. Betriebsprofile
+benötigen mindestens 32 gültige Bestätigungsmesswerte, exakte Hardware,
+Algorithmus und Miner-Version, ein Alter unter 30 Tagen sowie gültige Temperatur-
+und Power-Nachweise innerhalb der aktuellen Grenzen. Reine Suchwerte, alte
+Versionen und Profile ohne Temperaturnachweis bleiben ausgeschlossen. Auch
+unterschiedliche Takte bei gleichem Watt-Limit bleiben eigene Kandidaten.
+Betriebswechsel wenden die vollständigen Takt-/Speicher-/Offset-Einstellungen
+an, stoppen vor Taktänderungen und stellen bei Fehlern den vorherigen Punkt
+wieder her. Fehlerhafter Stopp verhindert Taktänderungen; misslungene
+Wiederherstellung verhindert Neustarts. Effizienz und Tagesgewinn wählen den
+besten erlaubten bestätigten Messpunkt mit aktuellen Markt-/Routen-/Tarifdaten.
+Ein globales Optimum oder reale Langzeit-/Poolstabilität wird damit nicht belegt.
+
+## Worker measurement visibility / Sichtbarkeit der Messung bei Workers
+
+**English:** `MinerFactory.MeasurementContext` attributes the physical GPU to
+its actual test coin, software and phase (`POWER_SWEEP`, `BENCHMARKING`,
+`AUTO_TUNING`). The sweep used to omit this attribution, so general mining stats
+filtered out an alternate miner's telemetry. The temporary attribution now spans
+the complete curve and refinement and is removed before restoration, including
+failure paths. `WorkerView.measurement` exposes it; saved coin/miner fields use
+the configured selection. Workers displays the test pair, saved assignment,
+phase and telemetry even when they differ. Startup gaps show the measurement
+phase with a waiting message. Unrelated workers are not labelled benchmarking.
+Formatted telemetry and external identifiers in shared UI builders no longer
+trigger missing-translation warnings. New authored text is DE/EN; external
+software names, version IDs and raw miner output remain verbatim.
+
+**Deutsch:** Eine temporäre Messzuordnung hält tatsächlichen Test-Coin, Miner
+und Phase pro GPU fest. Bisher fehlte sie im Sweep; dadurch filterte die normale
+Statistik Werte einer abweichenden Software heraus. Sie gilt jetzt für die
+gesamte Kurve und das Tuning und wird vor Wiederherstellung auch bei Fehlern
+entfernt. `WorkerView.measurement` liefert sie zusätzlich zur unveränderten
+Betriebszuordnung. Workers zeigt Testpaar, gespeicherten Coin/Miner, Phase und
+Messwerte. In Anlaufpausen bleibt der Messstatus mit Wartehinweis sichtbar.
+Unbeteiligte Worker erhalten keinen Benchmark-Status. Formatierte Telemetrie
+und externe Bezeichnungen lösen in gemeinsamen UI-Bausteinen keine falschen
+Übersetzungswarnungen mehr aus. Eigene Texte sind DE/EN; externe Namen,
+Versionskennungen und Miner-Rohtexte bleiben unverändert.
+
+Verification: focused tests in `SweepRefinementServiceTest`,
+`AutoTuningSessionServiceTest`, `AutoTuningProfileStoreTest`,
+`MeasuredOperatingPointServiceTest`, `WorkerCoinRevenueModeServiceTest`,
+`CoinHoppingServiceTest`, `EfficiencySweepControllerTest`,
+`EfficiencySweepServiceTest`, `MinerFactorySelectionTest` and
+`WorkerAssignmentServiceTest`; the workflow browser fixture exercises automatic
+option/progress and alternate-miner Workers visibility in DE/EN. No real GPU,
+Windows driver or pool acceptance is established by these mocked tests.
+
+Additional hardening / Zusätzliche Absicherung: Native clock changes get up to
+240 seconds for valid matching hashrate, bounded by the overall tuning deadline,
+with continuous cancellation and temperature checks. Known tuned live/fixed-
+point observations are not persisted as cap-only baseline profiles; confirmed
+clock points remain their source of operating evidence. Failed final stop or
+power restoration blocks restarting affected session workers. Native settings
+are recorded as exact miner launch arguments; real post-start driver behavior
+still needs hardware validation.
+
+Native Taktänderungen erhalten bis zu 240 Sekunden für gültige passende Hashrate,
+begrenzt durch die Gesamtlaufzeit und laufende Abbruch-/Temperaturprüfungen.
+Bekannt getunte Live-/Vergleichswerte werden nicht als reine Watt-Profile
+abgelegt; Betriebsnachweise bleiben die bestätigten Taktpunkte. Misslungener
+abschließender Stopp oder Power-Restore sperrt Wiederanläufe betroffener Worker.
+Native Einstellungen werden als exakte Miner-Startargumente gesetzt; reales
+Treiberverhalten nach dem Start ist weiterhin an Hardware zu prüfen.

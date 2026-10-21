@@ -136,6 +136,26 @@ class AutoTuningProfileStoreTest {
         assertEquals(1000d, loaded.find("GPU-a", "pearl", "srbminer-multi").hashrateHs());
     }
 
+
+    @Test
+    void operatingPointsRequireFreshConfirmedThermalEvidenceAndExactIdentity() {
+        var store = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), directory.resolve("operating.json").toString());
+        Instant now = Instant.now();
+        for (int watts : List.of(100, 150, 200)) assertTrue(store.appendMeasurement(
+                new AutoTuningProfileStore.Measurement("confirmed", now, "GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash",
+                        "srbminer-multi", "3.7.3", 1200, 800, watts, "RESULT", 1000d, watts - 10d,
+                        watts == 200 ? 74d : 62d, 1200, 800, 32, 5L, 0L, true, null)));
+        assertTrue(store.appendMeasurement(new AutoTuningProfileStore.Measurement("search", now,
+                "GPU-a", "RTX", "NVIDIA", "pearl", "PearlHash", "srbminer-multi", "3.7.3",
+                1400, 800, 100, "SEARCH_RESULT", 9000d, 90d, 60d, 1400, 800, 32, 5L, 0L, true, null)));
+        var reloaded = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), directory.resolve("operating.json").toString());
+        assertEquals(2, reloaded.operatingCandidates("GPU-a", "pearl", "srbminer-multi", "3.7.3", "RTX", "NVIDIA", "PearlHash", 200, 70).size());
+        assertEquals(1, reloaded.operatingCandidates("GPU-a", "pearl", "srbminer-multi", "3.7.3", "RTX", "NVIDIA", "PearlHash", 120, 70).size());
+        assertTrue(reloaded.operatingCandidates("GPU-a", "pearl", "srbminer-multi", "3.7.4", "RTX", "NVIDIA", "PearlHash", 200, 85).isEmpty());
+        assertTrue(reloaded.operatingCandidates("GPU-a", "pearl", "srbminer-multi", "3.7.3", "Other", "NVIDIA", "PearlHash", 200, 85).isEmpty());
+        assertTrue(reloaded.operatingCandidates("GPU-a", "pearl", "srbminer-multi", "3.7.3", "RTX", "NVIDIA", "PearlHash", 200, 60).isEmpty());
+    }
+
     private static AutoTuningProfileStore.Measurement measurement(String run, String type, int power,
                                                                   int core, Boolean stable, String reason) {
         return measurement(run, type, power, core, stable, reason, core == 1300 ? 1100d : 1000d);

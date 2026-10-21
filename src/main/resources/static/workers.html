@@ -7,19 +7,19 @@
     <title data-i18n="solarminer_workers">SolarMiner · Worker</title>
     <link rel="stylesheet" href="/css/agent.css">
     <link rel="stylesheet" href="/css/workspace.css">
-    <link rel="stylesheet" href="/css/design.css?v=20261017-power-sweep-status">
-    <script src="/js/core/i18n-catalog.js?v=20261021-benchmark-policy" defer></script>
+    <link rel="stylesheet" href="/css/design.css?v=20261021-measurement-status">
+    <script src="/js/core/i18n-catalog.js?v=20261021-auto-benchmark" defer></script>
     <script src="/js/core/i18n.js?v=20261017-node-page-title" defer></script>
     <script src="/js/core/live-data.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/core/mining-cache.js?v=20261011-agent-dictionary-directions-v2" defer></script>
-    <script src="/js/core/components.js?v=20261017-power-sweep-status" defer></script>
+    <script src="/js/core/components.js?v=20261021-auto-benchmark" defer></script>
     <script src="/js/chrome/proxy-gate.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/chrome/fee-tier-badge.js?v=20261011-agent-dictionary-directions-v2" defer></script>
-    <script src="/js/chrome/workspace.js?v=20261018-gpu-tuning" defer></script>
+    <script src="/js/chrome/workspace.js?v=20261021-benchmark-workflow" defer></script>
     <script src="/js/chrome/wallet-strip.js?v=20261011-agent-dictionary-directions-v2" defer></script>
     <script src="/js/chrome/telemetry-gate.js?v=20261011-agent-dictionary-directions-v2" defer></script>
-    <script src="/js/core/benchmark-policy-editor.js?v=20261021" defer></script>
-    <script src="/js/pages/workers.js?v=20261021-benchmark-policy" defer></script>
+    <script src="/js/core/benchmark-policy-editor.js?v=20261021-workflow" defer></script>
+    <script src="/js/pages/workers.js?v=20261021-auto-benchmark" defer></script>
 </head>
 <body class="workers-page">
 <div class="shell">
@@ -76,13 +76,13 @@
                     <option value="COIN_REVENUE_PER_KWH" data-i18n="benchmark_goal_efficiency">Effizienzprofil</option>
                     <option hidden value="PROFIT_PER_DAY" data-i18n="worker_mode_profit_day">≈ Gewinn pro Tag · fester Coin</option>
                     <option value="COIN_PROFIT_PER_DAY" data-i18n="benchmark_goal_profit">≈ Gewinn pro Tag</option>
-                </select><small id="worker-power-mode-help" class="muted" data-i18n="worker_mode_help">GPU: Erst Power Sweeps für die gewählten Coins und Miner messen, danach optional tunen. Das Effizienzprofil maximiert den geschätzten Ertrag pro kWh; das Tagesgewinnprofil zieht Stromkosten ab. Coin- und Minerwechsel werden getrennt freigegeben. CPU-Effizienz nutzt Hashes pro Watt. Aktuelle Marktdaten und für Tagesgewinn ein Stromtarif sind nötig; Gebühren sind nicht abgezogen. Die Node steuert bei automatischen Profilen nur Ein/Aus.</small></label>
+                </select><small id="worker-power-mode-help" class="muted" data-i18n="worker_mode_help">GPU: Der Benchmark-Ablauf misst Power-Kurven und optimiert auf Wunsch automatisch Takt und Speicher. Effizienz wählt den besten bestätigten Ertrag pro kWh, Tagesgewinn berücksichtigt Stromkosten. Coin- und Minerwechsel werden getrennt freigegeben. CPU-Effizienz nutzt Hashes pro Watt. Aktuelle Marktdaten und für Tagesgewinn ein Stromtarif sind nötig; Gebühren sind nicht abgezogen. Die Node steuert bei automatischen Profilen nur Ein/Aus.</small></label>
                 <label class="field"><span data-i18n="coin_algorithm">Coin & Algorithmus</span><select id="worker-coin"></select></label>
                 <label class="field"><span data-i18n="miner_software">Miner-Software</span><select id="worker-miner"></select>
                     <small id="worker-miner-help" class="muted"></small>
                     <a id="worker-miner-install" href="/mining.html" hidden data-i18n="install_compatible_miner_software">Kompatible Miner-Software installieren →</a></label>
                 <details><summary data-i18n="benchmark_worker_policy">Benchmark- und Auswahlregeln</summary><div id="worker-benchmark-policy"></div></details>
-                <p><a href="/autotuning.html" data-i18n="benchmark_step_two">Schritt 2: Optionales GPU-Tuning</a></p>
+                <p><a href="/benchmarks.html" data-i18n="benchmark_step_two">Automatisch messen & optimieren</a></p>
                 <div id="worker-pool-summary" class="notice-line"></div>
                 <div class="dialog-actions"><button class="button subtle" value="cancel" type="submit" data-i18n="cancel">Abbrechen</button>
                     <button id="worker-save" class="button primary" value="default" type="submit" data-i18n="save_assignment">Zuweisung speichern</button></div>

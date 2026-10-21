@@ -54,14 +54,14 @@ exploration ceiling. Other operating modes and the power sweep remain available.
 - After eighteen base search windows, tiers with at least three stable points and
   a best score at least 5% above their median may receive six additional search
   windows in total, rotating between eligible tiers. Flat runs proceed directly
-  to confirmation. The two strongest distinct, still-supported settings per tier
-  are independently reapplied and measured for 32 five-second samples (160 seconds).
+  to confirmation. The two strongest efficiency settings and the fastest measured
+  setting per tier (deduplicated and still supported) are independently reapplied and measured for 32 five-second samples (160 seconds).
   Only these successful confirmations become new operating profiles. Failure to
   confirm any candidate in a required tier fails the run with an explicit reason;
   raw search data survives. Existing legacy profiles remain usable.
-- Search is bounded to 24 windows; confirmation adds at most six more (30 total).
-  Base search plus six confirmations takes 40 minutes of sampling, or 48 minutes
-  with all six refinement windows, before driver/process overhead. The absolute
+- Search is bounded to 24 windows; confirmation adds at most nine more (33 total).
+  Eighteen base windows plus nine confirmations take 48 minutes of sampling, or
+  56 minutes with all six refinement windows, before driver/process overhead. The absolute
   deadline remains 60 minutes. Refinement reserves time for confirmation plus
   three minutes of overhead. Candidate count and current window length are exposed
   to the local UI; its remaining-time estimate includes longer final windows.
@@ -416,10 +416,11 @@ Deutsch: Die Suche prüft zunächst weit auseinanderliegende Punkte und erkundet
 später regelmäßig weitere Bereiche. Bis zu drei gute Regionen werden abwechselnd
 mit kleineren Schritten verfeinert. Deutliche Leistungsunterschiede entlang einer
 einzelnen Einstellung werden durch Zwischenmessungen eingegrenzt; es wird keine
-monotone Effizienzkurve vorausgesetzt. Pro Leistungsstufe werden die zwei besten
-Kandidaten erneut angewendet und jeweils 160 Sekunden statt 80 Sekunden gemessen.
-Nur erfolgreiche Bestätigungen werden neue Betriebsprofile. Höchstens 24 Such-
-und sechs Bestätigungsfenster passen in das unveränderte 60-Minuten-Zeitlimit;
+monotone Effizienzkurve vorausgesetzt. Pro Leistungsstufe werden die zwei
+effizientesten und der schnellste gemessene Kandidat erneut angewendet und jeweils
+160 Sekunden statt 80 Sekunden gemessen; Duplikate entfallen. Nur erfolgreiche
+Bestätigungen werden neue Betriebsprofile. Höchstens 24 Such- und neun
+Bestätigungsfenster passen in das unveränderte 60-Minuten-Zeitlimit;
 Treiberwechsel und Miner-Neustarts benötigen zusätzliche Zeit. Alte Profile bleiben
 nutzbar. Suchdaten und Fehlschläge bleiben lokal erhalten. Deutsch und Englisch
 zeigen die Bestätigungsphase sowie deren Fehlerursache an.
@@ -465,3 +466,25 @@ When the driver provides both a safe fixed-memory range and a memory-offset rang
 SRBMiner's NVIDIA adapter may also probe the fixed-memory values listed by the driver when the direct driver lock is unavailable, which covers Turing systems where SRBMiner can apply `--gpu-mclock0` through a different supported path. This does not trust command acceptance: the candidate is accepted only when the effective memory-clock sensor readback reaches the requested value within the existing tolerance. A failed readback removes memory candidates and continues core/power calibration.
 
 For this SRBMiner probe, listed core values and listed fixed-memory values form a bounded cross-product rather than being restricted to the driver's reported core/memory pairs. Thus a low fixed memory can be measured with a core value that the direct driver API would not pair with it. The optimizer remains bounded to 18 candidates and validates every applied combination through telemetry.
+
+## Combined benchmark entry / Gemeinsamer Benchmark-Einstieg (2026-10-21)
+
+The benchmark page now starts optional automatic refinement after each selected
+GPU/coin/software sweep. See [benchmark-workflow.md](benchmark-workflow.md) for
+lock/concurrency ownership, cancellation, safe thermal/power bounds, exact
+confirmed-point ranking/application and resume limits. Native miner restarts get
+bounded warmup before sampling. The separate tool remains available for manual
+single-worker investigation. Confirmed settings feed both efficiency and daily-
+profit goals; a tuned live observation must not become an unqualified cap-only
+baseline profile. These are local-source and mocked-test contracts, not hardware
+or pool certification.
+
+Die Benchmark-Seite startet optional nach jeder GPU-/Coin-/Software-Kurve
+automatisch die Nachoptimierung. Messsperre, Parallelität, Abbruch, Temperatur-/
+Power-Grenzen, exakte bestätigte Betriebspunkte und Fortsetzungsgrenzen stehen
+in [benchmark-workflow.md](benchmark-workflow.md). Native Miner erhalten nach
+Taktänderungen eine begrenzte Anlaufzeit vor der Messung. Das separate Werkzeug
+bleibt für manuelle Einzeluntersuchungen bestehen. Bestätigte Einstellungen
+fließen in Effizienz und Tagesgewinn ein; getunte Live-Werte werden nicht als
+reine Watt-Profile abgelegt. Dies belegt Quellcode und automatisierte Tests,
+keine Hardware- oder Poolabnahme.

@@ -18,6 +18,13 @@ import java.util.Set;
 /** Learns local CPU and GPU operating points during ordinary mining, without starting a benchmark. */
 @Service
 public class OperatingPointService {
+    private de.verdox.solarminer.pcagent.mining.economics.MeasuredOperatingPointService measuredPoints;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setMeasuredPoints(de.verdox.solarminer.pcagent.mining.economics.MeasuredOperatingPointService points) { this.measuredPoints = points; }
+    private boolean knownTunedPoint(String device) {
+        var point = measuredPoints == null || device == null ? null : measuredPoints.current(device);
+        return point != null && point.tunedProfile() != null;
+    }
     private static final int SAMPLES = 12;
     private static final Duration MAX_GAP = Duration.ofSeconds(15);
     private final MiningService mining;
@@ -49,6 +56,8 @@ public class OperatingPointService {
     synchronized void accept(List<MinerStats.Worker> workers, Instant now) {
         Set<String> seen = new HashSet<>();
         for (MinerStats.Worker worker : workers) {
+            // Tuned clocks belong to their confirmed point, never to a cap-only baseline.
+            if (knownTunedPoint(worker.deviceId())) continue;
             Coin coin = Coin.byAlgorithm(worker.currentAlgorithm()).orElse(null);
             if (coin == null || !(coin.isGpu() && "GPU".equalsIgnoreCase(worker.hardwareType())
                     || coin.isCpu() && "CPU".equalsIgnoreCase(worker.hardwareType()))

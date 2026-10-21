@@ -264,4 +264,31 @@ class WorkerAssignmentServiceTest {
         return new de.verdox.solarminer.pcagent.miner.MinerFactory(
                 mock(XmrMinerService.class), pearl, coins, power);
     }
+    @Test
+    void measurementShowsAlternateMinerTelemetryWithoutRewritingSavedAssignment() {
+        var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "GPU-a", "Test GPU", 100, 250, 100, 250, 200, 150d, "measured", true, null);
+        var power = mock(LocalGpuPowerService.class);
+        when(power.snapshot()).thenReturn(List.of(gpu));
+        var controls = mock(AgentControlSettingsService.class);
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(true, false, Map.of(), Map.of("GPU-a", "quantus")));
+        var miners = mock(de.verdox.solarminer.pcagent.miner.MinerFactory.class);
+        when(miners.configuredMinerSoftwareForWorker(de.verdox.solarminer.pcagent.coin.Coin.QUANTUS, "GPU-a")).thenReturn("srbminer-multi");
+        var context = new de.verdox.solarminer.pcagent.miner.MinerFactory.MeasurementContext("quantus", "quanpool-miner", "POWER_SWEEP");
+        when(miners.measurementContext("GPU-a")).thenReturn(context);
+        when(miners.gpuMiner(de.verdox.solarminer.pcagent.coin.Coin.QUANTUS, "srbminer-multi")).thenReturn(mock(de.verdox.solarminer.pcagent.miner.GpuCoinMiner.class));
+        var catalog = mock(MinerCatalogService.class);
+        when(catalog.options("quantus")).thenReturn(List.of(gpuOption("srbminer-multi", "quantus")));
+        var mining = mock(MiningService.class);
+        var telemetry = new MinerStats.Worker(MinerStats.MinerStatus.MINING, "QuanPool", "QPoW (Poseidon2)",
+                0.001, 60, 150, 100, 200, 250, 140, List.of(), "GPU", "Test GPU", "GPU-a", null, null, MinerStats.PoolTelemetry.unavailable());
+        when(mining.getStats(anyList())).thenReturn(new MinerStats(MinerStats.DEFAULT.minerIdentity(), "Test", MinerStats.MinerStatus.MINING,
+                0, 0, 0, 0, 0, 0, 0, List.of(), List.of(telemetry)));
+        var service = new WorkerAssignmentService(controls, mining, power, catalog, miners, mock(PayoutDefaultsService.class), mock(ProxyConfigurationService.class));
+        var worker = service.workers().get(1);
+        assertEquals("srbminer-multi", worker.minerSoftwareId());
+        assertEquals(context, worker.measurement());
+        assertEquals(telemetry, worker.telemetry());
+        assertEquals(MinerStats.MinerStatus.MINING, worker.status());
+    }
+
 }

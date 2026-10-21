@@ -2088,3 +2088,15 @@ th[aria-sort=descending] .table-sort::after {
     cursor: pointer;
 }
 .workers-page .worker-boot-option input { margin: 0; cursor: pointer; }
+
+/* Measurement status must fit its worker column even with long translated labels. */
+.workers-page .pill.status-power_sweep,
+.workers-page .pill.status-auto_tuning,
+.workers-page .pill.status-benchmarking {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    border-radius: 12px;
+    color: #a4d9f2;
+    border-color: #365e70;
+}

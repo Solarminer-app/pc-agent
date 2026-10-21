@@ -67,4 +67,21 @@ class MinerFactorySelectionTest {
         org.junit.jupiter.api.Assertions.assertInstanceOf(SrbGpuCoinView.class,
                 factory.gpuMinerForWorker("quantus", "GPU-b").orElseThrow());
     }
+    @Test
+    void temporaryMeasurementChangesRuntimeAdapterButPreservesSavedAssignment() {
+        var catalog = mock(MinerCatalogService.class);
+        var controls = mock(AgentControlSettingsService.class);
+        when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(true, false, Map.of(),
+                Map.of("GPU-a", "quantus"), Map.of(), true, false, Map.of("GPU-a", "srbminer-multi")));
+        var factory = new MinerFactory(mock(XmrMinerService.class), mock(PearlMinerService.class),
+                mock(GpuCoinMinerService.class), mock(LocalGpuPowerService.class), mock(QuanPoolMinerService.class), catalog, controls);
+        factory.setMeasurementContext("GPU-a", "quantus", "quanpool-miner", "POWER_SWEEP");
+        assertEquals("quanpool-miner", factory.minerSoftwareForWorker(Coin.QUANTUS, "GPU-a"));
+        assertEquals("srbminer-multi", factory.configuredMinerSoftwareForWorker(Coin.QUANTUS, "GPU-a"));
+        assertEquals("POWER_SWEEP", factory.measurementContext("GPU-a").phase());
+        factory.clearBenchmarkSoftware("GPU-a");
+        assertEquals("srbminer-multi", factory.minerSoftwareForWorker(Coin.QUANTUS, "GPU-a"));
+        org.junit.jupiter.api.Assertions.assertNull(factory.measurementContext("GPU-a"));
+    }
+
 }

@@ -24,6 +24,9 @@ public class WorkerCoinRevenueModeService {
     public void setWorkerPolicies(de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService policies) {
         this.workerPolicies = policies;
     }
+    private MeasuredOperatingPointService points;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setMeasuredPoints(MeasuredOperatingPointService points) { this.points = points; }
     private static final Logger log = LoggerFactory.getLogger(WorkerCoinRevenueModeService.class);
     private static final Duration COOLDOWN = Duration.ofMinutes(30);
     private static final double MIN_GAIN = 0.05;
@@ -83,46 +86,18 @@ public class WorkerCoinRevenueModeService {
         if (choices.isEmpty()) return;
         CoinHoppingService.Candidate current = choices.stream().filter(value -> worker.coin().equals(value.coin())
                 && java.util.Objects.equals(worker.minerSoftwareId(), value.minerSoftwareId())
-                && gpu.currentPowerLimitWatts() == value.limitWatts()).findFirst().orElse(null);
+                && gpu.currentPowerLimitWatts() == value.limitWatts()
+                && (points == null || points.matches(id, value))).findFirst().orElse(null);
         CoinHoppingService.Candidate best = bestCandidate(choices, mode);
         if (best == null) return;
         boolean samePoint = worker.coin().equals(best.coin())
                 && java.util.Objects.equals(worker.minerSoftwareId(), best.minerSoftwareId())
-                && gpu.currentPowerLimitWatts() == best.limitWatts();
+                && gpu.currentPowerLimitWatts() == best.limitWatts() && (points == null || points.matches(id, best));
         if (samePoint || current != null && !worthSwitching(score(current, mode), score(best, mode))) return;
         if (!runLock.tryBegin("worker-coin-revenue")) return;
         try {
             if (controls.get().manuallyStopped(id) || !mode.equals(controls.get().powerModeFor(id))) return;
-            try {
-                boolean minerChanged = !java.util.Objects.equals(best.minerSoftwareId(), worker.minerSoftwareId());
-                boolean fixedDailyProfit = "PROFIT_PER_DAY".equals(mode);
-                if (!fixedDailyProfit && (!best.coin().equals(worker.coin()) || minerChanged)
-                        && !assignments.applyEconomicAssignment(id, best.coin(), best.minerSoftwareId())) {
-                    throw new IllegalStateException("Could not assign the selected miner");
-                }
-                boolean applied = gpus.setTotalPowerTarget(best.limitWatts(), List.of(gpu));
-                if (applied && !fixedDailyProfit && (!best.coin().equals(worker.coin()) || minerChanged))
-                    applied = assignments.startAtCurrentPowerTarget(id);
-                if (applied) {
-                    log.info("Worker {} selected {} at {} W instead of {} at {} W for mode {}",
-                            id, best.coin(), best.limitWatts(), worker.coin(), gpu.currentPowerLimitWatts(), mode);
-                    switchedAt.put(id, Instant.now());
-                    return;
-                }
-            } catch (RuntimeException failure) {
-                log.warn("Worker {} could not switch from {} to {}; restoring the previous miner", id, worker.coin(), best.coin(), failure);
-            }
-            try {
-                boolean changed = !"PROFIT_PER_DAY".equals(mode) && (!best.coin().equals(worker.coin())
-                        || !java.util.Objects.equals(best.minerSoftwareId(), worker.minerSoftwareId()));
-                boolean restored = !changed || assignments.applyEconomicAssignment(id, worker.coin(), worker.minerSoftwareId());
-                if (!restored)
-                    log.error("Worker {} could not restore assignment {}", id, worker.coin());
-                if (!gpus.setTotalPowerTarget(gpu.currentPowerLimitWatts(), List.of(gpu)))
-                    log.error("Worker {} could not restore power target {} W", id, gpu.currentPowerLimitWatts());
-                if (restored && changed && !assignments.startAtCurrentPowerTarget(id))
-                    log.error("Worker {} could not restart previous miner {}", id, worker.coin());
-            } catch (RuntimeException failure) { log.error("Worker {} could not restore miner {}", id, worker.coin(), failure); }
+            applyBestStartPoint(id, worker.coin(), mode, false, true);
         } finally { runLock.end(); }
     }
 
@@ -219,15 +194,24 @@ public class WorkerCoinRevenueModeService {
             boolean coinChanged = !targetCoin.equals(oldCoin);
             boolean minerChanged = !java.util.Objects.equals(selection.candidate().minerSoftwareId(), oldMiner);
             boolean assignmentChanged = false;
+            var previousPoint = points == null ? null : points.current(workerId);
+            boolean settingsChanged = points != null && points.needsRestart(workerId, selection.candidate());
+            boolean stoppedForSettings = false;
             try {
+                if (wasMining && settingsChanged) {
+                    if (!assignments.stopForBenchmarkRestart(workerId))
+                        throw new IllegalStateException("benchmark_stop_failed");
+                    stoppedForSettings = true;
+                }
                 if (coinChanged || minerChanged) {
                     if (!assignments.applyEconomicAssignment(workerId, targetCoin, selection.candidate().minerSoftwareId()))
-                        return new StartResult(false, "power_mode_apply_failed", null, null);
+                        throw new IllegalStateException("power_mode_apply_failed");
                     assignmentChanged = true;
                 }
-                if (!gpus.setTotalPowerTarget(selection.candidate().limitWatts(), List.of(gpu)))
+                if (!(points == null ? gpus.setTotalPowerTarget(selection.candidate().limitWatts(), List.of(gpu))
+                        : points.apply(selection.candidate(), gpu)))
                     throw new IllegalStateException("power_mode_apply_failed");
-                if ((startWorker || (wasMining && (coinChanged || minerChanged)))
+                if ((startWorker || (wasMining && (coinChanged || minerChanged || settingsChanged)))
                         && !assignments.startAtCurrentPowerTarget(workerId))
                     throw new IllegalStateException("power_mode_apply_failed");
                 switchedAt.put(workerId, Instant.now());
@@ -238,9 +222,14 @@ public class WorkerCoinRevenueModeService {
                 boolean restored = !assignmentChanged || assignments.applyEconomicAssignment(workerId, oldCoin, oldMiner);
                 if (!restored)
                     log.error("Worker {} could not restore assignment {}", workerId, oldCoin);
-                if (!gpus.setTotalPowerTarget(oldLimit, List.of(gpu)))
+                boolean stopRequired = settingsChanged || selection.candidate().tunedProfile() != null;
+                boolean safeToRestore = !stopRequired || assignments.stopForBenchmarkRestart(workerId);
+                boolean pointRestored = safeToRestore && (points == null || !stopRequired
+                        ? gpus.setTotalPowerTarget(oldLimit, List.of(gpu)) : points.restore(previousPoint, gpu, oldLimit));
+                if (!pointRestored)
                     log.error("Worker {} could not restore power target {} W", workerId, oldLimit);
-                if (wasMining && assignmentChanged && restored && !assignments.startAtCurrentPowerTarget(workerId))
+                if (wasMining && (assignmentChanged || stoppedForSettings) && restored && pointRestored
+                        && !assignments.startAtCurrentPowerTarget(workerId))
                     log.error("Worker {} could not restart the previous miner {}", workerId, oldCoin);
                 return new StartResult(false, "power_mode_apply_failed", null, null);
             }

@@ -32,6 +32,7 @@ public class MinerFactory {
     private final WildRigMinerService wildRig;
     private final MinerCatalogService catalog;
     private final AgentControlSettingsService controls;
+    private final java.util.concurrent.ConcurrentMap<String, MeasurementContext> measurementContexts = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentMap<String, String> benchmarkSoftware = new java.util.concurrent.ConcurrentHashMap<>();
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -113,15 +114,24 @@ public class MinerFactory {
     }
 
     public String minerSoftwareForWorker(Coin coin, String deviceId) {
+        return benchmarkSoftware.getOrDefault(deviceId, configuredMinerSoftwareForWorker(coin, deviceId));
+    }
+
+    /** Saved operating assignment, unaffected by temporary measurements. */
+    public String configuredMinerSoftwareForWorker(Coin coin, String deviceId) {
         String fallback = catalog == null || catalog.selected(coin.id()) == null
                 ? (coin == Coin.MONERO ? "xmrig" : "srbminer-multi") : catalog.selected(coin.id()).id();
-        return benchmarkSoftware.getOrDefault(deviceId,
-                controls == null ? fallback : controls.get().minerFor(deviceId, fallback));
+        return controls == null ? fallback : controls.get().minerFor(deviceId, fallback);
     }
 
     /** The pinned binary release is part of the calibration identity. */
     public String minerVersionForWorker(Coin coin, String deviceId) {
-        return switch (minerSoftwareForWorker(coin, deviceId)) {
+        return minerVersionForSoftware(minerSoftwareForWorker(coin, deviceId));
+    }
+
+    public static String minerVersionForSoftware(String softwareId) {
+        if (softwareId == null) return null;
+        return switch (softwareId) {
             case "srbminer-multi" -> de.verdox.solarminer.pcagent.miner.srb.SrbDownloadService.SRBMINER_VERSION;
             case "quanpool-miner" -> de.verdox.solarminer.pcagent.miner.quanpool.QuanPoolDownloadService.VERSION;
             case "peakminer" -> de.verdox.solarminer.pcagent.miner.peak.PeakDownloadService.VERSION;
@@ -140,7 +150,13 @@ public class MinerFactory {
 
     /** Only the locked benchmark may temporarily attribute a GPU to another installed adapter. */
     public void setBenchmarkSoftware(String deviceId, String softwareId) { benchmarkSoftware.put(deviceId, softwareId); }
-    public void clearBenchmarkSoftware(String deviceId) { benchmarkSoftware.remove(deviceId); }
+    public void clearBenchmarkSoftware(String deviceId) { measurementContexts.remove(deviceId); benchmarkSoftware.remove(deviceId); }
+    public void setMeasurementContext(String deviceId, String coin, String softwareId, String phase) {
+        setBenchmarkSoftware(deviceId, softwareId);
+        measurementContexts.put(deviceId, new MeasurementContext(coin, softwareId, phase));
+    }
+    public MeasurementContext measurementContext(String deviceId) { return measurementContexts.get(deviceId); }
+    public record MeasurementContext(String coin, String minerSoftwareId, String phase) { }
 
     public boolean workerUses(Coin coin, String deviceId, String minerSoftwareId) {
         return controls != null && coin.id().equals(controls.get().coinFor(deviceId))

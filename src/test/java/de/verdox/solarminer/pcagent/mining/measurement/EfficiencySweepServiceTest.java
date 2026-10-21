@@ -22,6 +22,7 @@ import de.verdox.solarminer.pcagent.miner.MinerFactory;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -54,8 +55,9 @@ class EfficiencySweepServiceTest {
         verify(previous, org.mockito.Mockito.atLeastOnce()).stopGpu("NVIDIA", 0);
     }
 
-    @Test
-    void quantusSweepUsesWorkersSrbAdapterWhenCoinDefaultIsQuanPool() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void combinedSweepAttributesAlternateMinerAndBlocksUnsafeRestoration(boolean restorationFails) throws Exception {
         var gpu = gpu("rtx-2080", "NVIDIA", 0);
         MinerFactory miners = mock(MinerFactory.class);
         GpuCoinMiner pearl = mock(GpuCoinMiner.class);
@@ -78,28 +80,48 @@ class EfficiencySweepServiceTest {
         when(quanPool.stopGpu("NVIDIA", 0)).thenReturn(true);
         when(pearl.stopGpu("NVIDIA", 0)).thenReturn(true);
         when(other.stopGpu("NVIDIA", 0)).thenReturn(true);
-        when(pearl.restoreState(isNull())).thenReturn(true);
+        when(srb.gpuStates(anyList())).thenReturn(List.of(new de.verdox.solarminer.pcagent.miner.GpuState(
+                "NVIDIA", 0, "GPU", true, de.verdox.solarminer.pcagent.dto.MinerStats.MinerStatus.MINING, true, true, false, null, null)));
+        when(pearl.captureState()).thenReturn(new GpuCoinMiner.WorkerPauseSnapshot(Set.of(), Set.of("rtx-2080")));
+        when(pearl.restoreState(any())).thenReturn(true);
         LocalGpuPowerService power = mock(LocalGpuPowerService.class);
         when(power.discover()).thenReturn(List.of(gpu));
         when(power.refresh()).thenReturn(List.of(gpu));
         when(power.setSweepPowerTarget(eq(200L), eq(gpu))).thenReturn(true);
-        when(power.restorePowerLimits(any())).thenReturn(true);
+        when(power.restorePowerLimits(any())).thenReturn(!restorationFails);
+        var lock = new LocalRunLock();
+        var refinement = mock(SweepRefinementService.class);
+        when(refinement.refine(any(), any(), any())).thenAnswer(call -> {
+            assertEquals("efficiency-sweep", lock.holder());
+            return false;
+        });
         var service = new EfficiencySweepService(miners, power,
                 mock(de.verdox.solarminer.pcagent.miner.MinerConsoleService.class),
                 mock(de.verdox.solarminer.pcagent.mining.wallet.PayoutDefaultsService.class),
                 mock(de.verdox.solarminer.pcagent.mining.proxy.ProxyConfigurationService.class),
-                mock(GpuEfficiencyStore.class), mock(BenchmarkSharingService.class), new LocalRunLock(),
+                mock(GpuEfficiencyStore.class), mock(BenchmarkSharingService.class), lock,
                 15, 85, 0.1, 240);
 
-        assertEquals(1, service.start(List.of("quantus"), List.of("rtx-2080"), 1).runs().size());
+        service.setRefinement(refinement);
+        assertEquals(1, service.start(List.of("quantus"), List.of("rtx-2080"), 1, true).runs().size());
         org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
             while (service.status().running()) Thread.sleep(10);
         });
         verify(srb).setSweepOverride(any(MinerConfig.class));
-        verify(srb).resumeGpu("NVIDIA", 0);
+        verify(srb, times(restorationFails ? 1 : 2)).resumeGpu("NVIDIA", 0);
         verify(quanPool, org.mockito.Mockito.never()).resumeGpu("NVIDIA", 0);
         verify(quanPool, org.mockito.Mockito.atLeastOnce()).stopGpu("NVIDIA", 0);
         verify(srb).clearSweepOverride();
+        verify(refinement).begin(eq(true), anyList(), eq(false));
+        verify(refinement).resetBeforeCurve(any());
+        verify(refinement).refine(any(), any(), any());
+        verify(refinement).finishPending();
+        var snapshot = org.mockito.ArgumentCaptor.forClass(GpuCoinMiner.WorkerPauseSnapshot.class);
+        verify(pearl).restoreState(snapshot.capture());
+        assertEquals(!restorationFails, snapshot.getValue().runningDeviceIds().contains("rtx-2080"));
+        assertEquals(restorationFails, snapshot.getValue().manuallyPausedKeys().contains("NVIDIA:0"));
+        verify(miners).setMeasurementContext("rtx-2080", "quantus", "srbminer-multi", "POWER_SWEEP");
+        verify(miners).clearBenchmarkSoftware("rtx-2080");
     }
 
     @Test

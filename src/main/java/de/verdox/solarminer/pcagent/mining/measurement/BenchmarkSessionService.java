@@ -28,6 +28,13 @@ import de.verdox.solarminer.pcagent.lowlevel.LocalGpuPowerService;
 /** Sample-driven local benchmark; full runs restore the miners that were active beforehand. */
 @Service
 public class BenchmarkSessionService {
+    private de.verdox.solarminer.pcagent.mining.economics.MeasuredOperatingPointService measuredPoints;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setMeasuredPoints(de.verdox.solarminer.pcagent.mining.economics.MeasuredOperatingPointService points) { this.measuredPoints = points; }
+    private boolean knownTunedPoint(String device) {
+        var point = measuredPoints == null || device == null ? null : measuredPoints.current(device);
+        return point != null && point.tunedProfile() != null;
+    }
     private de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService workerPolicies;
     @org.springframework.beans.factory.annotation.Autowired
     public void setWorkerPolicies(de.verdox.solarminer.pcagent.mining.measurement.WorkerBenchmarkPolicyService policies) {
@@ -567,7 +574,7 @@ public class BenchmarkSessionService {
                 String devices = entry.getValue().stream().map(gpu -> gpu.vendor() + ":" + gpu.index())
                         .collect(java.util.stream.Collectors.joining(","));
                 miner.setBenchmarkOverride(new MinerConfig(base.poolUrl(), base.proxyUrl(), base.wallet(), base.worker(), devices));
-                for (LocalGpuPowerService.Gpu gpu : entry.getValue()) miners.setBenchmarkSoftware(gpu.deviceId(), batch.softwareId());
+                for (LocalGpuPowerService.Gpu gpu : entry.getValue()) miners.setMeasurementContext(gpu.deviceId(), entry.getKey().id(), batch.softwareId(), "BENCHMARKING");
                 for (LocalGpuPowerService.Gpu gpu : entry.getValue()) if (!miner.resumeGpu(gpu.vendor(), gpu.index())) {
                     String detail = miner.lastError();
                     skipped.add(entry.getKey().id() + "/" + batch.softwareId() + " (" +
@@ -743,6 +750,7 @@ public class BenchmarkSessionService {
             long watts = Math.round(values.stream().mapToLong(MinerStats.Worker::approximatedPowerUsageWatts)
                     .filter(value -> value > 0).average().orElse(0));
             if (!(hashrate > 0) || watts <= 0) continue;
+            if (knownTunedPoint(worker.deviceId())) continue;
             performanceProfiles.save(new MiningPerformanceProfileStore.Profile(worker.deviceId(), worker.hardwareType(),
                     worker.hardwareModel(), coin, worker.currentAlgorithm(), hashrate, watts, values.size(), measuredAt, "BENCHMARK",
                     worker.powerTargetWatts() > 0 ? Math.toIntExact(worker.powerTargetWatts()) : null,

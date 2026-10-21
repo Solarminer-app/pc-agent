@@ -4,6 +4,9 @@
 (() => {
   const i18n = () => window.SolarMinerI18n;
   const t = (value, params) => window.SolarMinerI18n?.t(value, params) ?? value;
+  // Builders accept translation keys and already formatted telemetry/identifiers.
+  const displayText = (value, params) => Object.hasOwn(window.SolarMinerI18nCatalog?.frontend || {}, value)
+    ? t(value, params) : window.SolarMinerI18n?.s(value) ?? value;
   const s = value => window.SolarMinerI18n?.s(value) ?? value;
   const $ = id => document.getElementById(id);
 
@@ -107,10 +110,10 @@
 
   // ------------------------------------------------------------------ status language
 
-  const statusLabels = {MINING: 'mining_active', STARTING: 'miner_starting', BENCHMARKING: 'benchmarking', POWER_SWEEP: 'power_sweep_running', PAUSED: 'paused', STOPPED: 'stopped', ERROR: 'error'};
+  const statusLabels = {MINING: 'mining_active', STARTING: 'miner_starting', BENCHMARKING: 'benchmarking', POWER_SWEEP: 'power_sweep_running', AUTO_TUNING: 'benchmark_optimization_tuning', PAUSED: 'paused', STOPPED: 'stopped', ERROR: 'error'};
   function statusPill(status, override) {
     const pill = element('span', `pill status-${String(status || 'unknown').toLowerCase()}`);
-    pill.append(element('i', 'pill-dot'), element('span', '', t(override || statusLabels[status] || 'unknown')));
+    pill.append(element('i', 'pill-dot'), element('span', '', displayText(override || statusLabels[status] || 'unknown')));
     return pill;
   }
 
@@ -119,7 +122,7 @@
   function element(tagName, className, textValue, params) {
     const node = document.createElement(tagName);
     if (className) node.className = className;
-    if (textValue !== undefined && textValue !== null) node.textContent = t(textValue, params);
+    if (textValue !== undefined && textValue !== null) node.textContent = displayText(textValue, params);
     return node;
   }
   /** Two-line table cell: the value on top, its provenance or identifier underneath. */
@@ -178,7 +181,7 @@
         const value = column.render(row, index);
         if (value == null) cell.textContent = '—';
         else if (value instanceof Node) cell.append(value);
-        else cell.textContent = t(String(value));
+        else cell.textContent = displayText(String(value));
         tr.append(cell);
       }
       body.append(tr);

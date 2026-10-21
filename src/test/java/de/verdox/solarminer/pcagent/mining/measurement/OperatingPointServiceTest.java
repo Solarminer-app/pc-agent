@@ -84,4 +84,19 @@ class OperatingPointServiceTest {
         assertEquals("monero", captor.getValue().coin());
         assertEquals("LIVE", captor.getValue().source());
     }
+    @Test
+    void tunedOperatingPointNeverBecomesAnUnqualifiedWattOnlyBaseline() {
+        var store = mock(MiningPerformanceProfileStore.class);
+        var service = new OperatingPointService(mock(MiningService.class), new LocalRunLock(), store);
+        var points = mock(de.verdox.solarminer.pcagent.mining.economics.MeasuredOperatingPointService.class);
+        var point = mock(de.verdox.solarminer.pcagent.mining.economics.CoinHoppingService.Candidate.class);
+        when(point.tunedProfile()).thenReturn(mock(AutoTuningProfileStore.Profile.class));
+        when(points.current("gpu-1")).thenReturn(point);
+        service.setMeasuredPoints(points);
+        var worker = mock(MinerStats.Worker.class);
+        when(worker.deviceId()).thenReturn("gpu-1");
+        for (int i = 0; i < 24; i++) service.accept(List.of(worker), Instant.now());
+        verify(store, never()).save(any());
+    }
+
 }

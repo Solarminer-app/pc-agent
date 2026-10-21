@@ -220,6 +220,28 @@ public class AutoTuningProfileStore {
                 latest.memoryOffsetMhz(), latest.memoryOffsetPstate());
     }
 
+    /** Only confirmed, fresh points with exact hardware/version and thermal evidence may drive mining. */
+    public synchronized List<Profile> operatingCandidates(String deviceId, String coinId, String softwareId,
+            String version, String model, String vendor, String algorithm, int maximumWatts, double maximumTemperature) {
+        if (matrix(deviceId, coinId, softwareId, version, model, vendor, algorithm).isEmpty()) return List.of();
+        Instant earliest = Instant.now().minus(java.time.Duration.ofDays(30));
+        return aggregatedCandidates(deviceId, coinId, softwareId, version, model, vendor, algorithm).stream()
+                .filter(profile -> profile.stableSamples() >= 32 && profile.powerLimitWatts() <= maximumWatts
+                        && profile.calibratedAt() != null && !profile.calibratedAt().isBefore(earliest))
+                .filter(profile -> measurements.stream().anyMatch(row -> "RESULT".equals(row.type())
+                        && Boolean.TRUE.equals(row.stable()) && Objects.equals(row.at(), profile.calibratedAt())
+                        && Objects.equals(row.deviceId(), deviceId) && Objects.equals(row.coinId(), coinId)
+                        && Objects.equals(row.softwareId(), softwareId) && Objects.equals(row.softwareVersion(), version)
+                        && Objects.equals(row.model(), model) && Objects.equals(row.vendor(), vendor)
+                        && Objects.equals(row.algorithm(), algorithm) && row.powerLimitWatts() == profile.powerLimitWatts()
+                        && Objects.equals(row.coreMhz(), profile.coreMhz()) && Objects.equals(row.memoryMhz(), profile.memoryMhz())
+                        && Objects.equals(row.memoryOffsetMhz(), profile.memoryOffsetMhz())
+                        && Objects.equals(row.memoryOffsetPstate(), profile.memoryOffsetPstate())
+                        && row.validSamples() != null && row.validSamples() >= 32 && row.temperatureC() != null
+                        && Double.isFinite(row.temperatureC()) && row.temperatureC() > 0 && row.temperatureC() < maximumTemperature))
+                .toList();
+    }
+
     public synchronized Profile forBudget(String deviceId, String coinId, String softwareId,
                                           String softwareVersion, String model, String vendor, int budgetWatts) {
         return forBudget(deviceId, coinId, softwareId, softwareVersion, model, vendor, budgetWatts, null);

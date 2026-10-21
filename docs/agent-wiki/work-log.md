@@ -3745,3 +3745,126 @@ Chromium-Test des neuen Editors in Deutsch/Englisch sind erfolgreich. Alle
 Änderungen sind lokal. Reale Mehr-GPU-, Windows-, Temperatur- und Poolprüfungen
 sowie ein Rollout stehen aus. Externe Miner-Ausgaben und Hardware-/Gerätenamen
 bleiben unverändert; neue umgebende Bedien- und Fehlertexte sind übersetzt.
+
+
+## 2026-10-21 — Align the Benchmark page with per-worker measurements
+
+**English:** Rebuilt the measurement page around worker/test selection → power
+sweeps → results/profile use, retaining short benchmarks and LIVE observation
+as additional measurement types. Removed the redundant global coin filter from
+this page and derive run coins from installed per-worker choices. Replaced the
+clipped worker chip/editor list with responsive cards grouped by coin, visible
+GPU temperature input, installed-combination counts, and select-all/clear controls.
+Worker policy edits are automatically saved before measurement; write/load errors
+block starts. Hidden operational-switch permissions preserve the latest server
+values rather than overwriting changes made in Workers. Worker settings remain
+available in Workers, linked alongside optional second-stage tuning.
+
+Both live status channels now gate all start actions and lock scope edits while
+a run is active. Start responses are applied immediately. LIVE always sends
+`startMiningAfterBenchmark:false`, independently of a saved installed-benchmark
+checkbox. Active sweep curves render on the measurement page; results remain
+on their dedicated page. Removed the empty sharing-status panel and unloaded
+profile counters. Dynamic error notices use `s()` so translated/API errors are
+not misread as frontend keys. Mobile navigation's neutral menu/close symbols no
+longer go through translation-key lookup; their DE/EN accessible names remain.
+Affected assets have refreshed version queries.
+
+**Verification:** Chromium tests `check-benchmark-workflow-browser.cjs` and
+`check-benchmark-policy-browser.cjs` pass with real local assets and mocked APIs.
+The workflow test covers DE/EN, save-before-start ordering, exact coin/worker
+payloads despite stale global localStorage filters, latest operating permissions,
+live SVG curve rendering, save failures preventing starts, mutual measurement
+locks, CPU-only sweep rejection, LIVE without post-start, responsive mobile
+navigation/no horizontal overflow, and the shared results page. Desktop/mobile
+screenshots were inspected. JavaScript syntax, `check-i18n.cjs` (1924 keys, 14
+pages, both locales), `simulate-i18n-render.cjs`, `check-operations-i18n.cjs`,
+`check-dashboard-startup.cjs`, `git diff --check` and Java 21 `standaloneJar` pass.
+No Java service changed; no new hardware or pool evidence, commit or deployment.
+
+**Deutsch:** Die Benchmark-Seite folgt jetzt der Reihenfolge Worker/Testauswahl,
+Power Sweep und Nutzung der Ergebnisse. Kurze Benchmarks und LIVE bleiben als
+weitere Messarten verfügbar. Der doppelte globale Coin-Filter entfällt. Die
+Testauswahl pro Worker wird vor dem Start gespeichert; Fehler verhindern den
+Lauf. Responsive Worker-Karten zeigen Coin-/Software-Auswahl und Temperaturgrenze.
+Aktuelle Wechselrechte aus Workers bleiben beim Speichern erhalten. Beide
+Messstatus sperren konkurrierende Starts und Änderungen während eines Laufs.
+LIVE startet niemals zusätzlich Mining über die Checkbox des Vergleichsbenchmarks.
+Laufende Sweep-Kurven sind sichtbar; leere Freigabebereiche und ungeladene
+Profilzähler wurden entfernt. Neue Texte, Fehler und Bedienhilfen sind DE/EN.
+
+Die beiden Chromium-Tests, Sprach-/Render-/Startprüfungen, JavaScript-Syntax und
+Standalone-Build sind erfolgreich. Desktop- und Mobilansicht wurden geprüft.
+Backend-Java, Hardwarefreigaben und Poolnachweise ändern sich nicht. Die
+Änderungen sind lokal und wurden nicht committed oder deployed.
+
+
+## 2026-10-21 — Remote shutdown diagnosis / Diagnose Fernabschaltung
+
+English: Recorded BUG-014 in `../KNOWN_BUGS.md` with source and read-only
+live evidence. Automatic-mode external status incorrectly reports paused/zero
+target while five GPUs mine. Remote pause stops permitted GPUs sequentially;
+the historical report cannot be attributed to a specific sender or decision
+from surviving logs, which are reset on miner start. No runtime code, mining
+commands, deployment or tests changed.
+
+Deutsch: BUG-014 dokumentiert Quellcode- und laufende Lesebelege: falscher
+Pausen-/Zielstatus bei fünf aktiven GPUs im automatischen Modus. Fernpausen
+stoppen freigegebene GPUs nacheinander. Der historische Auslöser ist mangels
+erhaltener Logs nicht belegt. Keine Codeänderung, Mining-Steuerung,
+Bereitstellung oder Tests.
+
+## 2026-10-21 — Automatic sweep/refinement and alternate-miner visibility
+
+**English:** Implemented the requested one-start benchmark workflow: per-worker
+selection → independent power curves → automatic optional clock/memory refinement
+→ shared confirmed-point ranking for efficiency or approximate daily profit.
+The measurement page defaults to refinement, reports per-pair state/progress,
+and offers power-only opt-out. Parent lock and GPU slot stay owned through
+synchronous tuning/cleanup; cancellation reaches startup/samples. Seed caps are
+pinned across native restarts and respect user/driver bounds. Native candidates
+get bounded startup grace. Confirmations include efficient and fastest measured
+finalists. Fresh exact-version/hardware/algorithm and thermal evidence gate
+operating candidates; settings at equal watt caps remain distinct. Applying a
+clock change stops first and rolls back exact prior settings on failure; failed
+stop/restoration cannot restart the unsafe worker. Tuned observations cannot be
+persisted as cap-only baseline evidence. Failed tuning preserves stable curves.
+
+Fixed alternate-miner invisibility: sweeps now publish temporary GPU test
+ownership, so shared stats retain that adapter's telemetry. Worker views expose
+the test coin/miner/phase separately from saved assignment; DE/EN rows show
+measurement status during warmup too. Unrelated workers are not labelled as
+benchmarking. Shared UI builders accept formatted values without false missing-
+translation warnings. Updated workflow/Auto Tuning wiki and BUG-004 evidence,
+preserving its outstanding real-process acceptance gate.
+
+**Verification:** `JAVA_HOME=/home/lukas/.jdks/graalvm-ce-21.0.2 sh gradlew test
+standaloneJar`: 455 tests, no failures/errors. `check-i18n.cjs`,
+`check-operations-i18n.cjs`, `simulate-i18n-render.cjs`,
+`check-dashboard-startup.cjs`, JS syntax and `git diff --check` pass. Chromium
+fixtures `check-benchmark-policy-browser.cjs` and
+`check-benchmark-workflow-browser.cjs` pass DE/EN selection/persistence, automatic
+option and progress, scope/locks/errors, mobile layout, and actual alternate-
+miner Worker telemetry plus warmup/refinement status. APIs are mocked; no real
+miners started, no GPU/Windows/pool verification, deployment, commit or push.
+
+**Deutsch:** Gemeinsamer Ablauf mit einem Start umgesetzt: Worker-Testauswahl,
+eigene Power-Kurven, optionale automatische Takt-/Speicher-Nachoptimierung und
+gemeinsame bestätigte Betriebspunkte für Effizienz bzw. ungefähren Tagesgewinn.
+Standardmäßig ist die Nachoptimierung aktiv; reine Sweeps bleiben wählbar.
+Messsperre und GPU-Platz bleiben bis nach der Bereinigung erhalten. Abbruch,
+Anlaufzeit, Power-/Temperaturgrenzen, Bestätigung schneller und effizienter
+Kandidaten sowie Wiederherstellung bei Fehlern sind abgesichert. Miner-Version,
+Hardware, Algorithmus, Alter und Temperatur begrenzen die Betriebswahl. Gleiche
+Watt-Limits mit anderen Takten bleiben getrennt. Getunte Betriebswerte werden
+nicht ohne Taktidentität als Basiswerte gespeichert. Stabile Kurven bleiben
+bei Tuning-Fehlern erhalten.
+
+Die fehlende Worker-Telemetrie abweichender Test-Miner ist über temporäre
+Messzuordnung korrigiert. Test-Coin, Miner und Phase stehen neben der
+unveränderten Betriebszuordnung; auch Anlaufpausen zeigen den Messstatus.
+Unbeteiligte Worker behalten ihren echten Zustand. Alle neuen Bedien-/Status-
+texte sind DE/EN, Rohdaten externer Miner bleiben unverändert. 455 Java-Tests,
+Standalone-Build, Sprach-/Startprüfungen und DE/EN-Chromiumtests erfolgreich.
+Reale GPU-/Windows-/Pooltests bleiben offen. Keine Bereitstellung, kein Commit
+oder Push. Die parallele reine Fernabschaltungsdiagnose bleibt unverändert.

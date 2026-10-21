@@ -32,8 +32,10 @@ public class EfficiencySweepController {
         List<String> workers = request == null ? null : request.workers();
         if (workers == null || workers.isEmpty()) throw new IllegalArgumentException("benchmark_select_gpu_for_sweep");
         EfficiencySweepService.Session session = switch (mode) {
-            case "restart" -> sweep.start(coins, workers, request.maxConcurrentGpus());
-            case "resume" -> sweep.resume(coins, workers, request.maxConcurrentGpus());
+            case "restart" -> Boolean.TRUE.equals(request.autoTuneAfterSweep())
+                    ? sweep.start(coins, workers, request.maxConcurrentGpus(), true) : sweep.start(coins, workers, request.maxConcurrentGpus());
+            case "resume" -> Boolean.TRUE.equals(request.autoTuneAfterSweep())
+                    ? sweep.resume(coins, workers, request.maxConcurrentGpus(), true) : sweep.resume(coins, workers, request.maxConcurrentGpus());
             default -> throw new IllegalArgumentException("Unbekannter Sweep-Startmodus");
         };
         // The sweep pauses/restores miners and rewrites power limits: wake its own channel
@@ -42,7 +44,9 @@ public class EfficiencySweepController {
         return session;
     }
 
-    public record StartRequest(List<String> coins, List<String> workers, Integer maxConcurrentGpus) { }
+    public record StartRequest(List<String> coins, List<String> workers, Integer maxConcurrentGpus, Boolean autoTuneAfterSweep) {
+        public StartRequest(List<String> coins, List<String> workers, Integer maxConcurrentGpus) { this(coins, workers, maxConcurrentGpus, false); }
+    }
 
     @ExceptionHandler({IllegalStateException.class, IllegalArgumentException.class})
     public ResponseEntity<Map<String, String>> startRejected(RuntimeException exception) {

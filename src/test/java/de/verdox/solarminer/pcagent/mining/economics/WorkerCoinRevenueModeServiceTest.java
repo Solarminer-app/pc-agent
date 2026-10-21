@@ -240,4 +240,40 @@ class WorkerCoinRevenueModeServiceTest {
                 coin, coin, "", "srbminer-multi", "SRBMiner", true, true, null,
                 true, status, null, "COIN_REVENUE_PER_KWH");
     }
+    @Test
+    void sameCoinAndCapStopsBeforeApplyingDifferentClocksAndSafelyRollsBack() {
+        for (boolean applicationSucceeds : List.of(true, false)) {
+            var controls = mock(AgentControlSettingsService.class);
+            when(controls.get()).thenReturn(new AgentControlSettingsService.Settings(false, false));
+            var hopping = mock(CoinHoppingService.class);
+            var assignments = mock(WorkerAssignmentService.class);
+            var power = mock(LocalGpuPowerService.class);
+            var points = mock(MeasuredOperatingPointService.class);
+            var service = new WorkerCoinRevenueModeService(controls, hopping, assignments, power, new LocalRunLock(), mock(EconomicPlanningService.class));
+            service.setMeasuredPoints(points);
+            var gpu = new LocalGpuPowerService.Gpu("NVIDIA", 0, "gpu", "Test", 80, 200, 80, 200, 150, 120d, "measured", true, null);
+            when(power.snapshot()).thenReturn(List.of(gpu));
+            when(assignments.workers()).thenReturn(List.of(worker("gpu", "pearl", MinerStats.MinerStatus.MINING)));
+            var now = Instant.now();
+            var candidate = new CoinHoppingService.Candidate("pearl", 150, 120, 1000, 1, now, now, "AUTO_TUNING", 1, 2, "srbminer-multi", null, 1d)
+                    .withTuning(mock(de.verdox.solarminer.pcagent.mining.measurement.AutoTuningProfileStore.Profile.class));
+            when(hopping.candidates("gpu", 0)).thenReturn(List.of(candidate));
+            when(points.needsRestart("gpu", candidate)).thenReturn(true);
+            when(assignments.stopForBenchmarkRestart("gpu")).thenReturn(true);
+            when(points.apply(candidate, gpu)).thenReturn(applicationSucceeds);
+            when(points.restore(null, gpu, 150)).thenReturn(true);
+            when(assignments.startAtCurrentPowerTarget("gpu")).thenReturn(true);
+            assertEquals(applicationSucceeds, service.applyBestStartPoint("gpu", "pearl", "COIN_REVENUE_PER_KWH", false).success());
+            var order = inOrder(assignments, points);
+            order.verify(assignments).stopForBenchmarkRestart("gpu");
+            order.verify(points).apply(candidate, gpu);
+            if (!applicationSucceeds) {
+                order.verify(assignments).stopForBenchmarkRestart("gpu");
+                order.verify(points).restore(null, gpu, 150);
+            }
+            order.verify(assignments).startAtCurrentPowerTarget("gpu");
+            verify(assignments, never()).applyEconomicAssignment(anyString(), anyString(), any());
+        }
+    }
+
 }
