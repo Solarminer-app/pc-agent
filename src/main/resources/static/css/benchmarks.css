@@ -310,3 +310,33 @@
 .benchmark-next-grid .button{margin-top:auto}
 .benchmark-worker-select:focus-within,.benchmark-flow a:focus-visible{outline:2px solid #a5e9c0;outline-offset:3px}
 @media(max-width:700px){.benchmark-flow{grid-template-columns:1fr;gap:8px}.benchmark-flow a{padding:10px 14px}.benchmark-next-grid{grid-template-columns:1fr}.benchmark-page:not(.benchmark-results-page) .benchmark-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Compact multi-GPU setup: one expanded editor; filtering never changes the run scope. */
+.benchmark-worker-tools{display:flex;gap:16px;align-items:end;flex-wrap:wrap;margin:18px 0}
+.benchmark-worker-tools label{display:flex;gap:8px;align-items:center;font-size:12px}.benchmark-worker-tools label:first-child{display:grid;flex:1;min-width:180px}
+.benchmark-worker-tools input[type=search]{min-height:40px;border:1px solid #425e6c;background:#101d29;color:#e4edf5;padding:10px;border-radius:8px}
+.benchmark-configuration #worker-options{max-height:600px;overflow:auto;overscroll-behavior:contain;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:10px;padding:2px 8px 2px 2px}
+.benchmark-worker-card{position:relative}.benchmark-worker-card>.benchmark-view-control{margin:0 16px 14px 49px;font-size:11px;min-height:30px;padding:6px 10px}
+.benchmark-worker-card.editing{grid-column:1/-1}.benchmark-worker-card .benchmark-worker-select{padding-top:14px}.benchmark-worker-card .benchmark-worker-summary{padding-bottom:8px}
+.benchmark-worker-policy[hidden],.benchmark-worker-card[hidden]{display:none!important}.results-raw-details{margin:20px 0;border:1px solid #354a5c;border-radius:12px;padding:18px}
+.results-raw-details>summary{cursor:pointer;color:#bfd0df;font-weight:700}.worker-mode-table-scroll{overflow:visible}.benchmark-comparison[hidden]{display:none!important}
+.curve-controls{margin:18px 0}.curve-controls select{width:100%;min-height:40px;background:#111d29;border:1px solid #456274;color:#e0ebf4;border-radius:8px;padding:8px}
+@media(max-width:650px){.benchmark-configuration #worker-options{max-height:65vh;grid-template-columns:1fr}.benchmark-worker-card.editing{grid-column:auto}.benchmark-worker-tools{gap:10px}}
+
+.sweep-live-chart svg{display:block;width:100%;height:auto;min-height:220px;overflow:visible}
+.sweep-live-chart .curve-focus-line{stroke:#d5e7f8;stroke-width:1;stroke-dasharray:3 5;opacity:.6;pointer-events:none}
+.sweep-live-chart .curve-selected{stroke:#fff;stroke-width:4;opacity:1}.sweep-curve-point{cursor:pointer}.sweep-curve-point:focus{outline:none;stroke:#fff;stroke-width:4;opacity:1}
+.curve-point-detail{padding:14px;border:1px solid #3b5867;border-radius:9px;background:#122431;font-size:12px;line-height:1.65;min-height:92px;overflow-wrap:anywhere}
+.curve-point-detail p{margin:7px 0}.curve-help{font-size:11px;line-height:1.6}.profiles-controls select{max-width:100%}
+
+.sweep-live-chart{max-width:100%;overflow-x:auto}.sweep-live-chart svg{min-width:680px}
+
+.sweep-worker-progress{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:8px;max-height:240px;overflow:auto;margin:16px 0}
+.sweep-worker-progress-item{display:grid;gap:6px;text-align:left;border:1px solid #365463;border-radius:8px;padding:10px;background:#132431;color:#bed0de;cursor:pointer;min-width:0}
+.sweep-worker-progress-item strong{font-size:11px;overflow-wrap:anywhere}.sweep-worker-progress-item span{font-size:11px}.sweep-worker-progress-item.selected{border-color:#8ed6b0;background:#1b3838}
+
+.benchmark-results-page .prominent-sweep-chart svg,.sweep-live-chart svg{height:auto;min-height:0;max-height:none;aspect-ratio:1000/410}
+.benchmark-results-page .curve-stage-RESULT{r:7}.benchmark-results-page .curve-stage-SEARCH_RESULT{r:4.5}.benchmark-results-page .curve-stage-SAMPLE{r:6}.benchmark-results-page .curve-stage-SWEEP{r:5}
+.benchmark-results-page .sweep-curve-point{cursor:pointer}.benchmark-results-page .sweep-curve-point:focus{stroke:#fff;stroke-width:4}
+
+.curve-clock-control{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12px;color:#c3d2df;margin:8px 0 12px}.curve-clock-control select{border:1px solid #405b70;border-radius:7px;background:#101d29;color:#e4edf5;padding:8px;min-height:36px;max-width:100%}

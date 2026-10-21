@@ -3868,3 +3868,90 @@ texte sind DE/EN, Rohdaten externer Miner bleiben unverändert. 455 Java-Tests,
 Standalone-Build, Sprach-/Startprüfungen und DE/EN-Chromiumtests erfolgreich.
 Reale GPU-/Windows-/Pooltests bleiben offen. Keine Bereitstellung, kein Commit
 oder Push. Die parallele reine Fernabschaltungsdiagnose bleibt unverändert.
+
+## 2026-10-21 — Curve-guided tuner and power rechecks / Kurvengeführter Tuner
+
+**English:** Replaced the combined workflow's single sweep seed with a full-curve
+`SweepTuningPlan`. Stable temperature-verified points within current user/driver
+bounds seed efficient, fastest and intermediate clock/memory search tiers.
+After the base search, up to six small power probes preserve the tuned settings
+around efficient/fast/trade-off points. They remain inside the measured stable
+curve envelope, skip attempted settings and retain memory offsets/P-states.
+Up to nine confirmations cover all anchors and efficient/fast measured winners,
+including neighbor caps. Unsupported-memory fallback drops obsolete queued
+probes. Baseline hash rates only guide anchor selection; fresh tuned observations
+train the optimizer. Standalone tuning retains its existing extension strategy.
+The 24-search/33-total-window and 60-minute budgets, parent lock, cancellation,
+thermal safety and exact-setting application remain in force. Warmup also uses
+a safe curve anchor when historical best-cap metadata exceeds current bounds.
+New phase/errors and operator help are DE/EN in the main and specialist catalogs;
+workflow and Auto Tuning documentation describe the final strategy.
+
+**Verification:** JDK 21 `sh gradlew test standaloneJar`: 463 tests, zero failures
+or errors; full build succeeds. Focused plan tests cover curve filtering,
+frontier/anchor selection, sparse-range behavior, neighbor bounds, exact memory
+mode, duplicate exclusion and confirmation coverage. The real tuner/store test
+uses synthetic telemetry whose optimum moves from 100 W to 110 W, verifies
+independent 32-sample confirmation/persistence, anchor coverage and retained
+sweep lock. Refiner tests verify complete-curve handoff and bounded warmup.
+`check-i18n.cjs`, `check-operations-i18n.cjs`, `simulate-i18n-render.cjs`,
+`check-dashboard-startup.cjs`, DE/EN Chromium workflow fixture (including the
+new power-refinement phase) and `git diff --check` pass. No real GPU/driver/pool
+acceptance or deployment was performed by this task.
+
+**Deutsch:** Der gemeinsame Ablauf nutzt jetzt die vollständige Sweep-Kurve
+statt nur eines Watt-Startwerts. Stabile temperaturgeprüfte Werte innerhalb der
+aktuellen Grenzen liefern effiziente, schnelle und mittlere Tuning-Anker.
+Anschließend prüfen bis zu sechs kleine Power-Schritte die getunten Einstellungen
+nach oben/unten, ohne gemessenen stabilen Bereich, Offset oder P-State zu verlieren.
+Bis zu neun längere Bestätigungen decken Anker und effiziente/schnelle Sieger
+inklusive neuer Watt-Limits ab. Ungültig gewordene Speichersteuerungen entfernen
+vorgemerkte Versuche. Basis-Hashraten steuern nur die Anker; das Modell lernt aus
+getunten Messwerten. Such-/Zeitbudget, Sperre, Abbruch und Temperaturgrenzen
+bleiben erhalten. Anlaufwerte berücksichtigen auch inzwischen strengere Grenzen.
+Alle neuen Hilfen/Statusmeldungen sind DE/EN. 463 Java-Tests, Standalone-Build,
+Sprachprüfungen und Chromium-Ablaufprüfung erfolgreich. Ein synthetischer Test
+belegt den bestätigten Wechsel des Optimums von 100 W auf 110 W. Reale GPU-/
+Treiber-/Poolabnahme und Bereitstellung wurden in diesem Auftrag nicht ausgeführt.
+
+## 2026-10-21 — Scalable benchmark UI, clock curves and two-mode results
+
+**English:** Reworked multi-GPU selection into searchable compact cards with one
+expanded editor, bounded options concurrency and scoped progress details. Added a
+read-only compact tuner-curve endpoint and optional sweep clock readbacks. A shared
+responsive graph overlays baseline/search/provisional/confirmed observations,
+separates measured MHz from absolute targets and preserves exact point identity.
+Results now compare efficiency and daily profit, choosing the best usable measured
+miner/settings for the selected coin independently per mode. Fleet uses the same
+selector and a common comparable GPU subset for honest totals. Missing tariffs,
+negative profit, unavailable peers and readback gaps remain explicit. Fixed old
+equal-cap/different-miner identity collisions and added GPU-model eligibility to
+prevent selection of incompatible historical miner evidence. DE/EN copy and
+accessibility labels are included; external model/miner/version identifiers remain
+verbatim. Central sharing and LAN candidate schemas are unchanged.
+
+**Verification:** JDK 21 `sh gradlew test standaloneJar`: 471 tests, zero failures,
+errors or skips. New coverage verifies compact latest-run projections, sample
+window closure/bounds, actual versus target clocks, unsafe partial evidence,
+required GPU scope, legacy persistence and catalog eligibility. The DE/EN Chromium
+profile fixture exercises twelve GPUs, bounded parallel loads, preserved selection,
+live clock updates, two independently chosen miners at equal caps, exact curve
+highlighting, comparable fleet totals, missing peers and mobile overflow. Existing
+DE/EN worker-policy and benchmark-workflow browser fixtures also pass, alongside
+`check-i18n.cjs`, `check-operations-i18n.cjs`, `simulate-i18n-render.cjs`,
+`check-dashboard-startup.cjs` and diff whitespace checks. Screenshots are local
+synthetic fixtures, not revenue evidence. No real GPU/driver/pool acceptance,
+deployment, commit or push was performed by this task.
+
+**Deutsch:** Die Benchmark-Seite skaliert mit kompakter Worker-Auswahl, Suche,
+einem geöffneten Editor und begrenzten parallelen Abfragen. Ein gemeinsames
+Diagramm zeigt Sweep, laufende Tuner-Messungen, Suche und Bestätigungen mit
+Kern-/Speichertakten; Messwerte und Sollwerte bleiben getrennt. Ergebnisse und
+Flotte vergleichen Effizienz und Tagesgewinn mit automatischer bester Miner-/
+Einstellungsauswahl je Coin und Modus. Flottensummen verwenden dieselben
+vergleichbaren GPUs. Fehlende Tarife/Teilnehmer, negative Gewinne und unbekannte
+Takte bleiben sichtbar. Punktidentität und GPU-Modellprüfung verhindern falsche
+Zuordnungen. Alle Bedien-/Status-/Hilfstexte sind DE/EN. 471 Java-Tests,
+Standalone-Build, Sprachprüfungen und Browsertests einschließlich zwölf GPUs und
+Mobilansichten erfolgreich. Reale Hardware-/Poolabnahme und Bereitstellung bleiben
+offen; synthetische Prognosen belegen keinen tatsächlichen Ertrag.

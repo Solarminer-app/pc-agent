@@ -531,9 +531,11 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
             boolean confirming = "auto_tuning_phase_confirming".equals(session.phase());
             boolean lucky = Integer.valueOf(1150).equals(session.currentCoreMhz())
                     && Integer.valueOf(400).equals(session.currentMemoryMhz());
-            double rate = confirming && failAll ? 0 : lucky ? confirming ? 50 : 200 : 100;
+            int cap = session.currentPowerWatts() == null ? 150 : session.currentPowerWatts();
+            double rate = curveGuided ? cap == 100 ? 100 : cap == 110 ? 130 : cap == 150 ? 140 : cap == 200 ? 180 : cap - 20
+                    : confirming && failAll ? 0 : lucky ? confirming ? 50 : 200 : 100;
             return List.of(new MinerStats.Worker(MinerStats.MinerStatus.MINING, "Test", "PearlHash", rate / 1e12, 60,
-                    150, 80, 150, 200, 120, List.of(), "GPU", "Test", gpu.deviceId(),
+                    150, 80, 150, 200, curveGuided ? cap - 10 : 120, List.of(), "GPU", "Test", gpu.deviceId(),
                     null, null, MinerStats.PoolTelemetry.unavailable()));
         });
         try {
@@ -553,17 +555,19 @@ when(lock.tryBeginAutoTuning()).thenReturn(true);
             assertFalse(service.status().running());
             var reloaded = new AutoTuningProfileStore(new ObjectMapper().findAndRegisterModules(), file.toString());
             assertTrue(reloaded.measurements().stream().anyMatch(row -> "SEARCH_RESULT".equals(row.type())
-                    && Boolean.TRUE.equals(row.stable()) && row.hashrateHs() == 200));
+                    && Boolean.TRUE.equals(row.stable()) && row.hashrateHs() == (curveGuided ? 130 : 200)));
             if (failAll) {
                 assertEquals("auto_tuning_no_confirmed_tier", service.status().phase());
                 assertTrue(reloaded.all().isEmpty());
             } else {
                 assertEquals("auto_tuning_complete", service.status().phase());
-                assertEquals(100d, service.status().result().hashrateHs());
-                assertTrue(reloaded.all().stream().allMatch(row -> row.stableSamples() == 32 && row.hashrateHs() <= 100));
+                assertEquals(curveGuided ? 130d : 100d, service.status().result().hashrateHs());
+                if (curveGuided) assertEquals(110, service.status().result().powerLimitWatts());
+                assertTrue(reloaded.all().stream().allMatch(row -> row.stableSamples() == 32 && (curveGuided || row.hashrateHs() <= 100)));
                 assertTrue(reloaded.matrix(gpu.deviceId(), "pearl", "srbminer-multi", "3.7.3", "Test", "AMD").size() >= 3);
                 if (curveGuided) {
                     var searched = reloaded.measurements().stream().filter(row -> "SEARCH_RESULT".equals(row.type())).toList();
+                    assertEquals(100, searched.getFirst().powerLimitWatts());
                     assertTrue(searched.stream().anyMatch(row -> !List.of(100, 150, 200).contains(row.powerLimitWatts())));
                     assertTrue(searched.stream().allMatch(row -> row.powerLimitWatts() >= 100 && row.powerLimitWatts() <= 200));
                     assertTrue(reloaded.measurements().stream().filter(row -> "RESULT".equals(row.type())).count() <= 9);

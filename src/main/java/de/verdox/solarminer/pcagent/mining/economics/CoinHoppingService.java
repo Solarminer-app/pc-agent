@@ -194,7 +194,7 @@ public class CoinHoppingService {
                         || (targetWatts > 0 && step.limitWatts() != targetWatts)
                         || !positive(step.medianHashrateHs()) || !positive(step.avgPowerWatts())) continue;
                 addCandidate(result, capabilities, coin, step.limitWatts(), step.avgPowerWatts(), step.medianHashrateHs(),
-                        profile.testedAt(), "SWEEP", profile.minerSoftwareId(), gpu.vendor(), deviceId, now);
+                        profile.testedAt(), "SWEEP", profile.minerSoftwareId(), gpu.vendor(), gpu.model(), deviceId, now);
             }
         }
         for (MiningPerformanceProfileStore.Profile profile : performanceProfiles.all()) {
@@ -205,7 +205,7 @@ public class CoinHoppingService {
             Coin coin = Coin.byIdOrNull(profile.coin());
             if (coin == null || !coin.isGpu() || !coin.matchesAlgorithm(profile.algorithm())) continue;
             addCandidate(result, capabilities, coin, profile.powerTargetWatts(), (double) profile.powerWatts(), profile.hashrateHps(),
-                    profile.measuredAt(), profile.source(), profile.minerSoftwareId(), gpu.vendor(), deviceId, now);
+                    profile.measuredAt(), profile.source(), profile.minerSoftwareId(), gpu.vendor(), gpu.model(), deviceId, now);
         }
         if (tunedProfiles != null) {
             var identities = new java.util.HashSet<String>();
@@ -222,7 +222,7 @@ public class CoinHoppingService {
                     if (profile.powerLimitWatts() < gpu.minWatts() || targetWatts > 0 && profile.powerLimitWatts() != targetWatts) continue;
                     int count = result.size();
                     addCandidate(result, capabilities, coin, profile.powerLimitWatts(), profile.measuredWatts(), profile.hashrateHs(),
-                            profile.calibratedAt(), "AUTO_TUNING", profile.softwareId(), gpu.vendor(), deviceId, now);
+                            profile.calibratedAt(), "AUTO_TUNING", profile.softwareId(), gpu.vendor(), gpu.model(), deviceId, now);
                     if (result.size() > count) result.set(result.size() - 1, result.getLast().withTuning(profile));
                 }
             }
@@ -236,7 +236,7 @@ public class CoinHoppingService {
 
     private void addCandidate(List<Candidate> result, List<EconomicPlanningService.CoinCapability> capabilities,
                               Coin coin, int targetWatts, double measuredWatts, double hashrateHps,
-                              Instant measuredAt, String source, String softwareId, String gpuVendor,
+                              Instant measuredAt, String source, String softwareId, String gpuVendor, String gpuModel,
                               String deviceId, Instant now) {
         if (softwareId == null || softwareId.isBlank()) {
             WorkerAssignmentService.WorkerView assigned = assignments.workers().stream()
@@ -248,7 +248,8 @@ public class CoinHoppingService {
             String selected = softwareId;
             if (selected == null || minerCatalog.options(coin.id()).stream().noneMatch(option ->
                     option.id().equals(selected) && option.installed() && option.selectable()
-                            && MinerCatalogService.supportsHardware(option, "GPU", gpuVendor))) return;
+                            && MinerCatalogService.supportsHardware(option, "GPU", gpuVendor)
+                            && MinerCatalogService.supportsGpuModel(option, gpuModel))) return;
         }
         if (!positive(measuredWatts) || !positive(hashrateHps)
                 || capabilities.stream().noneMatch(value -> coin.id().equals(value.coin())

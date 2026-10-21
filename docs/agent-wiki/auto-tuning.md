@@ -51,7 +51,7 @@ exploration ceiling. Other operating modes and the power sweep remain available.
   For pairs with at least a 20% efficiency difference and exactly one varying
   dimension, an available interior midpoint can be probed to resolve a performance
   cliff. Neither side is discarded and monotonicity is not assumed.
-- After eighteen base search windows, tiers with at least three stable points and
+- Standalone tuning: after eighteen base search windows, tiers with at least three stable points and
   a best score at least 5% above their median may receive six additional search
   windows in total, rotating between eligible tiers. Flat runs proceed directly
   to confirmation. The two strongest efficiency settings and the fastest measured
@@ -488,3 +488,38 @@ bleibt für manuelle Einzeluntersuchungen bestehen. Bestätigte Einstellungen
 fließen in Effizienz und Tagesgewinn ein; getunte Live-Werte werden nicht als
 reine Watt-Profile abgelegt. Dies belegt Quellcode und automatisierte Tests,
 keine Hardware- oder Poolabnahme.
+
+### Curve-guided search / Kurvengeführte Suche (2026-10-21)
+
+Automatic sweep refinement now consumes the whole curve: efficient, fastest and
+intermediate measured points seed three power tiers. After clock/memory search,
+up to six small up/down power probes retain the tuned settings. A shared list
+of at most nine confirmations covers the anchors and efficient/fast trade-offs,
+including newly measured watt caps. The budget remains 24 search windows,
+33 windows total and 60 minutes. This supersedes the standalone-only per-tier
+extension/confirmation description above for combined runs. See the detailed
+[workflow contract](benchmark-workflow.md#curve-guided-power-refinement--kurvengeführte-power-nachoptimierung-2026-10-21).
+
+Die automatische Sweep-Nachoptimierung nutzt nun die ganze Kurve: effiziente,
+schnelle und mittlere Messpunkte bilden drei Leistungsstufen. Nach Takt-/Speicher-
+Suche folgen bis zu sechs kleine Power-Schritte nach oben/unten bei denselben
+getunten Einstellungen. Bis zu neun gemeinsame Bestätigungen decken Anker und
+effiziente/schnelle Kompromisse einschließlich neuer Watt-Limits ab. Das Budget
+bleibt bei 24 Suchfenstern, insgesamt 33 Fenstern und 60 Minuten. Für kombinierte
+Läufe ersetzt dies die oben beschriebene separate Erweiterung/Bestätigung pro
+Leistungsstufe; der ausführliche Vertrag steht in `benchmark-workflow.md`.
+
+### Combined measurement graph / Gemeinsamer Messgraph (2026-10-21)
+
+Benchmark and Results now overlay sweep, provisional tuner samples, search outcomes
+and confirmed settings in one GPU/coin-scoped graph. Observed core/memory MHz and
+absolute tuning targets are explicitly selectable; missing readbacks and memory
+offsets are never presented as measured absolute clocks. The compact read-only
+curve endpoint and profile-selection contract are documented in
+[benchmark-workflow.md](benchmark-workflow.md).
+
+Benchmark und Ergebnisse zeigen Sweep, laufende Tuner-Werte, Suchergebnisse und
+bestätigte Einstellungen im gemeinsamen GPU-/Coin-Diagramm. Gemessene Kern-/
+Speichertakte und absolute Sollwerte sind ausdrücklich getrennt auswählbar.
+Fehlende Rücklesewerte und Speicher-Offsets werden nicht als gemessene absolute
+Takte dargestellt. Endpunkt und Profilvergleich sind im Benchmark-Vertrag beschrieben.

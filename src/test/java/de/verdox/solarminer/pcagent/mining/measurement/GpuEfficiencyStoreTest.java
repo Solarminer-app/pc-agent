@@ -48,4 +48,20 @@ class GpuEfficiencyStoreTest {
         assertEquals(2, store.all().size());
         assertEquals("quanpool-miner", store.find("GPU-1", "quantus", "quanpool-miner").minerSoftwareId());
     }
+    @Test
+    void observedClocksSurvivePersistenceAndLegacyRowsKeepUnknownClocks() throws Exception {
+        var mapper = new ObjectMapper().findAndRegisterModules();
+        var path = tempDir.resolve("clocks.json");
+        var store = new GpuEfficiencyStore(mapper, path.toString());
+        var step = new GpuEfficiencyStore.StepResult(100, 1000d, 90d, 60d, true, null, 980, 6800);
+        store.save(new GpuEfficiencyStore.Profile("gpu", "RTX", "pearl", "PearlHash", 100,
+                1000d, 90d, 1000d / 90, Instant.now(), List.of(step), "srbminer-multi"));
+        var loaded = new GpuEfficiencyStore(mapper, path.toString()).all().getFirst().steps().getFirst();
+        assertEquals(980, loaded.observedCoreMhz());
+        assertEquals(6800, loaded.observedMemoryMhz());
+        var old = mapper.readValue("{\"limitWatts\":100,\"medianHashrateHs\":1000,\"avgPowerWatts\":90,\"maxTemperatureC\":60,\"stable\":true}", GpuEfficiencyStore.StepResult.class);
+        assertNull(old.observedCoreMhz());
+        assertNull(old.observedMemoryMhz());
+    }
+
 }

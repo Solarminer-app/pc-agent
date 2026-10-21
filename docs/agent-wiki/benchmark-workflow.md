@@ -261,9 +261,12 @@ refinement. It restores earlier power limits/process states, not arbitrary
 external overclocks. Existing automatic goals reevaluate after cleanup without
 an old cooldown; stopped workers are not automatically opted into mining.
 
-Search confirms the two best efficiency candidates and the fastest measured
-candidate at each power tier (deduplicated). Only stable longer `RESULT`
-windows qualify as operating points: at least 32 valid samples, exact hardware,
+Curve-guided search starts from efficient, fastest and intermediate sweep points,
+then probes nearby power limits with their tuned clock/memory settings. Up to nine
+longer confirmation windows retain the three anchor tiers, global efficiency and
+throughput winners, and additional measured trade-offs. Standalone tuning keeps
+its per-tier confirmation strategy. Only stable longer `RESULT` windows qualify
+as operating points: at least 32 valid samples, exact hardware,
 algorithm and pinned miner version, no older than 30 days, positive thermal
 evidence below the current user ceiling, and within the current power range.
 Search-only, legacy profiles without thermal evidence and stale versions are
@@ -296,9 +299,11 @@ beliebige externe Übertaktungen dagegen nicht. Automatische Ziele prüfen nach
 der Bereinigung ohne alten Cooldown erneut. Zuvor gestoppte Worker starten
 nicht allein durch den Messlauf.
 
-Pro Leistungsstufe werden die zwei effizientesten und der schnellste gemessene
-Kandidat länger bestätigt; doppelte Kandidaten entfallen. Betriebsprofile
-benötigen mindestens 32 gültige Bestätigungsmesswerte, exakte Hardware,
+Die kurvengeführte Suche beginnt an effizienten, schnellen und mittleren Sweep-
+Punkten und prüft danach benachbarte Power-Limits mit ihren getunten Takten.
+Bis zu neun längere Bestätigungen erhalten die drei Ankerstufen, die globalen
+Effizienz-/Hashrate-Sieger und weitere gemessene Kompromisspunkte. Das separate
+Tuning behält seine Bestätigung je Leistungsstufe. Betriebsprofile benötigen mindestens 32 gültige Bestätigungsmesswerte, exakte Hardware,
 Algorithmus und Miner-Version, ein Alter unter 30 Tagen sowie gültige Temperatur-
 und Power-Nachweise innerhalb der aktuellen Grenzen. Reine Suchwerte, alte
 Versionen und Profile ohne Temperaturnachweis bleiben ausgeschlossen. Auch
@@ -362,3 +367,127 @@ abgelegt; Betriebsnachweise bleiben die bestätigten Taktpunkte. Misslungener
 abschließender Stopp oder Power-Restore sperrt Wiederanläufe betroffener Worker.
 Native Einstellungen werden als exakte Miner-Startargumente gesetzt; reales
 Treiberverhalten nach dem Start ist weiterhin an Hardware zu prüfen.
+
+## Curve-guided power refinement / Kurvengeführte Power-Nachoptimierung (2026-10-21)
+
+**English:** `SweepTuningPlan` now receives the full baseline curve rather than
+only its winning watt cap. It filters stable, positive-rate/power, temperature-
+verified points against current user/driver bounds. Up to three starting power
+levels cover best hashes/W, maximum hashrate (ties prefer lower measured watts),
+and an intermediate non-dominated point. If fewer distinct anchors exist, measured
+coverage or interior interpolation within the stable curve envelope fills the
+three-tier contract. Missing safe points or a range narrower than two watts
+reports its actual cause; it does not fall back to arbitrary hardware extremes.
+
+Eighteen clock/memory search windows precede at most six power probes: up/down
+steps for the best tuned efficiency, fastest and intermediate trade-off points.
+Step size is half the median sweep spacing, bounded to 1–10 W. Probes preserve
+exact core/memory/offset/P-state settings, stay within the measured stable envelope,
+and skip already attempted settings. Baseline hash rates only select anchors;
+they never become Gaussian-process observations for different tuned clocks.
+
+The overall budget stays at 24 search plus at most nine 32-sample confirmations,
+60 minutes per pair. The common finalist list covers each original anchor,
+global efficient/fast winners (including neighbor caps), fastest points at the
+anchors and further trade-offs. An unsupported memory control discards queued
+power probes with the rejected control. Confirmation failure at an anchor still
+fails completion; partial evidence and stable sweep results remain saved.
+The power-refinement phase and failure reasons are translated in both frontends.
+
+**Deutsch:** `SweepTuningPlan` übernimmt die vollständige Basiskurve. Nur stabile
+Punkte mit positiver Hashrate/Leistung, gültigem Temperaturnachweis und Einhaltung
+der aktuellen Nutzer-/Treibergrenzen fließen ein. Bis zu drei Anker decken beste
+Hashes/W, höchste Hashrate (bei Gleichstand geringere gemessene Leistung) und
+einen mittleren nicht dominierten Punkt ab. Fehlende verschiedene Anker werden
+aus gemessener Abdeckung oder innerhalb des stabilen Bereichs ergänzt. Fehlende
+sichere Werte oder weniger als zwei Watt Spannweite melden den konkreten Grund;
+beliebige Hardware-Minima/-Maxima ersetzen keine Kurvennachweise.
+
+Auf 18 Takt-/Speicher-Suchfenster folgen höchstens sechs Power-Prüfungen nach
+oben/unten an den effizienten, schnellen und mittleren getunten Punkten. Die
+Schrittweite ist halb so groß wie der mittlere Sweep-Abstand, begrenzt auf
+1–10 W. Takte, Offset und P-State bleiben erhalten. Der gemessene stabile Bereich
+wird eingehalten, bereits versuchte Einstellungen werden übersprungen. Basis-
+Hashraten bestimmen nur die Anker und trainieren kein Modell anderer Takte.
+
+Das Budget bleibt bei 24 Suchfenstern und höchstens neun längeren Bestätigungen
+mit 32 Messwerten, insgesamt maximal 60 Minuten je Kombination. Die Finalisten
+enthalten alle ursprünglichen Anker sowie effiziente/schnelle Sieger und weitere
+Kompromisspunkte einschließlich neuer Watt-Limits. Fällt eine Speichersteuerung
+aus, entfallen vorgemerkte Power-Versuche mit dieser Steuerung. Fehlende
+Ankerbestätigung verhindert den Abschluss; Teilnachweise und stabile Sweep-
+Kurven bleiben erhalten. Status und Fehler sind in beiden Oberflächen DE/EN.
+
+**Evidence / Nachweis:** `SweepTuningPlanTest` covers anchor selection, thermal/
+power/invalid-data filtering, sparse curves, two-sided probes, exact offset and
+P-state retention, no repeated attempts, and bounded finalist coverage. The real
+service/store regression `curveGuidedRunProbesNeighborCapsAndConfirmsAllAnchorTiersWithinTheSameLock`
+uses synthetic telemetry whose optimum shifts from the 100 W anchor to 110 W;
+it verifies the new 110 W operating point is independently confirmed and saved,
+without releasing the sweep lock. `SweepRefinementServiceTest` verifies full-curve
+handoff and safe warmup even when old best-cap metadata exceeds current bounds.
+These tests do not certify real driver behavior, long-term stability or pool yield.
+
+## Multi-GPU results and combined curves / Mehrere GPUs und gemeinsame Kurven (2026-10-21)
+
+**English:** The measurement page retains selection independently of its worker
+search and selected-only filter. One expanded editor, a bounded worker list and
+at most four concurrent policy-option requests keep large GPU selections usable.
+Compact per-GPU progress buttons select the detailed sweep/tuner display; GPU
+and coin scope also apply to the combined curve. Filtering never silently removes
+a worker from the selected measurement scope.
+
+`GET /api/agent/local/measurements/tuning-curve?deviceId=…` is a read-only local
+projection of the newest run per coin/miner on that GPU. It returns search and
+confirmation outcomes plus a bounded 32-sample provisional window per setting,
+not the full sample history. Closing outcomes reset their sample window. The UI
+polls only the displayed GPU every five seconds while visible, cancels stale
+requests and distinguishes provisional samples, search results and confirmed
+points. Sweep steps optionally persist observed core/memory clocks. Legacy
+profiles and unsupported readbacks retain null clocks. Readback occurs in the
+sweep worker, never in the HTTP request.
+
+The shared SVG uses power cap on X, hashes/W on the left and MHz on the right.
+Its clock selector explicitly distinguishes observed clocks from absolute tuning
+targets. Memory offsets remain offsets; absent readbacks are never invented from
+targets. Point details retain exact settings, sample status and measured power.
+A selected economic winner can be overlaid from an older confirmed profile without
+claiming that its target clocks were observed. Equal caps with different miners
+or settings remain distinct points. This local optional-field extension does not
+change the central benchmark-sharing DTO or LAN candidate schema.
+
+Results and Fleet use one selector per coin: efficiency maximizes gross USD/kWh;
+daily profit maximizes finite net USD/day. Both independently select the best
+currently usable measured miner/settings; the configured miner is not preferred.
+Server eligibility includes installation, selectability and GPU-model support.
+Missing tariffs remain unknown and negative profit remains negative. Fleet totals
+compare both modes over the same GPU subset with usable data for both modes;
+missing workers/agents are disclosed. These are read-only scenarios and do not
+change operating assignments or the worker's coin/miner switching permissions.
+Raw measurements remain available in a collapsed disclosure.
+
+**Deutsch:** Suche und Filter verändern die gewählten Worker nicht. Eine geöffnete
+Einstellungskarte, eine begrenzte Liste und höchstens vier parallele Optionsabfragen
+halten die Auswahl vieler GPUs bedienbar. Kompakte Fortschrittsknöpfe wählen die
+GPU für Sweep-/Tuner-Details und Kurven; der Coin wird ebenfalls gefiltert.
+
+Der lokale Nur-Lese-Endpunkt liefert je GPU die neuesten Läufe pro Coin/Miner,
+Such- und Bestätigungsergebnisse sowie laufende Fenster mit höchstens 32 Werten.
+Die sichtbare GPU wird alle fünf Sekunden aktualisiert; veraltete Anfragen werden
+abgebrochen. Sweep-Schritte speichern optional gemessene Kern-/Speichertakte.
+Alte Profile oder fehlende Treiberwerte behalten unbekannte Takte. Das Diagramm
+trennt gemessene Takte und absolute Sollwerte ausdrücklich; Speicher-Offsets
+werden nicht zu absoluten MHz umgedeutet. Laufende Werte, Suche und bestätigte
+Betriebspunkte bleiben unterscheidbar. Gleiche Watt-Limits mit anderen Minern
+oder Einstellungen werden nicht zusammengeworfen. Zentrales Sharing und LAN-
+Kandidatenvertrag bleiben unverändert.
+
+Ergebnisse und Flotte wählen für jeden Coin je Modus automatisch die beste
+nutzbare gemessene Software samt Einstellungen: Effizienz nach Brutto-USD/kWh,
+Tagesgewinn nach Netto-USD/Tag. Installation, Auswählbarkeit und GPU-Modell werden
+berücksichtigt. Fehlende Tarife werden nicht als null Kosten ausgegeben; negative
+Gewinne bleiben sichtbar. Flottensummen vergleichen dieselbe vollständig
+vergleichbare GPU-Teilmenge und nennen fehlende Worker/Agenten. Der Vergleich
+ändert weder Worker-Zuordnungen noch erlaubte Coin-/Miner-Wechsel. Rohdaten
+bleiben aufklappbar. UI, Fehler und Bedienhilfen sind DE/EN; externe Miner-Namen,
+Versionskennungen und Hardware-Bezeichnungen bleiben unverändert.

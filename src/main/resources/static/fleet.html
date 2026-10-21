@@ -6,13 +6,15 @@
     <meta name="theme-color" content="#0b1020">
     <title data-i18n="fleet_title">SolarMiner · Flotte</title>
     <link rel="stylesheet" href="/css/agent.css">
+    <link rel="stylesheet" href="/css/profile-comparison.css?v=20261021-profiles">
     <link rel="stylesheet" href="/css/workspace.css">
-    <link rel="stylesheet" href="/css/fleet.css?v=20261017-1">
-    <script src="/js/core/i18n-catalog.js?v=20261021-curve-guided-tuning" defer></script>
+    <link rel="stylesheet" href="/css/fleet.css?v=20261021-profile-results">
+    <script src="/js/core/i18n-catalog.js?v=20261021-profile-results" defer></script>
     <script src="/js/core/i18n.js?v=20261017-node-page-title" defer></script>
     <script src="/js/core/components.js?v=20261021-auto-benchmark" defer></script>
     <script src="/js/chrome/workspace.js?v=20261021-benchmark-workflow" defer></script>
-    <script src="/js/pages/fleet.js?v=20261017-measured-selectors" defer></script>
+    <script src="/js/core/operating-profile-comparison.js?v=20261021-profiles" defer></script>
+    <script src="/js/pages/fleet.js?v=20261021-profile-results" defer></script>
 </head>
 <body class="fleet-page">
 <div class="shell">
@@ -24,21 +26,20 @@
     <main>
         <div class="page-title"><div><p class="kicker" data-i18n="fleet_kicker">GESAMTÜBERSICHT</p>
             <h1 data-i18n="fleet_heading">Flottenvergleich</h1>
-            <p data-i18n="fleet_intro">GPU-Worker aller erreichbaren freigegebenen PC-Agents: ein fester Coin, drei Betriebsarten und die geschätzten Summen pro 24 Stunden.</p></div></div>
+            <p data-i18n="fleet_intro">Vergleiche Effizienz und Tagesgewinn für einen Coin über alle erreichbaren freigegebenen PC-Agents. Jeder GPU-Worker wählt je Modus automatisch seinen besten gemessenen Miner.</p></div></div>
         <section class="panel fleet-controls" aria-labelledby="fleet-coin-label">
             <label><span id="fleet-coin-label" data-i18n="worker_mode_comparison_coin">Fester Coin</span>
                 <select id="fleet-coin" data-i18n-aria-label="worker_mode_comparison_coin" aria-label="Fester Coin"></select></label>
-            <label><span data-i18n="miner_software">Miner-Software</span>
-                <select id="fleet-miner" data-i18n-aria-label="miner_software" aria-label="Miner-Software"></select></label>
+            <label><span data-i18n="profiles_find_worker">Worker suchen</span><input id="fleet-search" type="search" data-i18n-placeholder="profiles_find_worker" placeholder="Worker suchen"></label>
             <p id="fleet-updated" class="muted" role="status"></p>
         </section>
         <p id="fleet-coverage" class="notice" role="status" aria-live="polite"></p>
         <section class="fleet-totals" aria-label="Flottensummen" data-i18n-aria-label="fleet_totals" id="fleet-totals"></section>
         <section class="panel" aria-labelledby="fleet-workers-heading"><div class="section-head"><div>
             <h2 id="fleet-workers-heading" data-i18n="fleet_workers">Worker im Vergleich</h2>
-            <p class="muted" data-i18n="fleet_worker_intro">Jeder Worker verwendet seinen eigenen Tarif. Wähle eine Miner-Software für die ganze Flotte oder lass pro Worker einen passenden Miner wählen; in beiden Fällen gilt derselbe Miner für alle drei Betriebsarten.</p>
+            <p class="muted" data-i18n="fleet_worker_intro">Jeder Worker verwendet seinen eigenen Stromtarif und je Profil den besten nutzbaren Miner. Klappe einen Worker für Miner, Einstellungen und Messnachweise auf.</p>
         </div></div><div id="fleet-workers" class="fleet-workers"></div></section>
-        <p class="muted" data-i18n="fleet_note">≈ ist eine 24-Stunden-Hochrechnung mit aktuellen Netzwerkkursen. Stromkosten werden abgezogen, Gebühren nicht. Die drei Summen verwenden dieselben GPU-Worker mit vollständigen Messpunkten; CPU-Worker und fehlende Daten werden nicht geschätzt. PV-Strom und künftige Coin-Wechsel sind nicht prognostiziert.</p>
+        <p class="muted" data-i18n="fleet_note">≈ ist eine 24-Stunden-Prognose mit aktuellen Netzwerkdaten, nach Stromkosten und vor Gebühren. Beide Summen verwenden dieselben GPU-Worker mit vollständigen Daten für beide Modi. Fehlende Worker, Tarife und Messwerte werden nicht geschätzt; ausgefallene Agents sind separat ausgewiesen.</p>
         <footer>SolarMiner PC-Agent</footer>
     </main>
 </div>

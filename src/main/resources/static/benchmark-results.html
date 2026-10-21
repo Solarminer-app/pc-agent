@@ -6,9 +6,10 @@
     <meta name="theme-color" content="#0b1020">
     <title data-i18n="solarminer_benchmark_results">SolarMiner · Ergebnisse</title>
     <link rel="stylesheet" href="/css/agent.css">
+    <link rel="stylesheet" href="/css/profile-comparison.css?v=20261021-profiles">
     <link rel="stylesheet" href="/css/workspace.css">
-    <link rel="stylesheet" href="/css/benchmarks.css?v=20261021-benchmark-workflow">
-    <script src="/js/core/i18n-catalog.js?v=20261021-curve-guided-tuning" defer></script>
+    <link rel="stylesheet" href="/css/benchmarks.css?v=20261021-profile-results">
+    <script src="/js/core/i18n-catalog.js?v=20261021-profile-results" defer></script>
     <script src="/js/core/i18n.js?v=20261017-node-page-title" defer></script>
     <script src="/js/core/live-data.js?v=20261012-rest-first-v1" defer></script>
     <script src="/js/core/components.js?v=20261021-auto-benchmark" defer></script>
@@ -17,7 +18,9 @@
     <script src="/js/chrome/wallet-strip.js?v=20261016-global-wallet-strip" defer></script>
     <script src="/js/chrome/workspace.js?v=20261021-benchmark-workflow" defer></script>
     <script src="/js/core/benchmark-policy-editor.js?v=20261021-workflow" defer></script>
-    <script src="/js/pages/benchmarks.js?v=20261021-auto-benchmark" defer></script>
+    <script src="/js/core/operating-profile-comparison.js?v=20261021-profiles" defer></script>
+    <script src="/js/core/benchmark-curve.js?v=20261021-profiles" defer></script>
+    <script src="/js/pages/benchmarks.js?v=20261021-profile-results" defer></script>
 </head>
 <body class="benchmark-page benchmark-results-page">
 <div class="shell">
@@ -37,19 +40,18 @@
                 <p data-i18n="benchmark_results_intro">Wähle eine GPU, um ihre Messungen, Kurven und Erträge zu sehen.</p>
                 <div class="benchmark-hero-actions"><a class="button subtle" href="/benchmarks.html" data-i18n="benchmark_page_title">Benchmark</a></div></div>
         </div>
-        <section class="panel gpu-results-picker"><label class="comparison-picker"><span data-i18n="benchmark_comparison_gpu">GPU auswählen</span><select id="comparison-gpu" data-i18n-aria-label="benchmark_comparison_gpu" aria-label="GPU auswählen"></select></label></section>
-        <section class="panel worker-mode-comparison" aria-labelledby="worker-mode-comparison-title">
+        <section id="comparison" class="panel worker-mode-comparison" aria-labelledby="worker-mode-comparison-title">
             <div class="section-head"><div><p class="kicker" data-i18n="worker_mode_comparison_kicker">BETRIEBSPUNKTE</p>
-                <h2 id="worker-mode-comparison-title" data-i18n="worker_mode_comparison_title">Manuell, Effizienz und Tagesgewinn vergleichen</h2>
-                <p class="muted" data-i18n="worker_mode_comparison_intro">Dieselbe GPU, derselbe Coin und Miner: Manuell nutzt das gespeicherte Power-Target, Effizienz wählt Hashes pro Watt und Tagesgewinn den höchsten geschätzten Ertrag nach Stromkosten unter den aktuell nutzbaren Messpunkten.</p></div></div>
-            <div class="worker-mode-controls">
-                <label class="comparison-picker"><span data-i18n="worker_mode_comparison_coin">Fester Coin</span><select id="mode-comparison-coin" data-i18n-aria-label="worker_mode_comparison_coin" aria-label="Fester Coin"></select></label>
-                <label class="comparison-picker"><span data-i18n="miner_software">Miner-Software</span><select id="mode-comparison-miner" data-i18n-aria-label="miner_software" aria-label="Miner-Software"></select></label>
+                <h2 id="worker-mode-comparison-title" data-i18n="profiles_compare_title">Effizienz und Tagesgewinn vergleichen</h2>
+                <p class="muted" data-i18n="profiles_compare_intro">Wähle GPU und Coin. Jeder Modus verwendet automatisch die beste nutzbare gemessene Miner-Software mit ihren Einstellungen.</p></div></div>
+            <div class="profiles-controls">
+              <label class="comparison-picker"><span data-i18n="benchmark_comparison_gpu">GPU auswählen</span><select id="comparison-gpu" data-i18n-aria-label="benchmark_comparison_gpu" aria-label="GPU auswählen"></select></label>
+              <label class="comparison-picker"><span data-i18n="worker_mode_comparison_coin">Fester Coin</span><select id="mode-comparison-coin" data-i18n-aria-label="worker_mode_comparison_coin" aria-label="Fester Coin"></select></label>
             </div>
-            <p id="mode-comparison-context" class="muted" aria-live="polite"></p>
+            <p id="mode-comparison-context" class="muted" aria-live="polite"></p><small id="comparison-updated" class="benchmark-updated"></small>
             <div id="mode-comparison-cards" class="worker-mode-table-scroll" role="region" aria-labelledby="worker-mode-comparison-title" tabindex="0" aria-live="polite"></div>
             <p id="mode-comparison-same" class="worker-mode-same-point" hidden data-i18n="worker_mode_comparison_same_point">Effizienz und Tagesgewinn wählen denselben Messpunkt.</p>
-            <p class="muted" data-i18n="worker_mode_comparison_note">≈ ist eine 24-Stunden-Hochrechnung aus gemessener GPU-Leistung und aktuellen Netzwerkdaten. Stromkosten werden abgezogen, Gebühren nicht. Die Effizienz-Spalte zeigt nur Messpunkte mit aktueller Ertragsprognose; der tatsächliche Effizienz-Modus kann auch andere Messpunkte nutzen. Bei positivem aktuellem Gewinn wechselt ein laufender Tagesgewinn-Modus erst bei mehr als 5 % Verbesserung; nach jedem Wechsel gelten 30 Minuten Wartezeit. Tatsächliche Auszahlungen und wechselnde PV-Leistung können abweichen.</p>
+            <p class="muted" data-i18n="profiles_comparison_note">Vergleich für den gewählten Coin über alle aktuell nutzbaren gemessenen Miner. Effizienz maximiert Ertrag pro kWh; Tagesgewinn berücksichtigt den Stromtarif. ≈ sind Prognosen vor Pool- und Minergebühren. Fehlende Marktdaten oder Tarife werden nicht geschätzt. Der Vergleich ändert keine Worker-Einstellungen.</p>
         </section>
         <section class="benchmark-overview" aria-label="Messübersicht" data-i18n-aria-label="measurement_overview">
             <article><span data-i18n="benchmark_run">MESSLAUF</span><strong id="overview-benchmark">—</strong></article>
@@ -57,14 +59,14 @@
             <article><span data-i18n="saved_local_benchmark_profiles">Gespeicherte lokale Benchmark-Profile</span><strong id="overview-profiles">—</strong></article>
             <article><span data-i18n="saved_efficiency_profiles">Gespeicherte Effizienzprofile</span><strong id="overview-efficiency">—</strong></article>
         </section>
-        <section class="panel benchmark-comparison" id="comparison">
-            <div class="section-head"><div><p class="kicker" data-i18n="coin_hopping_market">NETZWERKVERGLEICH</p><h2 data-i18n="coin_hopping_comparison_heading">Ertrag pro kWh nach Coin und Miner</h2><p class="muted" data-i18n="benchmark_comparison_intro">Gemessene GPU-, Coin- und Miner-Kombinationen mit aktuellen Netzwerkkursen vergleichen.</p></div><small id="comparison-updated" class="benchmark-updated"></small></div>
+        <section hidden class="panel benchmark-comparison" id="comparison-legacy">
+            <div class="section-head"><div><p class="kicker" data-i18n="coin_hopping_market">NETZWERKVERGLEICH</p><h2 data-i18n="coin_hopping_comparison_heading">Ertrag pro kWh nach Coin und Miner</h2><p class="muted" data-i18n="benchmark_comparison_intro">Gemessene GPU-, Coin- und Miner-Kombinationen mit aktuellen Netzwerkkursen vergleichen.</p></div></div>
             <p id="comparison-recommendation" class="comparison-recommendation" aria-live="polite"></p>
             <div id="comparison-chart" class="hopping-chart" role="region" data-i18n-aria-label="coin_hopping_comparison" aria-label="Vergleich des geschätzten Bruttoertrags pro Kilowattstunde"></div>
             <p id="comparison-detail" class="muted" data-i18n="coin_hopping_gross_note">Brutto-Prognose vor Poolgebühren, Minergebühren und Stromkosten. Sweep- und Betriebsmessungen mit frischen Netzwerkkursen werden gleich behandelt.</p>
         </section>
         <section class="panel current-sweep-panel">
-            <div class="section-head"><div><p class="kicker" data-i18n="power_limit_sweep">POWER-LIMIT-SWEEP</p><h2 data-i18n="benchmark_sweep_curve_heading">Power-Sweep-Kurve</h2><p class="muted" data-i18n="benchmark_sweep_curve_intro">Schalte zwischen dem laufenden Sweep und gespeicherten Profilen um. Wähle einen Algorithmus, um seine Kurve groß zu sehen.</p></div></div>
+            <div class="section-head"><div><p class="kicker" data-i18n="power_limit_sweep">POWER-LIMIT-SWEEP</p><h2 data-i18n="benchmark_sweep_curve_heading">Power-Kurve und Tuning</h2><p class="muted" data-i18n="benchmark_sweep_curve_intro">Vergleiche Power-Sweep, Tuner-Suche und bestätigte Einstellungen für die gewählte GPU und den gewählten Coin. Messwerte und Takte erscheinen im selben Diagramm.</p></div></div>
             <div class="sweep-view-controls" role="group" data-i18n-aria-label="benchmark_sweep_view" aria-label="Power-Sweep-Ansicht">
                 <button id="sweep-view-live" class="sweep-view-button selected" type="button" aria-pressed="true" data-i18n="benchmark_sweep_live_view">Aktueller Sweep</button>
                 <button id="sweep-view-saved" class="sweep-view-button" type="button" aria-pressed="false" data-i18n="benchmark_sweep_saved_view">Gespeichertes Profil</button>
@@ -72,6 +74,7 @@
             <div id="sweep-live-chart" class="sweep-live-chart prominent-sweep-chart" role="region" data-i18n-aria-label="benchmark_sweep_curve_aria" aria-label="Effizienzkurve während des Power-Limit-Tests"></div>
             <div id="sweep-runs" class="benchmark-results" hidden></div>
         </section>
+        <details class="results-raw-details"><summary data-i18n="profiles_raw_data">Messdaten und Vergleichsbenchmarks</summary>
         <section class="panel measurement-library" id="measurement-library">
             <div class="section-head">
                 <div><p class="kicker" data-i18n="results">ERGEBNISSE</p>
@@ -89,6 +92,7 @@
             <button id="retry-upload" class="button subtle" type="button" hidden data-i18n="retry_upload">Upload erneut versuchen</button>
             <details class="benchmark-nerd-details saved-benchmark-details"><summary data-i18n="saved_local_benchmark_profiles">Gespeicherte lokale Benchmark-Profile</summary><div id="saved-benchmarks" class="benchmark-results"></div></details>
         </section>
+        </details>
         <section class="panel" id="benchmark-run">
             <input id="max-concurrent-gpus" type="hidden" value="1">
             <div class="section-head">

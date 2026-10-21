@@ -129,6 +129,11 @@ public class GpuEfficiencyStore {
     public record StorageStatus(String file, boolean exists, int profiles, String loadError) { }
 
     public record StepResult(int limitWatts, Double medianHashrateHs, Double avgPowerWatts,
-                             Double maxTemperatureC, boolean stable, String note) {
+                             Double maxTemperatureC, boolean stable, String note,
+                             Integer observedCoreMhz, Integer observedMemoryMhz) {
+        public StepResult(int limitWatts, Double medianHashrateHs, Double avgPowerWatts,
+                          Double maxTemperatureC, boolean stable, String note) {
+            this(limitWatts, medianHashrateHs, avgPowerWatts, maxTemperatureC, stable, note, null, null);
+        }
     }
 }

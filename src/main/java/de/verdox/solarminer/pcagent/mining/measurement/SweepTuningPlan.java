@@ -6,7 +6,7 @@ import java.util.*;
 record SweepTuningPlan(List<Integer> anchors, int minimumWatts, int maximumWatts, int neighborStepWatts) {
     static SweepTuningPlan from(GpuEfficiencyStore.Profile curve, int minimum, int maximum, double ceiling) {
         List<GpuEfficiencyStore.StepResult> safe = curve == null || curve.steps() == null ? List.of() : curve.steps().stream()
-                .filter(row -> row.stable() && row.limitWatts() >= minimum && row.limitWatts() <= maximum
+                .filter(Objects::nonNull).filter(row -> row.stable() && row.limitWatts() >= minimum && row.limitWatts() <= maximum
                         && positive(row.medianHashrateHs()) && positive(row.avgPowerWatts())
                         && positive(row.maxTemperatureC()) && row.maxTemperatureC() < ceiling)
                 .sorted(Comparator.comparingInt(GpuEfficiencyStore.StepResult::limitWatts)).toList();

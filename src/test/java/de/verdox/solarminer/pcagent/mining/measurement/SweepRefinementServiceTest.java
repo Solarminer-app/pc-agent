@@ -88,4 +88,17 @@ class SweepRefinementServiceTest {
         assertEquals("benchmark_stop_failed", service.status().runs().getFirst().detail());
         verify((MinerNativeTuning)miner, never()).clearNativeTuning(any());
     }
+    @Test void warmupUsesSafeCurveAnchorWhenSavedBestCapExceedsCurrentUserBound() {
+        var bounded = new GpuEfficiencyStore.Profile("gpu", "Test", "pearl", "PearlHash", 250,
+                2000d, 240d, 2000d/240, Instant.now(), baseline.steps(), "srbminer-multi");
+        var result = mock(AutoTuningSessionService.Session.class);
+        when(result.phase()).thenReturn("auto_tuning_complete");
+        when(result.result()).thenReturn(mock(AutoTuningProfileStore.Profile.class));
+        when(tuner.refineWithinSweep(eq("gpu"), eq("pearl"), eq(bounded), any())).thenReturn(result);
+        assertFalse(service.refine(target, bounded, () -> false));
+        assertEquals("COMPLETE", service.status().runs().getFirst().state());
+        verify(power).setSweepPowerTarget(150, gpu);
+        verify(power, never()).setSweepPowerTarget(250, gpu);
+    }
+
 }

@@ -73,6 +73,9 @@ public class EfficiencySweepService {
     private static final long TEMPERATURE_COOLDOWN_POLL_MILLIS = 2_000;
     private static final double TEMPERATURE_COOLDOWN_MARGIN_C = 3.0;
     private static final long ESTIMATED_STARTUP_SECONDS = 45;
+    private de.verdox.solarminer.pcagent.lowlevel.GpuTuningService clockTelemetry;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setClockTelemetry(de.verdox.solarminer.pcagent.lowlevel.GpuTuningService clocks) { this.clockTelemetry = clocks; }
     private SweepRefinementService refinement;
     private boolean refineAfterSweep;
     @org.springframework.beans.factory.annotation.Autowired
@@ -912,7 +915,11 @@ public class EfficiencySweepService {
         if (accepted + rejected > 0 && (double) rejected / (accepted + rejected) > maxRejectedRatio)
             return new GpuEfficiencyStore.StepResult(limit, median, avgWatts, maxTemp, false,
                     rejected + " von " + (accepted + rejected) + " Shares verworfen (Power-Cap nicht stabil)");
-        return new GpuEfficiencyStore.StepResult(limit, median, avgWatts, maxTemp, true, null);
+        de.verdox.solarminer.pcagent.lowlevel.GpuTuningService.ClockTelemetry observed = null;
+        try { if (clockTelemetry != null) observed = clockTelemetry.readEffectiveClocks(target.gpu().deviceId()); }
+        catch (RuntimeException unavailable) { /* A missing optional clock reading does not invalidate a power measurement. */ }
+        return new GpuEfficiencyStore.StepResult(limit, median, avgWatts, maxTemp, true, null,
+                observed == null ? null : observed.coreMhz(), observed == null ? null : observed.memoryMhz());
     }
 
     private MinerStats.Worker findWorker(Target target) {

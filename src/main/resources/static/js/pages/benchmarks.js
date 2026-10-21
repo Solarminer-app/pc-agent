@@ -26,7 +26,7 @@ let availableWorkers = [];
 let availableWorkerById = new Map();
 let latestBenchmarkState = null;
 let latestSweepState = null;
-let sweepViewMode = 'live';
+let sweepViewMode = resultsPage ? 'saved' : 'live';
 const selectedGpu = () => resultsPage ? $('comparison-gpu').value : null;
 const forSelectedGpu = rows => resultsPage ? (rows || []).filter(row =>
     (row.deviceId || row.workerId) === selectedGpu()) : (rows || []);
@@ -574,6 +574,7 @@ function renderSelectionSummary() {
             : !editor.readPolicy ? t('bm_selection_loading') : t('bm_worker_ready', {count});
         if (checked) { combinations += count; pending ||= !editor.readPolicy; }
     }
+    filterWorkerCards();
     const gpus = selected.filter(id => availableWorkerById.get(id)?.hardwareType === 'GPU').length;
     $('overview-selected').textContent = String(selected.length);
     $('overview-combinations').textContent = String(combinations);
@@ -591,7 +592,7 @@ function updateMeasurementControls() {
     const gpu = selected.some(id => availableWorkerById.get(id)?.hardwareType === 'GPU');
     for (const id of ['run-live', 'run-installed']) $(id).disabled = locked || !workersLoaded || !any;
     for (const id of ['run-sweep', 'resume-sweep']) $(id).disabled = locked || !workersLoaded || !gpu;
-    for (const input of document.querySelectorAll('#worker-selection input, #worker-selection button')) input.disabled = locked;
+    for (const input of document.querySelectorAll('#worker-selection input:not(.benchmark-view-control), #worker-selection button:not(.benchmark-view-control)')) input.disabled = locked;
     $('auto-start-mining').disabled = locked;
     $('auto-tune-after-sweep').disabled = locked;
     $('measurement-lock-note').textContent = !known ? t('bm_measurement_initializing') : running ? t('bm_measurement_busy') : '';
@@ -622,6 +623,34 @@ for (const [id, checked] of [['select-all-workers', true], ['clear-workers', fal
     }
 });
 
+const policyLoadQueue = [];
+let policiesLoading = 0;
+function schedulePolicyLoad(task) {
+    return new Promise((resolve, reject) => { policyLoadQueue.push({task,resolve,reject}); drainPolicyLoads(); });
+}
+function drainPolicyLoads() {
+    while (policiesLoading < 4 && policyLoadQueue.length) {
+        const next = policyLoadQueue.shift(); policiesLoading++;
+        Promise.resolve().then(next.task).then(next.resolve,next.reject).finally(() => { policiesLoading--; drainPolicyLoads(); });
+    }
+}
+function filterWorkerCards() {
+    const query = ($('worker-search')?.value || '').trim().toLowerCase();
+    for (const card of document.querySelectorAll('.benchmark-worker-card')) {
+        const worker = availableWorkerById.get(card.dataset.worker);
+        const matches = `${worker?.hardwareModel} ${worker?.deviceId} ${worker?.hardwareType}`.toLowerCase().includes(query);
+        card.hidden = !matches || Boolean($('worker-selected-only')?.checked && !card.querySelector('input[data-hardware-type]').checked);
+    }
+}
+$('worker-search')?.addEventListener('input', filterWorkerCards);
+$('worker-selected-only')?.addEventListener('change', filterWorkerCards);
+$('collapse-worker-editors')?.addEventListener('click', () => {
+    for (const card of document.querySelectorAll('.benchmark-worker-card')) {
+        card.classList.remove('editing'); card.querySelector('[data-worker-expand]').setAttribute('aria-expanded','false');
+        card.querySelector('.benchmark-worker-policy').hidden = true;
+    }
+});
+
 function renderWorkerOptions(workers) {
     availableWorkers = workers;
     availableWorkerById = new Map(workers.map(worker => [worker.deviceId, worker]));
@@ -647,13 +676,27 @@ function renderWorkerOptions(workers) {
         text.append(make('strong', '', worker.hardwareModel || worker.hardwareType), make('small', 'muted', `${worker.hardwareType} · ${worker.deviceId}`));
         label.append(input, text); card.append(label);
         const summary = make('p', 'benchmark-worker-summary'); card.append(summary);
+        const expand = make('button', 'button subtle benchmark-view-control', t('profiles_edit_scope'));
+        expand.type = 'button'; expand.dataset.workerExpand = 'true'; expand.setAttribute('aria-expanded', 'false');
+        card.append(expand);
         const editor = make('div', 'benchmark-worker-policy');
+        editor.id = `worker-policy-${root.children.length}`; expand.setAttribute('aria-controls', editor.id);
+        const open = () => {
+            for (const other of root.querySelectorAll('.benchmark-worker-card')) {
+                const active = other === card && !card.classList.contains('editing');
+                other.classList.toggle('editing', active);
+                other.querySelector('[data-worker-expand]').setAttribute('aria-expanded', String(active));
+                other.querySelector('.benchmark-worker-policy').hidden = !active;
+            }
+            if (!loading) load();
+        };
+        expand.addEventListener('click', open);
         editor.setAttribute('role', 'group'); editor.setAttribute('aria-label', t('bm_worker_scope', {worker: `${worker.hardwareModel || worker.hardwareType} · ${worker.deviceId}`}));
         card.append(editor); root.append(card);
         let loading;
         const load = () => {
-            editor.hidden = false;
-            loading = window.SolarMinerBenchmarkPolicyEditor(editor, worker, {measurement: !resultsPage, retry: load});
+            editor.hidden = !card.classList.contains('editing');
+            loading = schedulePolicyLoad(() => window.SolarMinerBenchmarkPolicyEditor(editor, worker, {measurement: !resultsPage, retry: load}));
             editor.policyReady = loading;
             loading.then(() => { renderSelectionSummary(); updateMeasurementControls(); });
             return loading;
@@ -661,13 +704,15 @@ function renderWorkerOptions(workers) {
         input.addEventListener('change', () => {
             try { localStorage.setItem(workerSelectionKey, JSON.stringify(selectedWorkers())); } catch (_) { }
             if (input.checked && !loading) load();
-            editor.hidden = !input.checked;
+            if (input.checked) { if (!card.classList.contains('editing')) open(); }
+            else { card.classList.remove('editing'); expand.setAttribute('aria-expanded','false'); editor.hidden = true; }
             renderSelectionSummary(); updateMeasurementControls();
         });
-        editor.hidden = !input.checked;
-        if (input.checked) load();
+        editor.hidden = true;
+        if (input.checked) { if (!root.querySelector('.editing')) { card.classList.add('editing'); expand.setAttribute('aria-expanded','true'); } load(); }
     }
     workersLoaded = true;
+    updateCurveDevices();
     renderSelectionSummary(); updateMeasurementControls();
 }
 
@@ -782,6 +827,7 @@ $('refresh').addEventListener('click', () => {
     renderSavedBenchmarks();
     renderProfiles();
     loadComparison();
+    refreshTuningCurve();
 });
 function sharingSummary() { $('sharing-summary').textContent = t($('sharing').checked ? 'enabled_cfd095' : 'disabled_139955'); }
 $('sharing').addEventListener('change', async () => {
@@ -810,7 +856,7 @@ function renderOptimization(optimization) {
     root.replaceChildren();
     if (root.hidden) return;
     root.append(make('h3', '', t('bm_optimization_progress')));
-    for (const row of optimization.runs || []) {
+    for (const row of (optimization.runs || []).filter(row => resultsPage || row.deviceId === curveDevice())) {
         const card = make('article', 'worker-card');
         card.append(make('strong', '', `${row.deviceId} · ${row.coin.toUpperCase()} · ${row.softwareId}`),
             make('p', '', `${s(row.state)} · ${s(row.detail)}`));
@@ -852,10 +898,11 @@ function applySweepState(state) {
                 ? t('calculating_eta') : t('approximate_time_remaining_time', {time: formatDuration(state.secondsRemaining)});
         }
         renderOptimization(state.optimization);
+        renderWorkerProgress();
         renderSweepRuns(forSelectedGpu(state.runs), state.running);
         if (resultsPage) renderSweepView();
         else {
-            $('sweep-live-chart').hidden = !state.running && !(state.runs || []).some(run => run.steps?.length);
+            $('sweep-live-chart').hidden = false;
             if (!$('sweep-live-chart').hidden) renderLiveSweepChart(state.runs || [], state.running);
         }
     updateMeasurementControls();
@@ -883,112 +930,116 @@ function renderSweepView() {
     }));
     renderLiveSweepChart(runs, false, true);
 }
-function renderLiveSweepChart(runs, running, saved = false) {
-    const root = $('sweep-live-chart');
-    if (!root) return;
-    const signature = JSON.stringify({running, saved, selectedSweepRunId, runs: runs.map(run =>
-        ({id: run.id, status: run.status, limits: run.plannedLimits, steps: run.steps}))});
-    if (signature === lastLiveSweepSignature) return;
-    lastLiveSweepSignature = signature;
-    const available = runs.map(run => ({run, points: (run.steps || [])
-        .filter(step => step.stable && step.avgPowerWatts > 0 && step.medianHashrateHs > 0)
-        .map(step => ({x: step.limitWatts, y: step.medianHashrateHs / step.avgPowerWatts, step}))
-        .sort((a, b) => a.x - b.x)})).filter(line => line.points.length);
+const tuningCurveCache = new Map();
+let curveFetch = null, focusedCurvePoint = null;
+function curveDevice() { return resultsPage ? selectedGpu() : $('curve-gpu')?.value; }
+function updateCurveDevices() {
+    if (resultsPage || !$('curve-gpu')) return;
+    const select = $('curve-gpu'), old = select.value;
+    const workers = availableWorkers.filter(worker => worker.hardwareType === 'GPU');
+    select.replaceChildren(...workers.map(worker => new Option(`${worker.hardwareModel} · ${worker.deviceId}`,worker.deviceId)));
+    select.value = workers.some(worker => worker.deviceId === old) ? old : workers[0]?.deviceId || '';
+    select.disabled = !workers.length;
+    refreshTuningCurve();
+}
+async function refreshTuningCurve() {
+    const device = curveDevice();
+    if (!device || document.visibilityState === 'hidden' || curveFetch?.device === device) return;
+    if (curveFetch) curveFetch.controller.abort();
+    const controller = new AbortController(), request={device,controller}; curveFetch=request;
+    let timedOut=false;
+    const timeout=setTimeout(()=>{timedOut=true;controller.abort();},8000);
+    try {
+        const response = await fetch(`/api/agent/local/measurements/tuning-curve?deviceId=${encodeURIComponent(device)}`,{cache:'no-store',signal:controller.signal});
+        if (!response.ok) throw new Error('curve_load_failed');
+        const points=await response.json(); if (!Array.isArray(points)) throw new Error('curve_load_failed');
+        tuningCurveCache.set(device,{points,error:false});
+    } catch(error) { if (!controller.signal.aborted || timedOut) tuningCurveCache.set(device,{points:tuningCurveCache.get(device)?.points || [],error:true}); }
+    finally {clearTimeout(timeout); if (curveFetch===request) {curveFetch=null; if(device===curveDevice()) {if(resultsPage)renderModeComparison();redrawUnifiedCurve();}}}
+}
+function renderWorkerProgress() {
+    const root=$('sweep-worker-progress');if(!root)return;
+    const runs=latestSweepState?.runs || [], tuning=latestSweepState?.optimization?.runs || [];
     root.replaceChildren();
-    if (!available.length) {
-        root.append(make('div', 'sweep-chart-empty', saved
-            ? t('benchmark_sweep_no_saved_curve')
-            : t(running ? 'benchmark_sweep_waiting_points' : 'benchmark_sweep_no_live_curve')));
-        return;
+    for(const device of new Set(runs.map(run=>run.deviceId))) {
+        const rows=[...runs.filter(run=>run.deviceId===device),...tuning.filter(run=>run.deviceId===device)];
+        const done=rows.filter(row=>['COMPLETE','FAILED','SKIPPED','CANCELLED'].includes(row.status || row.state)).length;
+        const failed=rows.some(row=>['FAILED','SKIPPED','CANCELLED'].includes(row.status || row.state));
+        const active=tuning.some(row=>row.deviceId===device&&row.state==='RUNNING')?'curve_tuning'
+            :runs.some(row=>row.deviceId===device&&row.status==='RUNNING')?'power_sweep_running'
+                :failed?'profiles_partial':done===rows.length?'complete':'planned';
+        const button=make('button',`sweep-worker-progress-item${device===curveDevice()?' selected':''}`);
+        button.type='button';button.setAttribute('aria-pressed',String(device===curveDevice()));button.dataset.device=device;
+        button.append(make('strong','',device),make('span','',`${t(active)} · ${done}/${rows.length}`));
+        button.addEventListener('click',()=>{$('curve-gpu').value=device;$('curve-gpu').dispatchEvent(new Event('change'));});
+        root.append(button);
     }
-    const groupKey = line => saved ? `${line.run.coin}|${line.run.algorithm}` : line.run.id;
-    const groups = [...new Map(available.map(line => [groupKey(line), {
-        key: groupKey(line), run: line.run, lines: available.filter(candidate => groupKey(candidate) === groupKey(line))
-    }])).values()];
-    const selectedGroup = groups.find(group => group.key === selectedSweepRunId)
-        || groups.find(group => group.lines.some(line => line.run.status === 'RUNNING')) || groups[0];
-    selectedSweepRunId = selectedGroup.key;
-    const lines = saved
-        ? [...new Map(selectedGroup.lines.map(line => [line.run.minerSoftwareId || line.run.softwareId || 'legacy', line]))
-            .values()].map(representative => {
-                const softwareId = representative.run.minerSoftwareId || representative.run.softwareId || 'legacy';
-                const groupedPoints = selectedGroup.lines
-                    .filter(line => (line.run.minerSoftwareId || line.run.softwareId || 'legacy') === softwareId)
-                    .flatMap(line => line.points)
-                    .sort((a, b) => a.x - b.x);
-                const points = [...new Map(groupedPoints.map(point => [point.x, point])).values()];
-                return {...representative, points};
-            })
-        : selectedGroup.lines;
-    if (groups.length > 1) {
-        const tabs = make('div', 'sweep-chart-tabs');
-        for (const group of groups) {
-            const button = make('button', `sweep-algorithm-tab${group.key === selectedSweepRunId ? ' selected' : ''}`,
-                saved ? `${group.run.coin.toUpperCase()} · ${algorithmGroupLabel(group.run)}`
-                    : `${algorithmGroupLabel(group.run)} · ${group.run.model}`);
-            button.type = 'button'; button.setAttribute('aria-pressed', String(group.key === selectedSweepRunId));
-            button.addEventListener('click', () => { selectedSweepRunId = group.key; renderLiveSweepChart(runs, running, saved); });
-            tabs.append(button);
-        }
-        root.append(tabs);
+}
+function redrawUnifiedCurve() {
+    lastLiveSweepSignature=null;
+    if(resultsPage)renderSweepView();
+    else if(latestSweepState){
+        renderLiveSweepChart(latestSweepState.runs || [],latestSweepState.running);
+        renderSweepRuns(latestSweepState.runs || [],latestSweepState.running);
+        renderOptimization(latestSweepState.optimization);
+        renderWorkerProgress();
     }
-    const ns = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(ns, 'svg');
-    svg.setAttribute('viewBox', '0 0 760 330');
-    svg.setAttribute('role', 'img');
-    svg.setAttribute('aria-label', t('benchmark_sweep_curve_aria'));
-    const add = (tag, attrs, label) => {
-        const node = document.createElementNS(ns, tag);
-        for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
-        if (label != null) node.textContent = label;
-        svg.append(node); return node;
-    };
-    const all = lines.flatMap(line => line.points);
-    const plannedLimits = lines.flatMap(line => line.run.plannedLimits || []);
-    const xMin = Math.min(...all.map(point => point.x), ...plannedLimits);
-    const xMax = Math.max(...all.map(point => point.x), ...plannedLimits);
-    const yMax = Math.max(...all.map(point => point.y)) * 1.18;
-    const left = 78, right = 730, top = 22, bottom = 268;
-    const x = value => left + (value - xMin) / Math.max(1, xMax - xMin) * (right - left);
-    const y = value => bottom - value / Math.max(1, yMax) * (bottom - top);
-    for (let index = 0; index <= 4; index++) {
-        const lineY = top + index * (bottom - top) / 4;
-        add('line', {x1:left, x2:right, y1:lineY, y2:lineY, class:'sweep-grid-line'});
-        add('text', {x:left - 12, y:lineY + 4, class:'sweep-axis-label', 'text-anchor':'end'}, fmtRate(yMax * (4-index)/4));
+}
+$('curve-gpu')?.addEventListener('change',()=>{focusedCurvePoint=null;redrawUnifiedCurve();refreshTuningCurve();});
+$('curve-coin')?.addEventListener('change',()=>{focusedCurvePoint=null;redrawUnifiedCurve();});
+const curveRefreshTimer=setInterval(refreshTuningCurve,5000);
+window.addEventListener('pagehide',()=>curveFetch?.controller.abort());
+window.addEventListener('pageshow',refreshTuningCurve);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshTuningCurve();});
+
+function renderLiveSweepChart(runs, running, saved = false) {
+    const root=$('sweep-live-chart'), device=curveDevice(); if(!root)return;
+    const cache=tuningCurveCache.get(device), tuning=cache?.points || [];
+    const selectedRuns=(runs || []).filter(run=>run.deviceId===device);
+    const coins=[...new Set([...selectedRuns.map(run=>run.coin),...tuning.map(point=>point.coin)])].filter(Boolean).sort();
+    let coin;
+    if(resultsPage)coin=$('mode-comparison-coin').value || coins[0];
+    else {
+        const select=$('curve-coin'), prior=select.value;
+        select.replaceChildren(...coins.map(id=>new Option(id.toUpperCase(),id)));
+        select.value=coins.includes(prior)?prior:coins[0] || ''; select.disabled=!coins.length; coin=select.value;
     }
-    add('text', {x:(left+right)/2, y:310, class:'sweep-axis-label', 'text-anchor':'middle'}, t('power_target_watts'));
-    add('text', {x:18, y:148, class:'sweep-axis-label', 'text-anchor':'middle', transform:`rotate(${-90} 18 148)`}, t('benchmark_hashes_per_watt'));
-    const limits = [...new Set(plannedLimits)].sort((a,b) => a-b);
-    for (const [index, limit] of limits.entries()) {
-        add('line', {x1:x(limit), x2:x(limit), y1:top, y2:bottom, class:'sweep-grid-vertical'});
-        if (index % Math.max(1, Math.ceil(limits.length / 8)) === 0 || index === limits.length - 1)
-            add('text', {x:x(limit), y:bottom + 21, class:'sweep-axis-label', 'text-anchor':'middle'}, `${limit}`);
-    }
-    const palette = ['#8fe9b5', '#79bdff', '#f6c375', '#bc9bff', '#f3939b'];
-    for (const [index, line] of lines.entries()) {
-        const color = palette[index % palette.length];
-        if (line.points.length > 1) add('polyline', {
-            points:line.points.map(point => `${x(point.x)},${y(point.y)}`).join(' '),
-            fill:'none', stroke:color, 'stroke-width':'3.5', 'stroke-linecap':'round', 'stroke-linejoin':'round',
-            class:'sweep-curve-line'
-        });
-        for (const point of line.points) {
-            const circle = add('circle', {cx:x(point.x), cy:y(point.y), r:6, fill:color, class:'sweep-curve-point'});
-            const title = document.createElementNS(ns, 'title');
-            const step = point.step;
-            title.textContent = `${line.run.minerSoftwareId || line.run.softwareId || t('miner_software')} · ${algorithmGroupLabel(line.run)} · ${line.run.model} · ${line.run.coin} · ${point.x} W · ${fmtRate(step.medianHashrateHs)} · ${Math.round(step.avgPowerWatts)} W · ${fmtRate(point.y)} / W`;
-            circle.append(title);
+    const series=selectedRuns.filter(run=>run.coin===coin).map(run=>({
+        id:run.id,source:'SWEEP',software:run.minerSoftwareId || run.softwareId,
+        label:`${run.minerSoftwareId || run.softwareId || '—'} · ${t('coin_hopping_source_sweep')}`,
+        points:(run.steps || []).map(step=>({power:step.limitWatts,hashrate:step.medianHashrateHs,watts:step.avgPowerWatts,
+            core:step.observedCoreMhz,memory:step.observedMemoryMhz,stable:step.stable,stage:'SWEEP'}))
+    }));
+    for(const software of new Set(tuning.filter(point=>point.coin===coin).map(point=>point.softwareId))) series.push({
+        id:`tuning|${device}|${coin}|${software}`,source:'TUNING',software,label:`${software} · ${t('curve_tuning')}`,
+        points:tuning.filter(point=>point.coin===coin&&point.softwareId===software).map(point=>({
+            power:point.limitWatts,hashrate:point.hashrateHs,watts:point.measuredWatts,core:point.coreMhz,memory:point.memoryMhz,
+            targetCore:point.targetCoreMhz,targetMemory:point.targetMemoryMhz,offset:point.memoryOffsetMhz,pstate:point.memoryOffsetPstate,
+            stage:point.stage,stable:point.stable,samples:point.samples}))
+    });
+    // Economic winners may come from an earlier confirmed run; keep their exact stored point visible.
+    if(resultsPage) {
+        const selected=window.SolarMinerProfileComparison.select(modeComparisonCandidates,coin);
+        const winners=new Map([selected.efficiency,selected.profit].filter(Boolean).map(point=>[window.SolarMinerProfileComparison.key(point),point]));
+        for(const [key,point]of winners) {
+            const profile=point.tunedProfile;
+            const match=series.filter(line=>line.software===point.minerSoftwareId).flatMap(line=>line.points).find(p=>
+                p.power===point.limitWatts&&p.hashrate===point.hashrateHps&&p.watts===point.measuredWatts
+                &&(!profile&&p.stage==='SWEEP'||profile&&p.stage==='RESULT'&&p.targetCore===profile.coreMhz
+                    &&p.targetMemory===profile.memoryMhz&&p.offset===profile.memoryOffsetMhz));
+            if(match)continue;
+            series.push({id:`profile|${device}|${key}`,source:'PROFILE',software:point.minerSoftwareId,
+                label:`${point.minerSoftwareId} · ${t('curve_selected_profile')}`,
+                points:[{power:point.limitWatts,hashrate:point.hashrateHps,watts:point.measuredWatts,
+                    targetCore:profile?.coreMhz,targetMemory:profile?.memoryMhz,offset:profile?.memoryOffsetMhz,pstate:profile?.memoryOffsetPstate,
+                    stage:profile?'RESULT':'OPERATING',stable:true,samples:profile?.stableSamples}]});
         }
     }
-    root.append(svg);
-    const legend = make('div', 'sweep-chart-legend');
-    for (const [index, line] of lines.entries()) {
-        const software = line.run.minerSoftwareId || line.run.softwareId || t('miner_software');
-        const item = make('span', '', `${software} · ${line.run.model}`);
-        item.style.setProperty('--series-color', palette[index % palette.length]);
-        legend.append(item);
-    }
-    root.append(legend);
+    const signature=JSON.stringify({device,coin,series,focusedCurvePoint,error:cache?.error});
+    if(signature===lastLiveSweepSignature)return;lastLiveSweepSignature=signature;
+    root.hidden=false;
+    window.SolarMinerBenchmarkCurve.render(root,{series,highlight:focusedCurvePoint});
+    if(cache?.error)root.append(make('p','muted',t('curve_load_failed')));
 }
 
 let lastProfileSignature = null;
@@ -1010,6 +1061,7 @@ function formatDuration(seconds) {
 }
 
 function renderSweepRuns(runs, sweepRunning) {
+    if (!resultsPage) runs = (runs || []).filter(run => run.deviceId === curveDevice());
     const signature = JSON.stringify({runs, sweepRunning});
     if (signature === lastSweepRunSignature) return;
     lastSweepRunSignature = signature;
@@ -1292,6 +1344,7 @@ $('sweep-cancel').addEventListener('click', async () => {
 let comparisonDevices = '';
 let comparisonRequest = 0;
 let comparisonRenderedDevice = '';
+let comparisonLoadError = false;
 const comparisonCache = new Map();
 const comparisonRequests = new Map();
 const COMPARISON_CACHE_MS = 30_000;
@@ -1299,158 +1352,33 @@ let comparisonCacheRevision = 0;
 let modeComparisonCandidates = [];
 let modeComparisonTariff = null;
 let modeComparisonPower = null;
-function tunedSettings(point) {
-    const profile = point?.tunedProfile;
-    if (!profile) return '';
-    return t('bm_tuned_settings', {version: profile.softwareVersion,
-        core: profile.coreMhz == null ? '—' : `${profile.coreMhz} MHz`,
-        memory: profile.memoryOffsetMhz != null ? `${profile.memoryOffsetMhz >= 0 ? '+' : ''}${profile.memoryOffsetMhz} MHz (P${profile.memoryOffsetPstate ?? '—'})`
-            : profile.memoryMhz == null ? '—' : `${profile.memoryMhz} MHz`});
-}
 function renderModeComparison(candidates = modeComparisonCandidates, tariff = modeComparisonTariff,
                               power = modeComparisonPower) {
     if (!resultsPage) return;
-    modeComparisonCandidates = candidates;
-    modeComparisonTariff = tariff;
-    modeComparisonPower = power;
-    const coinSelect = $('mode-comparison-coin');
-    const minerSelect = $('mode-comparison-miner');
-    const comparison = $('mode-comparison-cards');
-    const context = $('mode-comparison-context');
-    const same = $('mode-comparison-same');
-    same.hidden = true;
-    const usable = candidates.filter(row => row.coin && row.minerSoftwareId && Number(row.hashrateHps) > 0
-        && Number(row.measuredWatts) > 0 && Number(row.usdPerKwh) > 0);
-    const gpuCatalog = comparisonCatalog.filter(entry => entry.device !== 'CPU');
-    const coins = [...new Set(usable.map(row => row.coin))]
-        .sort((a, b) => a.localeCompare(b, window.SolarMinerI18n.locale));
+    modeComparisonCandidates = candidates; modeComparisonTariff = tariff; modeComparisonPower = power;
+    const helper = window.SolarMinerProfileComparison;
+    const usable = candidates.filter(helper.valid);
+    const select = $('mode-comparison-coin'), previous = select.value;
+    const coins = [...new Set([...usable.map(row => row.coin), ...(measurementSnapshot?.sweeps || []).filter(row => row.deviceId === selectedGpu()).map(row => row.coin), ...(tuningCurveCache.get(selectedGpu())?.points || []).map(row => row.coin)])].sort();
+    select.replaceChildren(...coins.map(coin => {
+        const row = comparisonCatalog.find(entry => entry.id === coin) || window.SolarMinerUI.coinCatalog.find(entry => entry.id === coin);
+        return new Option(row?.name || coin.toUpperCase(), coin);
+    }));
     const worker = availableWorkerById.get(selectedGpu());
-    const previousCoin = coinSelect.value;
-    coinSelect.replaceChildren();
-    for (const coin of coins) {
-        const entry = gpuCatalog.find(item => item.id === coin)
-            || window.SolarMinerUI.coinCatalog.find(item => item.id === coin);
-        coinSelect.add(new Option(entry?.algorithm ? `${entry.name} · ${entry.algorithm}` : entry?.name || coin, coin));
-    }
-    coinSelect.value = coins.includes(previousCoin) ? previousCoin : coins.includes(worker?.coin) ? worker.coin : coins[0] || '';
-    coinSelect.disabled = !coins.length;
-    const catalogEntry = gpuCatalog.find(entry => entry.id === coinSelect.value);
-    const miners = [...new Set(usable.filter(row => row.coin === coinSelect.value)
-        .map(row => row.minerSoftwareId))].sort();
-    const previousMiner = minerSelect.value;
-    minerSelect.replaceChildren();
-    for (const miner of miners) {
-        const option = catalogEntry?.miners?.find(item => item.id === miner);
-        minerSelect.add(new Option(option?.name || miner, miner));
-    }
-    minerSelect.value = miners.includes(previousMiner) ? previousMiner
-        : miners.includes(worker?.minerSoftwareId) ? worker.minerSoftwareId
-            : miners.includes(catalogEntry?.selectedMinerId) ? catalogEntry.selectedMinerId : miners[0] || '';
-    minerSelect.disabled = !miners.length;
-    comparison.replaceChildren();
-    if (!selectedGpu()) {
-        context.textContent = '';
-        comparison.append(make('p', 'empty', t('worker_mode_comparison_no_gpu')));
-        return;
-    }
-    if (!coins.length) {
-        context.textContent = '';
-        comparison.append(make('p', 'empty', t('worker_mode_comparison_no_points')));
-        return;
-    }
-    const rate = tariff?.settings;
-    const manualStatus = power?.gpus?.find(gpu => gpu.deviceId === selectedGpu());
-    const manualTarget = Number(manualStatus?.userMaxPowerLimitWatts);
-    const manualTargetKnown = Number.isInteger(manualTarget) && manualTarget > 0;
-    context.textContent = (rate?.pricePerKwh != null
-        ? t('worker_mode_comparison_rate', {rate: new Intl.NumberFormat(window.SolarMinerI18n.locale,
-            {maximumFractionDigits: 4}).format(Number(rate.pricePerKwh)), currency: rate.currency})
-        : t('worker_mode_comparison_rate_unavailable')) + ' · ' + (manualTargetKnown
-        ? t('worker_mode_comparison_manual_target', {watts: manualTarget})
-        : t('worker_mode_comparison_manual_unavailable'));
-    const points = usable.filter(row => row.coin === coinSelect.value && row.minerSoftwareId === minerSelect.value);
-    const exactManual = manualTargetKnown ? points.find(row => !row.tunedProfile && Number(row.limitWatts) === manualTarget) : null;
-    const sweepProxy = manualTargetKnown && !exactManual ? points.filter(row => row.source === 'SWEEP'
-        && Number(row.limitWatts) < manualTarget)
-        .reduce((best, row) => !best || Number(row.limitWatts) > Number(best.limitWatts) ? row : best, null) : null;
-    const manual = exactManual || sweepProxy;
-    const efficiency = points.reduce((best, row) => !best || row.hashrateHps / row.measuredWatts
-        > best.hashrateHps / best.measuredWatts ? row : best, null);
-    const profit = points.filter(row => Number.isFinite(row.profitUsdPerDay))
-        .reduce((best, row) => !best || row.profitUsdPerDay > best.profitUsdPerDay ? row : best, null);
-    const ui = window.SolarMinerUI;
-    const prefs = window.SolarMinerPreferences;
-    const number = (value, digits = 2) => new Intl.NumberFormat(window.SolarMinerI18n.locale,
-        {maximumFractionDigits: digits}).format(value);
-    const modes = [
-        {title: 'worker_mode_manual', point: manual, missing: manualTargetKnown
-            ? t('worker_mode_comparison_manual_unmeasured', {watts: manualTarget})
-            : t('worker_mode_comparison_manual_unavailable'), note: sweepProxy
-            ? t('worker_mode_comparison_manual_sweep_proxy', {target: manualTarget, measured: sweepProxy.limitWatts}) : null},
-        {title: 'worker_mode_efficiency', point: efficiency, missing: t('worker_mode_comparison_no_points')},
-        {title: 'worker_mode_profit_day', point: profit, missing: t(points.length
-            ? 'worker_mode_comparison_no_profit' : 'worker_mode_comparison_no_points')}
-    ];
-    const table = make('table', 'worker-mode-table');
-    table.setAttribute('aria-label', t('worker_mode_comparison_title'));
-    const head = make('thead');
-    const heading = make('tr');
-    const metricHeading = make('th', '', t('worker_mode_comparison_metric'));
-    metricHeading.scope = 'col';
-    heading.append(metricHeading);
-    for (const mode of modes) {
-        const cell = make('th', '', t(mode.title));
-        cell.scope = 'col';
-        heading.append(cell);
-    }
-    head.append(heading);
-    const body = make('tbody');
-    const cost = point => rate?.pricePerKwh != null && Number.isFinite(Number(rate.pricePerKwh))
-        ? `≈ ${new Intl.NumberFormat(window.SolarMinerI18n.locale, {style: 'currency', currency: rate.currency,
-            maximumFractionDigits: 3}).format(point.measuredWatts * 24 / 1000 * Number(rate.pricePerKwh))}` : '—';
-    const rows = [
-        ['hashrate', point => fmtRate(point.hashrateHps)],
-        ['worker_mode_comparison_hashes_watt', point => number(point.hashrateHps / point.measuredWatts, 1)],
-        ['worker_mode_comparison_limit', point => `${point.limitWatts} W`],
-        ['worker_mode_comparison_measured_power', point => ui.power(point.measuredWatts)],
-        ['worker_mode_comparison_energy_day', point => `${number(point.measuredWatts * 24 / 1000, 3)} kWh`],
-        ['worker_mode_comparison_cost_day', cost],
-        ['worker_mode_comparison_gross_kwh', point => ui.moneyPerKwh(point.usdPerKwh)],
-        ['worker_mode_comparison_gross_day', point => `≈ ${prefs.moneyFromUsd(point.usdPerDay)}`],
-        ['worker_mode_comparison_net_day', point => point.profitUsdPerDay == null ? '—'
-            : `≈ ${prefs.moneyFromUsd(point.profitUsdPerDay)}`]
-    ];
-    for (const [label, value] of rows) {
-        const row = make('tr', label === 'worker_mode_comparison_net_day' ? 'worker-mode-profit-row' : '');
-        const header = make('th', '', t(label));
-        header.scope = 'row';
-        row.append(header);
-        for (const mode of modes) row.append(make('td', '', mode.point ? value(mode.point) : '—'));
-        body.append(row);
-    }
-    const sourceRow = make('tr', 'worker-mode-source-row');
-    const sourceHeader = make('th', '', t('worker_mode_comparison_measurement'));
-    sourceHeader.scope = 'row';
-    sourceRow.append(sourceHeader);
-    for (const mode of modes) {
-        const cell = make('td');
-        if (!mode.point) cell.append(make('span', 'worker-mode-missing', mode.missing));
-        else {
-            const measured = new Intl.DateTimeFormat(window.SolarMinerI18n.locale,
-                {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(mode.point.measuredAt));
-            cell.append(make('span', '', t('worker_mode_comparison_source', {
-                source: t(`coin_hopping_source_${mode.point.source?.toLowerCase() || 'live'}`), time: measured
-            })));
-            if (mode.point.tunedProfile) cell.append(make('span', 'worker-mode-proxy-note', tunedSettings(mode.point)));
-            if (mode.note) cell.append(make('span', 'worker-mode-proxy-note', mode.note));
-        }
-        sourceRow.append(cell);
-    }
-    body.append(sourceRow);
-    table.append(head, body);
-    comparison.append(table);
-    same.hidden = !(efficiency && profit && efficiency.limitWatts === profit.limitWatts
-        && JSON.stringify(efficiency.tunedProfile || null) === JSON.stringify(profit.tunedProfile || null));
+    select.value = coins.includes(previous) ? previous : coins.includes(worker?.coin) ? worker.coin : coins[0] || '';
+    select.disabled = !coins.length;
+    const chosen = helper.select(usable, select.value);
+    $('mode-comparison-context').textContent = comparisonLoadError ? t('benchmark_comparison_load_failed') : !selectedGpu() ? t('worker_mode_comparison_no_gpu')
+        : t('profiles_auto_scope', {points:chosen.count, miners:chosen.miners});
+    const nameOf = (coin, id) => comparisonCatalog.find(entry => entry.id === coin)?.miners?.find(miner => miner.id === id)?.name || id;
+    $('mode-comparison-cards').replaceChildren(helper.cards(chosen, nameOf, point => {
+        focusedCurvePoint = point; sweepViewMode = 'saved'; lastLiveSweepSignature = null;
+        renderSweepView(); refreshTuningCurve(); $('sweep-live-chart').scrollIntoView({behavior:'smooth',block:'center'});
+    }));
+    $('mode-comparison-same').hidden = !(chosen.efficiency && chosen.profit
+        && helper.key(chosen.efficiency) === helper.key(chosen.profit));
+    lastLiveSweepSignature = null;
+    renderSweepView();
 }
 function updateComparisonDevices(snapshot) {
     const devices = new Map();
@@ -1488,6 +1416,7 @@ function updateComparisonDevices(snapshot) {
     loadComparison();
 }
 function refreshGpuResults() {
+    focusedCurvePoint = null; refreshTuningCurve();
     savedBenchmarkSignature = null;
     lastProfileSignature = null;
     lastSweepRunSignature = null;
@@ -1515,12 +1444,12 @@ async function loadComparison() {
     const deviceId = $('comparison-gpu').value;
     const chart = $('comparison-chart');
     if (comparisonRenderedDevice !== deviceId) {
+        comparisonLoadError = false;
         comparisonRenderedDevice = deviceId;
         chart.replaceChildren();
         $('comparison-recommendation').textContent = '';
         $('comparison-updated').textContent = '';
         $('mode-comparison-coin').value = '';
-        $('mode-comparison-miner').value = '';
         renderModeComparison([], null, null);
     }
     if (!deviceId) {
@@ -1543,6 +1472,7 @@ async function loadComparison() {
                 request = fetch(`/api/agent/local/benchmarks/comparison?${new URLSearchParams({deviceId})}`, {cache: 'no-store'})
                     .then(response => { if (!response.ok) throw new Error('benchmark_comparison_load_failed'); return response.json(); })
                     .then(value => {
+                        if (!Array.isArray(value)) throw new Error('benchmark_comparison_load_failed');
                         if (cacheRevision === comparisonCacheRevision)
                             comparisonCache.set(deviceId, {candidates: value, expiresAt: Date.now() + COMPARISON_CACHE_MS});
                         return value;
@@ -1557,39 +1487,16 @@ async function loadComparison() {
         chart.replaceChildren();
         $('comparison-recommendation').textContent = '';
         $('comparison-updated').textContent = '';
+        comparisonLoadError = false;
         renderModeComparison(candidates, null, null);
-        const read = path => fetch(path, {cache: 'no-store', signal: AbortSignal.timeout(5000)})
-            .then(response => response.ok ? response.json() : null).catch(() => null);
-        Promise.all([read('/api/agent/local/economics'), read('/api/agent/local/power-control')])
-            .then(([tariff, power]) => { if (id === comparisonRequest) renderModeComparison(candidates, tariff, power); });
         if (!candidates.length) {
             chart.append(make('p', 'empty', t('coin_hopping_no_candidates')));
             return;
         }
-        const money = value => window.SolarMinerPreferences.moneyFromUsd(value);
-        const maximum = Math.max(...candidates.map(row => row.usdPerKwh));
-        $('comparison-recommendation').textContent = t('coin_hopping_recommended_point', {
-            coin: candidates[0].coin.toUpperCase(), miner: candidates[0].minerSoftwareId || '—', watts: candidates[0].limitWatts
-        });
-        $('comparison-updated').textContent = t('benchmark_updated_at', {time: new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {hour: '2-digit', minute: '2-digit'}).format(new Date())});
-        for (const [index, candidate] of candidates.entries()) {
-            const row = make('div', `hopping-row${index === 0 ? ' recommended' : ''}`);
-            const track = make('div', 'hopping-track');
-            const fill = make('i', 'hopping-fill');
-            fill.style.width = `${Math.max(2, candidate.usdPerKwh / maximum * 100)}%`;
-            track.append(fill);
-            const measured = new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {dateStyle:'medium', timeStyle:'short'}).format(new Date(candidate.measuredAt));
-            if (candidate.tunedProfile) row.append(make('small', 'muted', tunedSettings(candidate)));
-            row.append(make('strong', '', `${candidate.coin.toUpperCase()} · ${candidate.minerSoftwareId || '—'} · ${candidate.limitWatts} W`), track,
-                make('span', '', `${money(candidate.usdPerKwh)} / kWh`),
-                make('small', 'hopping-meta', t('coin_hopping_point_detail', {
-                    source: t(`coin_hopping_source_${candidate.source?.toLowerCase() || 'live'}`),
-                    rate: fmtRate(candidate.hashrateHps), power: Math.round(candidate.measuredWatts), time: measured
-                })));
-            chart.append(row);
-        }
+        $('comparison-updated').textContent = t('benchmark_updated_at', {time: new Intl.DateTimeFormat(window.SolarMinerI18n.locale, {hour:'2-digit',minute:'2-digit'}).format(new Date())});
     } catch (_) {
         if (id === comparisonRequest) {
+            comparisonLoadError = true;
             chart.replaceChildren(make('p', 'empty', t('benchmark_comparison_load_failed')));
             $('comparison-recommendation').textContent = '';
             $('comparison-updated').textContent = '';
@@ -1619,8 +1526,8 @@ $('comparison-gpu').addEventListener('change', () => {
     loadComparison();
 });
 if (resultsPage) {
-    $('mode-comparison-coin').addEventListener('change', () => renderModeComparison());
-    $('mode-comparison-miner').addEventListener('change', () => renderModeComparison());
+    $('mode-comparison-coin').addEventListener('change', () => {focusedCurvePoint=null;renderModeComparison();});
+
 }
 $('profile-filter').addEventListener('input', applyProfileFilter);
 document.addEventListener('solarminer:preferences-changed', loadComparison);

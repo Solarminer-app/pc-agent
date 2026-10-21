@@ -17,36 +17,16 @@
   let loading = false;
   let startupRetries = 0;
 
-  function choosePoints(worker, coin, requestedMiner) {
-    const options = (worker.candidates || []).filter(point => point.coin === coin
-      && point.minerSoftwareId && point.hashrateHps > 0 && point.measuredWatts > 0
-      && point.usdPerKwh > 0);
-    const miners = [...new Set(options.map(point => point.minerSoftwareId))];
-    const miner = requestedMiner || (miners.includes(worker.configuredMiner) ? worker.configuredMiner
-      : miners.sort((a, b) => {
-        const best = id => Math.max(...options.filter(point => point.minerSoftwareId === id)
-          .map(point => point.profitUsdPerDay ?? -Infinity));
-        return best(b) - best(a) || a.localeCompare(b);
-      })[0]);
-    const points = options.filter(point => point.minerSoftwareId === miner);
-    const exactManual = points.find(point => point.limitWatts === worker.manualTargetWatts) || null;
-    const sweepProxy = !exactManual ? points.filter(point => point.source === 'SWEEP'
-      && point.limitWatts < worker.manualTargetWatts)
-      .reduce((best, point) => !best || point.limitWatts > best.limitWatts ? point : best, null) : null;
-    const manual = exactManual || sweepProxy;
-    const efficiency = points.reduce((best, point) => !best || point.hashrateHps / point.measuredWatts
-      > best.hashrateHps / best.measuredWatts ? point : best, null);
-    const profit = points.filter(point => Number.isFinite(point.profitUsdPerDay))
-      .reduce((best, point) => !best || point.profitUsdPerDay > best.profitUsdPerDay ? point : best, null);
-    return {miner, manual, manualSweepProxy: Boolean(sweepProxy), efficiency, profit};
+  function choosePoints(worker, coin) {
+    return window.SolarMinerProfileComparison.select(worker.candidates, coin);
   }
+  const minerName = (coin,id) => catalog.find(row => row.id === coin)?.miners?.find(miner => miner.id === id)?.name || id;
 
   function render() {
     const coin = $('fleet-coin').value;
-    const miner = $('fleet-miner').value;
     const workers = agents.filter(agent => agent.available && agent.points)
       .flatMap(agent => (agent.points.workers || []).map(worker => ({agent, worker,
-        selected: choosePoints(worker, coin, miner)})));
+        selected: choosePoints(worker, coin)})));
     const unavailable = agents.filter(agent => !agent.available || !agent.points);
     const total = workers.length;
     $('fleet-coverage').textContent = unavailable.length
@@ -55,8 +35,7 @@
     const totals = $('fleet-totals');
     const details = $('fleet-workers');
     totals.replaceChildren(); details.replaceChildren();
-    const modes = [['manual', 'worker_mode_manual'], ['efficiency', 'worker_mode_efficiency'],
-      ['profit', 'worker_mode_profit_day']];
+    const modes = [['efficiency', 'benchmark_goal_efficiency'], ['profit', 'benchmark_goal_profit']];
     const comparable = workers.filter(row => modes.every(([field]) =>
       Number.isFinite(row.selected[field]?.profitUsdPerDay)));
     for (const [field, title] of modes) {
@@ -67,12 +46,13 @@
       const gross = sum('usdPerDay');
       const profit = sum('profitUsdPerDay');
       const card = make('article', 'fleet-mode');
-      card.append(make('h2', '', t(title)), make('p', 'fleet-profit', valid.length ? money(profit) : '—'),
+      card.dataset.mode=field; card.dataset.profitUsd=valid.length?String(profit):''; card.dataset.workers=String(valid.length);
+      card.append(make('h2', '', t(title)), make('p', 'fleet-profit', valid.length ? field === 'efficiency' && watts > 0 ? ui.moneyPerKwh(gross / (watts * 24 / 1000)) : money(profit) : '—'),
         make('p', 'muted', t(complete ? 'fleet_complete' : 'fleet_partial',
           {count: valid.length, total})));
       if (field === 'profit' && valid.length) {
-        const manualProfit = comparable.reduce((value, row) => value + row.selected.manual.profitUsdPerDay, 0);
-        card.append(make('p', 'muted', t('fleet_gain_vs_manual', {amount: money(profit - manualProfit)})));
+        const efficiencyProfit = comparable.reduce((value, row) => value + row.selected.efficiency.profitUsdPerDay, 0);
+        card.append(make('p', 'muted', t('profiles_gain_vs_efficiency', {amount: money(profit - efficiencyProfit)})));
       }
       const metrics = make('dl', 'fleet-metrics');
       for (const [label, value] of [
@@ -81,6 +61,7 @@
         ['worker_mode_comparison_energy_day', valid.length ? `${number(watts * 24 / 1000, 3)} kWh` : '—'],
         ['worker_mode_comparison_cost_day', valid.length ? money(gross - profit) : '—'],
         ['worker_mode_comparison_gross_day', valid.length ? money(gross) : '—'],
+        ['worker_mode_comparison_net_day', valid.length ? money(profit) : '—'],
         ['worker_mode_comparison_gross_kwh', valid.length && watts > 0
           ? ui.moneyPerKwh(gross / (watts * 24 / 1000)) : '—']
       ]) {
@@ -88,31 +69,18 @@
       }
       card.append(metrics); totals.append(card);
     }
-    for (const {agent, worker, selected} of workers) {
-      const card = make('article', 'fleet-worker');
-      const head = make('header');
-      head.append(make('h3', '', `${agent.name || t('pc_agent')} · ${worker.model || worker.deviceId}`),
-        make('span', 'muted', selected.miner || t('fleet_no_miner')));
+    const query = $('fleet-search').value.trim().toLowerCase();
+    for (const [index, {agent, worker, selected}] of workers.entries()) {
+      if (!`${agent.name} ${worker.model} ${worker.deviceId}`.toLowerCase().includes(query)) continue;
+      const card = make('details', 'fleet-worker'); card.open = index === 0 && !query;
+      const head = make('summary');
+      head.append(make('strong', '', `${agent.name || t('pc_agent')} · ${worker.model || worker.deviceId}`),
+        make('span', 'muted', `${worker.deviceId} · ${selected.miners} ${t('profiles_miners')}`));
       card.append(head);
       const rate = agent.points.tariff;
       card.append(make('p', 'muted', rate
-        ? t('fleet_worker_tariff', {rate: number(Number(rate.pricePerKwh), 4), currency: rate.currency,
-          watts: worker.manualTargetWatts}) : t('fleet_tariff_missing')));
-      const modeGrid = make('div', 'fleet-worker-modes');
-      for (const [field, title] of modes) {
-        const point = selected[field];
-        const cell = make('div'); cell.append(make('strong', '', t(title)));
-        if (point && Number.isFinite(point.profitUsdPerDay)) {
-          cell.append(make('span', '', money(point.profitUsdPerDay)),
-            make('span', 'muted', `${ui.hashrate(point.hashrateHps)} · ${ui.power(point.measuredWatts)} · ${point.limitWatts} W`));
-          if (field === 'manual' && selected.manualSweepProxy)
-            cell.append(make('span', 'muted', t('worker_mode_comparison_manual_sweep_proxy',
-              {target: worker.manualTargetWatts, measured: point.limitWatts})));
-        } else cell.append(make('span', 'muted', t(!selected.miner ? 'fleet_no_coin_point'
-          : !point ? 'fleet_no_mode_point' : 'fleet_no_profit_point')));
-        modeGrid.append(cell);
-      }
-      card.append(modeGrid); details.append(card);
+        ? t('profiles_tariff', {rate:number(Number(rate.pricePerKwh),4),currency:rate.currency}) : t('fleet_tariff_missing')));
+      card.append(window.SolarMinerProfileComparison.cards(selected, minerName)); details.append(card);
     }
     for (const agent of unavailable) {
       const card = make('article', 'fleet-worker');
@@ -123,22 +91,6 @@
           unreachable: 'fleet_agent_unreachable'}[agent.reason] || 'fleet_agent_unavailable')));
       details.append(card);
     }
-  }
-
-  function updateMiners() {
-    const coin = $('fleet-coin').value;
-    const entry = catalog.find(row => row.id === coin);
-    const candidates = agents.flatMap(agent => agent.points?.workers || [])
-      .flatMap(worker => worker.candidates || []).filter(point => point.coin === coin);
-    const ids = [...new Set(candidates.filter(point => point.hashrateHps > 0
-      && point.measuredWatts > 0 && point.usdPerKwh > 0)
-      .map(point => point.minerSoftwareId))].filter(Boolean).sort();
-    const select = $('fleet-miner');
-    const previous = select.value;
-    select.replaceChildren(new Option(t('fleet_miner_auto'), ''), ...ids.map(id =>
-      new Option(entry?.miners?.find(item => item.id === id)?.name || id, id)));
-    select.value = ids.includes(previous) ? previous : '';
-    select.disabled = !coin;
   }
 
   async function load() {
@@ -165,7 +117,6 @@
       }));
       $('fleet-coin').value = coins.includes(previous) ? previous : coins[0] || '';
       $('fleet-coin').disabled = !coins.length;
-      updateMiners();
       $('fleet-updated').textContent = t('benchmark_updated_at', {time: new Intl.DateTimeFormat(prefs.locale,
         {dateStyle: 'medium', timeStyle: 'short'}).format(new Date())});
       $('connection').textContent = t('connected');
@@ -178,8 +129,8 @@
       $('connection').classList.add('offline');
     } finally { loading = false; $('refresh').disabled = false; }
   }
-  $('fleet-coin').addEventListener('change', () => { updateMiners(); render(); });
-  $('fleet-miner').addEventListener('change', render);
+  $('fleet-coin').addEventListener('change', render);
+  $('fleet-search').addEventListener('input', render);
   $('refresh').addEventListener('click', load);
   document.addEventListener('solarminer:preferences-changed', render);
   load();

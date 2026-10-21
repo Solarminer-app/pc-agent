@@ -130,3 +130,22 @@ otherwise the short lifetime lets refreshed market data appear without making
 the displayed quote stale for long. Currency/network quotes themselves are
 already collected in the background by `MarketDataService` and are not fetched
 by this comparison endpoint.
+
+## 2026-10-21 — Shared efficiency/profit comparison / Gemeinsamer Modusvergleich
+
+Results at `/benchmark-results.html#comparison` and Fleet now independently choose
+the best usable miner and exact setting for the selected coin in each of the two
+modes. Efficiency ranks gross USD/kWh; daily profit ranks finite net USD/day.
+The shared browser selector preserves negative profit and missing tariffs. Fleet
+compares totals over the same eligible GPU subset in both modes and discloses
+unavailable peers/workers. Candidate eligibility now also checks catalog GPU-model
+support, alongside installed/selectable/vendor checks. The comparison remains
+read-only; runtime switching permissions and the LAN candidate schema are unchanged.
+See [the workflow contract](benchmark-workflow.md) for combined curve semantics.
+
+Ergebnisse und Flotte bestimmen je Coin unabhängig den besten nutzbaren Miner und
+die genauen Einstellungen für Effizienz und Tagesgewinn. Fehlende Tarife bleiben
+unbekannt, negative Gewinne bleiben erhalten. Beide Flottensummen verwenden
+dieselbe vergleichbare GPU-Teilmenge und nennen fehlende Teilnehmer. Zusätzlich
+wird die GPU-Modellunterstützung geprüft. Die Vorschau verändert keine laufenden
+Zuordnungen oder Wechselrechte; der LAN-Vertrag bleibt unverändert.

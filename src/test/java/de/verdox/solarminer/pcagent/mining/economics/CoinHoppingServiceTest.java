@@ -265,6 +265,41 @@ class CoinHoppingServiceTest {
         assertTrue(service.candidates("gpu-1", 0).stream().noneMatch(row -> row.tunedProfile() != null));
     }
 
+
+    @Test
+    void automaticComparisonExcludesUnsupportedModelsAndUnavailableSoftware() {
+        var now = Instant.now();
+        var json = new ObjectMapper().findAndRegisterModules();
+        var sweeps = mock(GpuEfficiencyStore.class);
+        when(sweeps.all()).thenReturn(List.of(new GpuEfficiencyStore.Profile("gpu", "GTX 1080", "pearl", "PearlHash", 100,
+                1000d, 90d, 1000d/90, now, List.of(new GpuEfficiencyStore.StepResult(100, 1000d, 90d, 60d, true, null)), "peakminer")));
+        var gpu = mock(LocalGpuPowerService.Gpu.class);
+        when(gpu.deviceId()).thenReturn("gpu"); when(gpu.model()).thenReturn("GTX 1080"); when(gpu.vendor()).thenReturn("NVIDIA");
+        when(gpu.supportsDynamicPowerScaling()).thenReturn(true); when(gpu.minWatts()).thenReturn(80); when(gpu.maxWatts()).thenReturn(200);
+        var power = mock(LocalGpuPowerService.class); when(power.snapshot()).thenReturn(List.of(gpu));
+        var planning = mock(EconomicPlanningService.class);
+        when(planning.capabilities()).thenReturn(new EconomicPlanningService.Capabilities(1, now,
+                List.of(new EconomicPlanningService.WorkerCapability("gpu", "GPU", "GTX 1080", "pearl", false, "FIXED", List.of(ready("pearl")))), null));
+        var market = mock(MarketDataService.class); when(market.forecastForProfile(anyString(), anyDouble())).thenReturn(forecast("pearl", 1, now));
+        var energy = mock(EnergyJournalService.class); when(energy.overview()).thenReturn(mock(EnergyJournalService.Overview.class));
+        var service = new CoinHoppingService(json, directory.resolve("model-comparison.json").toString(), sweeps,
+                mock(MiningPerformanceProfileStore.class), market, planning, mock(WorkerAssignmentService.class), power,
+                mock(BenchmarkSessionService.class), mock(EfficiencySweepService.class), new LocalRunLock(),
+                new CoinHoppingLedger(json, directory.resolve("model-ledger.json").toString()), energy);
+        var option = mock(de.verdox.solarminer.pcagent.mining.MinerCatalogService.MinerOption.class);
+        when(option.id()).thenReturn("peakminer"); when(option.device()).thenReturn("GPU");
+        when(option.compatibleGpuVendors()).thenReturn(List.of("NVIDIA")); when(option.installed()).thenReturn(true); when(option.selectable()).thenReturn(true);
+        var catalog = mock(de.verdox.solarminer.pcagent.mining.MinerCatalogService.class); when(catalog.options("pearl")).thenReturn(List.of(option));
+        service.setMinerCatalog(catalog);
+        assertTrue(service.candidates("gpu", 0).isEmpty());
+        when(gpu.model()).thenReturn("RTX 3080");
+        assertEquals(1, service.candidates("gpu", 0).size());
+        when(option.installed()).thenReturn(false);
+        assertTrue(service.candidates("gpu", 0).isEmpty());
+        when(option.installed()).thenReturn(true); when(option.selectable()).thenReturn(false);
+        assertTrue(service.candidates("gpu", 0).isEmpty());
+    }
+
     private static EconomicPlanningService.CoinCapability ready(String coin) {
         return new EconomicPlanningService.CoinCapability(coin, coin, true, true, null, null);
     }
