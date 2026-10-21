@@ -11,6 +11,39 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @EnabledOnOs(OS.LINUX)
 class MinerProcessRegistryTest {
+    @Test void minerChildBelongsToItsRegisteredLauncherButAnUnrelatedProcessDoesNot() throws Exception {
+        Process launcher = null;
+        Process unrelated = null;
+        ProcessHandle child = null;
+        try {
+            launcher = MinerProcessRegistry.startGpu("GPU-launcher-child",
+                    () -> new ProcessBuilder("sh", "-c", "sleep 60 & wait").start());
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (child == null && System.nanoTime() < deadline) {
+                child = launcher.children().findFirst().orElse(null);
+                if (child == null) Thread.sleep(10);
+            }
+            assertNotNull(child, "The launcher must create a real mining-worker stand-in");
+            unrelated = new ProcessBuilder("sleep", "60").start();
+            assertTrue(MinerProcessRegistry.managedGpuCoin(child));
+            assertFalse(MinerProcessRegistry.unmanagedGpuCoin(child),
+                    "The mining child must not block another GPU as an external miner");
+            assertTrue(MinerProcessRegistry.unmanagedGpuCoin(unrelated.toHandle()),
+                    "Sharing this test JVM as an ancestor must not confer miner ownership");
+            assertFalse(MinerProcessRegistry.gpuCoinUsesDevice("GPU-free-sibling"));
+            MinerProcessRegistry.unregisterGpuCoin(launcher);
+            assertTrue(MinerProcessRegistry.unmanagedGpuCoin(child),
+                    "Without a registered launcher, the live child is external");
+        } finally {
+            if (child != null) child.destroyForcibly();
+            if (launcher != null) {
+                launcher.destroyForcibly(); launcher.waitFor(5, TimeUnit.SECONDS);
+                MinerProcessRegistry.unregisterGpuCoin(launcher);
+            }
+            if (unrelated != null) { unrelated.destroyForcibly(); unrelated.waitFor(5, TimeUnit.SECONDS); }
+        }
+    }
+
     @Test void externalProcessCheckWaitsUntilAVisibleSiblingIsRegistered() throws Exception {
         var visible = new CompletableFuture<Process>();
         var allowRegistration = new CountDownLatch(1);

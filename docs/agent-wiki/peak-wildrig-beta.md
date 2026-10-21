@@ -62,6 +62,40 @@ skipped; route/fee failures appear as failed or unavailable measurements. The
 regular sequential benchmark already iterates adapter batches. The operator's
 later power sweeps are still required to compare actual efficiency.
 
+## Worker 126: PeakMiner child-process ownership (2026-10-21)
+
+Read-only inspection of `192.168.178.126:8084` identified the idle TITAN RTX as
+NVIDIA index 2 (`GPU-32b2d5ad-eeec-f785-fd2c-44a8841601ca`). Its saved assignment
+was PeakMiner / `COIN_PROFIT_PER_DAY`, status `ERROR`, not manually stopped;
+power was about 29 W. Its console retained a successful SRBMiner start at
+19:25 UTC, about 94 TH/s and an accepted share, followed by a worker pause
+and `Another miner already controls NVIDIA:2`. No compute process used GPU 2.
+
+The host process tree revealed PeakMiner launcher PID 2363625 (child of Agent
+PID 2361486) and PeakMiner worker PID 2363884 (child of that launcher).
+`nvidia-smi` assigned the worker to GPU 0, not GPU 2. The registry tracked only
+the launcher's PID, so PeakMiner's global external-miner guard mistook its own
+child for a foreign miner and rejected additional starts. This is a concrete
+current reproduction; it does not establish the PID behind older failures.
+
+The registry now recognizes descendants of a live registered GPU-miner
+launcher as managed. A shared Agent/JVM ancestor does not grant ownership to
+unrelated miners. A real launcher/child regression covers classification,
+unrelated external processes, and removal of ownership after unregistering.
+No live start, stop, driver write, deployment or Agent restart was performed.
+Applying this correction still requires deploying the updated Agent and
+verifying an additional PeakMiner start on an otherwise free GPU.
+
+Deutsch: Die ausgeschaltete TITAN RTX auf Worker 126 ist GPU 2. Ihr letzter
+PeakMiner-Start scheitert an der Belegungsprüfung; zuvor lieferte SRBMiner noch
+Hashrate und einen akzeptierten Share. PeakMiner auf GPU 0 startet einen
+eigenen Kindprozess, den die bisherige Registry fälschlich als fremden Miner
+einordnet. GPU 2 selbst besitzt keinen Compute-Prozess. Die korrigierte
+Erkennung berücksichtigt Kinder eines registrierten, lebenden GPU-Miners;
+unabhängige Prozesse bleiben fremd. Der Regressionstest verwendet echte
+Testprozesse. Es gab keinen Eingriff in laufende Miner und kein Deployment;
+ein zusätzlicher PeakMiner-Start nach dem Update muss noch bestätigt werden.
+
 ## Verification and open gates
 
 - Official GitHub release API returned all four pinned sizes/digests; Linux

@@ -4205,3 +4205,9 @@ eine GPU misst weiter. Die lokal korrigierten Fehler betreffen SRB-Bereinigung,
 Prozessregistrierung, GPU-Übergabe, native Wiederherstellung und Diagnosen.
 504 Tests, JAR und Sprachprüfungen bestehen. Bestehende Arbeit und laufender Test
 bleiben erhalten; kein Deployment, kein Live-Taktbefehl und keine Hardwareabnahme.
+## 2026-10-21 — Worker 126: PeakMiner child-process ownership / Kindprozess-Belegung
+
+- Read-only inspection found GPU 2 idle with `Another miner already controls NVIDIA:2`, while GPU 0's PeakMiner launcher had a separate mining child. The child was not registered directly and was mistaken for an external miner. NVIDIA compute-process telemetry showed no process on GPU 2. See `peak-wildrig-beta.md` for the captured PID/device evidence.
+- Registry ownership now includes descendants of a live registered GPU-miner launcher. A real-process regression verifies the child is managed, an unrelated process remains external, and unregistering withdraws ownership. No UI/API copy changed; DE/EN catalog, literal scan and render checks passed. No live miner/clock command or deployment was performed; an additional PeakMiner start after deployment remains to be verified.
+- Verification / Prüfung: JDK 21 `test standaloneJar --offline --no-daemon` passed, 505 tests, zero failures/errors/skips; `git diff --check` passed.
+- Deutsch: Der eigene PeakMiner-Kindprozess auf GPU 0 blockiert fälschlich den Start auf der freien GPU 2. Die Registry erkennt jetzt Kinder registrierter GPU-Miner. Der Regressionstest prüft auch die weiterhin wirksame Sperre fremder Prozesse. DE/EN-Prüfungen bestanden; kein Live-Eingriff oder Deployment. Bestätigung nach Update bleibt offen.

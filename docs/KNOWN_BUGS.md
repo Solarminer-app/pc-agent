@@ -932,3 +932,19 @@ Temperatur-/Recovery-Sperre bleibt erhalten; ein einzelner stabiler Power-Punkt
 wird korrekt als unzureichende Messbasis erklärt. 504 Tests/Sprachprüfungen
 bestanden, aber kein Deployment und kein neuer Hardwarelauf. Der historische
 konkurrierende Prozess bleibt unbekannt; BUG-011 bleibt offen.
+
+### 2026-10-21 — BUG-011 worker 126 child-process reproduction / Kindprozess-Reproduktion
+
+Current read-only host inspection identifies a concrete additional cause:
+PeakMiner on GPU 0 has a registered launcher and a separate mining child.
+The child was treated as an external miner, blocking PeakMiner on idle GPU 2
+with `Another miner already controls NVIDIA:2`. The registry now recognizes
+descendants of live registered GPU miners, with a real-process regression
+that preserves blocking of unrelated processes. See the [worker 126 evidence](agent-wiki/peak-wildrig-beta.md).
+No live miner/driver action or deployment; hardware confirmation after update
+and the other BUG-011 acceptance gates remain open.
+
+Deutsch: Der eigene PeakMiner-Kindprozess auf GPU 0 wird bisher als fremd
+erkannt und blockiert GPU 2. Die Erkennung wurde lokal mit Regressionstest
+korrigiert; unabhängige Prozesse bleiben gesperrt. Kein Live-Eingriff oder
+Deployment. Bestätigung nach Update und weitere BUG-011-Abnahmen bleiben offen.

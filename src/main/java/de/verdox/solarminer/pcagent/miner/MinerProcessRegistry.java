@@ -82,8 +82,14 @@ public final class MinerProcessRegistry {
     }
 
     public static boolean managedGpuCoin(ProcessHandle handle) {
-        ManagedGpuProcess managed = GPU_PROCESSES.get(handle.pid());
-        return managed != null && managed.process().isAlive();
+        // Some miners (including PeakMiner's watchdog launcher) spawn the actual
+        // GPU worker as a child. Only an ancestor registered as a GPU miner grants
+        // ownership; sharing the agent/JVM ancestor alone must not grant it.
+        for (ProcessHandle current = handle; current != null; current = current.parent().orElse(null)) {
+            ManagedGpuProcess managed = GPU_PROCESSES.get(current.pid());
+            if (managed != null && managed.process().isAlive()) return true;
+        }
+        return false;
     }
     /** Wait for an in-flight check/spawn/register before classifying a visible process. */
     public static synchronized boolean unmanagedGpuCoin(ProcessHandle handle) {
